@@ -40,6 +40,11 @@
     retry.hidden = true;
     return;
   }
+  if (requested !== symbol) {
+    const canonicalUrl = new URL(location.href);
+    canonicalUrl.searchParams.set('tvwidgetsymbol', symbol);
+    history.replaceState(history.state, '', canonicalUrl.href);
+  }
   title.textContent = symbols.get(symbol);
   document.title = symbols.get(symbol) + ' · K线 · Books';
   document.getElementById('chart-symbol').textContent = symbol;
