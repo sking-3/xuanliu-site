@@ -179,19 +179,19 @@ th{color:#728098;font-weight:500;background:#fbfcfe}
 .live-section-status[data-state=stale],.live-section-status[data-state=error]{color:#9b702b}
 
 /* Compact monetary values keep complete digits together; exact values remain in details. */
-.card .performance-body{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);align-items:center;gap:12px;margin:16px 0 10px}
-.card .performance-body .metrics{display:grid;grid-template-columns:minmax(0,1fr);gap:8px;margin:0;padding:0}
-.card .performance-body .metrics>div{display:flex;justify-content:space-between;align-items:baseline;gap:7px}
-.card .metrics small{margin:0;font-size:10px;white-space:nowrap}
-.card .metrics strong{display:block;min-width:0;font-size:12px;line-height:1.5;white-space:nowrap;overflow-wrap:normal;word-break:normal;font-variant-numeric:tabular-nums}
+.books-shell .card .performance-body{display:grid;grid-template-columns:minmax(145px,1.25fr) minmax(0,1fr);align-items:center;gap:12px;margin:16px 0 10px}
+.books-shell .card .performance-body .metrics{display:grid;grid-template-columns:minmax(0,1fr);gap:9px;margin:0;padding:0;border:0;border-radius:0;background:transparent;overflow:visible}
+.books-shell .card .performance-body .metrics>div{display:flex;justify-content:space-between;align-items:baseline;gap:7px;min-width:0;overflow:visible}
+.books-shell .card .performance-body .metrics small{margin:0;font-size:11px;line-height:1.5;white-space:nowrap}
+.books-shell .card .performance-body .metrics strong{display:block;min-width:0;font-size:12px;line-height:1.5;white-space:nowrap;overflow-wrap:normal;word-break:normal;font-variant-numeric:tabular-nums}
 .card .performance-chart{display:flex;flex-direction:column;justify-content:center;align-items:center;min-height:84px;min-width:0;border-left:1px solid #edf0f5;padding-left:12px}
 .card .performance-chart .chart{width:100%;height:76px;background:transparent}.card .performance-chart .chart svg{height:76px}
 .curve-label{font-size:10px;color:#8b97a9}.curve-unavailable{font-size:23px;color:#a4adbc;line-height:1.8}
 .position-check{margin:8px 0 0;font-size:10px;color:#357d69;font-variant-numeric:tabular-nums}
-@media(max-width:360px){.card .performance-body{grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:8px}.card .metrics strong{font-size:11px}.card .metrics small{font-size:9px}}
+@media(max-width:360px){.books-shell .card .performance-body{grid-template-columns:minmax(140px,1.4fr) minmax(0,1fr);gap:8px}.books-shell .card .performance-body .metrics>div{gap:5px}}
 
 .detail-pnl-chart{min-height:90px;display:flex;flex-direction:column;align-items:stretch;justify-content:center;margin:12px 0}.detail-pnl-chart .curve-label{text-align:right}.detail-pnl-chart .curve-unavailable{text-align:center}.win-load{font-size:12px;min-height:36px;margin:8px 0 12px}
 
-.card .metric-load{min-height:24px;padding:2px 7px;font-size:10px;line-height:1.4;border-radius:5px;color:#4166c8}.card .metrics small{font-size:9px}
+.card .metric-load{min-height:24px;padding:2px 7px;font-size:10px;line-height:1.4;border-radius:5px;color:#4166c8}
 
 .chart .pnl-baseline{stroke:#dce4ed;stroke-width:1;stroke-dasharray:3 4;vector-effect:non-scaling-stroke}.chart .pnl-line-positive{stroke:var(--profit-color)}.chart .pnl-line-negative{stroke:var(--loss-color)}.chart .pnl-area-positive{fill:var(--profit-color);fill-opacity:.13;stroke:none}.chart .pnl-area-negative{fill:var(--loss-color);fill-opacity:.13;stroke:none}
