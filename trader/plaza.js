@@ -155,6 +155,8 @@ function node(tag,content,cls) { const n=document.createElement(tag); if(content
 function button(label, action, cls) { const b=node('button',label,cls); b.type='button'; b.addEventListener('click',action); return b; }
 function sourceLink(r) { const a=node('a','查看来源 ↗','source-link'); a.href=r.sourceUrl; a.target='_blank'; a.rel='noopener noreferrer'; return a; }
 function pct(x) { return x==null?'—':x.toFixed(2)+'%'; }
+function signedValue(x,formatted) {return x>0?'+'+formatted:formatted;}
+function directionClass(x) {return x>0?'positive':x<0?'negative':'';}
 function value(x) { return x==null?'—':x!==0&&Math.abs(x)<1e-8?x.toExponential(2):x.toLocaleString('en-US',{maximumFractionDigits:8}); }
 function money(x,currency) {return x==null?'—':['USD','USDT','USDC'].includes(currency)?x.toLocaleString('en-US',{maximumFractionDigits:2}):value(x);}
 function compactMoney(x,currency) {
@@ -207,10 +209,11 @@ function mddReason(reason) {return ({non_positive_peak_equity:'该窗口部分�
 function metrics(w,currency,includeROI=false,r=null,period=null) {
   const el=node('div',undefined,'metrics');
   const publicAccount=r&&isPublicAccount(r),record=publicAccount?state.analytics[r.accountId]:null,window=record?.portfolio?.status==='ready'?record.portfolio.windows[period]:null;
-  const items=[['盈亏 '+currency,includeROI?money(w?.pnl,currency):compactMoney(w?.pnl,currency),w?.pnl==null?'—':money(w.pnl,currency)+' '+currency],[publicAccount?'来源采样回撤':'最大回撤',pct(publicAccount?window?.mdd:w?.mdd)],[publicAccount?'平仓成交胜率':'逐笔胜率',pct(publicAccount?(record?.win?.status==='ready'?record.win.value:null):win(w))]];
-  if(includeROI)items.unshift(['收益率',pct(w?.roi)]);
-  for(const [label,v,exact]of items) {
-    const c=node('div'),amount=node('strong',v);amount.setAttribute('title',exact||v);c.append(node('small',label),amount);
+  const drawdown=publicAccount?window?.mdd:w?.mdd;
+  const items=[['盈亏 '+currency,signedValue(w?.pnl,includeROI?money(w?.pnl,currency):compactMoney(w?.pnl,currency)),w?.pnl==null?'—':signedValue(w.pnl,money(w.pnl,currency))+' '+currency,directionClass(w?.pnl)],[publicAccount?'来源采样回撤':'最大回撤',pct(drawdown),undefined,drawdown==null?'':'negative'],[publicAccount?'平仓成交胜率':'逐笔胜率',pct(publicAccount?(record?.win?.status==='ready'?record.win.value:null):win(w))]];
+  if(includeROI)items.unshift(['收益率',signedValue(w?.roi,pct(w?.roi)),undefined,directionClass(w?.roi)]);
+  for(const [label,v,exact,color]of items) {
+    const c=node('div'),amount=node('strong',v,color);amount.setAttribute('title',exact||v);c.append(node('small',label),amount);
     if(publicAccount&&!includeROI&&label==='平仓成交胜率'&&record?.win?.status!=='ready') {
       const pending=['queued','loading'].includes(record?.win?.status),load=button(pending?'读取中':'计算',()=>ensureAnalyticsClient()?.ensureWinRate(r.accountId,{force:true}),'metric-load');load.disabled=pending;load.setAttribute('title','统计最近最多 2000 笔成交中的永续平仓样本；与所选表现周期独立');amount.textContent='';amount.append(load);
     }
@@ -259,7 +262,7 @@ function card(r,period) {
   if(isPublicAccount(r)&&r.positionCheck)c.append(node('p',`持仓 ${r.positionCheck.count} · 核验 ${new Date(r.positionCheck.checkedAt).toLocaleTimeString('zh-CN',{hour12:false,hour:'2-digit',minute:'2-digit'})}`,'position-check'));
   if(r.note)c.append(node('p',r.note,'profile-note'));
   if(hasMetrics(w)) {
-    c.append(node('div',pct(w.roi),'roi '+(w.roi>0?'positive':w.roi<0?'negative':'')),node('div',`${displayPeriod(period,w)} 收益率`,'meta'));
+    c.append(node('div',signedValue(w.roi,pct(w.roi)),'roi '+directionClass(w.roi)),node('div',`${displayPeriod(period,w)} 收益率`,'meta'));
     const performance=node('div',undefined,'performance-body'),graph=node('div',undefined,'performance-chart');
     const figures=metrics(w,r.currency,false,r,period);performance.append(figures);fillPerformanceGraph(r,period,graph);
     performance.append(graph);c.append(performance);

@@ -101,4 +101,5 @@ PASS card calculation requests bounded closing-fill statistics only after the vi
 PASS closing sample win rate is labeled separately from period returns and complete trades
 PASS portfolio errors offer a deliberate force retry without faking an empty or zero curve
 PASS invalid peak equity preserves unavailable drawdown with an exact reason
-103 logic and DOM-model tests passed. Synthetic fixtures stay local; the published feed is checked separately.
+PASS return and PnL show signed profit/loss colors while drawdown and win retain unsigned percentages
+104 logic and DOM-model tests passed. Synthetic fixtures stay local; the published feed is checked separately.
