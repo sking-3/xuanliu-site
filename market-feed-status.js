@@ -17,7 +17,7 @@
  window.addEventListener('DOMContentLoaded',()=>{
   document.querySelectorAll('.public-feed').forEach(section=>{
    const s=stateFor(section);s.area=section.querySelector('.feed-widget-area');s.status=section.querySelector('.feed-status');s.toggle=section.querySelector('.feed-toggle');if(!s.area||!s.status||!s.toggle)return;
-   const old=section.querySelector('script[src*="embed-widget-market-overview.js"]');if(!old)return;const config=old.textContent,src=old.src,credit=section.querySelector('.tradingview-widget-copyright a'),creditUrl=credit?credit.href:'https://www.tradingview.com/markets/',creditText=credit?credit.textContent:'Markets';
+   const old=section.querySelector('script[data-feed-config]')||section.querySelector('script[src*="embed-widget-market-overview.js"]');if(!old)return;const config=old.textContent,src=old.src||'https://s3.tradingview.com/external-embedding/embed-widget-market-overview.js',credit=section.querySelector('.tradingview-widget-copyright a'),creditUrl=credit?credit.href:'https://www.tradingview.com/markets/',creditText=credit?credit.textContent:'Markets';
    old.addEventListener('error',()=>{if(s.generation===0)fail(s,'行情脚本加载失败，已收起空白区域。请检查网络或浏览器拦截设置后重试。');});
    s.toggle.addEventListener('click',()=>controls(s,!s.area.hidden));
    section.querySelector('.feed-retry').addEventListener('click',()=>{
