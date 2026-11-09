@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="theme-color" content="#142b39">
+  
+  <title>Books · A股研究与选股</title>
+  
+<link rel="stylesheet" href="index-preview.css"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; script-src 'none'; connect-src 'none'; img-src 'self'; form-action 'none'; base-uri 'none'; object-src 'none'"><meta name="referrer" content="no-referrer"><meta name="robots" content="noindex, nofollow"><link rel="stylesheet" href="../preview.css"></head>
+<body><div class="preview-banner" role="note"><strong>公开外观预览</strong> · 无研究资料、行情或个人数据。搜索、筛选、计算与导入均未开放；登录邀请尚未启用。</div>
+  <a class="skip-link" href="#explorer">跳到股票筛选</a>
+  <a class="skip-link" href="#chart-workspace">跳到价格图表</a>
+  <aside class="research-sidebar" aria-label="主导航">
+    <a class="research-brand" href="../index.html" aria-label="Books 产业研究台首页"><span class="research-brand-icon" aria-hidden="true"><i></i><i></i><i></i></span><span class="research-brand-word">Books<small>未接入数据 · 仅外观预览</small></span></a>
+    <div class="research-sidebar-label">研究工作区</div>
+    <nav class="research-primary-nav" aria-label="研究工作区"><a href="../index.html">市场</a><a href="index.html" aria-current="page">A股选股</a><a href="../us.html">美股选股</a><a href="../trader/index.html">带单员</a><a href="../research.html">公司研究</a><a href="history.html">历史研究</a><a href="../tools.html">研究工具</a></nav>
+    <div class="research-sidebar-note"><strong>证据优先 · 持续研究</strong><p>未接入数据 · 仅外观预览</p></div>
+  </aside>
+
+  <main class="app-main">
+    <header class="research-topbar"><div class="research-breadcrumb"><span>研究工作区</span><span>/</span><strong>A股研究与选股</strong></div><span class="research-data-state">历史数据 · 非实时</span></header>
+    <section class="workspace-heading" aria-labelledby="workspace-title">
+      <div class="workspace-heading-title"><span class="section-kicker">SCREENING WORKSPACE</span><h1 id="workspace-title">A股研究与选股</h1></div>
+      <div class="snapshot-status"><span class="snapshot-label">数据所属日</span><time id="asof">未接入数据 · 仅外观预览</time><span class="history-badge">历史 · 非实时</span></div>
+    </section>
+
+    <nav class="research-view-nav" aria-label="A股研究视图"><a href="index.html" aria-current="page">研究工作台</a><a href="history.html">历史归档 <span class="view-note">原始证据与核对</span></a></nav>
+    <p class="notice" role="note">未接入数据 · 仅外观预览</p>
+
+    
+
+    <div class="workspace-grid">
+      <section id="explorer" class="screening-panel" aria-labelledby="screening-title">
+        <div class="panel-heading"><div><span class="panel-mark" aria-hidden="true"></span><h2 id="screening-title">证券筛选</h2></div><a class="mobile-chart-jump" href="#chart-workspace">图表 ↓</a><button disabled id="export" class="quiet-button" type="button" aria-label="导出当前筛选的完整证据 JSON"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" aria-hidden="true"><path d="M8 2v8m-3-3 3 3 3-3M3 10v3h10v-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>导出</button></div>
+        <div class="filters">
+          <label class="search-label" for="query"><span class="sr-only">搜索证券名称或代码</span><svg viewBox="0 0 20 20" width="17" height="17" fill="none" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5" stroke="currentColor" stroke-width="1.5"/><path d="m13 13 4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><input disabled id="query" type="search" placeholder="预览未开放" autocomplete="off" spellcheck="false" aria-controls="rows" aria-describedby="result-count"></label>
+          <div class="filter-selects">
+            <label for="mode"><span>独立模式</span><select disabled id="mode" aria-controls="rows" aria-describedby="state-notice"><option value="">预览未开放</option></select></label>
+            <label for="state"><span>结果状态</span><select disabled id="state" aria-controls="rows"><option value="">预览未开放</option></select></label>
+          </div>
+        </div>
+        <div class="result-meta"><span id="result-count" role="status" aria-live="polite">公开预览未包含研究数据</span></div>
+        <div class="table-wrap" tabindex="0" role="region" aria-label="筛选证券列表，可滚动查看。选择证券名称查看图表。">
+          <table class="stock-table">
+            <caption class="sr-only">筛选结果。选择证券名称查看图表，选择证据查看全部独立模式。价格单位：元。</caption>
+            <thead><tr><th scope="col">证券</th><th scope="col">状态</th><th scope="col">收盘 / 元</th><th scope="col" class="secondary-column">四K参考区 / 元</th><th scope="col" class="secondary-column">数据边界</th><th scope="col">证据</th></tr></thead>
+            <tbody id="rows"><tr><td colspan="8">公开预览未包含研究或交易数据</td></tr></tbody>
+          </table>
+          <p id="empty" class="empty" hidden>未接入数据 · 仅外观预览</p>
+        </div>
+        <div class="pagination" aria-label="证券列表分页"><span class="pagination-hint">点击名称查看图表</span><div><button disabled id="prev" type="button" aria-label="上一页证券">‹</button><span id="page" aria-live="polite">0 / 0</span><button disabled id="next" type="button" aria-label="下一页证券">›</button></div></div>
+        <p id="state-notice" class="notice" role="status">未接入数据 · 仅外观预览</p>
+      </section>
+
+      <section id="chart-workspace" class="chart-workspace" aria-labelledby="chart-selection-title" tabindex="-1">
+        <div class="chart-workspace-heading"><div class="chart-selection"><div class="chart-selection-line"><h2 id="chart-selection-title">价格图表</h2><span id="chart-selection-code" class="chart-selection-code">未选择证券</span></div><p id="chart-selection-status" role="status" aria-live="polite">未接入数据 · 仅外观预览</p></div><button id="chart-evidence" class="outline-button" type="button" disabled>独立证据 <span aria-hidden="true">↗</span></button></div>
+        <p id="chart-selection-notice" class="warning" role="status" aria-live="polite" aria-atomic="true" hidden>未接入数据 · 仅外观预览</p>
+        <div class="chart-context-bar"><span class="chart-context-label"><span class="active-period">日线</span><span>已保存数据</span></span><span class="chart-context-note">开 / 高 / 低 / 收完整时绘制蜡烛</span></div>
+        <div id="main-chart" class="main-chart">
+          <div id="chart-empty" class="chart-empty" role="status">
+            <span class="chart-empty-icon" aria-hidden="true"><svg viewBox="0 0 36 36" width="18" height="18" fill="none"><rect x="5.5" y="6.5" width="25" height="23" rx="3" stroke="currentColor" stroke-width="1.3"/><path d="M6 12h24M12 12v17" stroke="currentColor" stroke-width="1.3"/><path d="m20 18 4 3-4 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            <h3>选择一只证券查看图表</h3>
+            <p>未接入数据 · 仅外观预览</p>
+            <span class="empty-data-note">仅展示真实输入，缺失数据不补画</span>
+          </div>
+        </div>
+        <div class="chart-workspace-footer"><span><span class="legend-dot" aria-hidden="true"></span>历史研究视图</span><span>无实时行情 · 无交易操作</span></div>
+      </section>
+    </div>
+
+    <div class="workspace-support">
+      
+      </section></div></details>
+    </div>
+    <footer class="app-footer"><span>Books <span class="footer-separator" aria-hidden="true">/</span> 独立模式研究</span><span>未知保留为未知</span></footer>
+  <div id="preview-note">公开预览仅展示布局，数据与功能未开放。</div></main>
+
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+</body>
+</html>

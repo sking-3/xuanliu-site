@@ -1,15 +1,24 @@
 <!doctype html>
-<html lang="zh-CN">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#010606" />
-    <meta name="description" content="玄流：一场以水墨太极、天枢玉脉与空王座构成的国学数字体验。" />
-    <title>玄流 XUANLIU — 一墨生万象</title>
-    <script type="module" crossorigin src="/assets/index-DEAytPYe.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-BXaAsLqK.css">
-  </head>
-  <body>
-    <div id="root"></div>
-  </body>
-</html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#fafbf9"><meta name="description" content="Books 新版外观预览。无研究数据，无实时行情。"><title>Books · 新版外观预览</title><link rel="stylesheet" href="styles.css"><link rel="stylesheet" href="home.css"><meta name="robots" content="noindex, nofollow"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; img-src 'self'; connect-src 'none'; script-src 'none'; base-uri 'none'; form-action 'none'; object-src 'none'"><meta name="referrer" content="no-referrer"><link rel="stylesheet" href="preview.css"></head>
+<body><div class="preview-banner" role="note"><strong>公开外观预览</strong> · 仅展示新版布局，不包含研究资料、行情或个人数据。搜索、筛选与导入暂不可用；登录邀请尚未启用。</div>
+<div class="market-ticker" aria-label="行情连接状态"><span>上证指数 <b>—</b></span><span>深证成指 <b>—</b></span><span>创业板指 <b>—</b></span><span>科创50 <b>—</b></span><span>恒生指数 <b>—</b></span><span>纳斯达克 <b>—</b></span><span>标普500 <b>—</b></span><small>未接入实时行情</small></div>
+<a class="skip-link" href="research.html">跳转至公司研究</a>
+<aside class="sidebar" aria-label="研究导航">
+ <a href="index.html" class="brand" aria-label="Books 首页">Books</a>
+ <nav class="workspace-nav" aria-label="工作区"><a href="#home" aria-current="page">市场</a><a href="screening/">A股选股</a><a href="us.html">美股选股</a><a href="trader/index.html">带单员</a><a href="research.html">公司研究</a><a href="screening/history.html">历史研究</a><a href="tools.html">研究工具</a><a href="tools.html#astro">星命排盘</a></nav>
+ 
+ 
+ 
+</aside>
+<main>
+ <section id="home" aria-label="市场研究总览">
+ <div class="home-metrics"><div><span>A 股研究记录</span><strong id="home-a">—</strong><small>本站收录，非全市场</small></div><div><span>美股研究记录</span><strong id="home-us">—</strong><small>本站收录，非全市场</small></div><div><span>核心已整理</span><strong id="home-ready">—</strong><small>不等于投资资格通过</small></div><div><span>我的关注</span><strong id="home-watch">—</strong><small>预览不读取或保存个人关注</small></div><div><span>行情与收益率</span><strong class="connection-state">尚未接入</strong><small>无验证数据时保持空缺</small></div></div>
+ <div class="home-grid">
+  <section class="home-panel home-securities" aria-labelledby="home-list-title"><header><h2 id="home-list-title">研究列表</h2><div class="home-tabs" aria-label="首页市场"><button disabled data-home-market="A" aria-pressed="true">A股</button><button disabled data-home-market="US" aria-pressed="false">美股</button><button disabled data-home-market="watch" aria-pressed="false">自选</button></div><a href="research.html">全部研究 ↗</a></header><div class="home-controls"><label class="home-search">⌕ <input disabled id="home-query" type="search" placeholder="搜索股票 / 代码 / 产业" aria-label="搜索首页研究列表"></label><label>产业 <select disabled id="home-sector"><option value="">全部</option></select></label></div><div class="home-table-scroll"><table class="home-table"><thead><tr><th>#</th><th>代码</th><th>名称</th><th>产业</th><th>研究状态</th><th>价格 / 涨跌</th><th>关注</th></tr></thead><tbody id="home-rows"><tr><td colspan="7">公开预览未包含研究记录</td></tr></tbody></table></div><div class="home-table-footer"><span id="home-count" role="status">外观预览 · 无研究数据</span><button id="home-prev" disabled aria-label="上一页">‹</button><span id="home-page">1</span><button id="home-next" disabled aria-label="下一页">›</button></div></section>
+  <section class="home-panel home-ranking" aria-labelledby="ranking-title"><header><h2 id="ranking-title">交易排行榜</h2><a href="trader/index.html">带单员 ↗</a></header><div class="home-ranking-head"><span>交易者</span><span>胜率</span><span>收益率</span><span>最大回撤</span></div><div class="home-empty"><span class="empty-chart" aria-hidden="true">▥</span><h3>等待可核验的交易记录</h3><p>尚无接入的真实交易员榜单。<br>不以样例账户或估算收益填充排名。</p><a class="home-action" href="trader/index.html">打开交易员研究 →</a></div><p class="home-note">公开外观预览不提供账户、成交导入或交易功能。</p></section>
+  <section class="home-panel home-chart" aria-labelledby="chart-title"><header><h2 id="chart-title">指数走势</h2><a href="tools.html">市场研究 ↗</a></header><div class="index-labels">上证指数 <span>深证成指</span><span>纳斯达克</span></div><div class="chart-unavailable"><strong>—</strong><p>未连接可验证的指数行情</p><small>接入前不绘制模拟走势，不显示虚构价格或成交量。</small></div><div class="home-chart-bottom"><span>价格 —</span><span>涨跌幅 —</span><span>成交额 —</span></div></section>
+  <section class="home-panel home-sectors" aria-labelledby="sector-title"><header><h2 id="sector-title">产业覆盖</h2><span>按本站记录数</span></header><table class="home-table"><thead><tr><th>产业标签</th><th>研究记录</th><th>覆盖比例</th></tr></thead><tbody id="home-sector-rows"><tr><td colspan="3">公开预览未包含产业统计</td></tr></tbody></table><p class="home-note">原始产业标签可交叉，覆盖比例不代表市场权重或涨跌。</p></section>
+  <section class="home-panel home-tools" aria-labelledby="tools-title"><header><h2 id="tools-title">研究工作台</h2></header><div class="home-tool-grid"><a href="screening/"><span>A 股选股</span><strong>规则与数据就绪度</strong><small>查看筛选条件 →</small></a><a href="research.html"><span>公司研究</span><strong>产业链与证据</strong><small>查看外观预览 →</small></a><a href="screening/history.html"><span>历史研究</span><strong>历史样本复核</strong><small>查看已有记录 →</small></a><a href="trader/exchange.html"><span>原始成交证据</span><strong>预览中不开放导入</strong><small>查看功能说明 →</small></a></div></section>
+ </div><p id="home-status" class="home-status" role="status">仅用于查看新版外观。研究记录、行情、账户、排行榜及导入功能均未接入。</p>
+ </section>
+<div id="research"><a href="research.html">打开公司研究外观预览 →</a></div></main></body></html>
