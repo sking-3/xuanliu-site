@@ -154,7 +154,7 @@ function fillWinCacheNote(r,target) {
 }
 async function refreshWinCache() {
   if(state.winCacheLoading)return;state.winCacheLoading=true;
-  const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),10000);
+  const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),10000);let orderChanged=false;
   try {
     const response=await fetch('analytics.json',{cache:'no-store',credentials:'omit',redirect:'error',signal:controller.signal});
     if(!response.ok||!/application\/(?:[\w.+-]*\+)?json(?:\s*;|$)/i.test(response.headers.get('content-type')||'')||Number(response.headers.get('content-length'))>maxBytes)fail();
@@ -166,9 +166,21 @@ async function refreshWinCache() {
       const previous=state.winCache[address];
       if(previous?.win&&(!incoming.win||Date.parse(incoming.fetchedAt)<Date.parse(previous.fetchedAt)))payload.accounts[address]={...previous,status:'stale',lastAttemptAt:incoming.lastAttemptAt||previous.lastAttemptAt,errorCode:incoming.errorCode||'older_result'};
     }
+    orderChanged=state.rows.some(r=>isPublicAccount(r)&&qualifiedPosition(r)&&(state.winCache[r.accountId]?.win?.value??null)!==(payload.accounts[r.accountId]?.win?.value??null));
     state.winCache=payload.accounts;state.winCacheGeneratedAt=payload.generatedAt;state.winCacheReadFailed=false;
   } catch {state.winCacheReadFailed=true;}
-  finally {clearTimeout(timeout);state.winCacheLoading=false;for(const address of new Set(state.analyticsViews.map(v=>v.r.accountId)))refreshAnalyticsViews(address);}
+  finally {
+    clearTimeout(timeout);state.winCacheLoading=false;
+    // When the feed wins the network race, apply the selected order as soon as
+    // aggregate values arrive. Metadata-only refreshes preserve card nodes/focus.
+    if(orderChanged&&!state.loading&&$('sort').value==='winRate'&&$('source').value!=='local') {
+      const focused=state.analyticsViews.find(v=>v.kind==='card'&&(v.detailButton===document.activeElement||v.sourceLink===document.activeElement));
+      const focusKind=focused?.detailButton===document.activeElement?'detailButton':'sourceLink';
+      render();
+      if(focused){const replacement=state.analyticsViews.find(v=>v.kind==='card'&&v.r.id===focused.r.id);(replacement?.[focusKind]||$('sort')).focus();}
+    }
+    for(const address of new Set(state.analyticsViews.map(v=>v.r.accountId)))refreshAnalyticsViews(address);
+  }
 }
 function sourceIsStale(now=Date.now()) {
   if(state.lastReadFailed)return true;
@@ -330,7 +342,7 @@ function card(r,period) {
     stats.append(roi,node('div',`${displayPeriod(period,w)} 收益率`,'roi-label'));
     const figures=metrics(w,r.currency,false,r,period);stats.append(figures);fillPerformanceGraph(r,period,graph);
     performance.append(stats,graph);c.append(performance);
-    if(isPublicAccount(r)){const winNote=node('p',undefined,'win-cache-note');fillWinCacheNote(r,winNote);c.append(winNote);state.analyticsViews.push({kind:'card',r,period,metrics:figures,graph,winNote});}
+    if(isPublicAccount(r)){const winNote=node('p',undefined,'win-cache-note');fillWinCacheNote(r,winNote);c.append(winNote);state.analyticsViews.push({kind:'card',r,period,metrics:figures,graph,winNote,detailButton:detail,sourceLink:source});}
   } else c.append(node('p',Object.keys(r.windows).length?`${displayPeriod(period,w)} 表现 —`:'账号与来源已保存','meta'));
   if(r.note)c.append(node('p',r.note,'profile-note'));
   if(r._local){const actions=node('div',undefined,'card-actions');actions.append(button('编辑',()=>openEditor(r)),button('删除',()=>removeRecord(r)));c.append(actions);}
@@ -357,7 +369,7 @@ function render() {
   const q=$('search').value.trim().toLocaleLowerCase(),p=$('period').value,source=$('source').value,currency=$('currency').value;
   const available=state.rows.filter(r=>qualifiedPosition(r)&&((source==='local')?r._local:!r._local));
   let rows=available.filter(r=>(r.name+' '+r.id+' '+r.accountId+' '+r.exchange+' '+r.note).toLocaleLowerCase().includes(q) && ($('exchange').value==='all'||r.exchange===$('exchange').value) && (source==='all'||source==='local'&&r._local||source==='paid'&&r.paid||source==='public'&&!r._local&&!r.paid) && (currency==='all'||r.currency===currency));
-  $('sort-hint').textContent=['mdd','winRate'].includes($('sort').value)?'按已有指标排序 · 缺数账户排在后面 · 新结果在重新选择排序后应用':'仅显示已核验持仓账户 · 永续主市场';
+  $('sort-hint').textContent=$('sort').value==='winRate'?'按后台平仓样本胜率排序 · 缺数账户排在后面':$('sort').value==='mdd'?'按已有回撤排序 · 缺数账户排在后面 · 新结果在重新选择排序后应用':'仅显示已核验持仓账户 · 永续主市场';
   const sort=$('sort').value,grouped=sort==='pnl'&&currency==='all'&&new Set(rows.map(r=>r.currency)).size>1;
   rows.sort((a,b)=>{
     if(grouped&&a.currency!==b.currency)return currencies.indexOf(a.currency)-currencies.indexOf(b.currency);

@@ -133,4 +133,8 @@ PASS a failed first collection displays its last attempt without inventing a suc
 PASS portfolio errors offer a deliberate force retry without faking an empty or zero curve
 PASS invalid peak equity preserves unavailable drawdown with an exact reason
 PASS return and PnL show signed profit/loss colors while drawdown and win retain unsigned percentages
-135 logic and DOM-model tests passed. Synthetic fixtures stay local; the published feed is checked separately.
+PASS feed arriving first applies win-rate ordering when delayed aggregates arrive, without any userFills
+PASS aggregate arriving first is used by the later feed render with no extra sorting render
+PASS new generation with identical win values preserves card nodes, focused detail action, and order
+PASS changed win ordering preserves open detail, page and the same focused account action
+139 logic and DOM-model tests passed. Synthetic fixtures stay local; the published feed is checked separately.

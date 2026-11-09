@@ -11,9 +11,9 @@ class Element {
 }
 const details=new Element(),ids={},document={body:new Element(),getElementById:id=>ids[id]??=new Element(),createElement:()=>new Element(),createElementNS:()=>new Element(),querySelectorAll:()=>[]};document.activeElement=document.body;
 for(const [id,values]of Object.entries({period:['7D','30D','90D','180D','365D','ALL'],exchange:['all','Binance','OKX','Hyperliquid','Gate','Bitget','Bybit','Polymarket'],source:['all','public','paid','local'],sort:['pnl','roi','mdd','winRate'],currency:['all','USDT','USD','USDC','BTC','ETH']}))document.getElementById(id).options=values.map(value=>({value}));
-let remoteFeed,remoteAnalytics={schemaVersion:1,methodVersion:'closing-fill-v1',generatedAt:new Date().toISOString(),accounts:{}},fetches=0,analyticsFetches=0,analyticsFetchError=false,storageError=false;const saved=new Map(),localStorage={getItem:key=>saved.get(key)||null,setItem(key,value){if(storageError)throw Error('QUOTA');saved.set(key,value);}};
+let remoteFeed,remoteAnalytics={schemaVersion:1,methodVersion:'closing-fill-v1',generatedAt:new Date().toISOString(),accounts:{}},fetches=0,analyticsFetches=0,analyticsFetchError=false,feedGate=null,analyticsGate=null,storageError=false;const saved=new Map(),localStorage={getItem:key=>saved.get(key)||null,setItem(key,value){if(storageError)throw Error('QUOTA');saved.set(key,value);}};
 const location={href:'https://example.com/trader/?page=2&q=SYNTHETIC#main'},history={pushState(_,__,url){location.href=new URL(url,location.href).href;},replaceState(_,__,url){location.href=new URL(url,location.href).href;}};
-const context={document,location,history,URL,Date,Blob,AbortController,crypto:require('node:crypto').webcrypto,localStorage,confirm:()=>true,setTimeout,clearTimeout,fetch:async url=>{if(url==='analytics.json'){analyticsFetches++;await new Promise(r=>setTimeout(r,5));if(analyticsFetchError)throw Error('unavailable');return new Response(JSON.stringify(remoteAnalytics),{headers:{'Content-Type':'application/json'}});}fetches++;await new Promise(r=>setTimeout(r,5));return new Response(JSON.stringify(remoteFeed));}};
+const context={document,location,history,URL,Date,Blob,AbortController,crypto:require('node:crypto').webcrypto,localStorage,confirm:()=>true,setTimeout,clearTimeout,fetch:async url=>{if(url==='analytics.json'){analyticsFetches++;if(analyticsGate)await analyticsGate;await new Promise(r=>setTimeout(r,5));if(analyticsFetchError)throw Error('unavailable');return new Response(JSON.stringify(remoteAnalytics),{headers:{'Content-Type':'application/json'}});}fetches++;if(feedGate)await feedGate;await new Promise(r=>setTimeout(r,5));return new Response(JSON.stringify(remoteFeed));}};
 const source=fs.readFileSync(path.join(__dirname,'../trader/plaza.js'),'utf8').split("for(const id of controls)$(id).addEventListener")[0]+"globalThis.api={validate,date,win,value,readURL,saveURL,render,refresh,state,openDetail,openEditor,saveRecord,captureWindow,changeEditorPeriod,commitLocal,loadLocal,mergeRows,choosePeriod,updateView,stampLabel,hasMetrics,removeRecord,validateSource,sourceIsStale,renderSource,displayPeriod,isPublicAccount,canReadLive,activateDetailTab,stopLive,renderDetail,liveDirection,liveSide,renderLiveData,qualifiedPosition,eligiblePublicRows,reevaluatePositions,observeEmptyPositions,compactMoney,metrics,card,refreshAnalyticsViews,startVisibleAnalytics,validateWinCache,cachedWin,winCacheIsStale,fillWinCacheNote,refreshWinCache};})();";
 vm.createContext(context);vm.runInContext(source,context);const a=context.api;
 const stamp='2026-01-15T12:00:00Z';
@@ -144,5 +144,50 @@ await test('a failed first collection displays its last attempt without inventin
 await test('portfolio errors offer a deliberate force retry without faking an empty or zero curve',()=>{const r=a.state.detail,record=a.state.analytics[r.accountId];record.portfolio={status:'error',error:'source refused'};analyticsOptions.onChange(record);const view=a.state.analyticsViews.find(v=>v.kind==='detail');assert.equal(view.portfolioButton.hidden,false);assert.match(view.portfolioStatus.textContent,/曲线读取失败/);view.portfolioButton.click();assert.equal(analyticsCalls.portfolioOptions.at(-1).force,true);assert.match(content(view.graph),/—/);});
 await test('invalid peak equity preserves unavailable drawdown with an exact reason',()=>{const r=a.state.detail,record=a.state.analytics[r.accountId],start=new Date(Date.now()-60000).toISOString(),end=new Date().toISOString();record.portfolio={status:'ready',windows:{'30D':{sampleCount:2,startAt:start,endAt:end,points:[{time:start,value:0},{time:end,value:10}],mdd:null,mddUnavailableReason:'non_positive_peak_equity'}}};analyticsOptions.onChange(record);const view=a.state.analyticsViews.find(v=>v.kind==='detail'),mdd=view.metrics.children[2].children[1];assert.equal(mdd.textContent,'—');assert.match(mdd.attrs.title,/峰值权益无效/);assert.match(view.portfolioStatus.textContent,/无法计算完整回撤/);assert.doesNotMatch(content(view.metrics),/来源采样回撤 0.00%/);});
 await test('return and PnL show signed profit/loss colors while drawdown and win retain unsigned percentages',()=>{const w={roi:4.25,pnl:107916807.28,mdd:18.37,wins:3,closedTrades:10},m=a.metrics(w,'USD',true);assert.equal(m.children[0].children[1].textContent,'+4.25%');assert.equal(m.children[0].children[1].className,'positive');assert.equal(m.children[1].children[1].textContent,'+107,916,807.28');assert.equal(m.children[1].children[1].className,'positive');assert.equal(m.children[2].children[1].textContent,'18.37%');assert.equal(m.children[2].children[1].className,'negative');assert.equal(m.children[3].children[1].textContent,'30.00%');assert.equal(m.children[3].children[1].className,undefined);const negative=a.metrics({...w,roi:-2,pnl:-50345.5},'USD',true);assert.equal(negative.children[0].children[1].textContent,'-2.00%');assert.equal(negative.children[0].children[1].className,'negative');assert.equal(negative.children[1].children[1].textContent,'-50,345.5');assert.equal(negative.children[1].children[1].className,'negative');const zero=a.metrics({...w,roi:0,pnl:0},'USD',true);assert.equal(zero.children[0].children[1].textContent,'0.00%');assert.equal(zero.children[1].children[1].textContent,'0');const card=a.card({...row(1),windows:{'30D':{...row(1).windows['30D'],roi:4.25,pnl:107916807.28}}},'30D');assert.match(content(card),/\+4.25%/);assert.match(content(card),/\+1.08亿/);});
+function prepareWinSortRace() {
+  a.state.winCache=Object.create(null);a.state.winCacheGeneratedAt=null;a.state.winCacheReadFailed=false;
+  installQualified();ids.sort.value='winRate';a.state.page=1;a.render();
+  const rows=a.state.rows.filter(r=>a.isPublicAccount(r)).sort((x,y)=>x.id.localeCompare(y.id)),low=rows[0],high=rows[1];
+  const lowPayload=winFixture(low.accountId,1,9),highPayload=winFixture(high.accountId,9,1);
+  remoteFeed=qualifiedPublished;remoteAnalytics={...highPayload,accounts:{...lowPayload.accounts,...highPayload.accounts}};
+  assert.equal(a.state.analyticsViews.find(v=>v.kind==='card').r.id,low.id);
+  return {low,high};
+}
+await test('feed arriving first applies win-rate ordering when delayed aggregates arrive, without any userFills',async()=>{
+  const {low,high}=prepareWinSortRace(),beforeTargets=analyticsCalls.targets.length,beforeWins=analyticsCalls.wins.length;
+  let release;analyticsGate=new Promise(resolve=>{release=resolve;});feedGate=null;
+  const pending=a.refresh(true);await new Promise(resolve=>setTimeout(resolve,20));
+  assert.equal(a.state.loading,false);assert.equal(a.state.analyticsViews.find(v=>v.kind==='card').r.id,low.id);
+  release();await pending;analyticsGate=null;
+  assert.equal(a.state.analyticsViews.find(v=>v.kind==='card').r.id,high.id);
+  assert.equal(analyticsCalls.wins.length,beforeWins);assert.equal(analyticsCalls.targets.length,beforeTargets+2);
+  assert.doesNotMatch(ids['sort-hint'].textContent,/重新选择/);
+});
+await test('aggregate arriving first is used by the later feed render with no extra sorting render',async()=>{
+  const {high}=prepareWinSortRace(),beforeTargets=analyticsCalls.targets.length;
+  let release;feedGate=new Promise(resolve=>{release=resolve;});analyticsGate=null;
+  const pending=a.refresh(true);await new Promise(resolve=>setTimeout(resolve,20));
+  assert.equal(a.state.loading,true);assert.equal(a.state.winCache[high.accountId].win.value,90);
+  release();await pending;feedGate=null;
+  assert.equal(a.state.analyticsViews.find(v=>v.kind==='card').r.id,high.id);
+  assert.equal(analyticsCalls.targets.length,beforeTargets+1);assert.equal(analyticsCalls.wins.length,0);
+});
+await test('new generation with identical win values preserves card nodes, focused detail action, and order',async()=>{
+  const cards=a.state.analyticsViews.filter(v=>v.kind==='card'),firstNode=ids.leaders.children[0],beforeTargets=analyticsCalls.targets.length;
+  cards[0].detailButton.focus();const focused=document.activeElement;
+  remoteAnalytics=structuredClone(remoteAnalytics);remoteAnalytics.generatedAt=new Date().toISOString();
+  for(const entry of Object.values(remoteAnalytics.accounts)){entry.fetchedAt=remoteAnalytics.generatedAt;entry.lastAttemptAt=remoteAnalytics.generatedAt;}
+  await a.refreshWinCache();
+  assert.equal(ids.leaders.children[0],firstNode);assert.equal(document.activeElement,focused);assert.equal(analyticsCalls.targets.length,beforeTargets);
+});
+await test('changed win ordering preserves open detail, page and the same focused account action',async()=>{
+  const cards=a.state.analyticsViews.filter(v=>v.kind==='card'),focusedAccount=cards[0].r;
+  a.openDetail(focusedAccount,'30D');const detailNode=ids['detail-body'].children[0],oldPage=a.state.page;
+  cards[0].detailButton.focus();const lower=winFixture(focusedAccount.accountId,0,10),other=cards[1].r,upper=winFixture(other.accountId,10,0);
+  remoteAnalytics={...upper,accounts:{...lower.accounts,...upper.accounts}};await a.refreshWinCache();
+  assert.equal(a.state.analyticsViews.find(v=>v.kind==='card').r.id,other.id);
+  assert.equal(ids.detail.open,true);assert.equal(a.state.detail.id,focusedAccount.id);assert.equal(ids['detail-body'].children[0],detailNode);assert.equal(a.state.page,oldPage);
+  assert.equal(document.activeElement,a.state.analyticsViews.find(v=>v.kind==='card'&&v.r.id===focusedAccount.id).detailButton);
+});
 console.log(`${passed} logic and DOM-model tests passed. Synthetic fixtures stay local; the published feed is checked separately.`);
 })().catch(e=>{console.error(e);process.exitCode=1;});
