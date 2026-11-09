@@ -8,10 +8,32 @@
     ['COINBASE:BTCUSD','Bitcoin / USD'], ['COINBASE:ETHUSD','Ethereum / USD'], ['COINBASE:SOLUSD','Solana / USD']
   ]);
   const requested = new URLSearchParams(location.search).get('tvwidgetsymbol');
-  const symbol = requested && requested.toUpperCase();
+  let symbol = requested && requested.toUpperCase();
   const title = document.getElementById('chart-title');
   const status = document.getElementById('chart-status');
   const retry = document.getElementById('chart-retry');
+  if (symbol && /^[A-Z0-9]+$/.test(symbol)) {
+    const matches = [...symbols.keys()].filter(key => key.split(':')[1] === symbol);
+    if (matches.length === 1) symbol = matches[0];
+    else if (matches.length > 1) {
+      title.textContent = '请选择具体标的';
+      status.textContent = '此代码对应多个市场，请选择交易所与标的；本站不会自动猜测。';
+      document.getElementById('chart-symbol').textContent = symbol;
+      retry.hidden = true;
+      const host = document.getElementById('chart-widget');
+      host.style.height = 'auto';
+      const choices = document.createElement('ul');
+      for (const match of matches) {
+        const item = document.createElement('li');
+        const link = document.createElement('a');
+        link.href = 'chart.html?tvwidgetsymbol=' + encodeURIComponent(match);
+        link.textContent = symbols.get(match) + '（' + match + '）';
+        item.append(link); choices.append(item);
+      }
+      host.replaceChildren(choices);
+      return;
+    }
+  }
   if (!symbols.has(symbol)) {
     title.textContent = '请选择行情标的';
     status.textContent = '此链接未包含本站支持的标的。请返回市场，从行情列表选择。';
