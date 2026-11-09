@@ -2,7 +2,7 @@
 (() => {
   const symbols = new Map([
     ['SSE:000001','上证指数'], ['SZSE:399001','深证成指'], ['SZSE:399006','创业板指'],
-    ['SSE:000688','科创50'], ['HSI:HSI','恒生指数'], ['FRED:NDQCOM','纳斯达克综合 · 日终'],
+    ['SSE:000688','科创50'], ['HSI:HSI','恒生指数'], ['FRED:NDQCOM','纳斯达克综合'],
     ['SSE:600519','贵州茅台'], ['SZSE:000001','平安银行'], ['SZSE:300750','宁德时代'],
     ['NASDAQ:AAPL','Apple'], ['NASDAQ:MSFT','Microsoft'], ['NASDAQ:NVDA','NVIDIA'],
     ['NASDAQ:AMZN','Amazon'], ['NASDAQ:GOOGL','Alphabet'], ['NASDAQ:META','Meta'], ['NASDAQ:TSLA','Tesla'],

@@ -35,7 +35,7 @@
     });
     observer.observe(container, {childList:true, subtree:true});
     const script = document.createElement('script');
-    script.src = 'https://s3.tradingview.com/external-embedding/embed-widget-ticker-tape.js';
+    script.src = 'https://s3.tradingview.com/external-embedding/embed-widget-tickers.js';
     script.async = true;
     script.textContent = JSON.stringify(config);
     script.onerror = () => {
@@ -44,7 +44,7 @@
       status.textContent = '指数行情未能加载，请检查网络后重试。';
     };
     timer = setTimeout(() => {
-      if (current === generation) status.textContent = '行情条尚未确认加载，可重试；无报价不代表零价格。';
+      if (current === generation) status.textContent = '指数报价尚未确认加载，可重试；无报价不代表零价格。';
     }, 15000);
     container.append(script);
   }
