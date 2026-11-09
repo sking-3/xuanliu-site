@@ -36,8 +36,12 @@ for p in pages:
  for section in tree.xpath('//section[contains(concat(" ",@class," ")," public-feed ")]'):
   configs=section.xpath('.//script[@data-feed-config]');check(len(configs)==1,f'{p}: one feed config')
   config=json.loads(configs[0].text)
-  for cls in ['feed-status','feed-retry','feed-toggle','feed-source']:
+  for cls in ['feed-status','feed-retry','feed-source']:
    check(len(section.xpath('.//*[contains(concat(" ",@class," "),$cls)]',cls=' '+cls+' '))==1,f'{p}: feed {cls}')
+  check(not section.xpath('.//*[contains(concat(" ",@class," ")," feed-toggle ")]'),f'{p}: removed persistent collapse control')
+  check(bool(section.xpath('.//div[contains(@class,"feed-controls")][@hidden]')),f'{p}: recovery controls hidden before JS')
+  check(bool(section.xpath('.//details[contains(@class,"symbol-shortcuts")][@hidden]')),f'{p}: extra chart links hidden normally')
+  check(bool(section.xpath('.//div[contains(@class,"tradingview-widget-copyright")]/a')),f'{p}: attribution retained')
   check(not section.xpath('.//script[@src]'),f'{p}: provider mounted only by recovery code')
   check('largeChartUrl' in config,f'{p}: stays in site charts')
   check(bool(section.xpath('.//details[contains(@class,"symbol-shortcuts")]')),f'{p}: direct chart fallback')

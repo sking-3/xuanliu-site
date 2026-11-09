@@ -1,3 +1,11 @@
+# Corrective compact-state update
+
+The published UI was checked against the user’s two mobile screenshots. The extra loading/status, retry/collapse/source action row and direct-chart disclosure had been reintroduced during the resilience work. They are now hidden without allocating space in normal/loading states. The collapse button is removed. Minimal recovery actions and chart alternatives appear only after an explicit failure. Required TradingView attribution stays visible; no iframe cropping or branding concealment is used. See the official attribution FAQ: https://www.tradingview.com/widget-docs/faq/general/
+
+The original prepublication audit below is retained as historical context, not current release status. The first release was 3c1d808 with a successful Pages deployment and an 11-page live desktop regression. Narrow-device testing remained unverified because the cloud browser’s developer tools are disabled by organization policy.
+
+---
+
 # Books site bug and UI audit
 
 Baseline: `a49e680aea74ae08ad0a134775cef5c98d9d3917` on public main.
