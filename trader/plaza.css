@@ -120,3 +120,15 @@ th{color:#728098;font-weight:500;background:#fbfcfe}
 .record-tools .page-actions{position:absolute;right:0;top:48px;z-index:5;display:grid;min-width:180px;padding:10px;border:1px solid #e4e9f1;border-radius:10px;background:#fff;box-shadow:0 8px 30px #18233516}
 .record-tools .page-actions button{width:100%;white-space:nowrap}
 @media(max-width:420px){.record-tools .page-actions{right:auto;left:0}}
+
+.source-summary{margin-top:20px;padding:16px 18px;border:1px solid #dfe8e6;border-radius:12px;background:#f7fbfa}
+.source-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.source-heading strong{font-size:14px;color:#25574e}.source-heading a{font-size:12px;color:#347b6d}
+.source-summary p{font-size:11px;line-height:1.8;margin-top:3px;color:#6e827c}
+.source-summary #source-selection{font-size:12px;color:#45685f;margin:7px 0}
+#status[data-state=ready]{color:#378171}#status[data-state=ready]::before{content:'●';font-size:8px;margin-right:6px}
+#status[data-state=stale],.detail-stale{color:#9b702b}
+.coverage-tags .account-label{background:#edf7f3;color:#357d69}
+.local-total{font-size:11px;color:#7b879a;padding:6px 4px}
+.detail-method{padding:10px 12px;background:#f7f9fc;border-radius:7px;font-size:12px;color:#728098}
+.account-equity{font-variant-numeric:tabular-nums;color:#44556d;font-size:13px}

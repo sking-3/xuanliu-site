@@ -6,7 +6,7 @@ const exchanges = ['Binance','OKX','Hyperliquid','Gate','Bitget','Bybit','Polyma
 const currencies = ['USDT','USD','USDC','BTC','ETH'];
 const controls = ['period','exchange','source','sort','currency'];
 const storageKey = 'books.trader.records.v1', maxBytes = 2097152;
-const state = {status:'unavailable', publicRows:[], localRows:[], rows:[], page:1, detail:null, window:'30D', tab:'analysis', loading:false, explicitPeriod:false, editor:null, storageReadError:false, revealId:null};
+const state = {status:'unavailable', publicRows:[], localRows:[], rows:[], page:1, detail:null, window:'30D', tab:'analysis', loading:false, explicitPeriod:false, editor:null, storageReadError:false, revealId:null, source:null, lastReadFailed:false, feedText:null};
 const fail = () => { throw Error('数据格式未通过校验，未展示此批记录。'); };
 const text = (v, n=200) => typeof v === 'string' && v.trim().length > 0 && v.length <= n ? v.trim() : fail();
 const optionalText = (v,n) => v === undefined || v === '' ? '' : text(v,n);
@@ -37,6 +37,10 @@ function validate(p) {
       const asOf = date(w.asOf);
       if(Date.parse(asOf)>Date.parse(observedAt)) fail();
       const clean = {asOf, roi:num(w.roi), pnl:num(w.pnl), mdd:num(w.mdd), wins:integer(w.wins), closedTrades:integer(w.closedTrades), curve:[]};
+      if(w.sourcePeriod !== undefined) {
+        if(r.sourceKind!=='public_account'||r.exchange!=='Hyperliquid'||!({week:'7D',month:'30D',allTime:'ALL'}[w.sourcePeriod] === k)) fail();
+        clean.sourcePeriod = w.sourcePeriod;
+      }
       if(w.asOfType !== undefined) {
         if(!['source','observed','imported'].includes(w.asOfType)) fail();
         clean.asOfType = w.asOfType;
@@ -54,6 +58,8 @@ function validate(p) {
       windows[k] = clean;
     }
     const clean = {id,name,exchange:r.exchange,currency:r.currency,featured:r.featured,paid:r.paid,observedAt,sourceUrl:url.href,windows,accountId:optionalText(r.accountId,100),note:optionalText(r.note,500)};
+    if(r.sourceKind !== undefined) { if(r.sourceKind !== 'public_account')fail();clean.sourceKind=r.sourceKind; }
+    if(r.accountValue !== undefined)clean.accountValue=num(r.accountValue);
     for(const k of ['positions','points','orders']) {
       if(!Array.isArray(r[k]) || r[k].length>1000) fail();
       clean[k] = r[k].map(row => {
@@ -68,6 +74,42 @@ function validate(p) {
     return clean;
   });
 }
+function validateSource(p,rows) {
+  if(!p.source) { if(rows.some(r=>r.sourceKind==='public_account'))fail();return null; }
+  const s=p.source;
+  if(!s||typeof s!=='object'||Array.isArray(s)||s.id!=='hyperliquid'||s.url!=='https://app.hyperliquid.xyz/leaderboard'||!['ok','stale','error'].includes(s.status))fail();
+  if(p.status==='unavailable'&&!rows.length&&s.status==='error'&&!s.fetchedAt)return null;
+  const fetchedAt=date(s.fetchedAt),snapshotAt=s.snapshotAt===null?null:date(s.snapshotAt),lastAttemptAt=date(s.lastAttemptAt);
+  const totalAccounts=integer(s.totalAccounts),selectedAccounts=integer(s.selectedAccounts);
+  if(totalAccounts===null||selectedAccounts!==rows.length||totalAccounts<selectedAccounts||totalAccounts>1000000||s.refreshIntervalMinutes!==30||s.staleAfterMinutes!==120||Date.parse(lastAttemptAt)<Date.parse(fetchedAt)||(snapshotAt&&Date.parse(snapshotAt)>Date.parse(fetchedAt))||(s.status==='error'&&rows.length))fail();
+  for(const r of rows) {
+    if(r.exchange!=='Hyperliquid'||r.currency!=='USD'||r.sourceKind!=='public_account'||!/^0x[0-9a-f]{40}$/.test(r.accountId)||r.sourceUrl!==`https://app.hyperliquid.xyz/explorer/address/${r.accountId}`||r.observedAt!==fetchedAt)fail();
+    for(const w of Object.values(r.windows))if(!w.sourcePeriod||w.asOf!==(snapshotAt||fetchedAt)||w.asOfType!==(snapshotAt?'source':'observed'))fail();
+  }
+  return {id:s.id,url:s.url,label:text(s.label,80),selection:text(s.selection,250),totalAccounts,selectedAccounts,fetchedAt,snapshotAt,lastAttemptAt,refreshIntervalMinutes:30,staleAfterMinutes:120,status:s.status};
+}
+function sourceIsStale(now=Date.now()) {
+  if(state.lastReadFailed)return true;
+  const s=state.source;if(!s)return false;
+  return s.status!=='ok'||now-Math.min(Date.parse(s.fetchedAt),s.snapshotAt?Date.parse(s.snapshotAt):Infinity)>s.staleAfterMinutes*60000;
+}
+function isPublicAccount(r) {return r.sourceKind==='public_account'&&!r._local;}
+function compactAccount(r) {return isPublicAccount(r)?r.accountId.slice(0,8)+'…'+r.accountId.slice(-6):r.accountId||r.id;}
+function displayPeriod(p,w) {return ({week:'周度',month:'月度',allTime:'累计'})[w?.sourcePeriod]||periodLabel(p);}
+function timeLabel(iso) {return new Date(iso).toLocaleString('zh-CN',{hour12:false});}
+function renderSource() {
+  const s=state.source,stale=sourceIsStale();
+  $('source-summary').hidden=!s;
+  if(s) {
+    $('source-name').textContent=s.label;
+    $('source-selection').textContent=`${s.selection} · 来源共 ${s.totalAccounts.toLocaleString('zh-CN')} 个账户`;
+    $('source-timing').textContent=`${s.snapshotAt?'快照文件更新 '+timeLabel(s.snapshotAt):'快照文件时间未提供'} · 采集于 ${timeLabel(s.fetchedAt)}`;
+    $('source-cadence').textContent='约 30 分钟采集 · 页面每分钟检查新快照';
+  }
+  $('status').textContent=statusText();$('status').setAttribute('data-state',stale?'stale':state.publicRows.length?'ready':'empty');
+  $('source-universe').textContent=s?s.totalAccounts.toLocaleString('zh-CN'):'—';
+  if(state.detail&&$('detail').open)renderDetailStatus();
+}
 function feed(rows) { return {schemaVersion:1,status:'ready',traders:rows}; }
 function mergeRows() { state.rows = [...state.publicRows.map(r=>({...r,_local:false})),...state.localRows.map(r=>({...r,_local:true}))]; }
 function node(tag,content,cls) { const n=document.createElement(tag); if(content!==undefined)n.textContent=content; if(cls)n.className=cls; return n; }
@@ -75,12 +117,14 @@ function button(label, action, cls) { const b=node('button',label,cls); b.type='
 function sourceLink(r) { const a=node('a','查看来源 ↗','source-link'); a.href=r.sourceUrl; a.target='_blank'; a.rel='noopener noreferrer'; return a; }
 function pct(x) { return x==null?'—':x.toFixed(2)+'%'; }
 function value(x) { return x==null?'—':x!==0&&Math.abs(x)<1e-8?x.toExponential(2):x.toLocaleString('en-US',{maximumFractionDigits:8}); }
+function money(x,currency) {return x==null?'—':['USD','USDT','USDC'].includes(currency)?x.toLocaleString('en-US',{maximumFractionDigits:2}):value(x);}
 function win(w) { return w?.wins!=null&&w?.closedTrades>0?w.wins/w.closedTrades*100:null; }
 function periodLabel(p) { return p==='ALL'?'累计':p; }
 function hasMetrics(w) { return !!w && (['roi','pnl','mdd','wins','closedTrades'].some(k=>w[k]!=null)||w.curve.length>0); }
 function stampLabel(w) {
   if(!w) return '';
-  const stamp = new Date(w.asOf).toLocaleString('zh-CN',{hour12:false});
+  const stamp = timeLabel(w.asOf);
+  if(w.sourcePeriod)return `${w.asOfType==='source'?'来源快照':'采集于'} ${stamp}`;
   if(w.asOfType==='imported') return `记录于 ${stamp} · 快照日期未知`;
   if(w.asOfType==='observed') return `读取于 ${stamp} · 来源更新时间未提供`;
   return `数据截至 ${stamp}`;
@@ -102,31 +146,31 @@ function chart(w) {
 }
 function metrics(w,currency,includeROI=false) {
   const el=node('div',undefined,'metrics');
-  const items=[['盈亏 '+currency,value(w?.pnl)],['最大回撤',pct(w?.mdd)],['逐笔胜率',pct(win(w))]];
+  const items=[['盈亏 '+currency,money(w?.pnl,currency)],['最大回撤',pct(w?.mdd)],['逐笔胜率',pct(win(w))]];
   if(includeROI)items.unshift(['收益率',pct(w?.roi)]);
   for(const [label,v]of items) { const c=node('div'); c.append(node('small',label),node('strong',v)); el.append(c); }
   return el;
 }
 function card(r,period) {
   const w=r.windows[period],c=node('article',undefined,'card'),top=node('div',undefined,'card-top'),identity=node('div');
-  identity.append(node('h3',r.name),node('div',`${r.exchange} · ${r.accountId||r.id}${r.paid?' · 付费来源':''}`,'meta'));
+  identity.append(node('h3',r.name),node('div',`${r.exchange} · ${compactAccount(r)}${r.paid?' · 付费来源':''}`,'meta')); 
   top.append(node('div',r.exchange.slice(0,2),'avatar'),identity); c.append(top);
   const tags=node('div',undefined,'coverage-tags');
-  tags.append(node('span',r.currency)); if(r._local)tags.append(node('span','我的资料','local-label'));
-  for(const key of periods.filter(k=>hasMetrics(r.windows[k])))tags.append(node('span',periodLabel(key)));
+  tags.append(node('span',r.currency));if(isPublicAccount(r))tags.append(node('span','公开账户','account-label')); if(r._local)tags.append(node('span','我的资料','local-label'));
+  for(const key of periods.filter(k=>hasMetrics(r.windows[k])))tags.append(node('span',displayPeriod(key,r.windows[key])));
   c.append(tags);
   if(r.note)c.append(node('p',r.note,'profile-note'));
   if(hasMetrics(w)) {
-    c.append(node('div',pct(w.roi),'roi '+(w.roi>0?'positive':w.roi<0?'negative':'')),node('div',`${periodLabel(period)} 收益率`,'meta'),metrics(w,r.currency));
+    c.append(node('div',pct(w.roi),'roi '+(w.roi>0?'positive':w.roi<0?'negative':'')),node('div',`${displayPeriod(period,w)} 收益率`,'meta'),metrics(w,r.currency));
     if(w.curve.length>1)c.append(chart(w));
     c.append(node('p',stampLabel(w),'meta'));
-  } else c.append(node('p',Object.keys(r.windows).length?`${periodLabel(period)} 表现 —`:'账号与来源已保存','meta'));
+  } else c.append(node('p',Object.keys(r.windows).length?`${displayPeriod(period,w)} 表现 —`:'账号与来源已保存','meta'));
   const actions=node('div',undefined,'card-actions'); actions.append(button('研究详情',()=>openDetail(r,period),'detail-button'),sourceLink(r));
   if(r._local)actions.append(button('编辑',()=>openEditor(r)),button('删除',()=>removeRecord(r)));
   c.append(actions); return c;
 }
 function readURL() {
-  const p=new URL(location.href).searchParams, defaults={period:'30D',exchange:'all',source:'all',sort:'roi',currency:'all'};
+  const p=new URL(location.href).searchParams, defaults={period:'30D',exchange:'all',source:'all',sort:'pnl',currency:'all'};
   state.explicitPeriod=periods.includes(p.get('period'));
   for(const id of controls) { const el=$(id); el.value=[...el.options].some(o=>o.value===p.get(id))?p.get(id):defaults[id]; }
   $('search').value=(p.get('q')||'').slice(0,100); const page=Number(p.get('page')); state.page=Number.isSafeInteger(page)&&page>0?page:1;
@@ -145,7 +189,7 @@ function choosePeriod() {
 function render() {
   const q=$('search').value.trim().toLocaleLowerCase(),p=$('period').value,source=$('source').value,currency=$('currency').value;
   let rows=state.rows.filter(r=>(r.name+' '+r.id+' '+r.accountId+' '+r.exchange+' '+r.note).toLocaleLowerCase().includes(q) && ($('exchange').value==='all'||r.exchange===$('exchange').value) && (source==='all'||source==='local'&&r._local||source==='paid'&&r.paid||source==='public'&&!r._local&&!r.paid) && (currency==='all'||r.currency===currency));
-  const sort=$('sort').value,grouped=sort==='pnl'&&currency==='all';
+  const sort=$('sort').value,grouped=sort==='pnl'&&currency==='all'&&new Set(rows.map(r=>r.currency)).size>1;
   rows.sort((a,b)=>{
     if(grouped&&a.currency!==b.currency)return currencies.indexOf(a.currency)-currencies.indexOf(b.currency);
     const wa=a.windows[p],wb=b.windows[p],va=sort==='winRate'?win(wa):wa?.[sort],vb=sort==='winRate'?win(wb):wb?.[sort];
@@ -158,27 +202,43 @@ function render() {
   $('featured').replaceChildren();const featured=state.rows.filter(r=>r.featured);$('featured-section').hidden=!featured.length;
   for(const r of featured) { const best=hasMetrics(r.windows.ALL)?'ALL':hasMetrics(r.windows[p])?p:periods.find(k=>hasMetrics(r.windows[k]))||p; $('featured').append(card(r,best)); }
   $('total-count').textContent=state.rows.length;$('coverage-count').textContent=state.rows.filter(r=>Object.values(r.windows).some(hasMetrics)).length;$('local-count').textContent=state.localRows.length;
-  $('count').textContent=`${rows.length} 位带单员${state.rows.length!==rows.length?' · 共 '+state.rows.length+' 位':''}${grouped?' · 按币种分组':''}`;
+  $('count').textContent=`${rows.length} 个研究账户${state.rows.length!==rows.length?' · 共 '+state.rows.length+' 个':''}${grouped?' · 按币种分组':''}`;
   $('page').textContent=rows.length?`${state.page} / ${pages}`:'0 / 0';$('prev').disabled=state.loading||!rows.length||state.page===1;$('next').disabled=state.loading||!rows.length||state.page>=pages;
 }
 function statusText() {
-  if(state.status==='error')return state.localRows.length?'公开资料暂不可用；我的资料仍可查看。':'公开资料暂不可用，可添加自己的研究资料。';
-  if(state.publicRows.length)return `公开资料 ${state.publicRows.length} 位 · 我的资料 ${state.localRows.length} 位`;
-  return state.localRows.length?'我的资料保存在当前浏览器。':'公开资料 0 位';
+  if(state.publicRows.length&&sourceIsStale())return state.lastReadFailed?'更新失败 · 仍显示上次验证的快照':'快照待更新 · 以下为最近一次成功采集的数据';
+  if(state.status==='error')return state.localRows.length?'公开资料暂不可用；我的资料仍可查看。':'公开资料暂不可用。';
+  if(state.publicRows.length)return state.source?'已接入真实公开数据':`公开资料 ${state.publicRows.length} 个`;
+  return state.localRows.length?'我的资料保存在当前浏览器。':'公开资料 0 个';
 }
-function updateView(message) { mergeRows();choosePeriod();render();$('status').textContent=statusText();if(message)feedback(message); }
+function updateView(message) { mergeRows();choosePeriod();render();renderSource();if(message)feedback(message); }
+function renderDetailStatus() {
+  const r=state.detail;let message='';
+  if(r&&isPublicAccount(r)) {
+    if(!state.publicRows.some(item=>item.id===r.id))message='该账户已不在本次收录范围，详情保留上次验证的记录。';
+    else if(sourceIsStale())message='此处显示上次验证的快照，最新数据暂未取得。';
+  }
+  $('detail-data-status').textContent=message;$('detail-data-status').hidden=!message;
+}
 function openDetail(r,p) {
   state.detail=r;state.window=p;state.tab='analysis';$('detail-title').textContent=r.name;
   $('detail-meta').textContent=`${r.exchange} · ${r.accountId||r.id} · ${r.currency}${r._local?' · 我的资料':''}`;
   renderDetail();$('detail').showModal();$('close').focus();
 }
 function renderDetail() {
-  const r=state.detail,b=$('detail-body');if(!r)return;b.replaceChildren();
+  const r=state.detail,b=$('detail-body');if(!r)return;
+  $('detail-title').textContent=r.name;$('detail-meta').textContent=`${r.exchange} · ${r.accountId||r.id} · ${r.currency}${r._local?' · 我的资料':''}`;
+  renderDetailStatus();b.replaceChildren();
   document.querySelectorAll('[data-tab]').forEach(x=>x.setAttribute('aria-pressed',String(x.dataset.tab===state.tab)));
   if(state.tab==='analysis') {
-    const w=r.windows[state.window];b.append(node('h3',`${periodLabel(state.window)} 表现`));
+    const w=r.windows[state.window];b.append(node('h3',`${displayPeriod(state.window,w)} 表现`));
+    if(isPublicAccount(r)) {
+      b.append(node('p','来源自填昵称与链上地址；未核验真人身份或带单资格。','detail-method'));
+      if(r.accountValue!=null)b.append(node('p',`账户权益 ${money(r.accountValue,'USD')} USD`,'account-equity'));
+    }
     if(hasMetrics(w)) { b.append(metrics(w,r.currency,true),node('p',stampLabel(w),'meta'));if(w.curve.length>1)b.append(chart(w));if(w.closedTrades!=null||w.wins!=null)b.append(node('p',`已关闭交易 ${value(w.closedTrades)} 笔 · 盈利交易 ${value(w.wins)} 笔`)); }
     else b.append(node('p','当前周期暂无表现记录。'));
+    if(isPublicAccount(r))b.append(node('p','收益率与盈亏直接采用来源发布值，按来源周度、月度、累计窗口展示。该快照未提供逐笔胜率、策略最大回撤或收益曲线，相关指标留空。快照文件更新时间不代表每个账户的成交时间。','detail-method'));
     if(r.note)b.append(node('h3','研究备注'),node('p',r.note,'profile-note'));
     b.append(sourceLink(r));return;
   }
@@ -253,27 +313,31 @@ function removeRecord(r) {
   if(!r._local||!confirm(`删除「${r.name}」的本机资料？`))return;
   try {commitLocal(state.localRows.filter(item=>item.id!==r.id));if(state.detail?.id===r.id){$('detail').close();state.detail=null;}updateView('已删除这份本机资料。');saveURL(true);}catch(e){feedback(e.message);}
 }
-async function refresh() {
-  if(state.loading)return;const restoreFocus=document.activeElement===$('refresh')||$('detail').open;
-  state.loading=true;$('refresh').disabled=true;$('leaders').setAttribute('aria-busy','true');$('status').textContent='正在读取资料…';
-  const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),10000);
+async function refresh(background=false) {
+  if(state.loading)return;const restoreFocus=!background&&document.activeElement===$('refresh');
+  state.loading=true;$('refresh').disabled=true;$('leaders').setAttribute('aria-busy','true');if(!background)$('status').textContent='正在检查最新快照…';
+  const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),10000);let changed=false;
   try {
     const response=await fetch('feed.json',{cache:'no-store',credentials:'omit',redirect:'error',signal:controller.signal});if(!response.ok)throw Error('公开资料暂不可用');
     if(Number(response.headers.get('content-length'))>maxBytes)fail();
     const reader=response.body.getReader(),chunks=[];let bytes=0;
     while(true){const {done,value}=await reader.read();if(done)break;bytes+=value.byteLength;if(bytes>maxBytes){await reader.cancel();fail();}chunks.push(value);}
-    const data=JSON.parse(await new Blob(chunks).text());state.publicRows=validate(data);state.status=data.status;
-  } catch(e) {state.status='error';state.publicRows=[];}
+    const serialized=await new Blob(chunks).text(),data=JSON.parse(serialized),rows=validate(data),source=validateSource(data,rows);
+    if(data.status==='unavailable'&&state.publicRows.length)throw Error('最新快照不可用');
+    changed=state.feedText!==serialized;state.feedText=serialized;state.publicRows=rows;state.source=source;state.status=data.status==='unavailable'&&data.source?.status==='error'?'error':data.status;state.lastReadFailed=state.status==='error';
+    if(state.detail&&!state.detail._local) {const latest=rows.find(r=>r.id===state.detail.id);if(latest)state.detail={...latest,_local:false};}
+  } catch(e) {state.status='error';state.lastReadFailed=true;}
   finally {
     clearTimeout(timeout);state.loading=false;$('refresh').disabled=false;$('leaders').setAttribute('aria-busy','false');
-    if(state.detail&&!state.detail._local){if($('detail').open)$('detail').close();state.detail=null;}
-    updateView();saveURL(true);if(restoreFocus&&document.activeElement===document.body)$('refresh').focus();
+    if(changed||!background)updateView();else renderSource();
+    if(changed&&state.detail&&!state.detail._local&&$('detail').open)renderDetail();
+    saveURL(true);if(restoreFocus&&document.activeElement===document.body)$('refresh').focus();
   }
 }
 for(const id of controls)$(id).addEventListener('change',()=>{if(id==='period')state.explicitPeriod=true;state.page=1;render();saveURL();});
 $('search').addEventListener('input',()=>{state.page=1;render();saveURL(true);});
-$('reset').onclick=()=>{$('search').value='';$('period').value='30D';$('exchange').value='all';$('source').value='all';$('sort').value='roi';$('currency').value='all';state.explicitPeriod=false;state.page=1;choosePeriod();render();saveURL();};
-$('prev').onclick=()=>{state.page--;render();saveURL();};$('next').onclick=()=>{state.page++;render();saveURL();};$('refresh').onclick=refresh;
+$('reset').onclick=()=>{$('search').value='';$('period').value='30D';$('exchange').value='all';$('source').value='all';$('sort').value='pnl';$('currency').value='all';state.explicitPeriod=false;state.page=1;choosePeriod();render();saveURL();};
+$('prev').onclick=()=>{state.page--;render();saveURL();};$('next').onclick=()=>{state.page++;render();saveURL();};$('refresh').onclick=()=>refresh();
 $('add-trader').onclick=()=>openEditor();
 $('record-form').addEventListener('invalid',e=>{const details=e.target.closest('details');if(details)details.open=true;},true);
 $('record-form').addEventListener('submit',saveRecord);$('record-period').addEventListener('change',changeEditorPeriod);
@@ -286,4 +350,6 @@ $('tabs').addEventListener('keydown',e=>{const i=tabs.indexOf(e.target);if(i<0)r
 $('detail').addEventListener('close',()=>{state.detail=null;});
 addEventListener('popstate',()=>{if($('detail').open)$('detail').close();readURL();choosePeriod();render();});
 readURL();loadLocal();state.loading=true;choosePeriod();render();state.loading=false;refresh();
+setInterval(()=>{renderSource();if(document.visibilityState==='visible')refresh(true);},60000);
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'){renderSource();refresh(true);}});
 })();

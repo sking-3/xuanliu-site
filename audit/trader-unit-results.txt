@@ -1,3 +1,67 @@
-PASS node audit/trader-unit.cjs
-47 logic and DOM-model tests passed. Fixtures are synthetic and are not public website data.
-PASS node --check trader/plaza.js
+PASS valid feed and unknown metrics
+PASS reject impossible date
+PASS reject non ISO date
+PASS reject future date
+PASS reject window after observation
+PASS reject wins over total
+PASS reject negative drawdown
+PASS reject drawdown over 100
+PASS reject null curve point
+PASS reject out of order curve
+PASS reject curve outside period
+PASS reject unsafe URL
+PASS reject URL credentials
+PASS reject HTTP source
+PASS reject empty name
+PASS reject trade after observation
+PASS reject nonfinite return
+PASS reject oversize note
+PASS reject invalid timestamp meaning
+PASS reject duplicate IDs and unavailable with records
+PASS sanitize unknown and privilege fields
+PASS empty profile needs no fabricated performance
+PASS tiny crypto and unknown counts retain correct meaning
+PASS initial URL and page survive remote refresh
+PASS query round trip and safe defaults
+PASS missing metrics sort last; all currencies remain visible
+PASS featured without ALL uses its actual available period
+PASS 90D-only records select 90D without overriding explicit URL
+PASS no featured rows hides the entire section
+PASS local save is atomic when browser storage is unavailable
+PASS local records retain stable identity through storage
+PASS invalid local batch cannot partially overwrite saved records
+PASS legacy unknown snapshot timestamp remains readable without false freshness
+PASS observed timestamp is not claimed as source update time
+PASS storage restore round trip has no private privilege fields
+PASS remote error retains verified public and local records, marks stale and keeps detail open
+PASS source filters distinguish local, public and paid
+PASS editor saves profile without metrics and exposes it immediately
+PASS editor rejects metric without date and reveals folded fields
+PASS editing note preserves other windows and existing curve
+PASS currency cannot silently relabel existing financial figures
+PASS window edits survive period switches
+PASS delete affects local record only
+PASS corrupt saved data prevents later writes from overwriting original
+PASS saved low-ranked record is revealed beyond the first page
+PASS removed transfer features have no script entry points
+PASS refresh deduplicates requests and clears busy state
+PASS published source feed passes UI schema and source provenance checks
+PASS reject source count mismatch
+PASS reject foreign source URL
+PASS reject source snapshot after collection
+PASS reject attempt before collection
+PASS reject different row collection time
+PASS reject false source account link
+PASS reject incorrect native period
+PASS reject missing source metadata
+PASS reject source window on manual record
+PASS freshness expires from source snapshot even if file status remains ok
+PASS missing source snapshot uses collection time without claiming a source timestamp
+PASS source failure and network failure independently mark preserved data stale
+PASS native periods never imply exact 30D or per-account trade update
+PASS public card uses compact address while detail retains full address
+PASS background refresh replaces account metrics and title without closing detail
+PASS unchanged background snapshot preserves open detail nodes and focus
+PASS an unavailable replacement preserves last-good data, detail nodes and focus with a stale status
+PASS expired-source status updates outside the focused detail content
+66 logic and DOM-model tests passed. Synthetic fixtures stay local; the published feed is checked separately.

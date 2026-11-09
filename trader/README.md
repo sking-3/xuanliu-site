@@ -1,36 +1,37 @@
-# 带单员研究名单
+# 带单员与公开账户研究
 
-此目录是 GitHub Pages 静态页面。公开 feed 与浏览器个人资料分开：`feed.json` 不含示例人物或业绩；用户手动添加的记录只保存在当前浏览器，不自动上传或向其他访客发布。
+本站在 GitHub Pages 展示公开账户表现，公开快照位于 `trader/feed.json`。个人手工记录仍仅保存在当前浏览器；页面没有文件导入或导出入口。
 
-## 页面范围
+## 已接入来源与范围
 
-页面不提供文件导入或导出入口。资料管理仅保留可选的手工添加、编辑、删除；已有浏览器资料不被删除或迁移。清除站点数据或切换设备不会自动恢复这些记录。
+Hyperliquid 官方网页使用 `https://stats-data.hyperliquid.xyz/Mainnet/leaderboard` 获取公开账户列表。首次验证收到 48,229 个账户的有效 JSON；上线快照选取来源月度盈亏最高的 200 个账户。筛选、排序只作用于这 200 个账户，不代表完整交易所名单、认证带单员或投资推荐。名单可能包括普通钱包、金库及其他账户；展示名由账户自行设置，不是实名或身份认证。
 
-公开 feed 的刷新是重新读取本站文件，不是实时采集交易所。生产 `feed.json` 仍为空，未以历史快照或测试人物填充榜单。
+- 周度、月度、累计的 ROI 和 PnL 直接采用来源对应 `week` / `month` / `allTime` 字段。ROI 小数乘 100 显示为百分比，金额口径为来源 USD。
+- `7D` / `30D` 是本站兼容键；页面将这类源端窗口显示为“周度（来源）”和“月度（来源）”，不擅自承诺精确起止时刻。
+- 账户权益直接采用 `accountValue`；零值不被视为缺失。
+- 最大回撤、逐笔胜率、交易记录和收益曲线没有充分输入，保持空值。不会用累计 PnL、钱包余额变化或盈利日比例代替。
+- `fetchedAt` 是采集时间；`snapshotAt` 是 HTTP Last-Modified 表示的来源文件时间，不是每个账户自身最后成交或更新时刻。
 
-## 数据适配准备
+## 更新与失败处理
 
-`okx-import.js` 仅保留为开发阶段的离线响应标准化模块与测试，网页不加载此脚本。它不会请求接口，也不代表线上采集已经接通。正式链路仍需可用、允许展示的官方只读数据源，并保留来源版本、采集时间及未知指标。
+`.github/workflows/refresh-traders.yml` 计划每 30 分钟执行采集，并显式发布完整 Pages artifact。GitHub 定时运行可能延迟，来源自身也可能晚于采集时间；这不是实时成交行情。
 
-## 教程评估与本次实施边界
+页面可见时每分钟检查本站小型快照，隐藏时暂停。采集失败保留上次通过校验的数据，并标记过期；超过 120 分钟也由前端独立判断时效，避免定时任务停止后仍显示“最新”。失败首次没有历史快照则展示不可用，不制造记录。
 
-可落地部分：静态 UI、字段标准化、严格响应校验、按周期展示、个人资料管理、GitHub Pages 发布。现阶段不需要先引入 Redis、时序数据库或持续运行的 FastAPI 服务。
+采集器只发一次有大小与时间限制的 HTTPS GET，不使用密钥、代理池、客户端伪装或绕过限制；对拦截、限流、非 JSON、异常结构均保守处理。39 MB 的原始来源文件仅用于云端核验，不发布进仓库或网页。公开文件仅包含选中账户的必要字段。
 
-需修正的教程内容：
+## 其他来源
 
-- OKX 榜单 `limit` 最大 20，`instType` 可省略且默认 SWAP，`dataVer` 每 10 分钟生成一版；榜单不是有保证的 1 秒实时信号。
-- `public-stats` 的盈利日/亏损日数据不能当作逐笔交易样本。胜率必须明确样本与周期；缺已关闭交易记录时保持未知。
-- 累计 PnL 不能替代权益曲线计算百分比回撤。例如本金 1,000、累计盈利从 100 降至 50，权益回撤为 50/1,100，而不是 50/100。缺权益与资金流口径时不补算 MDD。
-- 公开 REST 的限流文档不能直接套到 Binance 前端内部接口。出现限流应按来源要求停止或退避，不通过轮换代理规避限制。
-- GitHub Pages 能托管本页面的 HTML/CSS/JS，但不能常驻运行数据库、API 服务或 WebSocket Worker。未来需要持续采集与多设备同步时，再单独部署后端。
+OKX 当前云端返回 Cloudflare Error 1010 / HTTP 403，已停止尝试；Bybit 已核验端点返回 Site Unavailable HTML，尚无可展示的有效数据。它们不作为本次发布的采集依赖。`okx-import.js` 是网页未加载的离线开发模块，不代表已接通。
 
-本轮单次无密钥 OKX 请求在当前云端返回 HTTP 403；未自动重试、切换代理或发布测试返回数据。页面未启用在线采集。CORS 可用性没有得到验证。免鉴权不等于允许公开再分发；未来公开数据服务需单独核对来源授权，不能把浏览器直取当作已获再分发许可。
+## 来源证据
 
-## 官方参考
+- [Hyperliquid 官方排行榜](https://app.hyperliquid.xyz/leaderboard)
+- [官方 API 文档](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint)
+- [账户曲线口径](https://hyperliquid.gitbook.io/hyperliquid-docs/trading/portfolio-graphs)
+- [限流](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/rate-limits-and-user-limits)
+- [Terms](https://app.hyperliquid.xyz/terms)
 
-- [OKX 带单员榜单与字段](https://www.okx.com/docs-v5/en/#order-book-trading-copy-trading-get-lead-trader-ranks)
-- [OKX API Agreement](https://www.okx.com/help/okx-api-agreement)
-- [Binance Copy Trading General Info](https://developers.binance.com/en/docs/products/copy-trading/general-info)
-- [GitHub Pages 的运行范围](https://docs.github.com/en/pages/getting-started-with-github-pages/what-is-github-pages)
+2026-11-09 核验官方前端 `Leaderboard-D06I9MTf.js` 和 `config-BOv79UVk.js` 的请求路径及字段映射，并阅读 Terms（页面标注 2026-06-15 更新）。未发现一般性公开账户展示禁令，也未将 SDK 的 MIT 软件许可误作数据许可。实现不绕过访问限制或限流，不暗示官方合作。
 
-合成测试只在测试进程中运行；不写入公开 `feed.json`。
+合成测试仅在测试进程中运行，不写入生产快照。

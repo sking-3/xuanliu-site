@@ -1,0 +1,36 @@
+{
+  "url": "https://stats-data.hyperliquid.xyz/Mainnet/leaderboard",
+  "fetchedAt": "2026-11-09T20:06:55.789313+00:00",
+  "requestOrigin": "https://sking-3.github.io",
+  "httpStatus": 200,
+  "headers": {
+    "content-type": "application/json",
+    "content-length": "39437220",
+    "date": "Mon, 09 Nov 2026 19:26:39 GMT",
+    "server": "envoy",
+    "last-modified": "Mon, 09 Nov 2026 19:25:26 GMT",
+    "etag": "\"182f8bb2818ec0188f415eddbc3072e9-5\"",
+    "access-control-allow-origin": "*"
+  },
+  "bytes": 39437220,
+  "sha256": "23e2fd4ee6f91380b76a33b54a8978cecbda7ccb57610fe7c6a66b63c9c92de5",
+  "topKeys": [
+    "leaderboardRows"
+  ],
+  "rowCount": 48229,
+  "firstRowKeys": [
+    "ethAddress",
+    "accountValue",
+    "windowPerformances",
+    "prize",
+    "displayName"
+  ],
+  "endpointEvidence": [
+    "https://app.hyperliquid.xyz/leaderboard",
+    "https://app.hyperliquid.xyz/assets/Leaderboard-D06I9MTf.js",
+    "https://app.hyperliquid.xyz/assets/config-BOv79UVk.js"
+  ],
+  "scope": "Public on-chain accounts; user-selected display names are not identity verification.",
+  "selection": "Top 200 valid accounts by source month.pnl, descending; sorting in Books is limited to this subset.",
+  "snapshotTimestampSemantics": "HTTP Last-Modified is source artifact timestamp, not each account last activity."
+}

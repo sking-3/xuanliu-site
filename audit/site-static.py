@@ -2,7 +2,8 @@
 from pathlib import Path
 from lxml import html
 from urllib.parse import urlsplit, unquote, parse_qs
-import hashlib,json,re
+import hashlib,json,re,math
+from datetime import datetime
 root=Path(__file__).resolve().parents[1]
 checks=0
 
@@ -65,7 +66,45 @@ for p in pages:
   q=parse_qs(urlsplit(link.get('href')).query)
   if 'tvwidgetsymbol' in q:check(q['tvwidgetsymbol'][0] in supported,f'{p}: unsupported chart link')
 feed=json.loads((root/'trader/feed.json').read_text())
-check(feed['status']=='unavailable' and feed['traders']==[], 'Real trader data unavailable, no fake rows')
+check(feed.get('schemaVersion')==1 and feed.get('status')=='ready', 'real public-account feed is ready')
+rows=feed.get('traders',[]); source=feed.get('source',{})
+check(0<len(rows)<=200 and len((root/'trader/feed.json').read_bytes())<2097152, 'bounded public-account snapshot')
+check(source.get('id')=='hyperliquid' and source.get('selectedAccounts')==len(rows), 'public source and selected-account count match')
+check(isinstance(source.get('totalAccounts'),int) and source['totalAccounts']>=len(rows), 'selected subset does not claim complete coverage')
+check(source.get('refreshIntervalMinutes')==30 and source.get('staleAfterMinutes')==120, 'collection cadence and freshness threshold explicitly declared')
+check(source.get('status') in ('ok','stale'), 'snapshot failure state declared')
+check(bool(re.fullmatch('[0-9a-f]{64}',source.get('rawSha256',''))), 'source-response digest retained without publishing the raw payload')
+for key in ('fetchedAt','lastAttemptAt'):
+ check(isinstance(source.get(key),str) and datetime.fromisoformat(source[key].replace('Z','+00:00')).tzinfo is not None, 'source timestamps include timezone: '+key)
+if source.get('snapshotAt') is not None:
+ check(datetime.fromisoformat(source['snapshotAt'].replace('Z','+00:00'))<=datetime.fromisoformat(source['fetchedAt'].replace('Z','+00:00')), 'snapshot generation does not postdate collection')
+seen=set()
+for row in rows:
+ address=row.get('accountId','').lower()
+ check(bool(re.fullmatch('0x[0-9a-f]{40}',address)) and address not in seen, 'distinct on-chain public account')
+ seen.add(address)
+ check(row.get('sourceKind')=='public_account' and row.get('exchange')=='Hyperliquid' and row.get('currency')=='USD' and not row.get('featured') and not row.get('paid'), 'source currency and public scope retained')
+ check(row.get('sourceUrl')=='https://app.hyperliquid.xyz/explorer/address/'+address, 'account links point to the exact official address')
+ check(set(row.get('windows',{}))=={'7D','30D','ALL'}, 'only source-supported windows are published')
+ for period,native in [('7D','week'),('30D','month'),('ALL','allTime')]:
+  window=row['windows'][period]
+  check(window.get('sourcePeriod')==native, 'native performance window is retained')
+  check(all(window.get(k) is None for k in ('mdd','wins','closedTrades')) and window.get('curve')==[], 'no inferred drawdown, win rate or fabricated curve')
+  check(all(window.get(k) is None or isinstance(window[k],(int,float)) and math.isfinite(window[k]) for k in ('roi','pnl')), 'public metrics are finite or explicitly missing')
+ check(all(row.get(k)==[] for k in ('positions','points','orders')), 'unfetched account records stay empty')
+# The original payload stays outside the published tree. When present, independently
+# compare the complete selected set and every source metric with that actual response.
+raw_path=root.parent/'hl_live_20261110/leaderboard-source.json'
+if raw_path.is_file() and source.get('rawSha256')==hashlib.sha256(raw_path.read_bytes()).hexdigest():
+ raw=json.loads(raw_path.read_text())['leaderboardRows']
+ by_address={r['ethAddress'].lower():r for r in raw}
+ ranked=sorted(raw,key=lambda r:(-float(dict(r['windowPerformances'])['month']['pnl']),r['ethAddress'].lower()))[:200]
+ check(set(seen)=={r['ethAddress'].lower() for r in ranked}, 'published accounts are the actual source monthly-PnL top 200')
+ for row in rows:
+  native=dict(by_address[row['accountId'].lower()]['windowPerformances'])
+  for period,key in [('7D','week'),('30D','month'),('ALL','allTime')]:
+   for metric,multiplier in [('roi',100),('pnl',1)]:
+    check(math.isclose(row['windows'][period][metric],float(native[key][metric])*multiplier,rel_tol=1e-12,abs_tol=1e-9), 'published performance equals source value with correct unit conversion')
 trader_page=html.fromstring((root/'trader/index.html').read_text())
 check(not trader_page.xpath('//*[@id="import-trigger" or @id="export-records" or @id="import-file"]'), 'trader file import/export controls removed')
 check(not trader_page.xpath('//script[contains(@src,"okx-import.js")]'), 'trader page does not load the offline file adapter')
@@ -74,7 +113,7 @@ check('本页无外部请求' not in (root/'screening/history.html').read_text()
 check('"showChart":false' in (root/'index.html').read_text(),'Home compact market cards preserved')
 # Preserve the latest concurrent navigation/trader work, without requiring a Git checkout.
 base=root.parent/'attribution_base_20261110'
-for path in ['books-shell.js','books-ui.css','index-ticker.js','trader/feed.json']:
+for path in ['books-shell.js','books-ui.css','index-ticker.js']:
  check((root/path).read_bytes()==(base/path).read_bytes(),f'{path}: concurrent work unchanged')
 # The header is intentionally in scope: verify its replacement configuration instead.
 strip=html.fromstring((root/'market-strip.html').read_text())
