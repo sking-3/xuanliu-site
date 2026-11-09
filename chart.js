@@ -2,6 +2,7 @@
 (() => {
   const symbols = new Map([
     ['SSE:000001','上证指数'], ['SZSE:399001','深证成指'], ['SZSE:399006','创业板指'],
+    ['SSE:000688','科创50'], ['HSI:HSI','恒生指数'], ['FRED:NDQCOM','纳斯达克综合 · 日终'],
     ['SSE:600519','贵州茅台'], ['SZSE:000001','平安银行'], ['SZSE:300750','宁德时代'],
     ['NASDAQ:AAPL','Apple'], ['NASDAQ:MSFT','Microsoft'], ['NASDAQ:NVDA','NVIDIA'],
     ['NASDAQ:AMZN','Amazon'], ['NASDAQ:GOOGL','Alphabet'], ['NASDAQ:META','Meta'], ['NASDAQ:TSLA','Tesla'],
@@ -45,11 +46,15 @@
     canonicalUrl.searchParams.set('tvwidgetsymbol', symbol);
     history.replaceState(history.state, '', canonicalUrl.href);
   }
+  const closeOnly = symbol.startsWith('FRED:');
+  const chartKind = closeOnly ? '日终走势' : 'K线';
   title.textContent = symbols.get(symbol);
-  document.title = symbols.get(symbol) + ' · K线 · Books';
+  document.title = symbols.get(symbol) + ' · ' + chartKind + ' · Books';
   document.getElementById('chart-symbol').textContent = symbol;
   document.getElementById('chart-data-note').textContent = symbol.startsWith('SSE:') || symbol.startsWith('SZSE:')
     ? 'A股日终数据，非盘中实时。可用性以 TradingView 组件为准。'
+    : symbol.startsWith('HSI:') ? '恒生指数日终数据，非盘中实时。可用性以 TradingView 组件为准。'
+    : closeOnly ? '纳斯达克综合指数 · FRED 每日收盘序列，仅绘制收盘走势，不表示盘中K线。更新日期与可用性以来源为准。'
     : symbol.startsWith('COINBASE:') ? 'Coinbase 现货 / USD。报价时间与可用性以 TradingView 组件为准。'
     : '美股行情可能延迟。报价时间与可用性以 TradingView 组件为准。';
   let generation = 0, timer, observer;
@@ -59,7 +64,7 @@
     if (observer) observer.disconnect();
     const host = document.getElementById('chart-widget');
     host.replaceChildren();
-    status.textContent = '正在请求第三方K线。图表及数据是否可用，请以组件内显示为准。';
+    status.textContent = '正在请求第三方图表。图表及数据是否可用，请以组件内显示为准。';
     const container = document.createElement('div');
     container.className = 'tradingview-widget-container';
     const slot = document.createElement('div');
@@ -75,7 +80,7 @@
     observer = new MutationObserver(() => {
       const frame = container.querySelector('iframe');
       if (frame && current === generation) {
-        frame.title = symbols.get(symbol) + ' K线图（TradingView）';
+        frame.title = symbols.get(symbol) + ' ' + chartKind + '（TradingView）';
         status.textContent = '已嵌入第三方图表；不代表已取得行情。数据、时间与错误提示以组件内显示为准。';
         clearTimeout(timer); observer.disconnect();
       }
@@ -84,7 +89,7 @@
     const script = document.createElement('script');
     script.src = 'https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js';
     script.async = true;
-    script.textContent = JSON.stringify({autosize:true, symbol, interval:'D', timezone:'Asia/Shanghai', theme:'light', style:'1', locale:'zh_CN', allow_symbol_change:false, calendar:false, hide_top_toolbar:false, hide_legend:false, support_host:'https://www.tradingview.com'});
+    script.textContent = JSON.stringify({autosize:true, symbol, interval:'D', timezone:'Asia/Shanghai', theme:'light', style:closeOnly ? '3' : '1', locale:'zh_CN', allow_symbol_change:false, calendar:false, hide_top_toolbar:false, hide_legend:false, support_host:'https://www.tradingview.com'});
     script.onerror = () => { if (current === generation) { clearTimeout(timer); status.textContent = '第三方图表脚本未能加载，请重试。本站不会用模拟K线替代。'; } };
     timer = setTimeout(() => { if (current === generation) status.textContent = '图表尚未确认加载，可能受网络或来源限制。可重试；空白不代表零价格。'; }, 15000);
     container.append(script);
