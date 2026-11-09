@@ -159,6 +159,14 @@ await test('record cache is bounded to 200 and callers cannot mutate internal da
   const e=env();await e.client.ensurePortfolio(A);const s=e.client.get(A);s.portfolio.windows['30D'].mdd=999;assert.notEqual(e.client.get(A).portfolio.windows['30D'].mdd,999);
   for(let i=3;i<204;i++)e.client.get(addr(i));assert.equal(e.client.get(A).portfolio.status,'idle');assert.throws(()=>e.client.get('not-an-account'));assert.throws(()=>e.client.setPortfolioTargets(Array(13).fill(A)));e.client.destroy();
 });
+await test('portfolio-only targets automatically fetch curves without requesting closing fills',async()=>{
+  const e=env(),accounts=Array.from({length:12},(_,i)=>addr(i+1));e.client.setPortfolioTargets(accounts);
+  for(let i=0;i<5;i++)await e.flush();
+  assert.equal(e.calls.length,12);assert(e.calls.every(c=>c.body.type==='portfolio'));
+  assert(accounts.every(a=>e.client.get(a).portfolio.status==='ready'&&e.client.get(a).win.status==='idle'));
+  e.client.setPortfolioTargets(accounts);await e.flush();assert.equal(e.calls.length,12);
+  e.client.setVisible(false);e.client.setVisible(true);await e.flush();assert.equal(e.calls.length,12);e.client.destroy();
+});
 await test('automatic targets load curves first and wins without clicks, with shared cache and budget',async()=>{
   const e=env(),accounts=Array.from({length:12},(_,i)=>addr(i+1));e.client.setTargets(accounts);
   for(let i=0;i<5;i++)await e.flush();

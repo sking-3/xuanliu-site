@@ -227,3 +227,9 @@ th{color:#728098;font-weight:500;background:#fbfcfe}
 @media(max-width:1159px){.books-shell.trader-page .cards{grid-template-columns:repeat(2,minmax(0,1fr))}.books-shell.trader-page .card{padding:24px}.books-shell.trader-page .card .performance-body{gap:18px}}
 @media(max-width:760px){.books-shell.trader-page .cards{grid-template-columns:minmax(0,1fr);gap:18px}.books-shell.trader-page .card{padding:20px;min-height:282px}.books-shell.trader-page .card .performance-body{gap:16px}.books-shell.trader-page .card-links .detail-button{min-height:36px;padding:6px 11px}.books-shell.trader-page .card-links .source-link{min-height:36px;font-size:11px}}
 @media(max-width:360px){.books-shell.trader-page .card{padding:17px}.books-shell.trader-page .card-top{grid-template-columns:30px minmax(0,1fr) auto;gap:8px}.books-shell.trader-page .card .avatar{width:30px;height:30px}.books-shell.trader-page .card-links{gap:6px}.books-shell.trader-page .card .performance-body{grid-template-columns:minmax(140px,1.2fr) minmax(0,1fr);gap:12px}.books-shell.trader-page .card .roi{font-size:31px}.books-shell.trader-page .card .roi.long-roi{font-size:23px}.books-shell.trader-page .card .performance-body .metrics>div{gap:5px}}
+
+/* Cached closing-fill results remain visible while the background snapshot updates. */
+.books-shell.trader-page .card .win-cache-note{margin:6px 0 0;font-size:10px;line-height:1.5;color:#7e8b9c;font-variant-numeric:tabular-nums}
+.books-shell.trader-page .card .win-cache-note[data-state=stale],.win-cache-status[data-state=stale]{color:#9b702b}
+.books-shell.trader-page .card .performance-body{min-height:140px}
+.books-shell.trader-page .card .performance-chart{min-height:140px}

@@ -6,7 +6,7 @@ const exchanges = ['Binance','OKX','Hyperliquid','Gate','Bitget','Bybit','Polyma
 const currencies = ['USDT','USD','USDC','BTC','ETH'];
 const controls = ['period','exchange','source','sort','currency'];
 const storageKey = 'books.trader.records.v1', maxBytes = 2097152;
-const state = {status:'unavailable', publicRows:[], localRows:[], rows:[], page:1, detail:null, window:'30D', tab:'analysis', loading:false, explicitPeriod:false, editor:null, storageReadError:false, revealId:null, source:null, lastReadFailed:false, feedText:null, liveClient:null, liveUser:null, liveData:null, liveView:null, liveVersion:0, positionExclusions:Object.create(null), analytics:Object.create(null), analyticsClient:null, analyticsViews:[], analyticsTargets:[], chartSeq:0};
+const state = {status:'unavailable', publicRows:[], localRows:[], rows:[], page:1, detail:null, window:'30D', tab:'analysis', loading:false, explicitPeriod:false, editor:null, storageReadError:false, revealId:null, source:null, lastReadFailed:false, feedText:null, liveClient:null, liveUser:null, liveData:null, liveView:null, liveVersion:0, positionExclusions:Object.create(null), analytics:Object.create(null), analyticsClient:null, analyticsViews:[], analyticsTargets:[], winCache:Object.create(null), winCacheLoading:false, winCacheReadFailed:false, winCacheGeneratedAt:null, chartSeq:0};
 const fail = () => { throw Error('数据格式未通过校验，未展示此批记录。'); };
 const text = (v, n=200) => typeof v === 'string' && v.trim().length > 0 && v.length <= n ? v.trim() : fail();
 const optionalText = (v,n) => v === undefined || v === '' ? '' : text(v,n);
@@ -107,6 +107,68 @@ function validateSource(p,rows) {
   const result={id:s.id,url:s.url,label:text(s.label,80),selection:text(s.selection,250),totalAccounts,selectedAccounts,fetchedAt,snapshotAt,lastAttemptAt,refreshIntervalMinutes:30,staleAfterMinutes:120,status:s.status};
   if(positionVerification)result.positionVerification=positionVerification;
   return result;
+}
+// This same-origin file contains only precomputed public-account aggregates.
+// A fetched snapshot never starts per-account成交 requests in the visitor's browser.
+function validateWinCache(p) {
+  if(!p||typeof p!=='object'||Array.isArray(p)||p.schemaVersion!==1||p.methodVersion!=='closing-fill-v1'||!p.accounts||typeof p.accounts!=='object'||Array.isArray(p.accounts)||Object.keys(p.accounts).length>200)fail();
+  const generatedAt=date(p.generatedAt),generated=Date.parse(generatedAt),accounts=Object.create(null);if(generated>Date.now()+5000)fail();
+  for(const [address,entry] of Object.entries(p.accounts)) {
+    if(!/^0x[0-9a-f]{40}$/.test(address)||!entry||typeof entry!=='object'||Array.isArray(entry)||!['ready','stale','unavailable'].includes(entry.status))fail();
+    const fetchedAt=entry.fetchedAt===null?null:date(entry.fetchedAt),lastAttemptAt=entry.lastAttemptAt===null?null:date(entry.lastAttemptAt);
+    if(fetchedAt&&(Date.parse(fetchedAt)>generated+5000||Date.parse(fetchedAt)>Date.now()+5000)||lastAttemptAt&&(Date.parse(lastAttemptAt)>generated+5000||Date.parse(lastAttemptAt)>Date.now()+5000))fail();
+    const errorCode=entry.errorCode==null?null:text(entry.errorCode,80);
+    if(entry.win===null) {if(fetchedAt!==null||entry.status!=='unavailable')fail();accounts[address]={status:'unavailable',fetchedAt:null,lastAttemptAt,errorCode,win:null};continue;}
+    if(!fetchedAt||entry.status==='unavailable')fail();
+    const w=entry.win;
+    if(!w||typeof w!=='object'||Array.isArray(w)||w.method!=='closing_fill_net_of_closing_fee'||w.scope!=='default_perp_dex'||w.unit!=='percent'||w.feeToken!=='USDC'||w.historyComplete!==false||w.includesOpeningFees!==false||w.includesFunding!==false||typeof w.capped!=='boolean')fail();
+    const clean={method:w.method,scope:w.scope,unit:w.unit,feeToken:w.feeToken,historyComplete:false,includesOpeningFees:false,includesFunding:false,capped:w.capped};
+    for(const key of ['winning','losing','breakeven','eligibleCount','totalFills','receivedFills','duplicateCount','excludedCount']) {
+      if(!Number.isSafeInteger(w[key])||w[key]<0||w[key]>2000)fail();clean[key]=w[key];
+    }
+    if(w.winning+w.losing+w.breakeven!==w.eligibleCount||w.eligibleCount+w.excludedCount!==w.totalFills||w.totalFills+w.duplicateCount!==w.receivedFills||w.capped!==(w.receivedFills===2000))fail();
+    clean.value=num(w.value);
+    if(w.eligibleCount===0?clean.value!==null:clean.value===null||clean.value<0||clean.value>100||Math.abs(clean.value-w.winning/w.eligibleCount*100)>1e-8)fail();
+    for(const key of ['startAt','endAt','sourceSampleStartAt','sourceSampleEndAt']) {
+      clean[key]=w[key]===null?null:date(w[key]);if(clean[key]&&(Date.parse(clean[key])>Date.parse(fetchedAt)+5000||Date.parse(clean[key])>Date.now()+5000))fail();
+    }
+    for(const [count,start,end]of [[w.eligibleCount,clean.startAt,clean.endAt],[w.totalFills,clean.sourceSampleStartAt,clean.sourceSampleEndAt]]) {
+      if(count===0?(start!==null||end!==null):(!start||!end||Date.parse(start)>Date.parse(end)))fail();
+    }
+    if(clean.startAt&&(Date.parse(clean.startAt)<Date.parse(clean.sourceSampleStartAt)||Date.parse(clean.endAt)>Date.parse(clean.sourceSampleEndAt)))fail();
+    accounts[address]={status:entry.status,fetchedAt,lastAttemptAt,errorCode,win:clean};
+  }
+  return {generatedAt,accounts};
+}
+function cachedWin(r) {return isPublicAccount(r)?state.winCache[r.accountId]||null:null;}
+function winCacheIsStale(entry,now=Date.now()) {return !!entry?.win&&(state.winCacheReadFailed||entry.status!=='ready'||now-Date.parse(entry.fetchedAt)>3600000);}
+function compactCacheTime(stamp,stale=false) {
+  const d=new Date(stamp),today=new Date(),sameDay=d.toDateString()===today.toDateString();
+  return d.toLocaleString('zh-CN',{hour12:false,...(!sameDay||stale?{month:'2-digit',day:'2-digit'}:{}),hour:'2-digit',minute:'2-digit'});
+}
+function fillWinCacheNote(r,target) {
+  const entry=cachedWin(r),w=entry?.win,stale=winCacheIsStale(entry);
+  target.textContent=w?`平仓样本 ${w.eligibleCount} 笔 · ${stale?'陈旧':'采集'} ${compactCacheTime(entry.fetchedAt,stale)}`:'平仓样本 —';
+  target.setAttribute('data-state',stale?'stale':w?'ready':'unavailable');
+  target.setAttribute('title',w?`后台采集 ${timeLabel(entry.fetchedAt)}；${w.eligibleCount?`平仓样本 ${timeLabel(w.startAt)} 至 ${timeLabel(w.endAt)}`:'来源没有可统计的平仓样本'}；与所选表现周期独立${stale?'；显示上次成功结果，等待后台更新':''}`:'后台尚未取得有效平仓样本；资料不足时留空');
+}
+async function refreshWinCache() {
+  if(state.winCacheLoading)return;state.winCacheLoading=true;
+  const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),10000);
+  try {
+    const response=await fetch('analytics.json',{cache:'no-store',credentials:'omit',redirect:'error',signal:controller.signal});
+    if(!response.ok||!/application\/(?:[\w.+-]*\+)?json(?:\s*;|$)/i.test(response.headers.get('content-type')||'')||Number(response.headers.get('content-length'))>maxBytes)fail();
+    const reader=response.body.getReader(),chunks=[];let bytes=0;
+    while(true){const {done,value}=await reader.read();if(done)break;bytes+=value.byteLength;if(bytes>maxBytes){await reader.cancel();fail();}chunks.push(value);}
+    const payload=validateWinCache(JSON.parse(await new Blob(chunks).text()));
+    if(state.winCacheGeneratedAt&&Date.parse(payload.generatedAt)<Date.parse(state.winCacheGeneratedAt))fail();
+    for(const [address,incoming]of Object.entries(payload.accounts)) {
+      const previous=state.winCache[address];
+      if(previous?.win&&(!incoming.win||Date.parse(incoming.fetchedAt)<Date.parse(previous.fetchedAt)))payload.accounts[address]={...previous,status:'stale',lastAttemptAt:incoming.lastAttemptAt||previous.lastAttemptAt,errorCode:incoming.errorCode||'older_result'};
+    }
+    state.winCache=payload.accounts;state.winCacheGeneratedAt=payload.generatedAt;state.winCacheReadFailed=false;
+  } catch {state.winCacheReadFailed=true;}
+  finally {clearTimeout(timeout);state.winCacheLoading=false;for(const address of new Set(state.analyticsViews.map(v=>v.r.accountId)))refreshAnalyticsViews(address);}
 }
 function sourceIsStale(now=Date.now()) {
   if(state.lastReadFailed)return true;
@@ -210,17 +272,13 @@ function mddReason(reason) {return ({non_positive_peak_equity:'该窗口部分�
 function metrics(w,currency,includeROI=false,r=null,period=null) {
   const el=node('div',undefined,'metrics');
   const publicAccount=r&&isPublicAccount(r),record=publicAccount?state.analytics[r.accountId]:null,window=record?.portfolio?.status==='ready'?record.portfolio.windows[period]:null;
-  const drawdown=publicAccount?window?.mdd:w?.mdd;
-  const items=[['盈亏 '+currency,signedValue(w?.pnl,includeROI?money(w?.pnl,currency):compactMoney(w?.pnl,currency)),w?.pnl==null?'—':signedValue(w.pnl,money(w.pnl,currency))+' '+currency,directionClass(w?.pnl)],[publicAccount?'来源采样回撤':'最大回撤',pct(drawdown),undefined,drawdown==null?'':'negative'],[publicAccount?'平仓成交胜率':'逐笔胜率',pct(publicAccount?(record?.win?.status==='ready'?record.win.value:null):win(w))]];
+  const drawdown=publicAccount?window?.mdd:w?.mdd,winEntry=publicAccount?cachedWin(r):null;
+  const items=[['盈亏 '+currency,signedValue(w?.pnl,includeROI?money(w?.pnl,currency):compactMoney(w?.pnl,currency)),w?.pnl==null?'—':signedValue(w.pnl,money(w.pnl,currency))+' '+currency,directionClass(w?.pnl)],[publicAccount?'来源采样回撤':'最大回撤',pct(drawdown),undefined,drawdown==null?'':'negative'],[publicAccount?'平仓成交胜率':'逐笔胜率',pct(publicAccount?winEntry?.win?.value:win(w))]];
   if(includeROI)items.unshift(['收益率',signedValue(w?.roi,pct(w?.roi)),undefined,directionClass(w?.roi)]);
   for(const [label,v,exact,color]of items) {
     const c=node('div'),amount=node('strong',v,color);amount.setAttribute('title',exact||v);c.append(node('small',label),amount);
-    if(publicAccount&&label==='平仓成交胜率'&&record?.win?.status!=='ready') {
-      const status=record?.win?.status;amount.textContent=status==='queued'?'排队中':status==='loading'?'读取中':'—';
-      amount.setAttribute('title',status==='error'?'成交读取失败；可在研究详情重试':'自动统计最近最多 2000 笔成交中的永续平仓样本；与所选表现周期独立');
-    }
     if(publicAccount&&label==='来源采样回撤')amount.setAttribute('title',window?.mdd==null?mddReason(window?.mddUnavailableReason):`${pct(window.mdd)} · 来源采样口径，非策略净值回撤`);
-    if(publicAccount&&label==='平仓成交胜率'&&record?.win?.status==='ready')amount.setAttribute('title',`${record.win.eligibleCount} 笔平仓成交样本，独立于所选表现周期；完整范围见研究详情`);
+    if(publicAccount&&label==='平仓成交胜率')amount.setAttribute('title',winEntry?.win?`${winEntry.win.eligibleCount} 笔平仓成交样本，独立于所选表现周期；后台采集 ${timeLabel(winEntry.fetchedAt)}${winCacheIsStale(winEntry)?'；上次成功结果，待更新':''}`:'尚未取得有效后台统计；资料不足时留空');
     el.append(c);
   }
   return el;
@@ -240,18 +298,20 @@ function refreshAnalyticsViews(address) {
   for(const view of state.analyticsViews.filter(v=>v.r.accountId===address)) {
     const fresh=metrics(view.r.windows[view.period],view.r.currency,view.kind==='detail',view.r,view.period);
     view.metrics.replaceChildren(...fresh.children);fillPerformanceGraph(view.r,view.period,view.graph);
+    if(view.winNote)fillWinCacheNote(view.r,view.winNote);
     if(view.kind==='detail') {
-      const record=state.analytics[address],portfolio=record?.portfolio,window=portfolio?.windows?.[view.period],win=record?.win;
+      const record=state.analytics[address],portfolio=record?.portfolio,window=portfolio?.windows?.[view.period],entry=cachedWin(view.r),win=entry?.win;
       view.portfolioStatus.textContent=portfolio?.status==='ready'?(window?.sampleCount>1?`来源采样 ${window.sampleCount} 点 · ${timeLabel(window.startAt)} 至 ${timeLabel(window.endAt)}${window.mdd==null?' · '+mddReason(window.mddUnavailableReason):''}`:'来源未提供当前周期的有效曲线样本。'):portfolio?.status==='error'?'曲线读取失败，尚未取得可用数据。':portfolio?.status==='queued'?'正在排队读取来源盈亏曲线…':portfolio?.status==='loading'?'正在读取来源盈亏曲线…':'尚未取得当前窗口的盈亏曲线。';
-      view.winStatus.textContent=win?.status==='ready'?(win.eligibleCount?`平仓成交 ${win.eligibleCount} 笔 · 盈利 ${win.winning} · 亏损 ${win.losing} · 持平 ${win.breakeven}；${timeLabel(win.startAt)} 至 ${timeLabel(win.endAt)}`:'最近成交中没有可统计的永续平仓样本。'):win?.status==='error'?'成交读取失败，尚未取得可统计样本。':win?.status==='queued'?'正在排队读取最近成交…':win?.status==='loading'?'正在读取最近成交…':'最近最多 2000 笔成交中的平仓样本，自动分批更新。';
+      view.winStatus.textContent=win?(win.eligibleCount?`平仓成交 ${win.eligibleCount} 笔 · 盈利 ${win.winning} · 亏损 ${win.losing} · 持平 ${win.breakeven}；样本 ${timeLabel(win.startAt)} 至 ${timeLabel(win.endAt)}`:'最近成交中没有可统计的永续平仓样本。')+` · 后台采集 ${timeLabel(entry.fetchedAt)}${entry.lastAttemptAt?' · 最近尝试 '+timeLabel(entry.lastAttemptAt):''}${winCacheIsStale(entry)?' · 上次成功结果，等待后台更新':''}`:'后台尚未取得有效平仓样本；取得后自动显示。'+(entry?.lastAttemptAt?' · 最近尝试 '+timeLabel(entry.lastAttemptAt):'');
+      view.winStatus.setAttribute('data-state',winCacheIsStale(entry)?'stale':win?'ready':'unavailable');
       view.portfolioButton.hidden=portfolio?.status!=='error';view.portfolioButton.disabled=['queued','loading'].includes(portfolio?.status);
-      view.winButton.hidden=win?.status!=='error';view.winButton.disabled=false;
+
     }
   }
 }
 function startVisibleAnalytics(rows) {
   const accounts=[...new Set(rows.filter(r=>canReadLive(r)&&qualifiedPosition(r)).map(r=>r.accountId))].slice(0,12),client=accounts.length?ensureAnalyticsClient():state.analyticsClient;
-  state.analyticsTargets=accounts;client?.setTargets(accounts);
+  state.analyticsTargets=accounts;client?.setPortfolioTargets(accounts);
 }
 function card(r,period) {
   const w=r.windows[period],c=node('article',undefined,'card'),top=node('div',undefined,'card-top'),identity=node('div',undefined,'card-identity'),links=node('div',undefined,'card-links');
@@ -270,7 +330,7 @@ function card(r,period) {
     stats.append(roi,node('div',`${displayPeriod(period,w)} 收益率`,'roi-label'));
     const figures=metrics(w,r.currency,false,r,period);stats.append(figures);fillPerformanceGraph(r,period,graph);
     performance.append(stats,graph);c.append(performance);
-    if(isPublicAccount(r))state.analyticsViews.push({kind:'card',r,period,metrics:figures,graph});
+    if(isPublicAccount(r)){const winNote=node('p',undefined,'win-cache-note');fillWinCacheNote(r,winNote);c.append(winNote);state.analyticsViews.push({kind:'card',r,period,metrics:figures,graph,winNote});}
   } else c.append(node('p',Object.keys(r.windows).length?`${displayPeriod(period,w)} 表现 —`:'账号与来源已保存','meta'));
   if(r.note)c.append(node('p',r.note,'profile-note'));
   if(r._local){const actions=node('div',undefined,'card-actions');actions.append(button('编辑',()=>openEditor(r)),button('删除',()=>removeRecord(r)));c.append(actions);}
@@ -297,11 +357,11 @@ function render() {
   const q=$('search').value.trim().toLocaleLowerCase(),p=$('period').value,source=$('source').value,currency=$('currency').value;
   const available=state.rows.filter(r=>qualifiedPosition(r)&&((source==='local')?r._local:!r._local));
   let rows=available.filter(r=>(r.name+' '+r.id+' '+r.accountId+' '+r.exchange+' '+r.note).toLocaleLowerCase().includes(q) && ($('exchange').value==='all'||r.exchange===$('exchange').value) && (source==='all'||source==='local'&&r._local||source==='paid'&&r.paid||source==='public'&&!r._local&&!r.paid) && (currency==='all'||r.currency===currency));
-  $('sort-hint').textContent=['mdd','winRate'].includes($('sort').value)?'按已计算账户排序 · 未计算账户排在后面 · 新结果在重新选择排序后应用':'仅显示已核验持仓账户 · 永续主市场';
+  $('sort-hint').textContent=['mdd','winRate'].includes($('sort').value)?'按已有指标排序 · 缺数账户排在后面 · 新结果在重新选择排序后应用':'仅显示已核验持仓账户 · 永续主市场';
   const sort=$('sort').value,grouped=sort==='pnl'&&currency==='all'&&new Set(rows.map(r=>r.currency)).size>1;
   rows.sort((a,b)=>{
     if(grouped&&a.currency!==b.currency)return currencies.indexOf(a.currency)-currencies.indexOf(b.currency);
-    const sortable=r=>{const w=r.windows[p],record=isPublicAccount(r)?state.analytics[r.accountId]:null;if(isPublicAccount(r)&&sort==='mdd')return record?.portfolio?.status==='ready'?record.portfolio.windows[p]?.mdd:null;if(isPublicAccount(r)&&sort==='winRate')return record?.win?.status==='ready'?record.win.value:null;return sort==='winRate'?win(w):w?.[sort];},va=sortable(a),vb=sortable(b);
+    const sortable=r=>{const w=r.windows[p],record=isPublicAccount(r)?state.analytics[r.accountId]:null;if(isPublicAccount(r)&&sort==='mdd')return record?.portfolio?.status==='ready'?record.portfolio.windows[p]?.mdd:null;if(isPublicAccount(r)&&sort==='winRate')return cachedWin(r)?.win?.value??null;return sort==='winRate'?win(w):w?.[sort];},va=sortable(a),vb=sortable(b);
     if(va==null&&vb==null)return a.id.localeCompare(b.id);if(va==null)return 1;if(vb==null)return -1;
     return (sort==='mdd'?va-vb:vb-va)||a.id.localeCompare(b.id);
   });
@@ -430,8 +490,8 @@ function renderDetail() {
     if(hasMetrics(w)) {
       const figures=metrics(w,r.currency,true,r,state.window);b.append(figures,node('p',stampLabel(w),'meta'));
       if(isPublicAccount(r)) {
-        const graph=node('div',undefined,'detail-pnl-chart'),portfolioStatus=node('p',undefined,'meta'),portfolioButton=button('重试曲线',()=>ensureAnalyticsClient()?.ensurePortfolio(r.accountId,{force:true}),'portfolio-retry'),winStatus=node('p',undefined,'meta'),winButton=button('重试胜率',()=>ensureAnalyticsClient()?.ensureWinRate(r.accountId,{force:true}),'win-load');
-        portfolioButton.hidden=true;winButton.hidden=true;b.append(graph,portfolioStatus,portfolioButton,winStatus,winButton);state.analyticsViews.push({kind:'detail',r,period:state.window,metrics:figures,graph,portfolioStatus,portfolioButton,winStatus,winButton});refreshAnalyticsViews(r.accountId);if(state.analyticsTargets.includes(r.accountId)){const client=ensureAnalyticsClient();client?.ensurePortfolio(r.accountId);client?.ensureWinRate(r.accountId);}
+        const graph=node('div',undefined,'detail-pnl-chart'),portfolioStatus=node('p',undefined,'meta'),portfolioButton=button('重试曲线',()=>ensureAnalyticsClient()?.ensurePortfolio(r.accountId,{force:true}),'portfolio-retry'),winStatus=node('p',undefined,'meta win-cache-status');
+        portfolioButton.hidden=true;b.append(graph,portfolioStatus,portfolioButton,winStatus);state.analyticsViews.push({kind:'detail',r,period:state.window,metrics:figures,graph,portfolioStatus,portfolioButton,winStatus});refreshAnalyticsViews(r.accountId);if(state.analyticsTargets.includes(r.accountId))ensureAnalyticsClient()?.ensurePortfolio(r.accountId);
       }else {if(w.curve.length>1)b.append(chart(w));if(w.closedTrades!=null||w.wins!=null)b.append(node('p',`已关闭交易 ${value(w.closedTrades)} 笔 · 盈利交易 ${value(w.wins)} 笔`));}
     }
     else b.append(node('p','当前周期暂无表现记录。'));
@@ -511,7 +571,7 @@ function removeRecord(r) {
   try {commitLocal(state.localRows.filter(item=>item.id!==r.id));if(state.detail?.id===r.id){$('detail').close();state.detail=null;}updateView('已删除这份本机资料。');saveURL(true);}catch(e){feedback(e.message);}
 }
 async function refresh(background=false) {
-  if(state.loading)return;const restoreFocus=!background&&document.activeElement===$('refresh');
+  if(state.loading)return;const winRequest=refreshWinCache();const restoreFocus=!background&&document.activeElement===$('refresh');
   state.loading=true;$('refresh').disabled=true;$('leaders').setAttribute('aria-busy','true');if(!background)$('status').textContent='正在检查最新快照…';
   const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),10000);let changed=false;
   try {
@@ -530,6 +590,7 @@ async function refresh(background=false) {
     if(changed&&state.detail&&!state.detail._local&&$('detail').open)renderDetail();
     saveURL(true);if(restoreFocus&&document.activeElement===document.body)$('refresh').focus();
   }
+  await winRequest;
 }
 for(const id of controls)$(id).addEventListener('change',()=>{if(id==='period')state.explicitPeriod=true;state.page=1;render();saveURL();});
 $('search').addEventListener('input',()=>{state.page=1;render();saveURL(true);});

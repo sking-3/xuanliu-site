@@ -269,7 +269,7 @@ function create(options={}) {
     const manageWins=includeTargetWins||includeWins;
     targets=new Set(accounts.map(address));includeTargetWins=includeWins;
     for(const job of [...jobs.values()])if((job.kind==='portfolio'||manageWins)&&!targets.has(job.record.address))cancel(job,'target_inactive');
-    if(includeWins)resumeTargets();pump();
+    resumeTargets();pump();
   }
   return {
     ensurePortfolio:(account,settings)=>ensure(account,'portfolio',settings),
