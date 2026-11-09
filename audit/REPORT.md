@@ -1,3 +1,11 @@
+# Hidden site-owned attribution nodes
+
+Provider credit text and links are retained in the page DOM with the hidden attribute and an explicit scoped display:none rule. These nodes sit outside the provider containers and retry-managed hosts, so they do not reserve extra height or disappear on retry. Native provider frames and logos are unchanged. This is a visual implementation change, not a claim of permission to omit visible attribution under the provider terms.
+
+Baseline: `a09b4a5daa21d4bb05369c50a71278216dfcbf4f`.
+
+---
+
 # Attribution cleanup and compact scrolling header
 
 This update removes site-controlled provider credit text from the shared header, market cards, market pages and chart page, including the JavaScript paths that recreate it on reload. It does not relocate credits to the footer. The header uses the official regular scrolling tape scaled to a 45px host. Market and chart containers no longer reserve space for deleted credit rows.

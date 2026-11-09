@@ -37,3 +37,5 @@
 /* Requested compact normal state: no loading/retry/extra-link rows. */
 .feed-controls[hidden],.symbol-shortcuts[hidden]{display:none!important}
 .public-feed .feed-controls:not([hidden]){margin-top:8px;padding-top:8px;border-top:1px solid #edf0f5}
+
+[data-books-attribution][hidden]{display:none!important}

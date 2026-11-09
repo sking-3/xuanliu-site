@@ -1,1 +1,1 @@
-PASS 582 static assertions across 12 HTML documents (11 full pages + shared strip).
+PASS 611 static assertions across 12 HTML documents (11 full pages + shared strip).

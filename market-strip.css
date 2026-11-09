@@ -2,3 +2,5 @@ html,body{margin:0;padding:0;background:#fff;color-scheme:light}
 .tradingview-widget-container{width:100%;zoom:.75}
 .tradingview-widget-container__widget{width:100%}
 .tradingview-widget-container iframe{display:block;border:0;width:100%;max-width:100%}
+
+[data-books-attribution][hidden]{display:none!important}

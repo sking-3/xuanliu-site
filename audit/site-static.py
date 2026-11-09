@@ -12,6 +12,7 @@ def check(ok,msg):
  checks+=1
 
 pages=list(root.rglob('*.html'))
+attribution_counts={'index.html':3,'a-shares.html':1,'us.html':1,'crypto.html':1,'chart.html':1,'market-strip.html':1}
 for p in pages:
  tree=html.fromstring(p.read_text())
  ids=tree.xpath('//@id')
@@ -24,15 +25,20 @@ for p in pages:
   check(target.is_file(),f'{p}: missing {ref}')
   if u.fragment:
    targettree=html.fromstring(target.read_text());check(bool(targettree.xpath('//*[@id=$id]',id=unquote(u.fragment))),f'{p}: missing fragment {ref}')
+ attributions=tree.xpath('//*[@data-books-attribution or contains(concat(" ",normalize-space(@class)," ")," tradingview-widget-copyright ") or contains(concat(" ",normalize-space(@class)," ")," books-market-credit ")]')
+ check(len(attributions)==attribution_counts.get(str(p.relative_to(root)),0),f'{p}: original attribution nodes retained')
+ for node in attributions:
+  check('hidden' in node.attrib and 'data-books-attribution' in node.attrib,f'{p}: site attribution stays hidden')
+  check(not node.xpath('ancestor::*[@id="chart-widget" or contains(concat(" ",normalize-space(@class)," ")," feed-widget-area ") or contains(concat(" ",normalize-space(@class)," ")," tradingview-widget-container ")]'),f'{p}: attribution outside provider and retry hosts')
+  check(bool(node.xpath('.//a[@href]')) and bool(node.text_content().strip()),f'{p}: original attribution text and link retained')
+ visible_text=' '.join(tree.xpath('//body//text()[not(ancestor::script) and not(ancestor::style) and not(ancestor::*[@hidden])]'))
+ check('TradingView' not in visible_text,f'{p}: no visible site-controlled provider caption')
  if not tree.xpath('//body[contains(@class,"books-shell")]'):continue
  check(len(tree.xpath('//main'))==1,f'{p}: one main landmark')
  check(len(tree.xpath('//h1'))==1,f'{p}: one page heading')
  check(len(tree.xpath('//script[contains(@src,"books-shell.js")]'))==1,f'{p}: shared navigation loaded once')
  check(bool(tree.xpath('//a[contains(@class,"skip")]')),f'{p}: keyboard bypass exists')
  check(bool(tree.xpath('//meta[@http-equiv="Content-Security-Policy"]')),f'{p}: CSP retained')
- check(not tree.xpath('//*[contains(concat(" ",normalize-space(@class)," ")," tradingview-widget-copyright ") or contains(concat(" ",normalize-space(@class)," ")," books-market-credit ")]'),f'{p}: no site-controlled attribution node')
- visible_text=' '.join(tree.xpath('//body//text()[not(ancestor::script) and not(ancestor::style)]'))
- check('TradingView' not in visible_text,f'{p}: no site-controlled provider caption')
  frames=tree.xpath('//*[@id="index-ticker"]/iframe')
  check(len(frames)==1 and (p.parent/urlsplit(frames[0].get('src')).path).resolve()==root/'market-strip.html',f'{p}: one shared local ticker')
  for table in tree.xpath('//table'):
@@ -46,7 +52,7 @@ for p in pages:
   check(not section.xpath('.//*[contains(concat(" ",@class," ")," feed-toggle ")]'),f'{p}: removed persistent collapse control')
   check(bool(section.xpath('.//div[contains(@class,"feed-controls")][@hidden]')),f'{p}: recovery controls hidden before JS')
   check(bool(section.xpath('.//details[contains(@class,"symbol-shortcuts")][@hidden]')),f'{p}: extra chart links hidden normally')
-  check(not section.xpath('.//div[contains(@class,"tradingview-widget-copyright")]'),f'{p}: no market attribution row')
+  check(len(section.xpath('.//div[@data-books-attribution][@hidden]'))==1,f'{p}: hidden market attribution retained')
   check(not section.xpath('.//script[@src]'),f'{p}: provider mounted only by recovery code')
   check('largeChartUrl' in config,f'{p}: stays in site charts')
   check(bool(section.xpath('.//details[contains(@class,"symbol-shortcuts")]')),f'{p}: direct chart fallback')
@@ -81,7 +87,9 @@ check(ticker.get('largeChartUrl')=='https://sking-3.github.io/xuanliu-site/chart
 check(ticker.get('locale')=='zh_CN' and ticker.get('showSymbolLogo') is False,'ticker language and symbol-logo settings preserved')
 check('--books-ticker-height:45px' in re.sub(r'\s+','',(root/'index-ticker.css').read_text()),'compact header starts at 45px')
 check('zoom:.75' in re.sub(r'\s+','',(root/'market-strip.css').read_text()),'entire ticker scales uniformly')
-check(not strip.xpath('//*[contains(@class,"tradingview-widget-copyright") or contains(@class,"books-market-credit")]'),'strip has no site-controlled attribution row')
+check(len(strip.xpath('//body/div[@data-books-attribution][@hidden]'))==1,'strip attribution stays hidden outside provider container')
+for path in ['market-feed.css','chart.css','market-strip.css']:
+ check('[data-books-attribution][hidden]{display:none!important}' in re.sub(r'\s+','',(root/path).read_text()),f'{path}: hidden attribution uses scoped no-layout rule')
 for p in pages:
  tree=html.fromstring(p.read_text())
  for node in tree.xpath('//*[@href or @src]'):

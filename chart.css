@@ -12,3 +12,5 @@
 @media(max-width:600px){.chart-picker-groups{grid-template-columns:1fr}.chart-picker a,.chart-picker summary,.chart-controls button{min-height:44px;align-items:center}.chart-controls{flex-wrap:wrap}}
 /* Do not inherit the screening workspace minimum height on empty chart links. */
 .books-shell .chart-shell .chart-panel{min-height:0}
+
+[data-books-attribution][hidden]{display:none!important}
