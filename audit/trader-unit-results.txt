@@ -1,24 +1,4 @@
-PASS valid synthetic feed and missing metrics
-PASS reject impossible date
-PASS reject non ISO date
-PASS reject window after observation
-PASS reject wins over total
-PASS reject negative drawdown
-PASS reject out of bounds drawdown
-PASS reject null curve point
-PASS reject out of order curve
-PASS reject unsafe URL
-PASS reject empty name
-PASS reject trade after collection
-PASS reject nonfinite return
-PASS reject duplicate IDs and unavailable with records
-PASS small crypto amounts never round to misleading zero
-PASS win rate zero denominator and missing counts remain unknown
-PASS initial URL query and page preserved through load
-PASS search URL serialization and reset restoration
-PASS invalid URL values default safely
-PASS sorting pushes missing numbers last
-PASS repeated refresh deduplicates and clears busy state
-PASS invalid response clears stale cards and closes detail
-PASS empty ready, then production unavailable are distinct
-23 unit/DOM-model tests passed. Real-browser suite not run in this restricted runtime.
+PASS node audit/trader-unit.cjs
+46 logic and DOM-model tests passed. Fixtures are synthetic and are not public website data.
+PASS node audit/okx-import-unit.cjs
+13 offline adapter tests passed. No network requests or real records used.

@@ -70,7 +70,7 @@ check('本页无外部请求' not in (root/'screening/history.html').read_text()
 check('"showChart":false' in (root/'index.html').read_text(),'Home compact market cards preserved')
 # Preserve the latest concurrent navigation/trader work, without requiring a Git checkout.
 base=root.parent/'attribution_base_20261110'
-for path in ['books-shell.js','books-ui.css','index-ticker.js','trader/feed.json','trader/plaza.js']:
+for path in ['books-shell.js','books-ui.css','index-ticker.js','trader/feed.json']:
  check((root/path).read_bytes()==(base/path).read_bytes(),f'{path}: concurrent work unchanged')
 # The header is intentionally in scope: verify its replacement configuration instead.
 strip=html.fromstring((root/'market-strip.html').read_text())

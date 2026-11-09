@@ -1,22 +1,19 @@
-# Trader interaction audit
+# Trader research page verification
 
-Scope: trader/plaza.js only; no production feed, HTML, CSS, deployment or external data changes.
+## Change
 
-## Fixed
-- Search query and pagination now round-trip through URL state. Initial page survives asynchronous feed loading, filters/reset and pagination update history, and Back/Forward restores query and page. Search typing replaces the current history entry to avoid one entry per keystroke.
-- Invalid and missing page parameters default safely; pagination is clamped to available results after loading.
-- Feed validation rejects impossible/non-ISO calendar dates, empty identities, malformed records/curve points, and window/trade timestamps newer than collection. Existing null metric semantics, same-currency ranking, missing-last sort, curve bounds, and per-trade win-rate rules remain intact.
-- Tiny crypto amounts retain eight decimals or scientific notation instead of rounding to a misleading zero.
-- Refresh exposes an accessible busy state, continues to deduplicate repeated requests, and restores focus when a refresh invalidates the focused card/detail. Initial page loading no longer deliberately moves focus.
-- Detail opens with explicit Close-button focus. Arrow Left/Right and Home/End navigate detail view buttons. Native dialog Escape, focus containment and opener restoration remain native; Back/Forward dismisses detail before rebuilding results.
-- Invalid feeds continue to clear stale results and close details. Ready-but-empty and unavailable remain separate truthful states.
+Removed the AlphaFox dependency notice and rebuilt the trader page around compact research cards, real period labels, source links and optional browser-local records. Record management is a collapsed secondary control. The shared sidebar, scrolling ticker, other market pages and public feed are unchanged.
 
-## Verification
-- PASS: `node --check trader/plaza.js`
-- PASS: `node audit/trader-unit.cjs` (23 synthetic unit/DOM-model checks; output in trader-unit-results.txt).
-- Prepared but NOT RUN: `node audit/trader-tests.cjs` real-browser regression, including native Escape/focus behavior. Initial launch failed because Playwright's bundled executable was absent. Parent separately identified a cloud socket restriction and requested no further browser launch attempts here. DOM-model tests do not establish real-browser layout, native dialog focus, or history behavior.
-- No synthetic record is deployed. Fixtures are confined to test processes; production feed remains unavailable.
+The page can add/edit/delete local records, validate/import JSON and export a backup. Local and public rows are separate; a public fetch failure cannot erase private records. Corrupt local storage blocks later writes instead of overwriting the unreadable original. Storage failures do not report success. Saving a low-ranked record reveals its actual result page.
 
-## Optional UI suggestions for parent
-- Maintain visible focus rings on detail-view buttons and close button; ensure the dialog fits narrow viewports and its scroll region is usable.
-- Keep the truthful unavailable notice, explicit same-currency constraint, and per-card freshness labels prominent after styling.
+The OKX converter is offline only. Raw snapshots have unknown source time and no imported curve. A wrapper with an explicit collection timestamp can retain valid source points. No calculated drawdown, trade win rate, positions or orders are invented. No exchange API polling is enabled; one cloud probe returned HTTP 403. No API response or synthetic trader fixture is in the production feed.
+
+## Automated checks
+
+- `node --check trader/plaza.js` and `node --check trader/okx-import.js`: passed.
+- `node audit/trader-unit.cjs`: 46 logic/DOM-model tests passed.
+- `node audit/okx-import-unit.cjs`: 13 offline adapter tests passed.
+- `python audit/site-static.py`: 614 assertions passed across 12 HTML documents, including shared-shell/resource/cache checks.
+- Independent read-only review: no remaining release-blocking findings.
+
+The DOM-model tests do not establish browser layout, native dialog behavior, or persistence in a real browser. Live deployment and browser interaction checks are performed after publishing and reported with the release. All test identities and numbers remain synthetic fixtures in tests, never production data.
