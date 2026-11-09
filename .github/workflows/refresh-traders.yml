@@ -32,8 +32,10 @@ jobs:
           ref: main
           fetch-depth: 1
 
-      - name: Test account activity client and page logic
+      - name: Test navigation and account page logic
         run: |
+          node --check books-shell.js
+          node audit/shell-unit.cjs
           node --check trader/account-live.js
           node --check trader/account-analytics.js
           node --check trader/plaza.js

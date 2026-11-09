@@ -192,6 +192,38 @@ th{color:#728098;font-weight:500;background:#fbfcfe}
 
 .detail-pnl-chart{min-height:90px;display:flex;flex-direction:column;align-items:stretch;justify-content:center;margin:12px 0}.detail-pnl-chart .curve-label{text-align:right}.detail-pnl-chart .curve-unavailable{text-align:center}.win-load{font-size:12px;min-height:36px;margin:8px 0 12px}
 
-.card .metric-load{min-height:24px;padding:2px 7px;font-size:10px;line-height:1.4;border-radius:5px;color:#4166c8}
 
 .chart .pnl-baseline{stroke:#dce4ed;stroke-width:1;stroke-dasharray:3 4;vector-effect:non-scaling-stroke}.chart .pnl-line-positive{stroke:var(--profit-color)}.chart .pnl-line-negative{stroke:var(--loss-color)}.chart .pnl-area-positive{fill:var(--profit-color);fill-opacity:.13;stroke:none}.chart .pnl-area-negative{fill:var(--loss-color);fill-opacity:.13;stroke:none}
+
+/* Compact three-column research cards; scoped above later shared card rules. */
+.books-shell.trader-page .cards{grid-template-columns:repeat(3,minmax(0,1fr));gap:22px;align-items:start}
+.books-shell.trader-page .card{min-height:300px;padding:28px;border-radius:12px;box-shadow:0 2px 9px #1b305004}
+.books-shell.trader-page .card-top{display:grid;grid-template-columns:34px minmax(0,1fr) auto;align-items:center;gap:10px}
+.books-shell.trader-page .card .avatar{width:34px;height:34px;border-radius:9px;font-size:12px}
+.books-shell.trader-page .card-identity{min-width:0}
+.books-shell.trader-page .card h3{font-size:15px;line-height:1.5;overflow-wrap:anywhere;margin:0}
+.books-shell.trader-page .card-identity .meta{font-size:10px;line-height:1.6;margin-top:2px}
+.books-shell.trader-page .card-links{display:flex;align-items:center;gap:9px}
+.books-shell.trader-page .card-links .detail-button{width:auto;min-height:30px;margin:0;padding:4px 10px;font-size:11px;font-weight:600;border:1px solid var(--books-accent);border-radius:6px;background:var(--books-accent);color:#fff;white-space:nowrap}
+.books-shell.trader-page .card-links .detail-button:hover{filter:brightness(.96)}
+.books-shell.trader-page .card-links .source-link{min-height:30px;font-size:10px;color:#7c899c;white-space:nowrap}
+.books-shell.trader-page .card-context{display:flex;align-items:baseline;flex-wrap:wrap;gap:5px 10px;margin:15px 0 0;color:#8893a3;font-size:10px;line-height:1.6}
+.books-shell.trader-page .card-context .position-check{margin:0;color:#8893a3;font-size:10px}
+.books-shell.trader-page .card .performance-body{grid-template-columns:minmax(145px,1.05fr) minmax(90px,1fr);gap:20px;margin:12px 0 0;align-items:stretch;min-height:158px}
+.books-shell.trader-page .performance-stats{min-width:0}
+.books-shell.trader-page .card .roi{font-size:34px;line-height:1.15;letter-spacing:-.6px;margin:0 0 4px;font-weight:700;white-space:nowrap}
+.books-shell.trader-page .card .roi.long-roi{font-size:25px;letter-spacing:-.4px}
+.books-shell.trader-page .card .roi-label{font-size:10px;color:#8a95a6;line-height:1.5;margin-bottom:16px}
+.books-shell.trader-page .card .performance-body .metrics{display:grid;grid-template-columns:minmax(0,1fr);gap:9px;margin:0;padding:0;border:0;border-radius:0;background:transparent;overflow:visible}
+.books-shell.trader-page .card .performance-body .metrics>div{display:flex;justify-content:space-between;align-items:baseline;gap:7px;min-width:0;overflow:visible}
+.books-shell.trader-page .card .performance-body .metrics small{font-size:11px;line-height:1.5;white-space:nowrap;margin:0}
+.books-shell.trader-page .card .performance-body .metrics strong{font-size:12px;line-height:1.5;white-space:nowrap;overflow-wrap:normal;word-break:normal}
+.books-shell.trader-page .card .performance-chart{border:0;padding:0;justify-content:center;min-height:158px}
+.books-shell.trader-page .card .performance-chart .curve-label{font-size:10px;line-height:1.5;align-self:flex-end;margin-bottom:8px}
+.books-shell.trader-page .card .performance-chart .chart,.books-shell.trader-page .card .performance-chart .chart svg{height:116px}
+.books-shell.trader-page .card .profile-note{margin:14px 0 0;font-size:11px}
+.books-shell.trader-page .card .card-actions{margin-top:15px;padding-top:10px}
+.books-shell.trader-page .card .card-actions button{min-height:30px;padding:5px 10px;font-size:11px}
+@media(max-width:1159px){.books-shell.trader-page .cards{grid-template-columns:repeat(2,minmax(0,1fr))}.books-shell.trader-page .card{padding:24px}.books-shell.trader-page .card .performance-body{gap:18px}}
+@media(max-width:760px){.books-shell.trader-page .cards{grid-template-columns:minmax(0,1fr);gap:18px}.books-shell.trader-page .card{padding:20px;min-height:282px}.books-shell.trader-page .card .performance-body{gap:16px}.books-shell.trader-page .card-links .detail-button{min-height:36px;padding:6px 11px}.books-shell.trader-page .card-links .source-link{min-height:36px;font-size:11px}}
+@media(max-width:360px){.books-shell.trader-page .card{padding:17px}.books-shell.trader-page .card-top{grid-template-columns:30px minmax(0,1fr) auto;gap:8px}.books-shell.trader-page .card .avatar{width:30px;height:30px}.books-shell.trader-page .card-links{gap:6px}.books-shell.trader-page .card .performance-body{grid-template-columns:minmax(140px,1.2fr) minmax(0,1fr);gap:12px}.books-shell.trader-page .card .roi{font-size:31px}.books-shell.trader-page .card .roi.long-roi{font-size:23px}.books-shell.trader-page .card .performance-body .metrics>div{gap:5px}}

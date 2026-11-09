@@ -6,7 +6,7 @@ const exchanges = ['Binance','OKX','Hyperliquid','Gate','Bitget','Bybit','Polyma
 const currencies = ['USDT','USD','USDC','BTC','ETH'];
 const controls = ['period','exchange','source','sort','currency'];
 const storageKey = 'books.trader.records.v1', maxBytes = 2097152;
-const state = {status:'unavailable', publicRows:[], localRows:[], rows:[], page:1, detail:null, window:'30D', tab:'analysis', loading:false, explicitPeriod:false, editor:null, storageReadError:false, revealId:null, source:null, lastReadFailed:false, feedText:null, liveClient:null, liveUser:null, liveData:null, liveView:null, liveVersion:0, positionExclusions:Object.create(null), analytics:Object.create(null), analyticsClient:null, analyticsViews:[], chartSeq:0};
+const state = {status:'unavailable', publicRows:[], localRows:[], rows:[], page:1, detail:null, window:'30D', tab:'analysis', loading:false, explicitPeriod:false, editor:null, storageReadError:false, revealId:null, source:null, lastReadFailed:false, feedText:null, liveClient:null, liveUser:null, liveData:null, liveView:null, liveVersion:0, positionExclusions:Object.create(null), analytics:Object.create(null), analyticsClient:null, analyticsViews:[], analyticsTargets:[], chartSeq:0};
 const fail = () => { throw Error('数据格式未通过校验，未展示此批记录。'); };
 const text = (v, n=200) => typeof v === 'string' && v.trim().length > 0 && v.length <= n ? v.trim() : fail();
 const optionalText = (v,n) => v === undefined || v === '' ? '' : text(v,n);
@@ -190,6 +190,7 @@ function chart(w,kind='return') {
   svg.setAttribute('aria-label',`${kind==='pnl'?'来源盈亏变化曲线':'来源收益曲线'}：${pts.length} 个样本，起点 ${pts[0].value}${kind==='pnl'?' USD':'%' }，终点 ${pts.at(-1).value}${kind==='pnl'?' USD':'%'}；${pts[0].time} 至 ${pts.at(-1).time}`);
   const y=value=>hi===lo?45:80-70*(value-lo)/(hi-lo),coordinates=pts.map(p=>`${8+284*(Date.parse(p.time)-start)/(end-start)},${y(p.value)}`).join(' ');
   if(kind==='pnl') {
+    svg.setAttribute('preserveAspectRatio','none');
     const zero=y(0),id='pnl-'+(++state.chartSeq),defs=document.createElementNS(svg.namespaceURI,'defs');
     for(const [name,top,height]of [['positive',0,zero],['negative',zero,90-zero]]) {
       const clip=document.createElementNS(svg.namespaceURI,'clipPath'),rect=document.createElementNS(svg.namespaceURI,'rect');clip.setAttribute('id',id+'-'+name);
@@ -214,8 +215,9 @@ function metrics(w,currency,includeROI=false,r=null,period=null) {
   if(includeROI)items.unshift(['收益率',signedValue(w?.roi,pct(w?.roi)),undefined,directionClass(w?.roi)]);
   for(const [label,v,exact,color]of items) {
     const c=node('div'),amount=node('strong',v,color);amount.setAttribute('title',exact||v);c.append(node('small',label),amount);
-    if(publicAccount&&!includeROI&&label==='平仓成交胜率'&&record?.win?.status!=='ready') {
-      const pending=['queued','loading'].includes(record?.win?.status),load=button(pending?'读取中':'计算',()=>ensureAnalyticsClient()?.ensureWinRate(r.accountId,{force:true}),'metric-load');load.disabled=pending;load.setAttribute('title','统计最近最多 2000 笔成交中的永续平仓样本；与所选表现周期独立');amount.textContent='';amount.append(load);
+    if(publicAccount&&label==='平仓成交胜率'&&record?.win?.status!=='ready') {
+      const status=record?.win?.status;amount.textContent=status==='queued'?'排队中':status==='loading'?'读取中':'—';
+      amount.setAttribute('title',status==='error'?'成交读取失败；可在研究详情重试':'自动统计最近最多 2000 笔成交中的永续平仓样本；与所选表现周期独立');
     }
     if(publicAccount&&label==='来源采样回撤')amount.setAttribute('title',window?.mdd==null?mddReason(window?.mddUnavailableReason):`${pct(window.mdd)} · 来源采样口径，非策略净值回撤`);
     if(publicAccount&&label==='平仓成交胜率'&&record?.win?.status==='ready')amount.setAttribute('title',`${record.win.eligibleCount} 笔平仓成交样本，独立于所选表现周期；完整范围见研究详情`);
@@ -240,38 +242,39 @@ function refreshAnalyticsViews(address) {
     view.metrics.replaceChildren(...fresh.children);fillPerformanceGraph(view.r,view.period,view.graph);
     if(view.kind==='detail') {
       const record=state.analytics[address],portfolio=record?.portfolio,window=portfolio?.windows?.[view.period],win=record?.win;
-      view.portfolioStatus.textContent=portfolio?.status==='ready'?(window?.sampleCount>1?`来源采样 ${window.sampleCount} 点 · ${timeLabel(window.startAt)} 至 ${timeLabel(window.endAt)}${window.mdd==null?' · '+mddReason(window.mddUnavailableReason):''}`:'来源未提供当前周期的有效曲线样本。'):portfolio?.status==='error'?'曲线读取失败，尚未取得可用数据。':'正在读取来源盈亏曲线…';
-      view.winStatus.textContent=win?.status==='ready'?(win.eligibleCount?`平仓成交 ${win.eligibleCount} 笔 · 盈利 ${win.winning} · 亏损 ${win.losing} · 持平 ${win.breakeven}；${timeLabel(win.startAt)} 至 ${timeLabel(win.endAt)}`:'最近成交中没有可统计的永续平仓样本。'):win?.status==='error'?'成交读取失败，尚未取得可统计样本。':['queued','loading'].includes(win?.status)?'正在读取最近成交…':'最近最多 2000 笔成交中的平仓样本，按需读取。';
+      view.portfolioStatus.textContent=portfolio?.status==='ready'?(window?.sampleCount>1?`来源采样 ${window.sampleCount} 点 · ${timeLabel(window.startAt)} 至 ${timeLabel(window.endAt)}${window.mdd==null?' · '+mddReason(window.mddUnavailableReason):''}`:'来源未提供当前周期的有效曲线样本。'):portfolio?.status==='error'?'曲线读取失败，尚未取得可用数据。':portfolio?.status==='queued'?'正在排队读取来源盈亏曲线…':portfolio?.status==='loading'?'正在读取来源盈亏曲线…':'尚未取得当前窗口的盈亏曲线。';
+      view.winStatus.textContent=win?.status==='ready'?(win.eligibleCount?`平仓成交 ${win.eligibleCount} 笔 · 盈利 ${win.winning} · 亏损 ${win.losing} · 持平 ${win.breakeven}；${timeLabel(win.startAt)} 至 ${timeLabel(win.endAt)}`:'最近成交中没有可统计的永续平仓样本。'):win?.status==='error'?'成交读取失败，尚未取得可统计样本。':win?.status==='queued'?'正在排队读取最近成交…':win?.status==='loading'?'正在读取最近成交…':'最近最多 2000 笔成交中的平仓样本，自动分批更新。';
       view.portfolioButton.hidden=portfolio?.status!=='error';view.portfolioButton.disabled=['queued','loading'].includes(portfolio?.status);
-      view.winButton.disabled=['queued','loading'].includes(win?.status);view.winButton.textContent=win?.status==='ready'?'重新统计胜率':win?.status==='error'?'重试统计胜率':'统计平仓胜率';
+      view.winButton.hidden=win?.status!=='error';view.winButton.disabled=false;
     }
   }
 }
 function startVisibleAnalytics(rows) {
-  const accounts=rows.filter(canReadLive).map(r=>r.accountId),client=accounts.length?ensureAnalyticsClient():state.analyticsClient;
-  client?.setPortfolioTargets(accounts);for(const address of accounts)client?.ensurePortfolio(address);
+  const accounts=[...new Set(rows.filter(r=>canReadLive(r)&&qualifiedPosition(r)).map(r=>r.accountId))].slice(0,12),client=accounts.length?ensureAnalyticsClient():state.analyticsClient;
+  state.analyticsTargets=accounts;client?.setTargets(accounts);
 }
 function card(r,period) {
-  const w=r.windows[period],c=node('article',undefined,'card'),top=node('div',undefined,'card-top'),identity=node('div');
-  identity.append(node('h3',r.name),node('div',`${r.exchange} · ${compactAccount(r)}${r.paid?' · 付费来源':''}`,'meta')); 
-  top.append(node('div',r.exchange.slice(0,2),'avatar'),identity); c.append(top);
-  const tags=node('div',undefined,'coverage-tags');
-  tags.append(node('span',r.currency));if(isPublicAccount(r))tags.append(node('span','公开账户','account-label')); if(r._local)tags.append(node('span','我的资料','local-label'));
-  for(const key of periods.filter(k=>hasMetrics(r.windows[k])))tags.append(node('span',displayPeriod(key,r.windows[key])));
-  c.append(tags);
-  if(isPublicAccount(r)&&r.positionCheck)c.append(node('p',`持仓 ${r.positionCheck.count} · 核验 ${new Date(r.positionCheck.checkedAt).toLocaleTimeString('zh-CN',{hour12:false,hour:'2-digit',minute:'2-digit'})}`,'position-check'));
-  if(r.note)c.append(node('p',r.note,'profile-note'));
+  const w=r.windows[period],c=node('article',undefined,'card'),top=node('div',undefined,'card-top'),identity=node('div',undefined,'card-identity'),links=node('div',undefined,'card-links');
+  const name=node('h3',r.name);name.setAttribute('title',r.name);
+  const identityMeta=node('div',`${r.exchange}${r.paid?' · 付费来源':''}${r._local?' · 我的资料':''}`,'meta');identityMeta.setAttribute('title',r.accountId||r.id);identity.append(name,identityMeta);
+  const detail=button('详情',()=>openDetail(r,period),'detail-button'),source=sourceLink(r);detail.setAttribute('aria-label',`查看 ${r.name} 的研究详情`);source.textContent='来源 ↗';source.setAttribute('title',`打开 ${r.exchange} 来源账户`);links.append(detail,source);
+  top.append(node('div',r.exchange.slice(0,2),'avatar'),identity,links);c.append(top);
+  const context=node('div',undefined,'card-context');context.append(node('span',displayPeriod(period,w)));
+  let timing=stampLabel(w);
+  if(isPublicAccount(r)&&r.positionCheck){const check=node('span',`持仓 ${r.positionCheck.count} · 核验 ${new Date(r.positionCheck.checkedAt).toLocaleTimeString('zh-CN',{hour12:false,hour:'2-digit',minute:'2-digit'})}`,'position-check');context.append(check);timing+=` · 永续主市场持仓核验 ${timeLabel(r.positionCheck.checkedAt)} · 持仓来源时间 ${timeLabel(r.positionCheck.sourceTime)}`;}
+  else context.append(node('span',r.currency));
+  context.setAttribute('title',timing);c.append(context);
   if(hasMetrics(w)) {
-    c.append(node('div',signedValue(w.roi,pct(w.roi)),'roi '+directionClass(w.roi)),node('div',`${displayPeriod(period,w)} 收益率`,'meta'));
-    const performance=node('div',undefined,'performance-body'),graph=node('div',undefined,'performance-chart');
-    const figures=metrics(w,r.currency,false,r,period);performance.append(figures);fillPerformanceGraph(r,period,graph);
-    performance.append(graph);c.append(performance);
+    const performance=node('div',undefined,'performance-body'),stats=node('div',undefined,'performance-stats'),graph=node('div',undefined,'performance-chart'),roiText=signedValue(w.roi,pct(w.roi));
+    const roi=node('div',roiText,'roi '+directionClass(w.roi)+(roiText.length>8?' long-roi':''));roi.setAttribute('title',`${displayPeriod(period,w)} 收益率 ${roiText}`);
+    stats.append(roi,node('div',`${displayPeriod(period,w)} 收益率`,'roi-label'));
+    const figures=metrics(w,r.currency,false,r,period);stats.append(figures);fillPerformanceGraph(r,period,graph);
+    performance.append(stats,graph);c.append(performance);
     if(isPublicAccount(r))state.analyticsViews.push({kind:'card',r,period,metrics:figures,graph});
-    c.append(node('p',stampLabel(w),'meta'));
   } else c.append(node('p',Object.keys(r.windows).length?`${displayPeriod(period,w)} 表现 —`:'账号与来源已保存','meta'));
-  const actions=node('div',undefined,'card-actions'); actions.append(button('研究详情',()=>openDetail(r,period),'detail-button'),sourceLink(r));
-  if(r._local)actions.append(button('编辑',()=>openEditor(r)),button('删除',()=>removeRecord(r)));
-  c.append(actions); return c;
+  if(r.note)c.append(node('p',r.note,'profile-note'));
+  if(r._local){const actions=node('div',undefined,'card-actions');actions.append(button('编辑',()=>openEditor(r)),button('删除',()=>removeRecord(r)));c.append(actions);}
+  return c;
 }
 function readURL() {
   const p=new URL(location.href).searchParams, defaults={period:'30D',exchange:'all',source:'all',sort:'pnl',currency:'all'};
@@ -427,8 +430,8 @@ function renderDetail() {
     if(hasMetrics(w)) {
       const figures=metrics(w,r.currency,true,r,state.window);b.append(figures,node('p',stampLabel(w),'meta'));
       if(isPublicAccount(r)) {
-        const graph=node('div',undefined,'detail-pnl-chart'),portfolioStatus=node('p',undefined,'meta'),portfolioButton=button('重试曲线',()=>ensureAnalyticsClient()?.ensurePortfolio(r.accountId,{force:true}),'portfolio-retry'),winStatus=node('p',undefined,'meta'),winButton=button('统计平仓胜率',()=>ensureAnalyticsClient()?.ensureWinRate(r.accountId,{force:true}),'win-load');
-        portfolioButton.hidden=true;b.append(graph,portfolioStatus,portfolioButton,winStatus,winButton);state.analyticsViews.push({kind:'detail',r,period:state.window,metrics:figures,graph,portfolioStatus,portfolioButton,winStatus,winButton});refreshAnalyticsViews(r.accountId);ensureAnalyticsClient()?.ensurePortfolio(r.accountId);
+        const graph=node('div',undefined,'detail-pnl-chart'),portfolioStatus=node('p',undefined,'meta'),portfolioButton=button('重试曲线',()=>ensureAnalyticsClient()?.ensurePortfolio(r.accountId,{force:true}),'portfolio-retry'),winStatus=node('p',undefined,'meta'),winButton=button('重试胜率',()=>ensureAnalyticsClient()?.ensureWinRate(r.accountId,{force:true}),'win-load');
+        portfolioButton.hidden=true;winButton.hidden=true;b.append(graph,portfolioStatus,portfolioButton,winStatus,winButton);state.analyticsViews.push({kind:'detail',r,period:state.window,metrics:figures,graph,portfolioStatus,portfolioButton,winStatus,winButton});refreshAnalyticsViews(r.accountId);if(state.analyticsTargets.includes(r.accountId)){const client=ensureAnalyticsClient();client?.ensurePortfolio(r.accountId);client?.ensureWinRate(r.accountId);}
       }else {if(w.curve.length>1)b.append(chart(w));if(w.closedTrades!=null||w.wins!=null)b.append(node('p',`已关闭交易 ${value(w.closedTrades)} 笔 · 盈利交易 ${value(w.wins)} 笔`));}
     }
     else b.append(node('p','当前周期暂无表现记录。'));

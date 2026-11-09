@@ -1,6 +1,6 @@
 /* Shared Books Research Studio shell. Content, data adapters and CSP stay page-owned. */
-:root{--books-side:216px;--books-ink:#182335;--books-muted:#728098;--books-line:#e4e9f1;--books-accent:#4168db;--books-radius:12px}
-body.books-shell{margin:0;padding:0 0 0 var(--books-side);background:#f7f8fb;color:var(--books-ink);font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;font-size:14px;line-height:1.6}
+:root{--books-side:92px;--books-ink:#24272d;--books-muted:#767b85;--books-line:#e7e7eb;--books-accent:#b94f14;--books-radius:10px}
+body.books-shell{margin:0;padding:0 0 0 var(--books-side);background:#f7f7f9;color:var(--books-ink);font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;font-size:14px;line-height:1.6}
 .books-shell *{box-sizing:border-box}
 .books-shell .books-sidebar{position:fixed;inset:0 auto 0 0;width:var(--books-side);height:100dvh;overflow:auto;z-index:30;display:flex;flex-direction:column;align-items:stretch;gap:0;padding:30px 20px;background:#fff;border:0;border-right:1px solid var(--books-line);margin:0}
 .books-shell .books-brand{display:block;padding:0;margin:0;color:var(--books-ink);font-family:inherit;font-size:30px;font-weight:780;line-height:1.2;letter-spacing:-1.2px;text-decoration:none}
@@ -23,7 +23,7 @@ body.books-shell{margin:0;padding:0 0 0 var(--books-side);background:#f7f8fb;col
 .books-shell :is(.workspace-heading,.hero){margin:0 0 20px;padding:0;background:transparent;border:0}
 .books-shell .research-view-nav{border-radius:9px;margin-bottom:18px}
 .books-shell :is(button,input,select,.button){border-radius:7px}
-.books-shell :is(button,a,input,select,summary):focus-visible{outline:3px solid #85a4ff;outline-offset:3px}
+.books-shell :is(button,a,input,select,summary):focus-visible{outline:3px solid #bf5a1f;outline-offset:3px}
 .books-shell .preview-placeholder{margin:0 0 20px;max-width:none;padding:24px}
 .books-shell #workspace{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px}
 .books-shell #workspace .preview-placeholder{margin:0}
@@ -34,18 +34,22 @@ body.books-shell{margin:0;padding:0 0 0 var(--books-side);background:#f7f8fb;col
 @media(prefers-reduced-motion:reduce){.books-shell *{scroll-behavior:auto;transition:none}}
 @media(min-width:761px) and (max-width:1200px){.books-shell .workspace-grid{height:auto;display:flex;flex-direction:column}.books-shell .screening-panel{min-height:420px}.books-shell .chart-panel{min-height:420px}}
 
-/* Compact, consistent shell. Page-owned market embeds remain untouched. */
-.books-shell .books-sidebar{padding:26px 18px 22px}
-.books-shell .books-brand{font-size:28px}
-.books-shell .books-brand span{color:#68778e;letter-spacing:1.8px}
-.books-shell .books-nav{gap:5px;margin-top:32px}
-.books-shell .books-nav a{min-height:44px;padding:10px 13px;font-size:14px;color:#56657d}
-.books-shell .books-nav a[aria-current=page]{box-shadow:inset 3px 0 0 var(--books-accent)}
-.books-shell .books-side-note{color:#68778e}
+/* A compact icon rail is shared by every page; ticker sizing stays page-independent. */
+.books-shell .books-sidebar{padding:20px 8px 16px;overflow-x:hidden;scrollbar-width:thin}
+.books-shell .books-brand{font-size:22px;font-weight:780;letter-spacing:-1px;text-align:center;line-height:1.35}
+.books-shell .books-brand span{display:none}
+.books-shell .books-nav{gap:6px;margin-top:26px}
+.books-shell .books-nav a{position:relative;flex-direction:column;justify-content:center;gap:5px;min-height:62px;padding:8px 3px;border-radius:9px;font-size:11px;line-height:1.4;letter-spacing:0;color:#717782;text-align:center}
+.books-shell .books-nav a:hover{background:#f5f5f7;color:#343941}
+.books-shell .books-nav a:is([aria-current=page],[aria-current=location]){background:#fff0e4;color:var(--books-accent);font-weight:650;box-shadow:none}
+.books-shell .books-nav a:is([aria-current=page],[aria-current=location])::before{content:"";position:absolute;left:0;top:19px;bottom:19px;width:3px;border-radius:0 3px 3px 0;background:#ea7c31}
+.books-shell .books-nav-icon{display:block;width:21px;height:21px;flex:none;overflow:visible}
+.books-shell .books-nav-label{display:block;font:inherit;white-space:nowrap}
+.books-shell .books-side-note{display:none}
 .books-shell .books-menu-toggle{display:none}
 .books-shell :is(.skip,.skip-link){position:fixed;top:-120px;left:12px;z-index:1000;max-width:calc(100vw - 24px);border-radius:7px;text-decoration:none}
 .books-shell :is(.skip,.skip-link):focus{top:12px;color:#182335;box-shadow:0 4px 18px #18233526}
-.books-shell :is(button,a,input,select,textarea,summary,[tabindex]):focus-visible{outline:3px solid #4168db;outline-offset:3px}
+.books-shell :is(button,a,input,select,textarea,summary,[tabindex]):focus-visible{outline:3px solid #bf5a1f;outline-offset:3px}
 .books-shell main:focus-visible{outline-offset:-4px}
 .books-shell :is(button,input,select):disabled{cursor:not-allowed}
 .books-shell :is(.home-panel,.screening-panel,.chart-panel,.preview-placeholder,.feed-card){min-width:0}
@@ -56,13 +60,15 @@ body.books-shell{margin:0;padding:0 0 0 var(--books-side);background:#f7f8fb;col
 .books-shell :is(.research-view-nav,.terminal-tabs){max-width:100%;overflow-x:auto}
 @media(max-width:760px){
   .books-shell .books-sidebar{padding:16px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:0 12px;align-items:center}
-  .books-shell .books-brand{font-size:24px}
-  .books-shell .books-brand span{margin-top:4px;font-size:8px}
+  .books-shell .books-brand{font-size:24px;text-align:left}
+  .books-shell .books-brand span{display:block;margin-top:4px;font-size:8px;color:#767b85;letter-spacing:1.6px}
   /* Without JavaScript all links remain visible and wrap instead of disappearing off-screen. */
   .books-shell .books-nav{grid-column:1/-1;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px;margin-top:14px;overflow:visible;padding:0}
-  .books-shell .books-nav a{width:100%;min-height:44px;padding:10px 12px;font-size:13px;white-space:normal}
+  .books-shell .books-nav a{width:100%;min-height:44px;padding:10px 12px;font-size:13px;white-space:normal;flex-direction:row;justify-content:flex-start;gap:10px;text-align:left}
+  .books-shell .books-nav a:is([aria-current=page],[aria-current=location])::before{top:12px;bottom:12px}
+  .books-shell .books-nav-icon{width:19px;height:19px}
   .books-shell-enhanced .books-menu-toggle{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:9px 12px;border:1px solid var(--books-line);background:#fff;color:#344a70;font:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap}
-  .books-shell-enhanced .books-menu-toggle[aria-expanded=true]{background:#edf2ff;border-color:#cbd8fa;color:#3154ba}
+  .books-shell-enhanced .books-menu-toggle[aria-expanded=true]{background:#fff0e4;border-color:#f3d4bb;color:var(--books-accent)}
   .books-shell .books-nav[hidden]{display:none}
   .books-shell>main{padding:20px 14px 28px}
   .books-shell :is(.topbar,.research-topbar){gap:8px;padding-bottom:14px}
@@ -77,7 +83,6 @@ body.books-shell{margin:0;padding:0 0 0 var(--books-side);background:#f7f8fb;col
   .books-shell .books-sidebar,.books-shell :is(.skip,.skip-link){display:none}
   .books-shell>main{max-width:none;padding:0}
 }
-.books-shell .books-nav a[aria-current=location]{background:#edf2ff;color:var(--books-accent);font-weight:700;box-shadow:inset 3px 0 0 var(--books-accent)}
 .books-shell .card .metrics{grid-template-columns:repeat(3,minmax(0,1fr))}
 .books-shell .card .metrics>div{min-width:0}
 .books-shell .card .metrics strong{overflow-wrap:anywhere;font-variant-numeric:tabular-nums}

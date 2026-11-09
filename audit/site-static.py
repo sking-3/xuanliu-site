@@ -13,6 +13,8 @@ def check(ok,msg):
  checks+=1
 
 pages=list(root.rglob('*.html'))
+nav_destinations=[('市场总览','index.html'),('A股选股','screening/index.html'),('美股选股','us.html'),('带单员广场','trader/index.html'),('公司研究','research.html'),('历史研究','screening/history.html'),('研究工具','tools.html')]
+shared_versions={name:hashlib.sha256((root/name).read_bytes()).hexdigest()[:8] for name in ('books-shell.js','books-ui.css')}
 attribution_counts={'index.html':3,'a-shares.html':1,'us.html':1,'crypto.html':1,'chart.html':1,'market-strip.html':1}
 for p in pages:
  tree=html.fromstring(p.read_text())
@@ -38,6 +40,15 @@ for p in pages:
  check(len(tree.xpath('//main'))==1,f'{p}: one main landmark')
  check(len(tree.xpath('//h1'))==1,f'{p}: one page heading')
  check(len(tree.xpath('//script[contains(@src,"books-shell.js")]'))==1,f'{p}: shared navigation loaded once')
+ navs=tree.xpath('//nav[contains(concat(" ",normalize-space(@class)," ")," books-nav ")]')
+ check(len(navs)==1,f'{p}: one shared navigation landmark')
+ links=navs[0].xpath('.//a')
+ check([(a.text_content().strip(),str((p.parent/urlsplit(a.get('href')).path).resolve().relative_to(root))) for a in links]==nav_destinations,f'{p}: common navigation names and destinations remain aligned')
+ check(len(navs[0].xpath('.//a[@aria-current="page" or @aria-current="location"]'))==1,f'{p}: one active navigation destination')
+ for name,version in shared_versions.items():
+  refs=tree.xpath('//*[@src or @href]/@src | //*[@src or @href]/@href')
+  matching=[ref for ref in refs if urlsplit(ref).path.rsplit('/',1)[-1]==name]
+  check(len(matching)==1 and parse_qs(urlsplit(matching[0]).query).get('v')==[version],f'{p}: loads current shared {name} exactly once')
  check(bool(tree.xpath('//a[contains(@class,"skip")]')),f'{p}: keyboard bypass exists')
  check(bool(tree.xpath('//meta[@http-equiv="Content-Security-Policy"]')),f'{p}: CSP retained')
  frames=tree.xpath('//*[@id="index-ticker"]/iframe')
@@ -147,10 +158,10 @@ check(script_sources.index(analytics_ref)<next(i for i,ref in enumerate(script_s
 plaza_source=(root/'trader/plaza.js').read_text()
 check("state.publicRows.filter(r=>qualifiedPosition(r))" in plaza_source and "!state.source?.positionVerification||!check" in plaza_source, 'legacy unqualified public snapshots are gated from visible rows')
 check('now-checked<=3600000' in plaza_source and 'setInterval(()=>{reevaluatePositions();' in plaza_source, 'qualification expires independently of the collection workflow')
-check("startVisibleAnalytics(visibleRows)" in plaza_source and 'client?.setPortfolioTargets(accounts)' in plaza_source, 'automatic portfolio reads are scoped to visible accounts')
+check("startVisibleAnalytics(visibleRows)" in plaza_source and 'client?.setTargets(accounts)' in plaza_source, 'automatic curve and win-rate reads are scoped to visible accounts')
 check("'来源采样回撤'" in plaza_source and "'平仓成交胜率'" in plaza_source, 'calculated metrics distinguish sampled drawdown and closing-fill rate')
-check("record?.win?.status==='ready'" in plaza_source and "'metric-load'" in plaza_source, 'closing-fill rate uses its own fetched result and an explicit load control')
-check("'performance-body'" in plaza_source and "'performance-chart'" in plaza_source and 'compactMoney(w?.pnl,currency)' in plaza_source, 'card separates compact numeric metrics and the source curve')
+check("record?.win?.status==='ready'" in plaza_source and "'metric-load'" not in plaza_source and "button('计算'" not in plaza_source, 'closing-fill rate displays its fetched result automatically without a calculate button')
+check("'performance-body'" in plaza_source and "'performance-stats'" in plaza_source and "'performance-chart'" in plaza_source and 'compactMoney(w?.pnl,currency)' in plaza_source, 'compact card separates its return and numeric metrics from the source curve')
 check("chart({curve:w.points},'pnl')" in plaza_source, 'public sparkline uses fetched portfolio points rather than a placeholder curve')
 check((root/'audit/account-analytics-unit.cjs').is_file(), 'analytics edge cases have dedicated offline regression coverage')
 check(len(trader_page.xpath('//*[@id="tabs"]//button[@data-tab="live"][@hidden]'))==1, 'live tab is initially hidden until an eligible public account is selected')
@@ -161,10 +172,13 @@ check(not trader_page.xpath('//script[contains(@src,"okx-import.js")]'), 'trader
 check('导入' not in trader_page.text_content() and '导出' not in trader_page.text_content(), 'trader page contains no removed import/export instructions')
 check('本页无外部请求' not in (root/'screening/history.html').read_text(),'External source disclosure correct')
 check('"showChart":false' in (root/'index.html').read_text(),'Home compact market cards preserved')
-# Preserve the latest concurrent navigation/trader work, without requiring a Git checkout.
+# The navigation is intentionally restyled; validate shared semantics and compact
+# sizing, while protecting the independent ticker behavior from incidental edits.
 base=root.parent/'attribution_base_20261110'
-for path in ['books-shell.js','books-ui.css','index-ticker.js']:
- check((root/path).read_bytes()==(base/path).read_bytes(),f'{path}: concurrent work unchanged')
+check((root/'index-ticker.js').read_bytes()==(base/'index-ticker.js').read_bytes(),'index-ticker.js: existing ticker behavior unchanged')
+shell_script=(root/'books-shell.js').read_text(); shell_style=re.sub(r'\s+','',(root/'books-ui.css').read_text())
+check('--books-side:92px' in shell_style and '.books-nav-icon' in shell_style and '.books-nav-label' in shell_style,'shared desktop rail uses compact 92px width with icons and text labels')
+check("link.setAttribute('aria-label', name)" in shell_script and "icon.setAttribute('aria-hidden', 'true')" in shell_script,'decorative navigation icons preserve accessible link names')
 # The header is intentionally in scope: verify its replacement configuration instead.
 strip=html.fromstring((root/'market-strip.html').read_text())
 loader='https://s3.tradingview.com/external-embedding/embed-widget-ticker-tape.js'

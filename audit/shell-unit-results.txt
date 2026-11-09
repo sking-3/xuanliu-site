@@ -1,1 +1,1 @@
-PASS: mobile/desktop initial states, disclosure, Escape focus, viewport focus recovery, skip focus, pageshow reset, duplicate initialization.
+PASS: 7 accessible local SVG navigation icons, preserved destinations/current page, short labels, unknown-link fallback, 92px shared rail/body offset, full-width ticker separation, mobile/desktop disclosure, Escape focus, viewport focus recovery, skip focus, pageshow reset, duplicate initialization.

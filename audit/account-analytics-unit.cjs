@@ -159,5 +159,37 @@ await test('record cache is bounded to 200 and callers cannot mutate internal da
   const e=env();await e.client.ensurePortfolio(A);const s=e.client.get(A);s.portfolio.windows['30D'].mdd=999;assert.notEqual(e.client.get(A).portfolio.windows['30D'].mdd,999);
   for(let i=3;i<204;i++)e.client.get(addr(i));assert.equal(e.client.get(A).portfolio.status,'idle');assert.throws(()=>e.client.get('not-an-account'));assert.throws(()=>e.client.setPortfolioTargets(Array(13).fill(A)));e.client.destroy();
 });
+await test('automatic targets load curves first and wins without clicks, with shared cache and budget',async()=>{
+  const e=env(),accounts=Array.from({length:12},(_,i)=>addr(i+1));e.client.setTargets(accounts);
+  for(let i=0;i<5;i++)await e.flush();
+  assert.equal(e.calls.length,13);assert(e.calls.slice(0,12).every(c=>c.body.type==='portfolio'));assert.equal(e.calls[12].body.type,'userFills');
+  assert.equal(e.calls.reduce((n,c)=>n+(c.body.type==='portfolio'?20:120),0),360);
+  e.client.setTargets(accounts);await e.flush();assert.equal(e.calls.length,13);
+  await e.client.ensureWinRate(addr(99));assert.equal(e.calls.length,13);assert.equal(e.client.get(addr(99)).win.status,'idle');
+  for(let minute=0;minute<4;minute++){await e.advance(60000);for(let i=0;i<3;i++)await e.flush();}
+  assert.equal(e.calls.length,24);assert(accounts.every(a=>e.client.get(a).win.status==='ready'));
+  e.client.setTargets(accounts);await e.flush();assert.equal(e.calls.length,24);e.client.destroy();
+});
+await test('target changes cancel both active and queued automatic wins and ignore late replies',async()=>{
+  const pending=[];const e=env(call=>call.body.type==='portfolio'?response(sample()):new Promise(resolve=>pending.push({account:call.body.user,resolve})));
+  e.client.setTargets([A,B,addr(3)]);for(let i=0;i<3;i++)await e.flush();
+  assert.equal(pending.length,2);assert.equal(e.client.get(addr(3)).win.status,'queued');
+  e.client.setTargets([addr(4)]);await e.flush();assert.equal(e.client.get(A).win.status,'idle');assert.equal(e.client.get(B).win.status,'idle');assert.equal(e.client.get(addr(3)).win.status,'idle');
+  assert(e.calls.filter(c=>c.body.type==='userFills').every(c=>c.settings.signal.aborted));
+  pending[0].resolve(response([fill()]));pending[1].resolve(response([fill()]));await e.flush();assert.equal(e.client.get(A).win.status,'idle');
+  await e.advance(60000);assert.equal(pending.length,3);assert.equal(pending[2].account,addr(4));pending[2].resolve(response([fill()]));await e.flush();assert.equal(e.client.get(addr(4)).win.value,100);e.client.destroy();
+});
+await test('visibility resumes both automatic metrics, not an off-page thirteenth account',async()=>{
+  const pending=[];let delay=true;const e=env(call=>delay?new Promise(resolve=>pending.push({call,resolve})):response(call.body.type==='portfolio'?sample():[fill()]));
+  e.client.setTargets([A]);assert.equal(e.calls.length,2);e.client.setVisible(false);assert(e.calls.every(c=>c.settings.signal.aborted));
+  pending.forEach(p=>p.resolve(response(p.call.body.type==='portfolio'?sample():[fill()])));await e.flush();assert.equal(e.client.get(A).win.status,'idle');
+  await e.advance(60000);assert.equal(e.calls.length,2);delay=false;e.client.setVisible(true);await e.flush();assert.equal(e.calls.length,4);assert.deepEqual(e.calls.slice(2).map(c=>c.body.type),['portfolio','userFills']);
+  assert.equal(e.client.get(A).win.status,'ready');await e.client.ensureWinRate(B);assert.equal(e.calls.length,4);e.client.destroy();
+});
+await test('automatic targets remain paused after403 until an explicit error retry',async()=>{
+  let blocked=true;const e=env(call=>response(blocked?'blocked':call.body.type==='portfolio'?sample():[fill()],blocked?403:200));e.client.setTargets([A,B]);await e.flush();assert.equal(e.calls.length,2);
+  blocked=false;await e.advance(60000);e.client.setTargets([A,B]);e.client.setVisible(false);e.client.setVisible(true);await e.flush();assert.equal(e.calls.length,2);assert.equal(e.client.get(A).win.errorCode,'http_403');
+  await e.client.ensureWinRate(A,{force:true});assert.equal(e.calls.length,3);assert.equal(e.client.get(A).win.value,100);e.client.destroy();
+});
 console.log(`${count} account-analytics tests passed. Offline fixtures only; no API calls.`);
 })().catch(error=>{console.error(error);process.exitCode=1;});

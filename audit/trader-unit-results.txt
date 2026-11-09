@@ -95,11 +95,14 @@ PASS a successful all-empty position batch stays ready and does not masquerade a
 PASS fresh empty live positions remove the card but keep historical detail; only a newer check restores it
 PASS a failed or stale empty response never becomes a false empty-position exclusion
 PASS large card monetary values retain sign and exact title without stranded decimals
-PASS only currently visible qualified cards request portfolios, with no automatic fill queries
+PASS only currently visible qualified cards automatically request portfolio and win samples without force
 PASS verified analytics render actual PnL samples and drawdown above 100 without clamping or inventing win rate
-PASS card calculation requests bounded closing-fill statistics only after the visitor clicks
+PASS queued and loading win samples display distinct automatic states without changing visible targets
 PASS closing sample win rate is labeled separately from period returns and complete trades
+PASS normal details automatically ensure the active sample with no manual calculation control
+PASS win errors leave a blank metric and expose explicit retry only in detail
+PASS an empty completed sample is unavailable rather than zero percent and hides retry
 PASS portfolio errors offer a deliberate force retry without faking an empty or zero curve
 PASS invalid peak equity preserves unavailable drawdown with an exact reason
 PASS return and PnL show signed profit/loss colors while drawdown and win retain unsigned percentages
-104 logic and DOM-model tests passed. Synthetic fixtures stay local; the published feed is checked separately.
+107 logic and DOM-model tests passed. Synthetic fixtures stay local; the published feed is checked separately.

@@ -132,7 +132,7 @@ function create(options={}) {
   const now=options.now || Date.now, setTimer=options.setTimer || setTimeout, clearTimer=options.clearTimer || clearTimeout;
   const notify=options.onChange || (()=>{}), ledger=options.rateLedger || (options.now?[]:sharedLedger);
   const records=new Map(), jobs=new Map();
-  let queue=[], active=new Set(), timer=null, visible=options.visible!==false, destroyed=false, targets=null, paused=null, pauseUntil=0;
+  let queue=[], active=new Set(), timer=null, visible=options.visible!==false, destroyed=false, targets=null, includeTargetWins=false, paused=null, pauseUntil=0;
   const emit=record=>{if(!destroyed)notify(copy(record));};
   function clearWake(){if(timer!==null){clearTimer(timer);timer=null;}}
   function recordFor(rawAddress) {
@@ -245,7 +245,7 @@ function create(options={}) {
     const record=recordFor(rawAddress), key=record.address+':'+kind, existing=jobs.get(key), section=record[kind];
     if(existing)return existing.promise;
     if(destroyed)return Promise.resolve(copy(record));
-    if(!visible || (kind==='portfolio'&&targets&&!targets.has(record.address)&&!settings.force))return Promise.resolve(copy(record));
+    if(!visible || (targets&&(kind==='portfolio'||includeTargetWins)&&!targets.has(record.address)&&!settings.force))return Promise.resolve(copy(record));
     const age=section.fetchedAt?now()-Date.parse(section.fetchedAt):Infinity;
     if(!settings.force&&section.status==='ready'&&age>=0&&age<CACHE_MS)return Promise.resolve(copy(record));
     if(!settings.force&&section.status==='error')return Promise.resolve(copy(record));
@@ -257,19 +257,32 @@ function create(options={}) {
     const job={key,record,kind,promise,resolve,cancelled:false,settled:false,cancelRequest:null};
     jobs.set(key,job);queue.push(job);section.status='queued';section.error=null;section.errorCode=null;emit(record);pump();return promise;
   }
+  function resumeTargets() {
+    if(!targets)return;
+    // Queue the inexpensive curves first, then closing-fill samples under the same budget.
+    for(const account of targets)void ensure(account,'portfolio');
+    if(includeTargetWins)for(const account of targets)void ensure(account,'win');
+  }
+  function updateTargets(accounts,includeWins) {
+    if(!Array.isArray(accounts)||accounts.length>12)throw Error('invalid_targets');
+    if(destroyed)return;
+    const manageWins=includeTargetWins||includeWins;
+    targets=new Set(accounts.map(address));includeTargetWins=includeWins;
+    for(const job of [...jobs.values()])if((job.kind==='portfolio'||manageWins)&&!targets.has(job.record.address))cancel(job,'target_inactive');
+    if(includeWins)resumeTargets();pump();
+  }
   return {
     ensurePortfolio:(account,settings)=>ensure(account,'portfolio',settings),
     ensureWinRate:(account,settings)=>ensure(account,'win',settings),
     get:account=>copy(recordFor(account)),
-    setPortfolioTargets(accounts) {
-      if(!Array.isArray(accounts)||accounts.length>12)throw Error('invalid_targets');
-      targets=new Set(accounts.map(address));
-      for(const job of [...jobs.values()])if(job.kind==='portfolio'&&!targets.has(job.record.address))cancel(job,'target_inactive');pump();
-    },
+    // Current visible page, at most 12 accounts. Both metrics load automatically.
+    setTargets:accounts=>updateTargets(accounts,true),
+    // Compatibility for older callers that explicitly request only portfolio data.
+    setPortfolioTargets:accounts=>updateTargets(accounts,false),
     setVisible(value) {
       if(destroyed)return;visible=!!value;
       if(!visible){clearWake();for(const job of [...jobs.values()])cancel(job,'hidden');}
-      else{if(targets)for(const account of targets)void ensure(account,'portfolio');pump();}
+      else{resumeTargets();pump();}
     },
     destroy() {if(destroyed)return;destroyed=true;clearWake();for(const job of [...jobs.values()])cancel(job,'destroyed');queue=[];records.clear();targets=null;},
   };
