@@ -4,9 +4,16 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      refresh_scope:
+        description: 'Refresh all analytics, or only reverify positions for a fast recovery'
+        type: choice
+        required: true
+        default: full
+        options: [full, positions]
   schedule:
     # Offset from the hour; GitHub may delay scheduled runs.
-    - cron: '17,47 * * * *'
+    - cron: '27,57 * * * *'
 
 permissions:
   contents: read
@@ -51,7 +58,8 @@ jobs:
       - name: Test snapshot validation and last-good handling
         run: python3 -B audit/hyperliquid-collector-test.py
 
-      # Explicit UI-only pushes reuse the three committed snapshots; scheduled/manual runs always collect.
+      # UI-only pushes reuse snapshots. Positions-only recovery rechecks holdings but retains analytics timestamps.
+      # Scheduled runs always collect all data; delayed push events checking out newer code also collect fully.
       # Tests, commit consistency checks, and deployment remain required for every push.
       - name: Collect one public Hyperliquid snapshot
         if: github.event_name != 'push' || !contains(github.event.head_commit.message, '[ui-only]') || github.event.after != steps.checkout.outputs.commit
@@ -59,17 +67,26 @@ jobs:
         run: python3 -B scripts/collect_hyperliquid.py
 
       - name: Precompute native and 90/180/365-day portfolio windows
-        if: github.event_name != 'push' || !contains(github.event.head_commit.message, '[ui-only]') || github.event.after != steps.checkout.outputs.commit
+        if: >-
+          (github.event_name != 'push' || !contains(github.event.head_commit.message, '[ui-only]') || github.event.after != steps.checkout.outputs.commit) &&
+          !(github.event_name == 'workflow_dispatch' && inputs.refresh_scope == 'positions') &&
+          !(github.event_name == 'push' && contains(github.event.head_commit.message, '[positions-only]') && github.event.after == steps.checkout.outputs.commit)
         # At most 600 weight/minute; only real source samples are retained.
         run: node scripts/collect_trader_portfolios.cjs
 
       - name: Separate shared API rate windows
-        if: github.event_name != 'push' || !contains(github.event.head_commit.message, '[ui-only]') || github.event.after != steps.checkout.outputs.commit
+        if: >-
+          (github.event_name != 'push' || !contains(github.event.head_commit.message, '[ui-only]') || github.event.after != steps.checkout.outputs.commit) &&
+          !(github.event_name == 'workflow_dispatch' && inputs.refresh_scope == 'positions') &&
+          !(github.event_name == 'push' && contains(github.event.head_commit.message, '[positions-only]') && github.event.after == steps.checkout.outputs.commit)
         # The next worker has its own rolling budget. Let this source's prior window expire.
         run: sleep 60
 
       - name: Precompute closing-fill win rates with persistent last-good cache
-        if: github.event_name != 'push' || !contains(github.event.head_commit.message, '[ui-only]') || github.event.after != steps.checkout.outputs.commit
+        if: >-
+          (github.event_name != 'push' || !contains(github.event.head_commit.message, '[ui-only]') || github.event.after != steps.checkout.outputs.commit) &&
+          !(github.event_name == 'workflow_dispatch' && inputs.refresh_scope == 'positions') &&
+          !(github.event_name == 'push' && contains(github.event.head_commit.message, '[positions-only]') && github.event.after == steps.checkout.outputs.commit)
         # At most 900 weight/minute; a 403/429 stops the batch. No raw fills are published.
         # A cold batch may take up to 22 minutes; missing/old accounts go first next time.
         run: node scripts/collect_trader_analytics.cjs --portfolio-status trader/portfolios.json
