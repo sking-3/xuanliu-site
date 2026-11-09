@@ -66,23 +66,44 @@ for p in pages:
   q=parse_qs(urlsplit(link.get('href')).query)
   if 'tvwidgetsymbol' in q:check(q['tvwidgetsymbol'][0] in supported,f'{p}: unsupported chart link')
 feed=json.loads((root/'trader/feed.json').read_text())
-check(feed.get('schemaVersion')==1 and feed.get('status')=='ready', 'real public-account feed is ready')
+check(feed.get('schemaVersion')==1 and feed.get('status') in ('ready','unavailable'), 'public feed declares readiness or a truthful failure')
 rows=feed.get('traders',[]); source=feed.get('source',{})
-check(0<len(rows)<=200 and len((root/'trader/feed.json').read_bytes())<2097152, 'bounded public-account snapshot')
+check(isinstance(rows,list) and 0<=len(rows)<=200 and len((root/'trader/feed.json').read_bytes())<2097152, 'bounded public-account snapshot permits verified empty results')
 check(source.get('id')=='hyperliquid' and source.get('selectedAccounts')==len(rows), 'public source and selected-account count match')
-check(isinstance(source.get('totalAccounts'),int) and source['totalAccounts']>=len(rows), 'selected subset does not claim complete coverage')
+check(type(source.get('totalAccounts')) is int and source['totalAccounts']>=len(rows), 'selected subset does not claim complete coverage')
 check(source.get('refreshIntervalMinutes')==30 and source.get('staleAfterMinutes')==120, 'collection cadence and freshness threshold explicitly declared')
-check(source.get('status') in ('ok','stale'), 'snapshot failure state declared')
-check(bool(re.fullmatch('[0-9a-f]{64}',source.get('rawSha256',''))), 'source-response digest retained without publishing the raw payload')
-for key in ('fetchedAt','lastAttemptAt'):
- check(isinstance(source.get(key),str) and datetime.fromisoformat(source[key].replace('Z','+00:00')).tzinfo is not None, 'source timestamps include timezone: '+key)
-if source.get('snapshotAt') is not None:
- check(datetime.fromisoformat(source['snapshotAt'].replace('Z','+00:00'))<=datetime.fromisoformat(source['fetchedAt'].replace('Z','+00:00')), 'snapshot generation does not postdate collection')
+verification=source.get('positionVerification')
+if feed['status']=='ready':
+ check(source.get('status') in ('ok','stale'), 'snapshot failure state declared')
+ check(bool(re.fullmatch('[0-9a-f]{64}',source.get('rawSha256',''))), 'source-response digest retained without publishing the raw payload')
+ for key in ('fetchedAt','lastAttemptAt'):
+  check(isinstance(source.get(key),str) and datetime.fromisoformat(source[key].replace('Z','+00:00')).tzinfo is not None, 'source timestamps include timezone: '+key)
+ if source.get('snapshotAt') is not None:
+  check(datetime.fromisoformat(source['snapshotAt'].replace('Z','+00:00'))<=datetime.fromisoformat(source['fetchedAt'].replace('Z','+00:00')), 'snapshot generation does not postdate collection')
+else:
+ check(rows==[] and source.get('status')=='error' and source.get('fetchedAt') is None, 'failed initial collection does not invent a successful snapshot')
+ check(bool(source.get('errorCode')) and bool(source.get('lastAttemptAt')), 'unavailable source records failure and attempt time')
+if verification is not None:
+ check(verification.get('scope')=='default_perp_dex' and verification.get('maxAgeMinutes')==60, 'holding qualification declares exact market scope and one-hour lifetime')
+ for key in ('candidateAccounts','checkedAccounts','holdingAccounts','emptyAccounts','failedAccounts','unattemptedAccounts'):
+  check(type(verification.get(key)) is int and 0<=verification[key]<=200, 'bounded qualification count: '+key)
+ check(verification['candidateAccounts']==verification['checkedAccounts']+verification['failedAccounts']+verification['unattemptedAccounts'], 'all candidates are accounted for once')
+ check(verification['checkedAccounts']==verification['holdingAccounts']+verification['emptyAccounts'] and verification['holdingAccounts']==len(rows), 'readable empty accounts are separate from failures and omitted from published rows')
+ completed=datetime.fromisoformat(verification['completedAt'].replace('Z','+00:00'))
+ check(datetime.fromisoformat(source['fetchedAt'].replace('Z','+00:00'))<=completed<=datetime.fromisoformat(source['lastAttemptAt'].replace('Z','+00:00')), 'position verification time is separate from leaderboard collection')
+else:
+ check(all('positionCheck' not in row for row in rows), 'legacy unqualified input cannot contain unverified mixed qualification')
 seen=set()
 for row in rows:
  address=row.get('accountId','').lower()
  check(bool(re.fullmatch('0x[0-9a-f]{40}',address)) and address not in seen, 'distinct on-chain public account')
  seen.add(address)
+ if verification is not None:
+  position=row.get('positionCheck',{})
+  check(position.get('scope')=='default_perp_dex' and type(position.get('count')) is int and position['count']>0, 'every published qualified account has nonzero verified holdings')
+  checked=datetime.fromisoformat(position['checkedAt'].replace('Z','+00:00')); position_source=datetime.fromisoformat(position['sourceTime'].replace('Z','+00:00'))
+  check(checked.tzinfo is not None and position_source.tzinfo is not None and checked<=completed, 'holding verification uses timezone-aware source and retrieval timestamps')
+  check(-5<=(checked-position_source).total_seconds()<=120, 'only fresh position responses qualify at collection time')
  check(row.get('sourceKind')=='public_account' and row.get('exchange')=='Hyperliquid' and row.get('currency')=='USD' and not row.get('featured') and not row.get('paid'), 'source currency and public scope retained')
  check(row.get('sourceUrl')=='https://app.hyperliquid.xyz/explorer/address/'+address, 'account links point to the exact official address')
  check(set(row.get('windows',{}))=={'7D','30D','ALL'}, 'only source-supported windows are published')
@@ -99,7 +120,8 @@ if raw_path.is_file() and source.get('rawSha256')==hashlib.sha256(raw_path.read_
  raw=json.loads(raw_path.read_text())['leaderboardRows']
  by_address={r['ethAddress'].lower():r for r in raw}
  ranked=sorted(raw,key=lambda r:(-float(dict(r['windowPerformances'])['month']['pnl']),r['ethAddress'].lower()))[:200]
- check(set(seen)=={r['ethAddress'].lower() for r in ranked}, 'published accounts are the actual source monthly-PnL top 200')
+ ranked_addresses={r['ethAddress'].lower() for r in ranked}
+ check(set(seen)<=ranked_addresses if verification is not None else set(seen)==ranked_addresses, 'published accounts come from the actual monthly-PnL top candidates, reduced only by qualification')
  for row in rows:
   native=dict(by_address[row['accountId'].lower()]['windowPerformances'])
   for period,key in [('7D','week'),('30D','month'),('ALL','allTime')]:
@@ -117,6 +139,20 @@ live_ref=live_scripts[0].get('src')
 check(bool(re.fullmatch('[0-9a-f]{8}',parse_qs(urlsplit(live_ref).query).get('v',[''])[0])), 'live-data module has a content hash version')
 script_sources=trader_page.xpath('//script[@src]/@src')
 check(script_sources.index(live_ref)<next(i for i,ref in enumerate(script_sources) if ref.startswith('plaza.js')), 'public live client initializes before detail UI')
+analytics_scripts=trader_page.xpath('//script[starts-with(@src,"account-analytics.js")]')
+check(len(analytics_scripts)==1 and 'defer' in analytics_scripts[0].attrib, 'public analytics module loaded exactly once without blocking page')
+analytics_ref=analytics_scripts[0].get('src')
+check(bool(re.fullmatch('[0-9a-f]{8}',parse_qs(urlsplit(analytics_ref).query).get('v',[''])[0])), 'analytics module has a content hash version')
+check(script_sources.index(analytics_ref)<next(i for i,ref in enumerate(script_sources) if ref.startswith('plaza.js')), 'analytics client initializes before card UI')
+plaza_source=(root/'trader/plaza.js').read_text()
+check("state.publicRows.filter(r=>qualifiedPosition(r))" in plaza_source and "!state.source?.positionVerification||!check" in plaza_source, 'legacy unqualified public snapshots are gated from visible rows')
+check('now-checked<=3600000' in plaza_source and 'setInterval(()=>{reevaluatePositions();' in plaza_source, 'qualification expires independently of the collection workflow')
+check("startVisibleAnalytics(visibleRows)" in plaza_source and 'client?.setPortfolioTargets(accounts)' in plaza_source, 'automatic portfolio reads are scoped to visible accounts')
+check("'来源采样回撤'" in plaza_source and "'平仓成交胜率'" in plaza_source, 'calculated metrics distinguish sampled drawdown and closing-fill rate')
+check("record?.win?.status==='ready'" in plaza_source and "'metric-load'" in plaza_source, 'closing-fill rate uses its own fetched result and an explicit load control')
+check("'performance-body'" in plaza_source and "'performance-chart'" in plaza_source and 'compactMoney(w?.pnl,currency)' in plaza_source, 'card separates compact numeric metrics and the source curve')
+check("chart({curve:w.points},'pnl')" in plaza_source, 'public sparkline uses fetched portfolio points rather than a placeholder curve')
+check((root/'audit/account-analytics-unit.cjs').is_file(), 'analytics edge cases have dedicated offline regression coverage')
 check(len(trader_page.xpath('//*[@id="tabs"]//button[@data-tab="live"][@hidden]'))==1, 'live tab is initially hidden until an eligible public account is selected')
 check(not trader_page.xpath('//input[@type="password"]'), 'public account reads do not introduce credential collection')
 

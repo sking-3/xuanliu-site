@@ -6,7 +6,7 @@ const exchanges = ['Binance','OKX','Hyperliquid','Gate','Bitget','Bybit','Polyma
 const currencies = ['USDT','USD','USDC','BTC','ETH'];
 const controls = ['period','exchange','source','sort','currency'];
 const storageKey = 'books.trader.records.v1', maxBytes = 2097152;
-const state = {status:'unavailable', publicRows:[], localRows:[], rows:[], page:1, detail:null, window:'30D', tab:'analysis', loading:false, explicitPeriod:false, editor:null, storageReadError:false, revealId:null, source:null, lastReadFailed:false, feedText:null, liveClient:null, liveUser:null, liveData:null, liveView:null, liveVersion:0};
+const state = {status:'unavailable', publicRows:[], localRows:[], rows:[], page:1, detail:null, window:'30D', tab:'analysis', loading:false, explicitPeriod:false, editor:null, storageReadError:false, revealId:null, source:null, lastReadFailed:false, feedText:null, liveClient:null, liveUser:null, liveData:null, liveView:null, liveVersion:0, positionExclusions:Object.create(null), analytics:Object.create(null), analyticsClient:null, analyticsViews:[], chartSeq:0};
 const fail = () => { throw Error('数据格式未通过校验，未展示此批记录。'); };
 const text = (v, n=200) => typeof v === 'string' && v.trim().length > 0 && v.length <= n ? v.trim() : fail();
 const optionalText = (v,n) => v === undefined || v === '' ? '' : text(v,n);
@@ -60,6 +60,13 @@ function validate(p) {
     const clean = {id,name,exchange:r.exchange,currency:r.currency,featured:r.featured,paid:r.paid,observedAt,sourceUrl:url.href,windows,accountId:optionalText(r.accountId,100),note:optionalText(r.note,500)};
     if(r.sourceKind !== undefined) { if(r.sourceKind !== 'public_account')fail();clean.sourceKind=r.sourceKind; }
     if(r.accountValue !== undefined)clean.accountValue=num(r.accountValue);
+    if(r.positionCheck !== undefined) {
+      const check=r.positionCheck;
+      if(r.sourceKind!=='public_account'||!check||typeof check!=='object'||Array.isArray(check)||check.scope!=='default_perp_dex'||!Number.isSafeInteger(check.count)||check.count<1||check.count>1000)fail();
+      const checkedAt=date(check.checkedAt),sourceTime=date(check.sourceTime),lag=Date.parse(checkedAt)-Date.parse(sourceTime);
+      if(lag>120000||lag< -5000)fail();
+      clean.positionCheck={scope:'default_perp_dex',checkedAt,sourceTime,count:check.count};
+    }
     for(const k of ['positions','points','orders']) {
       if(!Array.isArray(r[k]) || r[k].length>1000) fail();
       clean[k] = r[k].map(row => {
@@ -86,7 +93,20 @@ function validateSource(p,rows) {
     if(r.exchange!=='Hyperliquid'||r.currency!=='USD'||r.sourceKind!=='public_account'||!/^0x[0-9a-f]{40}$/.test(r.accountId)||r.sourceUrl!==`https://app.hyperliquid.xyz/explorer/address/${r.accountId}`||r.observedAt!==fetchedAt)fail();
     for(const w of Object.values(r.windows))if(!w.sourcePeriod||w.asOf!==(snapshotAt||fetchedAt)||w.asOfType!==(snapshotAt?'source':'observed'))fail();
   }
-  return {id:s.id,url:s.url,label:text(s.label,80),selection:text(s.selection,250),totalAccounts,selectedAccounts,fetchedAt,snapshotAt,lastAttemptAt,refreshIntervalMinutes:30,staleAfterMinutes:120,status:s.status};
+  let positionVerification;
+  if(s.positionVerification!==undefined) {
+    const v=s.positionVerification;
+    if(!v||typeof v!=='object'||Array.isArray(v)||v.scope!=='default_perp_dex'||v.maxAgeMinutes!==60)fail();
+    positionVerification={scope:v.scope,maxAgeMinutes:60,completedAt:date(v.completedAt)};
+    for(const k of ['candidateAccounts','checkedAccounts','holdingAccounts','emptyAccounts','failedAccounts','unattemptedAccounts']) {
+      if(!Number.isSafeInteger(v[k])||v[k]<0||v[k]>200)fail();positionVerification[k]=v[k];
+    }
+    if(v.candidateAccounts>totalAccounts||v.holdingAccounts!==rows.length||v.checkedAccounts!==v.holdingAccounts+v.emptyAccounts||v.checkedAccounts+v.failedAccounts+v.unattemptedAccounts!==v.candidateAccounts)fail();
+    for(const r of rows)if(!r.positionCheck||Date.parse(r.positionCheck.checkedAt)>Date.parse(positionVerification.completedAt))fail();
+  }
+  const result={id:s.id,url:s.url,label:text(s.label,80),selection:text(s.selection,250),totalAccounts,selectedAccounts,fetchedAt,snapshotAt,lastAttemptAt,refreshIntervalMinutes:30,staleAfterMinutes:120,status:s.status};
+  if(positionVerification)result.positionVerification=positionVerification;
+  return result;
 }
 function sourceIsStale(now=Date.now()) {
   if(state.lastReadFailed)return true;
@@ -94,6 +114,24 @@ function sourceIsStale(now=Date.now()) {
   return s.status!=='ok'||now-Math.min(Date.parse(s.fetchedAt),s.snapshotAt?Date.parse(s.snapshotAt):Infinity)>s.staleAfterMinutes*60000;
 }
 function isPublicAccount(r) {return r.sourceKind==='public_account'&&!r._local;}
+function qualifiedPosition(r,now=Date.now()) {
+  if(!isPublicAccount(r))return true;
+  const check=r.positionCheck;
+  if(!state.source?.positionVerification||!check||check.scope!=='default_perp_dex'||check.count<1)return false;
+  const checked=Date.parse(check.checkedAt),source=Date.parse(check.sourceTime);
+  return Number.isFinite(checked)&&Number.isFinite(source)&&now-checked<=3600000&&checked-now<=5000&&checked-source<=120000&&source-checked<=5000&&checked>(state.positionExclusions[r.accountId]??-Infinity);
+}
+function eligiblePublicRows() {return state.publicRows.filter(r=>qualifiedPosition(r));}
+function reevaluatePositions() {mergeRows();render();renderSource();}
+function observeEmptyPositions(r,part) {
+  if(!isPublicAccount(r)||part?.status!=='ready'||!Array.isArray(part.rows)||part.rows.length!==0)return;
+  const checked=Number(part.fetchedAt),source=Number(part.sourceTime),now=Date.now();
+  if(!Number.isFinite(checked)||!Number.isFinite(source)||checked<=0||source<=0||now-checked>120000||checked-now>5000||checked-source>120000||source-checked>5000)return;
+  if(checked<Date.parse(r.positionCheck?.checkedAt||''))return;
+  const excluded=Math.max(checked,Date.parse(r.positionCheck?.checkedAt||'')||0);
+  if(excluded<=(state.positionExclusions[r.accountId]??-Infinity))return;
+  state.positionExclusions[r.accountId]=excluded;reevaluatePositions();
+}
 function compactAccount(r) {return isPublicAccount(r)?r.accountId.slice(0,8)+'…'+r.accountId.slice(-6):r.accountId||r.id;}
 function displayPeriod(p,w) {return ({week:'周度',month:'月度',allTime:'累计'})[w?.sourcePeriod]||periodLabel(p);}
 function timeLabel(iso) {return new Date(iso).toLocaleString('zh-CN',{hour12:false});}
@@ -102,22 +140,29 @@ function renderSource() {
   $('source-summary').hidden=!s;
   if(s) {
     $('source-name').textContent=s.label;
-    $('source-selection').textContent=`${s.selection} · 来源共 ${s.totalAccounts.toLocaleString('zh-CN')} 个账户`;
+    const v=s.positionVerification,eligible=eligiblePublicRows().length;
+    $('source-selection').textContent=v?`${eligible} 个可看持仓 · ${v.candidateAccounts} 个候选 · ${v.emptyAccounts} 个空仓${v.failedAccounts?' · '+v.failedAccounts+' 个读取失败':''}${v.unattemptedAccounts?' · '+v.unattemptedAccounts+' 个待核验':''}`:`${s.selection} · 持仓待核验`;
     $('source-timing').textContent=`${s.snapshotAt?'快照文件更新 '+timeLabel(s.snapshotAt):'快照文件时间未提供'} · 采集于 ${timeLabel(s.fetchedAt)}`;
-    $('source-cadence').textContent='约 30 分钟采集 · 页面每分钟检查新快照';
+    $('source-cadence').textContent='约 30 分钟核验 · 超过 60 分钟自动移出名单';
   }
-  $('status').textContent=statusText();$('status').setAttribute('data-state',stale?'stale':state.publicRows.length?'ready':'empty');
-  $('source-universe').textContent=s?s.totalAccounts.toLocaleString('zh-CN'):'—';
+  $('status').textContent=statusText();$('status').setAttribute('data-state',stale?'stale':eligiblePublicRows().length?'ready':'empty');
+  $('source-universe').textContent=s?.positionVerification?s.positionVerification.candidateAccounts.toLocaleString('zh-CN'):'—';
   if(state.detail&&$('detail').open)renderDetailStatus();
 }
 function feed(rows) { return {schemaVersion:1,status:'ready',traders:rows}; }
-function mergeRows() { state.rows = [...state.publicRows.map(r=>({...r,_local:false})),...state.localRows.map(r=>({...r,_local:true}))]; }
+function mergeRows() { state.rows = [...eligiblePublicRows().map(r=>({...r,_local:false})),...state.localRows.map(r=>({...r,_local:true}))]; }
 function node(tag,content,cls) { const n=document.createElement(tag); if(content!==undefined)n.textContent=content; if(cls)n.className=cls; return n; }
 function button(label, action, cls) { const b=node('button',label,cls); b.type='button'; b.addEventListener('click',action); return b; }
 function sourceLink(r) { const a=node('a','查看来源 ↗','source-link'); a.href=r.sourceUrl; a.target='_blank'; a.rel='noopener noreferrer'; return a; }
 function pct(x) { return x==null?'—':x.toFixed(2)+'%'; }
 function value(x) { return x==null?'—':x!==0&&Math.abs(x)<1e-8?x.toExponential(2):x.toLocaleString('en-US',{maximumFractionDigits:8}); }
 function money(x,currency) {return x==null?'—':['USD','USDT','USDC'].includes(currency)?x.toLocaleString('en-US',{maximumFractionDigits:2}):value(x);}
+function compactMoney(x,currency) {
+  if(x==null)return '—';
+  if(!['USD','USDT','USDC'].includes(currency)||Math.abs(x)<10000)return money(x,currency);
+  const scale=Math.abs(x)>=100000000?100000000:10000,unit=scale===100000000?'亿':'万';
+  return (x/scale).toLocaleString('zh-CN',{maximumFractionDigits:2})+unit;
+}
 function win(w) { return w?.wins!=null&&w?.closedTrades>0?w.wins/w.closedTrades*100:null; }
 function periodLabel(p) { return p==='ALL'?'累计':p; }
 function hasMetrics(w) { return !!w && (['roi','pnl','mdd','wins','closedTrades'].some(k=>w[k]!=null)||w.curve.length>0); }
@@ -135,21 +180,73 @@ function empty(target,title,body,allowAdd=false) {
   if(allowAdd)e.append(button('添加带单员',()=>openEditor(), 'primary'));
   target.append(e);
 }
-function chart(w) {
+function chart(w,kind='return') {
   const el=node('div',undefined,'chart'), pts=w?.curve||[];
   if(pts.length<2) { el.textContent='暂无收益曲线'; return el; }
-  const values=pts.map(p=>p.value),lo=Math.min(...values),hi=Math.max(...values),start=Date.parse(pts[0].time),end=Date.parse(pts.at(-1).time);
+  const values=pts.map(p=>p.value),lo=Math.min(...values,...(kind==='pnl'?[0]:[])),hi=Math.max(...values,...(kind==='pnl'?[0]:[])),start=Date.parse(pts[0].time),end=Date.parse(pts.at(-1).time);
   const svg=document.createElementNS('http://www.w3.org/2000/svg','svg'); svg.setAttribute('viewBox','0 0 300 90'); svg.setAttribute('role','img');
-  svg.setAttribute('aria-label',`来源收益曲线：${pts.length} 个样本，起点 ${pts[0].value}%，终点 ${pts.at(-1).value}%；${pts[0].time} 至 ${pts.at(-1).time}`);
-  const line=document.createElementNS(svg.namespaceURI,'polyline');
-  line.setAttribute('points',pts.map(p=>`${8+284*(Date.parse(p.time)-start)/(end-start)},${hi===lo?45:80-70*(p.value-lo)/(hi-lo)}`).join(' ')); svg.append(line); el.append(svg); return el;
+  svg.setAttribute('aria-label',`${kind==='pnl'?'来源盈亏变化曲线':'来源收益曲线'}：${pts.length} 个样本，起点 ${pts[0].value}${kind==='pnl'?' USD':'%' }，终点 ${pts.at(-1).value}${kind==='pnl'?' USD':'%'}；${pts[0].time} 至 ${pts.at(-1).time}`);
+  const y=value=>hi===lo?45:80-70*(value-lo)/(hi-lo),coordinates=pts.map(p=>`${8+284*(Date.parse(p.time)-start)/(end-start)},${y(p.value)}`).join(' ');
+  if(kind==='pnl') {
+    const zero=y(0),id='pnl-'+(++state.chartSeq),defs=document.createElementNS(svg.namespaceURI,'defs');
+    for(const [name,top,height]of [['positive',0,zero],['negative',zero,90-zero]]) {
+      const clip=document.createElementNS(svg.namespaceURI,'clipPath'),rect=document.createElementNS(svg.namespaceURI,'rect');clip.setAttribute('id',id+'-'+name);
+      for(const [k,v]of Object.entries({x:0,y:top,width:300,height}))rect.setAttribute(k,String(v));clip.append(rect);defs.append(clip);
+    }
+    svg.append(defs);
+    const baseline=document.createElementNS(svg.namespaceURI,'line');for(const [k,v]of Object.entries({x1:8,x2:292,y1:zero,y2:zero,class:'pnl-baseline'}))baseline.setAttribute(k,String(v));svg.append(baseline);
+    for(const name of ['positive','negative']) {
+      const area=document.createElementNS(svg.namespaceURI,'polygon'),line=document.createElementNS(svg.namespaceURI,'polyline');
+      area.setAttribute('points',`8,${zero} ${coordinates} 292,${zero}`);area.setAttribute('class','pnl-area-'+name);area.setAttribute('clip-path',`url(#${id}-${name})`);
+      line.setAttribute('points',coordinates);line.setAttribute('class','pnl-line-'+name);line.setAttribute('clip-path',`url(#${id}-${name})`);svg.append(area,line);
+    }
+  } else {const line=document.createElementNS(svg.namespaceURI,'polyline');line.setAttribute('points',coordinates);svg.append(line);}
+  el.append(svg); return el;
 }
-function metrics(w,currency,includeROI=false) {
+function mddReason(reason) {return ({non_positive_peak_equity:'该窗口部分峰值权益无效，无法计算完整回撤',unpaired_samples:'盈亏与权益采样时间不一致，无法计算回撤',insufficient_samples:'有效来源样本不足，无法计算回撤',no_valid_peak:'缺少有效峰值权益，无法计算回撤',invalid_denominator:'权益分母无效，无法计算回撤'})[reason]||'来源未提供可计算的完整回撤数据';}
+function metrics(w,currency,includeROI=false,r=null,period=null) {
   const el=node('div',undefined,'metrics');
-  const items=[['盈亏 '+currency,money(w?.pnl,currency)],['最大回撤',pct(w?.mdd)],['逐笔胜率',pct(win(w))]];
+  const publicAccount=r&&isPublicAccount(r),record=publicAccount?state.analytics[r.accountId]:null,window=record?.portfolio?.status==='ready'?record.portfolio.windows[period]:null;
+  const items=[['盈亏 '+currency,includeROI?money(w?.pnl,currency):compactMoney(w?.pnl,currency),w?.pnl==null?'—':money(w.pnl,currency)+' '+currency],[publicAccount?'来源采样回撤':'最大回撤',pct(publicAccount?window?.mdd:w?.mdd)],[publicAccount?'平仓成交胜率':'逐笔胜率',pct(publicAccount?(record?.win?.status==='ready'?record.win.value:null):win(w))]];
   if(includeROI)items.unshift(['收益率',pct(w?.roi)]);
-  for(const [label,v]of items) { const c=node('div'); c.append(node('small',label),node('strong',v)); el.append(c); }
+  for(const [label,v,exact]of items) {
+    const c=node('div'),amount=node('strong',v);amount.setAttribute('title',exact||v);c.append(node('small',label),amount);
+    if(publicAccount&&!includeROI&&label==='平仓成交胜率'&&record?.win?.status!=='ready') {
+      const pending=['queued','loading'].includes(record?.win?.status),load=button(pending?'读取中':'计算',()=>ensureAnalyticsClient()?.ensureWinRate(r.accountId,{force:true}),'metric-load');load.disabled=pending;load.setAttribute('title','统计最近最多 2000 笔成交中的永续平仓样本；与所选表现周期独立');amount.textContent='';amount.append(load);
+    }
+    if(publicAccount&&label==='来源采样回撤')amount.setAttribute('title',window?.mdd==null?mddReason(window?.mddUnavailableReason):`${pct(window.mdd)} · 来源采样口径，非策略净值回撤`);
+    if(publicAccount&&label==='平仓成交胜率'&&record?.win?.status==='ready')amount.setAttribute('title',`${record.win.eligibleCount} 笔平仓成交样本，独立于所选表现周期；完整范围见研究详情`);
+    el.append(c);
+  }
   return el;
+}
+function ensureAnalyticsClient() {
+  if(!state.analyticsClient&&typeof BooksAccountAnalytics!=='undefined')state.analyticsClient=BooksAccountAnalytics.create({visible:document.visibilityState!=='hidden',onChange:record=>{state.analytics[record.address]=record;refreshAnalyticsViews(record.address);}});
+  return state.analyticsClient;
+}
+function fillPerformanceGraph(r,period,graph) {
+  graph.replaceChildren();
+  const record=state.analytics[r.accountId],w=record?.portfolio?.status==='ready'?record.portfolio.windows[period]:null;
+  if(isPublicAccount(r)&&w?.points?.length>1)graph.append(node('span','盈亏变化 · USD','curve-label'),chart({curve:w.points},'pnl'));
+  else if(!isPublicAccount(r)&&r.windows[period]?.curve.length>1)graph.append(chart(r.windows[period]));
+  else graph.append(node('span',isPublicAccount(r)?'盈亏曲线':'收益曲线','curve-label'),node('span','—','curve-unavailable'));
+}
+function refreshAnalyticsViews(address) {
+  for(const view of state.analyticsViews.filter(v=>v.r.accountId===address)) {
+    const fresh=metrics(view.r.windows[view.period],view.r.currency,view.kind==='detail',view.r,view.period);
+    view.metrics.replaceChildren(...fresh.children);fillPerformanceGraph(view.r,view.period,view.graph);
+    if(view.kind==='detail') {
+      const record=state.analytics[address],portfolio=record?.portfolio,window=portfolio?.windows?.[view.period],win=record?.win;
+      view.portfolioStatus.textContent=portfolio?.status==='ready'?(window?.sampleCount>1?`来源采样 ${window.sampleCount} 点 · ${timeLabel(window.startAt)} 至 ${timeLabel(window.endAt)}${window.mdd==null?' · '+mddReason(window.mddUnavailableReason):''}`:'来源未提供当前周期的有效曲线样本。'):portfolio?.status==='error'?'曲线读取失败，尚未取得可用数据。':'正在读取来源盈亏曲线…';
+      view.winStatus.textContent=win?.status==='ready'?(win.eligibleCount?`平仓成交 ${win.eligibleCount} 笔 · 盈利 ${win.winning} · 亏损 ${win.losing} · 持平 ${win.breakeven}；${timeLabel(win.startAt)} 至 ${timeLabel(win.endAt)}`:'最近成交中没有可统计的永续平仓样本。'):win?.status==='error'?'成交读取失败，尚未取得可统计样本。':['queued','loading'].includes(win?.status)?'正在读取最近成交…':'最近最多 2000 笔成交中的平仓样本，按需读取。';
+      view.portfolioButton.hidden=portfolio?.status!=='error';view.portfolioButton.disabled=['queued','loading'].includes(portfolio?.status);
+      view.winButton.disabled=['queued','loading'].includes(win?.status);view.winButton.textContent=win?.status==='ready'?'重新统计胜率':win?.status==='error'?'重试统计胜率':'统计平仓胜率';
+    }
+  }
+}
+function startVisibleAnalytics(rows) {
+  const accounts=rows.filter(canReadLive).map(r=>r.accountId),client=accounts.length?ensureAnalyticsClient():state.analyticsClient;
+  client?.setPortfolioTargets(accounts);for(const address of accounts)client?.ensurePortfolio(address);
 }
 function card(r,period) {
   const w=r.windows[period],c=node('article',undefined,'card'),top=node('div',undefined,'card-top'),identity=node('div');
@@ -159,10 +256,14 @@ function card(r,period) {
   tags.append(node('span',r.currency));if(isPublicAccount(r))tags.append(node('span','公开账户','account-label')); if(r._local)tags.append(node('span','我的资料','local-label'));
   for(const key of periods.filter(k=>hasMetrics(r.windows[k])))tags.append(node('span',displayPeriod(key,r.windows[key])));
   c.append(tags);
+  if(isPublicAccount(r)&&r.positionCheck)c.append(node('p',`持仓 ${r.positionCheck.count} · 核验 ${new Date(r.positionCheck.checkedAt).toLocaleTimeString('zh-CN',{hour12:false,hour:'2-digit',minute:'2-digit'})}`,'position-check'));
   if(r.note)c.append(node('p',r.note,'profile-note'));
   if(hasMetrics(w)) {
-    c.append(node('div',pct(w.roi),'roi '+(w.roi>0?'positive':w.roi<0?'negative':'')),node('div',`${displayPeriod(period,w)} 收益率`,'meta'),metrics(w,r.currency));
-    if(w.curve.length>1)c.append(chart(w));
+    c.append(node('div',pct(w.roi),'roi '+(w.roi>0?'positive':w.roi<0?'negative':'')),node('div',`${displayPeriod(period,w)} 收益率`,'meta'));
+    const performance=node('div',undefined,'performance-body'),graph=node('div',undefined,'performance-chart');
+    const figures=metrics(w,r.currency,false,r,period);performance.append(figures);fillPerformanceGraph(r,period,graph);
+    performance.append(graph);c.append(performance);
+    if(isPublicAccount(r))state.analyticsViews.push({kind:'card',r,period,metrics:figures,graph});
     c.append(node('p',stampLabel(w),'meta'));
   } else c.append(node('p',Object.keys(r.windows).length?`${displayPeriod(period,w)} 表现 —`:'账号与来源已保存','meta'));
   const actions=node('div',undefined,'card-actions'); actions.append(button('研究详情',()=>openDetail(r,period),'detail-button'),sourceLink(r));
@@ -188,24 +289,35 @@ function choosePeriod() {
 }
 function render() {
   const q=$('search').value.trim().toLocaleLowerCase(),p=$('period').value,source=$('source').value,currency=$('currency').value;
-  let rows=state.rows.filter(r=>(r.name+' '+r.id+' '+r.accountId+' '+r.exchange+' '+r.note).toLocaleLowerCase().includes(q) && ($('exchange').value==='all'||r.exchange===$('exchange').value) && (source==='all'||source==='local'&&r._local||source==='paid'&&r.paid||source==='public'&&!r._local&&!r.paid) && (currency==='all'||r.currency===currency));
+  const available=state.rows.filter(r=>qualifiedPosition(r)&&((source==='local')?r._local:!r._local));
+  let rows=available.filter(r=>(r.name+' '+r.id+' '+r.accountId+' '+r.exchange+' '+r.note).toLocaleLowerCase().includes(q) && ($('exchange').value==='all'||r.exchange===$('exchange').value) && (source==='all'||source==='local'&&r._local||source==='paid'&&r.paid||source==='public'&&!r._local&&!r.paid) && (currency==='all'||r.currency===currency));
+  $('sort-hint').textContent=['mdd','winRate'].includes($('sort').value)?'按已计算账户排序 · 未计算账户排在后面 · 新结果在重新选择排序后应用':'仅显示已核验持仓账户 · 永续主市场';
   const sort=$('sort').value,grouped=sort==='pnl'&&currency==='all'&&new Set(rows.map(r=>r.currency)).size>1;
   rows.sort((a,b)=>{
     if(grouped&&a.currency!==b.currency)return currencies.indexOf(a.currency)-currencies.indexOf(b.currency);
-    const wa=a.windows[p],wb=b.windows[p],va=sort==='winRate'?win(wa):wa?.[sort],vb=sort==='winRate'?win(wb):wb?.[sort];
+    const sortable=r=>{const w=r.windows[p],record=isPublicAccount(r)?state.analytics[r.accountId]:null;if(isPublicAccount(r)&&sort==='mdd')return record?.portfolio?.status==='ready'?record.portfolio.windows[p]?.mdd:null;if(isPublicAccount(r)&&sort==='winRate')return record?.win?.status==='ready'?record.win.value:null;return sort==='winRate'?win(w):w?.[sort];},va=sortable(a),vb=sortable(b);
     if(va==null&&vb==null)return a.id.localeCompare(b.id);if(va==null)return 1;if(vb==null)return -1;
     return (sort==='mdd'?va-vb:vb-va)||a.id.localeCompare(b.id);
   });
   const pages=Math.max(1,Math.ceil(rows.length/12));if(state.revealId){const at=rows.findIndex(r=>r.id===state.revealId);if(at>=0)state.page=Math.floor(at/12)+1;state.revealId=null;}if(!state.loading)state.page=Math.max(1,Math.min(state.page,pages));
-  $('leaders').replaceChildren();for(const r of rows.slice((state.page-1)*12,state.page*12))$('leaders').append(card(r,p));
-  if(!rows.length)empty($('leaders'),state.rows.length?'没有符合条件的资料':'暂无带单员资料',state.rows.length?'调整筛选条件，查看其他记录。':'获取数据后将在这里显示表现和交易记录。');
-  $('featured').replaceChildren();const featured=state.rows.filter(r=>r.featured);$('featured-section').hidden=!featured.length;
+  state.analyticsViews=state.analyticsViews.filter(v=>v.kind!=='card');
+  const visibleRows=rows.slice((state.page-1)*12,state.page*12);
+  $('leaders').replaceChildren();for(const r of visibleRows)$('leaders').append(card(r,p));
+  if(!rows.length) {
+    if(source==='local')empty($('leaders'),available.length?'没有符合条件的资料':'暂无本机资料',available.length?'调整筛选条件，查看其他记录。':'已保存的个人资料仅在这里显示。');
+    else if(!available.length&&state.source)empty($('leaders'),'暂无有效持仓账户',state.source.positionVerification?'当前没有仍在 60 分钟核验有效期内的持仓账户；新一轮核验后自动更新。':'现有快照尚未核验持仓，核验完成后显示账户。');
+    else empty($('leaders'),available.length?'没有符合条件的账户':'暂无持仓账户',available.length?'调整筛选条件，查看其他账户。':'取得有效持仓数据后显示账户。');
+  }
+  $('featured').replaceChildren();const featured=available.filter(r=>r.featured);$('featured-section').hidden=!featured.length;
   for(const r of featured) { const best=hasMetrics(r.windows.ALL)?'ALL':hasMetrics(r.windows[p])?p:periods.find(k=>hasMetrics(r.windows[k]))||p; $('featured').append(card(r,best)); }
-  $('total-count').textContent=state.rows.length;$('coverage-count').textContent=state.rows.filter(r=>Object.values(r.windows).some(hasMetrics)).length;$('local-count').textContent=state.localRows.length;
-  $('count').textContent=`${rows.length} 个研究账户${state.rows.length!==rows.length?' · 共 '+state.rows.length+' 个':''}${grouped?' · 按币种分组':''}`;
+  $('total-count').textContent=state.rows.filter(r=>!r._local&&qualifiedPosition(r)).length;$('coverage-count').textContent=state.rows.filter(r=>!r._local&&qualifiedPosition(r)&&Object.values(r.windows).some(hasMetrics)).length;$('local-count').textContent=state.localRows.length;
+  $('count').textContent=`${rows.length} 个研究账户${available.length!==rows.length?' · 共 '+available.length+' 个':''}${grouped?' · 按币种分组':''}`;
   $('page').textContent=rows.length?`${state.page} / ${pages}`:'0 / 0';$('prev').disabled=state.loading||!rows.length||state.page===1;$('next').disabled=state.loading||!rows.length||state.page>=pages;
+  startVisibleAnalytics(visibleRows);
 }
 function statusText() {
+  if(state.source&&state.publicRows.some(isPublicAccount)&&!eligiblePublicRows().length)return state.source.positionVerification?'持仓核验已过期或账户已空仓，等待新一轮核验。':'持仓尚未核验，公开账户暂不显示。';
+  if(state.source?.positionVerification&&!state.publicRows.length)return '本次核验没有可展示的持仓账户。';
   if(state.publicRows.length&&sourceIsStale())return state.lastReadFailed?'更新失败 · 仍显示上次验证的快照':'快照待更新 · 以下为最近一次成功采集的数据';
   if(state.status==='error')return state.localRows.length?'公开资料暂不可用；我的资料仍可查看。':'公开资料暂不可用。';
   if(state.publicRows.length)return state.source?'已接入真实公开数据':`公开资料 ${state.publicRows.length} 个`;
@@ -215,10 +327,12 @@ function updateView(message) { mergeRows();choosePeriod();render();renderSource(
 function renderDetailStatus() {
   const r=state.detail;let message='';
   if(r&&isPublicAccount(r)) {
-    if(!state.publicRows.some(item=>item.id===r.id))message='该账户已不在本次收录范围，详情保留上次验证的记录。';
+    if((state.positionExclusions[r.accountId]??-Infinity)>=Date.parse(r.positionCheck?.checkedAt||'1970-01-01T00:00:00Z'))message='当前已空仓，已从名单移除。';
+    else if(!qualifiedPosition(r))message='持仓核验已过期或尚未完成，已从名单移除；历史表现仍可查看。';
+    else if(!state.publicRows.some(item=>item.id===r.id))message='该账户已不在本次收录范围，详情保留上次验证的记录。';
     else if(sourceIsStale())message='此处显示上次验证的快照，最新数据暂未取得。';
   }
-  if(message&&state.tab==='live')message='排行快照待更新；下方账户明细独立读取。';
+  if(message&&state.tab==='live'&&qualifiedPosition(r))message='排行快照待更新；下方账户明细独立读取。';
   $('detail-data-status').textContent=message;$('detail-data-status').hidden=!message;
 }
 function canReadLive(r) {return !!r&&isPublicAccount(r)&&r.exchange==='Hyperliquid'&&/^0x[0-9a-f]{40}$/.test(r.accountId);}
@@ -253,7 +367,7 @@ function buildLivePanel(r,b) {
   try {
     state.liveClient=BooksAccountLive.create({visible:document.visibilityState!=='hidden',onChange:data=>{
       if(version!==state.liveVersion||state.tab!=='live'||state.detail?.accountId!==r.accountId||!state.liveView||data.address!==r.accountId)return;
-      state.liveData=data;renderLiveData();
+      state.liveData=data;observeEmptyPositions(r,data.positions);renderLiveData();
     }});
     state.liveClient.start(r.accountId);
   } catch {connection.textContent='实时连接暂不可用，可重新打开此面板。';}
@@ -299,17 +413,23 @@ function renderDetail() {
   $('detail-title').textContent=r.name;$('detail-meta').textContent=`${r.exchange} · ${r.accountId||r.id} · ${r.currency}${r._local?' · 我的资料':''}`;
   renderDetailStatus();
   document.querySelectorAll('[data-tab]').forEach(x=>{x.hidden=canReadLive(r)?!['analysis','live'].includes(x.dataset.tab):x.dataset.tab==='live';x.setAttribute('aria-pressed',String(x.dataset.tab===state.tab));});
-  if(state.tab==='live'&&canReadLive(r)){if(!state.liveView||state.liveUser!==r.accountId){stopLive();b.replaceChildren();buildLivePanel(r,b);}return;}
-  b.replaceChildren();
+  if(state.tab==='live'&&canReadLive(r)){state.analyticsViews=state.analyticsViews.filter(v=>v.kind!=='detail');if(!state.liveView||state.liveUser!==r.accountId){stopLive();b.replaceChildren();buildLivePanel(r,b);}return;}
+  b.replaceChildren();state.analyticsViews=state.analyticsViews.filter(v=>v.kind!=='detail');
   if(state.tab==='analysis') {
     const w=r.windows[state.window];b.append(node('h3',`${displayPeriod(state.window,w)} 表现`));
     if(isPublicAccount(r)) {
       b.append(node('p','来源自填昵称与链上地址；未核验真人身份或带单资格。','detail-method'));
       if(r.accountValue!=null)b.append(node('p',`账户权益 ${money(r.accountValue,'USD')} USD`,'account-equity'));
     }
-    if(hasMetrics(w)) { b.append(metrics(w,r.currency,true),node('p',stampLabel(w),'meta'));if(w.curve.length>1)b.append(chart(w));if(w.closedTrades!=null||w.wins!=null)b.append(node('p',`已关闭交易 ${value(w.closedTrades)} 笔 · 盈利交易 ${value(w.wins)} 笔`)); }
+    if(hasMetrics(w)) {
+      const figures=metrics(w,r.currency,true,r,state.window);b.append(figures,node('p',stampLabel(w),'meta'));
+      if(isPublicAccount(r)) {
+        const graph=node('div',undefined,'detail-pnl-chart'),portfolioStatus=node('p',undefined,'meta'),portfolioButton=button('重试曲线',()=>ensureAnalyticsClient()?.ensurePortfolio(r.accountId,{force:true}),'portfolio-retry'),winStatus=node('p',undefined,'meta'),winButton=button('统计平仓胜率',()=>ensureAnalyticsClient()?.ensureWinRate(r.accountId,{force:true}),'win-load');
+        portfolioButton.hidden=true;b.append(graph,portfolioStatus,portfolioButton,winStatus,winButton);state.analyticsViews.push({kind:'detail',r,period:state.window,metrics:figures,graph,portfolioStatus,portfolioButton,winStatus,winButton});refreshAnalyticsViews(r.accountId);ensureAnalyticsClient()?.ensurePortfolio(r.accountId);
+      }else {if(w.curve.length>1)b.append(chart(w));if(w.closedTrades!=null||w.wins!=null)b.append(node('p',`已关闭交易 ${value(w.closedTrades)} 笔 · 盈利交易 ${value(w.wins)} 笔`));}
+    }
     else b.append(node('p','当前周期暂无表现记录。'));
-    if(isPublicAccount(r))b.append(node('p','收益率与盈亏直接采用来源发布值，按来源周度、月度、累计窗口展示。该快照未提供逐笔胜率、策略最大回撤或收益曲线，相关指标留空。快照文件更新时间不代表每个账户的成交时间。','detail-method'));
+    if(isPublicAccount(r))b.append(node('p','收益率与盈亏采用来源榜单值。来源采样回撤以来源盈亏从峰值的回落额除以峰值时账户权益，不是剔除出入金后的策略净值回撤，可能超过 100%。曲线显示实际来源样本的盈亏变化。平仓成交胜率按最近最多 2000 笔成交中的永续平仓样本统计，按该笔已实现盈亏扣平仓成交手续费判断盈亏，未扣除对应开仓手续费和资金费；持平计入分母。它不等同于完整订单、开平仓回合或当前所选周期的胜率。资料不足时留空。','detail-method'));
     if(r.note)b.append(node('h3','研究备注'),node('p',r.note,'profile-note'));
     b.append(sourceLink(r));return;
   }
@@ -400,7 +520,7 @@ async function refresh(background=false) {
   } catch(e) {state.status='error';state.lastReadFailed=true;}
   finally {
     clearTimeout(timeout);state.loading=false;$('refresh').disabled=false;$('leaders').setAttribute('aria-busy','false');
-    if(changed||!background)updateView();else renderSource();
+    if(changed||!background)updateView();else reevaluatePositions();
     if(changed&&state.detail&&!state.detail._local&&$('detail').open)renderDetail();
     saveURL(true);if(restoreFocus&&document.activeElement===document.body)$('refresh').focus();
   }
@@ -418,9 +538,9 @@ const tabs=[...$('tabs').querySelectorAll('[data-tab]')];
 function selectTab(b){if(!state.detail||!tabs.includes(b)||b.hidden)return;activateDetailTab(b.dataset.tab);}
 $('tabs').addEventListener('click',e=>selectTab(e.target.closest('[data-tab]')));
 $('tabs').addEventListener('keydown',e=>{const visibleTabs=tabs.filter(b=>!b.hidden),i=visibleTabs.indexOf(e.target);if(i<0)return;let n;if(e.key==='ArrowRight')n=(i+1)%visibleTabs.length;else if(e.key==='ArrowLeft')n=(i+visibleTabs.length-1)%visibleTabs.length;else if(e.key==='Home')n=0;else if(e.key==='End')n=visibleTabs.length-1;else return;e.preventDefault();visibleTabs[n].focus();selectTab(visibleTabs[n]);});
-$('detail').addEventListener('close',()=>{stopLive();state.detail=null;});
+$('detail').addEventListener('close',()=>{stopLive();state.analyticsViews=state.analyticsViews.filter(v=>v.kind!=='detail');state.detail=null;});
 addEventListener('popstate',()=>{if($('detail').open)$('detail').close();readURL();choosePeriod();render();});
 readURL();loadLocal();state.loading=true;choosePeriod();render();state.loading=false;refresh();
-setInterval(()=>{renderSource();if(document.visibilityState==='visible')refresh(true);},60000);
-document.addEventListener('visibilitychange',()=>{state.liveClient?.setVisible(document.visibilityState==='visible');if(document.visibilityState==='visible'){renderSource();refresh(true);}});
+setInterval(()=>{reevaluatePositions();if(document.visibilityState==='visible')refresh(true);},60000);
+document.addEventListener('visibilitychange',()=>{state.analyticsClient?.setVisible(document.visibilityState==='visible');state.liveClient?.setVisible(document.visibilityState==='visible');if(document.visibilityState==='visible'){reevaluatePositions();refresh(true);}});
 })();

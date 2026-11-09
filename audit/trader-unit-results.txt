@@ -75,5 +75,30 @@ PASS manual records cannot enter live mode or create a subscription
 PASS fill direction labels preserve close and reversal meaning
 PASS a stale ranking snapshot does not label independent live activity stale
 PASS an old successful position response is visibly stale independently of the connected stream
-77 logic and DOM-model tests passed. Synthetic fixtures stay local; the published feed is checked separately.
-PASS node --check trader/plaza.js
+PASS qualification accepts a later independent position check than the leaderboard read
+PASS reject unknown position scope
+PASS reject zero verified positions
+PASS reject noninteger position count
+PASS reject position source older than 120 seconds
+PASS reject position source more than five seconds ahead
+PASS reject missing per-account check in qualified batch
+PASS reject inconsistent checked count
+PASS reject unaccounted candidate
+PASS reject check after batch completion
+PASS reject extended qualification TTL
+PASS old unqualified public feed remains readable but displays no public account cards
+PASS unverified personal records stay saved and appear only through the explicit local filter
+PASS position TTL boundary is independent from leaderboard freshness
+PASS minute or visibility reevaluation clears expired cards without deleting local storage or detail history
+PASS partial qualification counts distinguish eligible, empty, failed and unattempted candidates
+PASS a successful all-empty position batch stays ready and does not masquerade as an API failure
+PASS fresh empty live positions remove the card but keep historical detail; only a newer check restores it
+PASS a failed or stale empty response never becomes a false empty-position exclusion
+PASS large card monetary values retain sign and exact title without stranded decimals
+PASS only currently visible qualified cards request portfolios, with no automatic fill queries
+PASS verified analytics render actual PnL samples and drawdown above 100 without clamping or inventing win rate
+PASS card calculation requests bounded closing-fill statistics only after the visitor clicks
+PASS closing sample win rate is labeled separately from period returns and complete trades
+PASS portfolio errors offer a deliberate force retry without faking an empty or zero curve
+PASS invalid peak equity preserves unavailable drawdown with an exact reason
+103 logic and DOM-model tests passed. Synthetic fixtures stay local; the published feed is checked separately.

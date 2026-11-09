@@ -35,8 +35,10 @@ jobs:
       - name: Test account activity client and page logic
         run: |
           node --check trader/account-live.js
+          node --check trader/account-analytics.js
           node --check trader/plaza.js
           node audit/account-live-unit.cjs
+          node audit/account-analytics-unit.cjs
           node audit/trader-unit.cjs
 
       - name: Test snapshot validation and last-good handling

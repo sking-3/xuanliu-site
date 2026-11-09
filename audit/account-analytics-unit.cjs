@@ -1,0 +1,163 @@
+'use strict';
+/* Entirely offline fixtures. No production accounts or captured responses needed. */
+const assert=require('node:assert/strict');
+const API=require('../trader/account-analytics.js');
+const T=1800000000000,A='0x'+'1'.repeat(40),B='0x'+'2'.repeat(40);
+const addr=i=>'0x'+i.toString(16).padStart(40,'0');
+const sample=(pnl=[0,10,5],equity=[100,110,105],period='month')=>[[period,{pnlHistory:pnl.map((v,i)=>[T-3000+i*1000,String(v)]),accountValueHistory:equity.map((v,i)=>[T-3000+i*1000,String(v)])}]];
+const baseFill={coin:'BTC',time:T-1000,dir:'Close Long',side:'A',sz:'1',startPosition:'2',closedPnl:'10',fee:'1',feeToken:'USDC',tid:1,oid:101,hash:'0x123'};
+const fill=(changes={})=>({...baseFill,...changes});
+function response(payload,status=200,headers={}) {
+  const content=typeof payload==='string'?payload:JSON.stringify(payload);
+  const map={'content-type':'application/json',...headers};
+  return {status,headers:{get:key=>map[key.toLowerCase()]??null},text:async()=>content};
+}
+function env(handler,options={}) {
+  let time=T,serial=0;const timers=new Map(),calls=[],events=[];
+  const fetch=async(url,settings)=>{const call={url,settings,body:JSON.parse(settings.body)};calls.push(call);return handler?handler(call,calls.length):response(call.body.type==='portfolio'?sample():[fill()]);};
+  const setTimer=(fn,delay)=>{const id=++serial;timers.set(id,{fn,at:time+delay});return id;};
+  const clearTimer=id=>timers.delete(id);
+  const flush=async()=>{for(let i=0;i<30;i++)await Promise.resolve();};
+  const advance=async(ms)=>{const until=time+ms;for(;;){const ready=[...timers.entries()].filter(([,v])=>v.at<=until).sort((a,b)=>a[1].at-b[1].at)[0];if(!ready)break;time=ready[1].at;timers.delete(ready[0]);ready[1].fn();await flush();}time=until;await flush();};
+  const client=API.create({fetch,now:()=>time,setTimer,clearTimer,onChange:r=>events.push(r),...options});
+  return {client,calls,timers,events,flush,advance,now:()=>time};
+}
+let count=0;
+async function test(name,fn){await fn();count++;console.log('ok '+name);}
+(async()=>{
+await test('MDD uses equity at the running PnL peak, not cumulative PnL denominator',()=>{
+  const result=API.normalize.portfolio(sample(),T).windows['30D'];
+  assert.equal(result.mdd,5/110*100);assert.notEqual(result.mdd,50);
+  assert.equal(result.sampleCount,3);assert.equal(result.sourcePeriod,'month');assert.equal(result.scope,'all_account');
+  assert.deepEqual(result.points.map(p=>p.value),[0,10,5]);assert.equal(result.mddUnit,'percent');
+});
+await test('sampled MDD may exceed 100 and is not clipped',()=>{
+  assert.equal(API.normalize.portfolio(sample([0,100,-200],[100,100,1]),T).windows['30D'].mdd,300);
+});
+await test('native windows use all-account week month and allTime, never inferred 90D/perp',()=>{
+  const p=[...sample([0,1],[100,101],'week'),...sample([0,2],[100,102],'month'),...sample([0,3],[100,103],'allTime'),...sample([0,999],[100,999],'perpMonth')];
+  const w=API.normalize.portfolio(p,T).windows;assert.deepEqual(Object.keys(w),['7D','30D','ALL']);assert.equal(w['30D'].points[1].value,2);assert.equal(w['90D'],undefined);
+});
+await test('real curve is rebased PnL in USD and does not recompute source ROI',()=>{
+  const w=API.normalize.portfolio(sample([30,25,40]),T).windows['30D'];
+  assert.deepEqual(w.points.map(p=>p.value),[0,-5,10]);assert.equal(w.roi,undefined);assert.equal(w.curveUnit,'USD');assert.equal(w.points[1].time,new Date(T-2000).toISOString());
+});
+await test('missing, zero-denominator, all-negative and single-sample windows stay unavailable',()=>{
+  for(const p of [sample([],[]),sample([0],[100]),sample([-10,-20],[100,90]),sample([0,-5],[0,0]),sample([0,10],[0,100])])assert.equal(API.normalize.portfolio(p,T).windows['30D'].mdd,null);
+  const p=sample();delete p[0][1].accountValueHistory;assert.equal(API.normalize.portfolio(p,T).windows['30D'].mddUnavailableReason,'unpaired_samples');
+  assert.deepEqual(API.normalize.portfolio([],T).windows,{});
+});
+await test('mismatched sample timestamps never pair or interpolate',()=>{
+  const p=sample();p[0][1].accountValueHistory[1][0]++;
+  const w=API.normalize.portfolio(p,T).windows['30D'];assert.equal(w.mdd,null);assert.equal(w.mddUnavailableReason,'unpaired_samples');assert.equal(w.points.length,3);
+});
+await test('paired rising samples support actual zero drawdown',()=>{
+  assert.equal(API.normalize.portfolio(sample([0,1,2],[100,101,102]),T).windows['30D'].mdd,0);
+});
+await test('malformed monetary numbers, duplicate/out-of-order timestamps and duplicate periods reject',()=>{
+  for(const value of ['NaN','Infinity','',null,true,'1e30',{},'0x10']){const p=sample();p[0][1].pnlHistory[1][1]=value;assert.throws(()=>API.normalize.portfolio(p,T),/invalid_response/);}
+  const p=sample();p[0][1].pnlHistory[1][0]=p[0][1].pnlHistory[0][0];assert.throws(()=>API.normalize.portfolio(p,T));
+  assert.throws(()=>API.normalize.portfolio([...sample(),...sample()],T));
+  assert.deepEqual(API.normalize.portfolio([['__proto__',{}],['constructor',{}]],T).windows,{});
+});
+await test('actual-point extrema downsampling is bounded and keeps original source count',()=>{
+  const points=Array.from({length:2000},(_,i)=>({time:new Date(T-3000000+i*1000).toISOString(),value:i===627?9000:i===1120?-5000:i%31}));
+  const plot=API.downsample(points);assert(plot.length<=240);assert.deepEqual(plot[0],points[0]);assert.deepEqual(plot.at(-1),points.at(-1));assert(plot.some(p=>p.value===9000));assert(plot.some(p=>p.value===-5000));
+  const original=new Set(points.map(p=>JSON.stringify(p)));assert(plot.every(p=>original.has(JSON.stringify(p))));
+  const histories=points.map(p=>[Date.parse(p.time),String(p.value)]);
+  const w=API.normalize.portfolio([['month',{pnlHistory:histories,accountValueHistory:histories.map(([t])=>[t,'10000'])}]],T).windows['30D'];
+  assert.equal(w.sampleCount,2000);assert(w.points.length<=240);assert.equal(w.mdd,140);
+});
+await test('zero gross PnL closing fills count losses from fees and rebates can win',()=>{
+  const r=API.normalize.winRate([fill({closedPnl:'0',fee:'1'}),fill({tid:2,closedPnl:'0',fee:'-0.1'}),fill({tid:3,closedPnl:'0',fee:'0'})],T);
+  assert.equal(r.winning,1);assert.equal(r.losing,1);assert.equal(r.breakeven,1);assert(Math.abs(r.value-100/3)<1e-10);assert.equal(r.eligibleCount,3);
+});
+await test('same-order partial fills remain separate; only exact duplicate fills collapse',()=>{
+  const a=fill(),b=fill({tid:2,closedPnl:'-1'});const r=API.normalize.winRate([a,a,b],T);
+  assert.equal(r.totalFills,2);assert.equal(r.receivedFills,3);assert.equal(r.duplicateCount,1);assert.equal(r.eligibleCount,2);assert.equal(r.value,50);
+  assert.throws(()=>API.normalize.winRate([a,{...a,closedPnl:'999'}],T),/invalid_response/);
+});
+await test('spot, builder DEX, unknown fees, reversals and contradictory position signs excluded',()=>{
+  const changes=[{coin:'@107'},{coin:'BTC/USDC'},{coin:'xyz:TSLA'},{dir:'Long > Short'},{dir:'Open Long'},{feeToken:'PURR'},{side:'B'},{startPosition:'-2'},{startPosition:'0'},{sz:'3'}];
+  const r=API.normalize.winRate(changes.map((change,i)=>fill({tid:i+1,...change})),T);assert.equal(r.eligibleCount,0);assert.equal(r.excludedCount,10);assert.equal(r.value,null);
+});
+await test('legitimate Close Short and floating decimal size roundoff are accepted',()=>{
+  const r=API.normalize.winRate([fill({dir:'Close Short',side:'B',startPosition:'-0.3',sz:0.1+0.2})],T);assert.equal(r.eligibleCount,1);assert.equal(r.value,100);
+});
+await test('sample coverage, fee scope, caps and empty samples are explicit',()=>{
+  const r=API.normalize.winRate([fill({time:T-5000}),fill({tid:2,time:T-3000,dir:'Open Long'}),fill({tid:3,time:T-2000})],T);
+  assert.equal(r.startAt,new Date(T-5000).toISOString());assert.equal(r.endAt,new Date(T-2000).toISOString());assert.equal(r.historyComplete,false);assert.equal(r.includesOpeningFees,false);assert.equal(r.includesFunding,false);assert.equal(r.method,'closing_fill_net_of_closing_fee');
+  const capped=API.normalize.winRate(Array.from({length:2000},(_,i)=>fill({tid:i})),T);assert.equal(capped.capped,true);assert.equal(capped.totalFills,2000);
+  const empty=API.normalize.winRate([],T);assert.equal(empty.value,null);assert.equal(empty.startAt,null);assert.equal(empty.eligibleCount,0);
+});
+await test('malformed fill numbers/future timestamps/unsafe IDs do not become zero wins',()=>{
+  for(const changes of [{closedPnl:'NaN'},{fee:null},{sz:'0'},{startPosition:true},{time:T+300001},{tid:Number.MAX_SAFE_INTEGER+1}])assert.throws(()=>API.normalize.winRate([fill(changes)],T));
+});
+await test('only official read-only POST, no credentials, and source metadata reaches state',async()=>{
+  const e=env();await e.client.ensurePortfolio(A);await e.client.ensureWinRate(A);
+  assert.equal(e.calls.length,2);for(const c of e.calls){assert.equal(c.url,API.endpoints.info);assert.equal(c.settings.method,'POST');assert.equal(c.settings.credentials,'omit');assert.equal(c.settings.redirect,'error');assert.equal(c.settings.cache,'no-store');assert.equal(c.body.user,A);}
+  assert.deepEqual(e.calls[1].body,{type:'userFills',user:A,aggregateByTime:false});assert.equal(e.client.get(A).portfolio.fetchedAt,new Date(T).toISOString());assert.equal(e.client.get(A).win.value,100);e.client.destroy();assert.equal(e.timers.size,0);
+});
+await test('inflight requests deduplicate and five-minute memory cache avoids extra API weight',async()=>{
+  let release;const delayed=new Promise(r=>release=r);const e=env(async()=>{await delayed;return response(sample());});
+  const p=e.client.ensurePortfolio(A),p2=e.client.ensurePortfolio(A.toUpperCase().replace('0X','0x'));assert.equal(p,p2);assert.equal(e.calls.length,1);release();await p;
+  await e.client.ensurePortfolio(A);assert.equal(e.calls.length,1);await e.advance(300000);await e.client.ensurePortfolio(A);assert.equal(e.calls.length,2);e.client.destroy();
+});
+await test('at most two concurrent requests and queued work starts only when one settles',async()=>{
+  const releases=[];const e=env(()=>new Promise(resolve=>releases.push(()=>resolve(response(sample())))));
+  const p=[1,2,3,4].map(i=>e.client.ensurePortfolio(addr(i)));assert.equal(e.calls.length,2);assert.equal(e.client.get(addr(3)).portfolio.status,'queued');
+  releases[0]();await e.flush();assert.equal(e.calls.length,3);releases[1]();await e.flush();assert.equal(e.calls.length,4);releases[2]();releases[3]();await Promise.all(p);e.client.destroy();
+});
+await test('rolling 400/min weight budget includes wins and resumes after actual expiry',async()=>{
+  const e=env();for(let i=1;i<=3;i++)await e.client.ensureWinRate(addr(i));for(let i=4;i<=5;i++)await e.client.ensurePortfolio(addr(i));
+  assert.equal(e.calls.length,5);const pending=e.client.ensurePortfolio(addr(6));await e.flush();assert.equal(e.calls.length,5);assert.equal(e.client.get(addr(6)).portfolio.status,'queued');
+  await e.advance(59999);assert.equal(e.calls.length,5);await e.advance(1);await pending;assert.equal(e.calls.length,6);e.client.destroy();
+});
+await test('HTTP403 halts all queued/inflight automatic reads; only explicit retry can proceed',async()=>{
+  let blocked=true;const e=env(()=>response(blocked?'blocked':sample(),blocked?403:200));
+  const p=[A,B,addr(3)].map(a=>e.client.ensurePortfolio(a));await Promise.all(p);assert.equal(e.calls.length,2);assert.equal(e.client.get(A).portfolio.errorCode,'http_403');assert.equal(e.client.get(B).portfolio.errorCode,'http_403');
+  await e.advance(120000);await e.client.ensurePortfolio(A);await e.client.ensurePortfolio(addr(4));assert.equal(e.calls.length,2);blocked=false;await e.client.ensurePortfolio(A,{force:true});assert.equal(e.calls.length,3);assert.equal(e.client.get(A).portfolio.status,'ready');e.client.destroy();
+});
+await test('HTTP429 obeys Retry-After even on a user retry and does not auto-resume',async()=>{
+  let blocked=true;const e=env(()=>response(blocked?'slow':sample(),blocked?429:200,{'retry-after':'90'}));
+  await e.client.ensurePortfolio(A);assert.equal(e.client.get(A).portfolio.retryAfterAt,new Date(T+90000).toISOString());
+  blocked=false;await e.client.ensurePortfolio(A,{force:true});assert.equal(e.calls.length,1);await e.advance(90000);assert.equal(e.calls.length,1);await e.client.ensurePortfolio(A,{force:true});assert.equal(e.calls.length,2);e.client.destroy();
+});
+await test('network/CORS errors are visible, preserve old real data and never silently retry',async()=>{
+  let fail=false;const e=env(()=>{if(fail)throw TypeError('Failed to fetch');return response(sample());});await e.client.ensurePortfolio(A);fail=true;await e.client.ensurePortfolio(A,{force:true});
+  const s=e.client.get(A).portfolio;assert.equal(s.status,'error');assert.equal(s.errorCode,'network_error');assert.equal(s.windows['30D'].sampleCount,3);assert.equal(s.fetchedAt,new Date(T).toISOString());await e.advance(400000);await e.client.ensurePortfolio(A);assert.equal(e.calls.length,2);e.client.destroy();
+});
+await test('HTML, invalid JSON, declared oversized bodies and actual oversized bodies fail closed',async()=>{
+  for(const resp of [response('<html>',200,{'content-type':'text/html'}),response('not json'),response({},200,{'content-length':String(API.limits.maxBytes+1)}),response(' '.repeat(API.limits.maxBytes+1))]){
+    const e=env(()=>resp);await e.client.ensurePortfolio(A);assert.equal(e.client.get(A).portfolio.status,'error');assert.deepEqual(e.client.get(A).portfolio.windows,{});e.client.destroy();
+  }
+});
+await test('stream response byte cap enforced before unbounded JSON parsing',async()=>{
+  let cancelled=false,part=0;const e=env(()=>({status:200,headers:{get:()=> 'application/json'},body:{getReader:()=>({read:async()=>({done:false,value:new Uint8Array(++part===1?API.limits.maxBytes:1)}),cancel:async()=>{cancelled=true;},releaseLock(){}})}}));
+  await e.client.ensurePortfolio(A);assert.equal(e.client.get(A).portfolio.errorCode,'response_too_large');assert(cancelled);e.client.destroy();
+});
+await test('12s timeout includes stalled body consumption, not only response headers',async()=>{
+  const e=env(()=>({status:200,headers:{get:k=>k==='content-type'?'application/json':null},text:()=>new Promise(()=>{})}));const p=e.client.ensurePortfolio(A);await e.flush();await e.advance(12000);await p;
+  assert.equal(e.client.get(A).portfolio.errorCode,'request_timeout');assert(e.calls[0].settings.signal.aborted);assert.equal(e.timers.size,0);e.client.destroy();
+});
+await test('hidden page cancels pending work, ignores late replies, and resumes targets only',async()=>{
+  const releases=[];const e=env(()=>new Promise(resolve=>releases.push(resolve)));e.client.setPortfolioTargets([A,B]);
+  const p=e.client.ensurePortfolio(A),win=e.client.ensureWinRate(B);assert.equal(e.calls.length,2);e.client.setVisible(false);await Promise.all([p,win]);assert(e.calls.every(c=>c.settings.signal.aborted));assert.equal(e.timers.size,0);
+  releases[0](response(sample()));releases[1](response([fill()]));await e.flush();assert.equal(e.client.get(A).portfolio.status,'idle');assert.equal(e.client.get(B).win.status,'idle');await e.advance(70000);assert.equal(e.calls.length,2);
+  e.client.setVisible(true);assert.equal(e.calls.length,4);assert(e.calls.slice(2).every(c=>c.body.type==='portfolio'));e.client.destroy();for(const release of releases.slice(2))release(response(sample()));await e.flush();assert.equal(e.timers.size,0);
+});
+await test('page changes cancel departing targets and late A response cannot overwrite B',async()=>{
+  const releases=[];const e=env(()=>new Promise(resolve=>releases.push(resolve)));e.client.setPortfolioTargets([A]);const a=e.client.ensurePortfolio(A);e.client.setPortfolioTargets([B]);const b=e.client.ensurePortfolio(B);await a;
+  releases[1](response(sample([0,20],[100,120])));await b;releases[0](response(sample()));await e.flush();assert.equal(e.client.get(A).portfolio.status,'idle');assert.equal(e.client.get(B).portfolio.windows['30D'].points[1].value,20);
+  await e.client.ensurePortfolio(A);assert.equal(e.calls.length,2);e.client.destroy();
+});
+await test('destroy resolves queued promises, aborts requests, clears timers and suppresses all late events',async()=>{
+  const releases=[];const e=env(()=>new Promise(resolve=>releases.push(resolve)));const promises=[A,B,addr(3)].map(a=>e.client.ensurePortfolio(a));const n=e.events.length;e.client.destroy();await Promise.all(promises);assert.equal(e.timers.size,0);assert(e.calls.every(c=>c.settings.signal.aborted));
+  releases.forEach(r=>r(response(sample())));await e.flush();assert.equal(e.events.length,n);await e.client.ensurePortfolio(addr(4));assert.equal(e.calls.length,2);
+});
+await test('record cache is bounded to 200 and callers cannot mutate internal data',async()=>{
+  const e=env();await e.client.ensurePortfolio(A);const s=e.client.get(A);s.portfolio.windows['30D'].mdd=999;assert.notEqual(e.client.get(A).portfolio.windows['30D'].mdd,999);
+  for(let i=3;i<204;i++)e.client.get(addr(i));assert.equal(e.client.get(A).portfolio.status,'idle');assert.throws(()=>e.client.get('not-an-account'));assert.throws(()=>e.client.setPortfolioTargets(Array(13).fill(A)));e.client.destroy();
+});
+console.log(`${count} account-analytics tests passed. Offline fixtures only; no API calls.`);
+})().catch(error=>{console.error(error);process.exitCode=1;});

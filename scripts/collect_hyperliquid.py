@@ -2,6 +2,7 @@
 """Read-only Hyperliquid public leaderboard -> bounded Books research snapshot.
 
 No key, proxy, retries, or private endpoints. Run at most every 30 minutes.
+Select up to 200 monthly-PnL candidates, then retain verified nonzero positions.
 On source failure, publish a stale marker while retaining a validated good snapshot.
 HTTP Last-Modified describes the leaderboard file, not each account's update time.
 """
@@ -15,6 +16,7 @@ from email.utils import parsedate_to_datetime
 import hashlib
 import json
 import math
+import multiprocessing
 import os
 from pathlib import Path
 import re
@@ -30,6 +32,16 @@ ACCOUNT_URL = 'https://app.hyperliquid.xyz/explorer/address/'
 MAX_SOURCE_BYTES = 64 * 1024 * 1024
 MAX_FEED_BYTES = 2 * 1024 * 1024
 MAX_SECONDS = 50
+INFO_URL = 'https://api.hyperliquid.xyz/info'
+POSITION_SCOPE = 'default_perp_dex'
+POSITION_MAX_AGE_MINUTES = 60
+POSITION_SOURCE_MAX_AGE_SECONDS = 120
+POSITION_FUTURE_SKEW_SECONDS = 5
+MAX_POSITION_BYTES = 1024 * 1024
+POSITION_REQUEST_SECONDS = 10
+POSITION_BATCH_SECONDS = 240
+POSITION_CONCURRENCY = 4
+POSITION_START_INTERVAL = 0.5
 LIMIT = 200
 WINDOWS = {'7D': 'week', '30D': 'month', 'ALL': 'allTime'}
 ADDRESS = re.compile(r'^0x[0-9a-fA-F]{40}$')
@@ -166,16 +178,16 @@ def normalize(payload, fetched_at, last_modified=None, raw_sha256=None, limit=LI
             raise SourceError('invalid_hash')
         source['rawSha256'] = raw_sha256
     result = {'schemaVersion': 1, 'status': 'ready', 'source': source, 'traders': selected}
-    validate_feed(result)
+    validate_feed(result, require_positions=False)
     return result
 
 
-def validate_feed(feed):
+def validate_feed(feed, require_positions=True):
     """Validate collector-owned cache before using it as last-good data."""
     if not isinstance(feed, dict) or feed.get('schemaVersion') != 1 or feed.get('status') != 'ready':
         raise SourceError('invalid_cache')
     rows, source = feed.get('traders'), feed.get('source')
-    if not isinstance(rows, list) or not 1 <= len(rows) <= LIMIT or not isinstance(source, dict):
+    if not isinstance(rows, list) or not 0 <= len(rows) <= LIMIT or not isinstance(source, dict):
         raise SourceError('invalid_cache')
     if source.get('id') != 'hyperliquid' or source.get('url') != PAGE_URL or source.get('status') not in ('ok', 'stale') or source.get('selectedAccounts') != len(rows):
         raise SourceError('invalid_cache')
@@ -193,6 +205,21 @@ def validate_feed(feed):
     snapshot_at = parse_time(source['snapshotAt']) if source.get('snapshotAt') is not None else None
     if snapshot_at and snapshot_at > fetched_at:
         raise SourceError('invalid_cache')
+    verification = source.get('positionVerification')
+    completed_at = None
+    if require_positions:
+        if not isinstance(verification, dict) or verification.get('scope') != POSITION_SCOPE or verification.get('maxAgeMinutes') != POSITION_MAX_AGE_MINUTES:
+            raise SourceError('invalid_cache')
+        fields = ('candidateAccounts', 'checkedAccounts', 'holdingAccounts', 'emptyAccounts', 'failedAccounts', 'unattemptedAccounts')
+        if any(type(verification.get(key)) is not int or not 0 <= verification[key] <= LIMIT for key in fields):
+            raise SourceError('invalid_cache')
+        candidates = verification['candidateAccounts']
+        checked = verification['checkedAccounts']
+        if not 1 <= candidates <= min(LIMIT, source['totalAccounts']) or checked < 1 or checked != verification['holdingAccounts'] + verification['emptyAccounts'] or candidates != checked + verification['failedAccounts'] + verification['unattemptedAccounts'] or verification['holdingAccounts'] != len(rows):
+            raise SourceError('invalid_cache')
+        completed_at = parse_time(verification.get('completedAt'))
+        if not fetched_at <= completed_at <= attempted_at:
+            raise SourceError('invalid_cache')
     ids = set()
     for row in rows:
         if not isinstance(row,dict):
@@ -209,6 +236,15 @@ def validate_feed(feed):
             raise SourceError('invalid_cache')
         if parse_time(row.get('observedAt')) != fetched_at:
             raise SourceError('invalid_cache')
+        if require_positions:
+            check = row.get('positionCheck')
+            if not isinstance(check, dict) or check.get('scope') != POSITION_SCOPE or type(check.get('count')) is not int or not 1 <= check['count'] <= 1000:
+                raise SourceError('invalid_cache')
+            checked_at, source_time = parse_time(check.get('checkedAt')), parse_time(check.get('sourceTime'))
+            if not fetched_at <= checked_at <= completed_at or not -POSITION_FUTURE_SKEW_SECONDS <= (checked_at - source_time).total_seconds() <= POSITION_SOURCE_MAX_AGE_SECONDS:
+                raise SourceError('invalid_cache')
+            if check['checkedAt'] != iso(checked_at) or check['sourceTime'] != iso(source_time):
+                raise SourceError('invalid_cache')
         if type(row.get('accountValue')) not in (float,int):
             raise SourceError('invalid_cache')
         number(row['accountValue'])
@@ -229,6 +265,233 @@ def validate_feed(feed):
     return feed
 
 
+
+def positive(value, nullable=False):
+    if nullable and value in (None, ''):
+        return None
+    result = number(value)
+    if result < 0:
+        raise SourceError('invalid_position_number')
+    return result
+
+
+def validate_positions(payload, checked_at):
+    """Validate one default perpetual market state; never infer from account value."""
+    checked_at = iso(parse_time(checked_at))
+    if not isinstance(payload, dict) or type(payload.get('time')) is not int or payload['time'] < 0:
+        raise SourceError('invalid_position_timestamp')
+    try:
+        source_time = datetime.fromtimestamp(payload['time'] / 1000, UTC)
+    except (OverflowError, OSError, ValueError) as exc:
+        raise SourceError('invalid_position_timestamp') from exc
+    age = (parse_time(checked_at) - source_time).total_seconds()
+    if not -POSITION_FUTURE_SKEW_SECONDS <= age <= POSITION_SOURCE_MAX_AGE_SECONDS:
+        raise SourceError('stale_position_state')
+    positions = payload.get('assetPositions')
+    if not isinstance(positions, list) or len(positions) > 1000:
+        raise SourceError('invalid_position_state')
+    coins = set()
+    for item in positions:
+        if not isinstance(item, dict) or not isinstance(item.get('position'), dict):
+            raise SourceError('invalid_position_state')
+        position = item['position']
+        coin = position.get('coin')
+        if not isinstance(coin, str) or not coin.strip() or len(coin) > 40:
+            raise SourceError('invalid_position_coin')
+        size = number(position.get('szi'))
+        # Match the live panel's required fields before calling a position visible.
+        positive(position.get('entryPx'), nullable=True)
+        positive(position.get('liquidationPx'), nullable=True)
+        positive(position.get('positionValue'))
+        positive(position.get('marginUsed'))
+        number(position.get('unrealizedPnl'))
+        leverage = position.get('leverage')
+        if not isinstance(leverage, dict) or leverage.get('type') not in ('cross', 'isolated'):
+            raise SourceError('invalid_position_leverage')
+        positive(leverage.get('value'))
+        if size != 0:
+            if coin in coins:
+                raise SourceError('duplicate_position_coin')
+            coins.add(coin)
+    return {'scope': POSITION_SCOPE, 'checkedAt': checked_at,
+            'sourceTime': iso(source_time), 'count': len(coins)}
+
+
+def fetch_position_state(address):
+    """Exactly one read-only POST; caller enforces a hard process deadline."""
+    if not isinstance(address, str) or not ADDRESS.fullmatch(address):
+        raise SourceError('invalid_address')
+    request = urllib.request.Request(INFO_URL, data=json.dumps({
+        'type': 'clearinghouseState', 'user': address, 'dex': ''
+    }).encode('utf-8'), headers={'Accept': 'application/json', 'Content-Type': 'application/json'}, method='POST')
+    opener = urllib.request.build_opener(NoRedirect())
+    try:
+        with opener.open(request, timeout=POSITION_REQUEST_SECONDS) as response:
+            if response.status != 200:
+                raise SourceError('http_' + str(response.status))
+            if response.headers.get_content_type() != 'application/json':
+                raise SourceError('unexpected_content_type')
+            raw = response.read(MAX_POSITION_BYTES + 1)
+            if len(raw) > MAX_POSITION_BYTES:
+                raise SourceError('position_response_too_large')
+            return validate_positions(decode(raw), iso(datetime.now(UTC)))
+    except urllib.error.HTTPError as exc:
+        raise SourceError('http_' + str(exc.code)) from exc
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        raise SourceError('network_error') from exc
+
+
+def _position_worker(address, connection):
+    try:
+        connection.send(('ok', fetch_position_state(address)))
+    except SourceError as exc:
+        connection.send(('error', str(exc)))
+    except Exception:
+        connection.send(('error', 'position_worker_error'))
+    finally:
+        connection.close()
+
+
+class PositionTask:
+    """One disposable process, so timeout cancellation really stops socket work."""
+    def __init__(self, address):
+        methods = multiprocessing.get_all_start_methods()
+        context = multiprocessing.get_context('fork' if 'fork' in methods else 'spawn')
+        self.connection, child = context.Pipe(duplex=False)
+        self.process = context.Process(target=_position_worker, args=(address, child), daemon=True)
+        try:
+            self.process.start()
+        finally:
+            child.close()
+
+    def poll(self):
+        if self.connection.poll():
+            try:
+                return self.connection.recv()
+            except EOFError:
+                return ('error', 'position_worker_error')
+        if not self.process.is_alive():
+            return ('error', 'position_worker_error')
+        return None
+
+    def close(self):
+        if self.process.is_alive():
+            self.process.terminate()
+        self.process.join(timeout=0.2)
+        if self.process.is_alive():
+            self.process.kill()
+            self.process.join(timeout=0.2)
+        self.connection.close()
+
+
+def collect_position_checks(rows, task_factory=PositionTask, clock=time.monotonic, sleep=time.sleep):
+    """Bounded, rate-capped requests. No retry, backfill or requests after denial."""
+    if not isinstance(rows, list) or not 1 <= len(rows) <= LIMIT or len({row['accountId'] for row in rows}) != len(rows):
+        raise SourceError('invalid_position_candidates')
+    results, active = {}, {}
+    started = clock()
+    deadline_at = started + POSITION_BATCH_SECONDS
+    next_start, index = started, 0
+    stop_code = None
+    try:
+        while index < len(rows) or active:
+            now = clock()
+            for address, (task, launched_at) in list(active.items()):
+                result = task.poll()
+                if result is None and now - launched_at >= POSITION_REQUEST_SECONDS:
+                    result = ('error', 'position_timeout')
+                if result is not None:
+                    results[address] = result
+                    task.close()
+                    del active[address]
+                    if result[0] == 'error' and result[1] in ('http_403', 'http_429'):
+                        stop_code = result[1]
+                        break
+            now = clock()
+            if stop_code or now >= deadline_at:
+                stop_code = stop_code or 'position_batch_timeout'
+                break
+            if index < len(rows) and len(active) < POSITION_CONCURRENCY and now >= next_start:
+                address = rows[index]['accountId']
+                index += 1
+                try:
+                    active[address] = (task_factory(address), now)
+                except (OSError, RuntimeError):
+                    results[address] = ('error', 'position_worker_error')
+                next_start = clock() + POSITION_START_INTERVAL
+            if index < len(rows) or active:
+                sleep(min(0.05, max(0, deadline_at - clock())))
+    finally:
+        for address, (task, _) in active.items():
+            task.close()
+            results[address] = ('error', stop_code or 'position_batch_cancelled')
+    return results, stop_code
+
+
+def qualify_positions(candidates, results, completed_at, stop_code=None):
+    """Keep only this run's successful, nonzero, displayable position states."""
+    validate_feed(candidates, require_positions=False)
+    completed_at = iso(parse_time(completed_at))
+    qualified = copy.deepcopy(candidates)
+    rows = []
+    successful = empty = failed = 0
+    for row in qualified['traders']:
+        result = results.get(row['accountId'])
+        if result is None:
+            continue
+        if result[0] != 'ok':
+            failed += 1
+            continue
+        check = result[1]
+        # Worker/offline readers both validate full source response before this.
+        if not isinstance(check, dict) or type(check.get('count')) is not int or not 0 <= check['count'] <= 1000:
+            raise SourceError('invalid_position_check')
+        checked_at = parse_time(check.get('checkedAt'))
+        source_time = parse_time(check.get('sourceTime'))
+        if check.get('scope') != POSITION_SCOPE or not parse_time(candidates['source']['fetchedAt']) <= checked_at <= parse_time(completed_at) or not -POSITION_FUTURE_SKEW_SECONDS <= (checked_at-source_time).total_seconds() <= POSITION_SOURCE_MAX_AGE_SECONDS:
+            raise SourceError('invalid_position_check')
+        successful += 1
+        if check['count'] == 0:
+            empty += 1
+            continue
+        row['positionCheck'] = copy.deepcopy(check)
+        rows.append(row)
+    if successful == 0:
+        raise SourceError(stop_code or 'positions_unavailable')
+    total = len(candidates['traders'])
+    qualified['traders'] = rows
+    source = qualified['source']
+    source.update(selectedAccounts=len(rows), lastAttemptAt=completed_at,
+                  selection=f'月度盈亏前 {total} 个候选账户中，经核验持有永续主市场仓位的账户')
+    source['positionVerification'] = {
+        'candidateAccounts': total, 'checkedAccounts': successful,
+        'holdingAccounts': len(rows), 'emptyAccounts': empty,
+        'failedAccounts': failed, 'unattemptedAccounts': total-successful-failed,
+        'completedAt': completed_at, 'scope': POSITION_SCOPE,
+        'maxAgeMinutes': POSITION_MAX_AGE_MINUTES,
+    }
+    if stop_code:
+        source['positionVerification']['stopCode'] = stop_code
+    validate_feed(qualified)
+    return qualified
+
+
+def read_position_captures(rows, directory):
+    """Offline only: <lowercase-address>.json with payload and checkedAt."""
+    results = {}
+    for row in rows:
+        path = directory / (row['accountId'] + '.json')
+        try:
+            if path.stat().st_size > MAX_POSITION_BYTES:
+                raise SourceError('position_response_too_large')
+            capture = decode(path.read_bytes())
+            check = validate_positions(capture['payload'], capture['checkedAt'])
+            results[row['accountId']] = ('ok', check)
+        except (OSError, SourceError, KeyError, TypeError):
+            results[row['accountId']] = ('error', 'invalid_position_capture')
+    return results
+
+
 def failed_snapshot(previous, attempt_at, code):
     attempt_at=iso(parse_time(attempt_at))
     if not isinstance(code,str) or not re.fullmatch('[a-z0-9_]{1,80}',code):
@@ -236,7 +499,7 @@ def failed_snapshot(previous, attempt_at, code):
     try:
         validate_feed(previous)
         result=copy.deepcopy(previous)
-        if parse_time(attempt_at) < parse_time(result['source']['fetchedAt']):
+        if parse_time(attempt_at) < parse_time(result['source']['lastAttemptAt']):
             raise SourceError('invalid_timestamp')
         result['source'].update(status='stale',lastAttemptAt=attempt_at,errorCode=code)
         return result
@@ -331,29 +594,35 @@ def main():
     parser.add_argument('--output',type=Path,default=Path(__file__).resolve().parents[1]/'trader'/'feed.json')
     parser.add_argument('--input',type=Path,help='Use an already captured, verified response; no network request.')
     parser.add_argument('--metadata',type=Path,help='Probe metadata required with --input.')
+    parser.add_argument('--positions-dir',type=Path,help='Required with --input: offline JSON position captures; never makes network requests.')
     args=parser.parse_args()
-    if bool(args.input) != bool(args.metadata):
-        parser.error('--input and --metadata must be supplied together')
+    if bool(args.input) != bool(args.metadata) or bool(args.input) != bool(args.positions_dir):
+        parser.error('--input, --metadata and --positions-dir must be supplied together')
     previous=read_previous(args.output)
-    attempt_at=iso(datetime.now(UTC))
     try:
         if args.input:
             if args.input.stat().st_size>MAX_SOURCE_BYTES:raise SourceError('source_too_large')
             raw=args.input.read_bytes();meta=decode(args.metadata.read_bytes())
-            if meta.get('url') != SOURCE_URL or meta.get('httpStatus') != 200 or meta.get('sha256') != hashlib.sha256(raw).hexdigest():
+            if not isinstance(meta,dict) or meta.get('url') != SOURCE_URL or meta.get('httpStatus') != 200 or meta.get('sha256') != hashlib.sha256(raw).hexdigest():
                 raise SourceError('invalid_capture_metadata')
             fetched_at=meta['fetchedAt'];last_modified=meta.get('headers',{}).get('last-modified')
         else:
             raw,last_modified,fetched_at=fetch_source()
-        result=normalize(decode(raw),fetched_at,last_modified,hashlib.sha256(raw).hexdigest())
+        candidates=normalize(decode(raw),fetched_at,last_modified,hashlib.sha256(raw).hexdigest())
+        if args.input:
+            checks=read_position_captures(candidates['traders'],args.positions_dir); stop_code=None
+        else:
+            checks,stop_code=collect_position_checks(candidates['traders'])
+        result=qualify_positions(candidates,checks,iso(datetime.now(UTC)),stop_code)
     except SourceError as exc:
-        result=failed_snapshot(previous,attempt_at,str(exc))
+        result=failed_snapshot(previous,iso(datetime.now(UTC)),str(exc))
     except (OSError,KeyError,ValueError,TypeError):
-        result=failed_snapshot(previous,attempt_at,'invalid_capture_or_storage')
+        result=failed_snapshot(previous,iso(datetime.now(UTC)),'invalid_capture_or_storage')
     atomic_write(args.output,result)
     print(json.dumps({'status':result['source']['status'],'accounts':len(result['traders']),
         'fetchedAt':result['source']['fetchedAt'],'snapshotAt':result['source']['snapshotAt'],
-        'errorCode':result['source'].get('errorCode')},ensure_ascii=False))
+        'errorCode':result['source'].get('errorCode'),
+        'positionVerification':result['source'].get('positionVerification')},ensure_ascii=False))
     # A valid stale/unavailable status file must still deploy. I/O failures above
     # remain nonzero; source failures are explicitly represented in the feed.
     return 0
