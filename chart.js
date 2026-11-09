@@ -22,7 +22,8 @@
       document.getElementById('chart-symbol').textContent = symbol;
       retry.hidden = true;
       const host = document.getElementById('chart-widget');
-      host.style.height = 'auto';
+      host.classList.add('chart-widget-empty');
+      document.getElementById('chart-picker').open = true;
       const choices = document.createElement('ul');
       for (const match of matches) {
         const item = document.createElement('li');
@@ -39,6 +40,8 @@
     title.textContent = '请选择行情标的';
     status.textContent = '此链接未包含本站支持的标的。请返回市场，从行情列表选择。';
     retry.hidden = true;
+    document.getElementById('chart-widget').hidden = true;
+    document.getElementById('chart-picker').open = true;
     return;
   }
   if (requested !== symbol) {
@@ -46,6 +49,13 @@
     canonicalUrl.searchParams.set('tvwidgetsymbol', symbol);
     history.replaceState(history.state, '', canonicalUrl.href);
   }
+  document.querySelectorAll('[data-chart-symbol]').forEach(link => {
+    if (link.dataset.chartSymbol === symbol) link.setAttribute('aria-current', 'page');
+  });
+  const marketBack = document.querySelector('.chart-back');
+  if (symbol.startsWith('NASDAQ:')) { marketBack.href = 'us.html'; marketBack.textContent = '← 返回美股行情'; }
+  else if (symbol.startsWith('COINBASE:')) { marketBack.href = 'crypto.html'; marketBack.textContent = '← 返回加密行情'; }
+  else if (symbol.startsWith('SSE:') || symbol.startsWith('SZSE:')) { marketBack.href = 'a-shares.html'; marketBack.textContent = '← 返回A股行情'; }
   const closeOnly = symbol.startsWith('FRED:');
   const chartKind = closeOnly ? '日终走势' : 'K线';
   title.textContent = symbols.get(symbol);
@@ -64,6 +74,7 @@
     if (observer) observer.disconnect();
     const host = document.getElementById('chart-widget');
     host.replaceChildren();
+    retry.disabled = true;
     status.textContent = '正在请求第三方图表。图表及数据是否可用，请以组件内显示为准。';
     const container = document.createElement('div');
     container.className = 'tradingview-widget-container';
@@ -82,7 +93,7 @@
       if (frame && current === generation) {
         frame.title = symbols.get(symbol) + ' ' + chartKind + '（TradingView）';
         status.textContent = '已嵌入第三方图表；不代表已取得行情。数据、时间与错误提示以组件内显示为准。';
-        clearTimeout(timer); observer.disconnect();
+        clearTimeout(timer); retry.disabled = false; observer.disconnect();
       }
     });
     observer.observe(container, {childList:true, subtree:true});
@@ -90,8 +101,8 @@
     script.src = 'https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js';
     script.async = true;
     script.textContent = JSON.stringify({autosize:true, symbol, interval:'D', timezone:'Asia/Shanghai', theme:'light', style:closeOnly ? '3' : '1', locale:'zh_CN', allow_symbol_change:false, calendar:false, hide_top_toolbar:false, hide_legend:false, support_host:'https://www.tradingview.com'});
-    script.onerror = () => { if (current === generation) { clearTimeout(timer); status.textContent = '第三方图表脚本未能加载，请重试。本站不会用模拟K线替代。'; } };
-    timer = setTimeout(() => { if (current === generation) status.textContent = '图表尚未确认加载，可能受网络或来源限制。可重试；空白不代表零价格。'; }, 15000);
+    script.onerror = () => { if (current === generation) { clearTimeout(timer); observer.disconnect(); retry.disabled = false; status.textContent = '第三方图表脚本未能加载，请重试。本站不会用模拟K线替代。'; } };
+    timer = setTimeout(() => { if (current === generation) { retry.disabled = false; status.textContent = '图表尚未确认加载，可能受网络或来源限制。可重试；空白不代表零价格。'; } }, 15000);
     container.append(script);
   }
   retry.addEventListener('click', mount);

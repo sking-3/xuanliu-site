@@ -9,3 +9,27 @@
 .market-dashboard{margin:14px 0;min-width:0}.market-dashboard-heading{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:0 0 9px}.market-dashboard-heading h2{font-size:17px;margin:0}.market-dashboard-heading>span{font-size:12px;color:#657084}.market-disclosure{margin-left:auto;font-size:12px;color:#657084;position:relative}.market-disclosure summary{cursor:pointer}.market-disclosure p{position:absolute;right:0;top:20px;width:min(360px,80vw);margin:0;padding:12px;background:#fff;border:1px solid #dce2eb;border-radius:6px;box-shadow:0 5px 18px #10203015;z-index:5;line-height:1.6}.market-card-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;align-items:start}.public-feed.feed-card{padding:12px 12px 8px;margin:0;border-radius:6px;min-width:0}.feed-card-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}.feed-card-heading h3{font-size:15px;margin:0}.feed-card-heading a{font-size:12px;color:#285cac;text-decoration:none}.feed-card-note{font-size:11px;color:#657084;margin:4px 0 8px;line-height:18px}.feed-card .tradingview-widget-container{height:274px;width:100%}.feed-card .tradingview-widget-container__widget{height:250px;width:100%}.feed-card .tradingview-widget-copyright{font-size:10px;line-height:24px}.feed-card .feed-controls{margin:6px 0 0;gap:6px;flex-wrap:nowrap;align-items:center}.feed-card .feed-status{flex:1;min-width:0;font-size:10px;line-height:15px;max-height:30px;overflow:auto}.feed-card .feed-controls button{font-size:10px;white-space:nowrap;padding:3px 5px}.feed-card .feed-toggle{max-width:80px}.feed-card[hidden]{display:none!important}
 @media(max-width:850px){.market-card-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.public-feed.feed-card{padding:8px 6px}.feed-card .feed-controls{flex-wrap:wrap}.feed-card .feed-status{flex-basis:100%}}
 @media(max-width:650px){.market-card-grid{grid-template-columns:1fr;gap:10px}.public-feed.feed-card{padding:10px}.market-dashboard-heading{gap:8px}.market-dashboard-heading>span{font-size:10px}.feed-card .feed-controls{flex-wrap:nowrap}.feed-card .feed-status{flex-basis:auto}.market-disclosure{font-size:11px}}
+
+/* Resilient states stay compact but remain operable by touch and keyboard. */
+.feed-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.feed-source{font-size:12px;color:#285cac;text-decoration:underline;white-space:nowrap;padding:8px 4px}
+.feed-controls button:disabled{opacity:.55;cursor:wait}
+.feed-card .feed-controls{align-items:flex-start;flex-wrap:wrap;border-top:1px solid #edf0f5;padding-top:8px}
+.feed-card .feed-status{font-size:11px;line-height:1.55;max-height:none;overflow:visible;flex-basis:100%}
+.feed-card .feed-actions{width:100%}
+.feed-card .feed-controls button{font-size:12px;min-height:36px;padding:6px 10px}
+.feed-card .feed-source{margin-left:auto}
+.feed-pages a[aria-current="page"]{font-weight:700;color:#243c72}
+@media(max-width:760px){.feed-controls button,.feed-card .feed-controls button,.feed-source{min-height:44px;display:inline-flex;align-items:center}.market-card-grid{grid-template-columns:1fr}.feed-card-heading a{min-height:32px;display:inline-flex;align-items:center}}
+.books-page-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 18px}
+.books-page-heading p{font-size:10px;font-weight:650;letter-spacing:.12em;color:#738098;margin:0 0 4px}
+.books-page-heading h1{font-size:24px;line-height:1.3;margin:0;letter-spacing:-.025em}
+.books-page-heading>span{font-size:12px;color:#6b7890}
+.index-labels a{color:#49628b;text-decoration:none;padding:6px 0}
+@media(max-width:600px){.books-page-heading{align-items:flex-start;flex-direction:column;gap:6px}}
+.symbol-shortcuts{margin-top:8px;border-top:1px solid #edf0f5;padding-top:8px;font-size:12px;color:#526982}
+.symbol-shortcuts summary{cursor:pointer;min-height:28px}
+.symbol-shortcuts nav{display:flex;flex-wrap:wrap;gap:6px;padding:6px 0}
+.symbol-shortcuts a{display:inline-flex;align-items:center;border:1px solid #e4e9f1;border-radius:5px;padding:6px 8px;color:#405b82;text-decoration:none}
+@media(max-width:760px){.symbol-shortcuts summary,.symbol-shortcuts a{min-height:44px}}
+@media(min-width:761px) and (max-width:1100px){.market-card-grid{grid-template-columns:1fr}}

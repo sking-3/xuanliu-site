@@ -1,0 +1,67 @@
+[
+  {
+    "path": "market-strip.html",
+    "status": 200,
+    "bytes": 1307
+  },
+  {
+    "path": "tools.html",
+    "status": 200,
+    "bytes": 2611
+  },
+  {
+    "path": "index.html",
+    "status": 200,
+    "bytes": 12719
+  },
+  {
+    "path": "chart.html",
+    "status": 200,
+    "bytes": 2654
+  },
+  {
+    "path": "a-shares.html",
+    "status": 200,
+    "bytes": 4707
+  },
+  {
+    "path": "crypto.html",
+    "status": 200,
+    "bytes": 4507
+  },
+  {
+    "path": "us.html",
+    "status": 200,
+    "bytes": 6126
+  },
+  {
+    "path": "research.html",
+    "status": 200,
+    "bytes": 5565
+  },
+  {
+    "path": "screening/index.html",
+    "status": 200,
+    "bytes": 8271
+  },
+  {
+    "path": "screening/history.html",
+    "status": 200,
+    "bytes": 5837
+  },
+  {
+    "path": "trader/exchange.html",
+    "status": 200,
+    "bytes": 2229
+  },
+  {
+    "path": "trader/index.html",
+    "status": 200,
+    "bytes": 5873
+  },
+  {
+    "path": "trader/feed.json",
+    "status": 200,
+    "bytes": 143
+  }
+]

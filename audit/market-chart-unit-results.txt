@@ -1,0 +1,14 @@
+PASS market single request, source and attribution retained
+PASS market script failure collapses blank area and enables retry
+PASS market no frame timeout makes truthful unavailable state
+PASS market existing frame never claims verified prices
+PASS market ignores wrong origin and stale provider messages
+PASS market obsolete script error cannot replace newer load state
+PASS chart missing/unsupported parameters reveal picker, no empty chart
+PASS chart bare 000001 does not silently choose stock or index
+PASS chart lower case canonicalizes and uses market-specific return
+PASS chart FRED uses daily close line, not fabricated candlesticks
+PASS chart failure/retry clears old host and stale errors
+PASS chart timeout unlocks retry without claiming a zero price
+PASS chart iframe gets title and embed-only status
+13 market/chart DOM-model tests passed. Browser rendering is separate.
