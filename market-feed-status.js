@@ -17,13 +17,13 @@
  window.addEventListener('DOMContentLoaded',()=>{
   document.querySelectorAll('.public-feed').forEach(section=>{
    const s=stateFor(section);s.area=section.querySelector('.feed-widget-area');s.status=section.querySelector('.feed-status');s.toggle=section.querySelector('.feed-toggle');if(!s.area||!s.status||!s.toggle)return;
-   const old=section.querySelector('script[src*="embed-widget-market-overview.js"]');if(!old)return;const config=old.textContent,src=old.src;
+   const old=section.querySelector('script[src*="embed-widget-market-overview.js"]');if(!old)return;const config=old.textContent,src=old.src,credit=section.querySelector('.tradingview-widget-copyright a'),creditUrl=credit?credit.href:'https://www.tradingview.com/markets/',creditText=credit?credit.textContent:'Markets';
    old.addEventListener('error',()=>{if(s.generation===0)fail(s,'行情脚本加载失败，已收起空白区域。请检查网络或浏览器拦截设置后重试。');});
    s.toggle.addEventListener('click',()=>controls(s,!s.area.hidden));
    section.querySelector('.feed-retry').addEventListener('click',()=>{
     const generation=++s.generation;const container=document.createElement('div');container.className='tradingview-widget-container';
     const widget=document.createElement('div');widget.className='tradingview-widget-container__widget';container.append(widget);
-    const copyright=document.createElement('div');copyright.className='tradingview-widget-copyright';const link=document.createElement('a');link.href='https://www.tradingview.com/markets/stocks-usa/';link.target='_blank';link.rel='noopener nofollow';link.textContent='US stocks';copyright.append(link,document.createTextNode(' by TradingView'));container.append(copyright);
+    const copyright=document.createElement('div');copyright.className='tradingview-widget-copyright';const link=document.createElement('a');link.href=creditUrl;link.target='_blank';link.rel='noopener nofollow';link.textContent=creditText;copyright.append(link,document.createTextNode(' by TradingView'));container.append(copyright);
     const script=document.createElement('script');script.type='text/javascript';script.src=src;script.async=true;script.textContent=config;script.addEventListener('error',()=>{if(s.generation===generation)fail(s,'行情脚本加载失败，已收起空白区域。请稍后重试或打开上方来源链接。');});container.append(script);s.area.replaceChildren(container);start(s);
    });start(s);
   });
