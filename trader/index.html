@@ -8,8 +8,7 @@
   <meta name="robots" content="noindex,nofollow">
   <title>Books · 带单员广场</title>
   <link rel="stylesheet" href="plaza.css?v=467cf196">
-  <script defer src="okx-import.js?v=0694570c"></script>
-  <script defer src="plaza.js?v=5052b9f0"></script>
+  <script defer src="plaza.js?v=0ca6954a"></script>
   <link rel="stylesheet" href="../books-ui.css?v=20261110-1">
   <link rel="stylesheet" href="../index-ticker.css?v=d6459a25">
   <script defer src="../index-ticker.js?v=c49031ee"></script>
@@ -36,9 +35,6 @@
       <div><p class="eyebrow">LEADER RESEARCH</p><h1>带单员广场</h1><p class="page-intro">从交易表现，追溯研究证据。</p></div>
       <details class="record-tools"><summary>资料管理</summary><div class="actions page-actions">
         <button id="add-trader" type="button">添加带单员</button>
-        <button id="import-trigger" type="button">导入资料</button>
-        <button id="export-records" type="button">导出我的资料</button>
-        <input id="import-file" type="file" accept=".json" hidden>
       </div></details>
     </header>
     <p id="local-feedback" class="local-feedback" role="status" aria-live="polite"></p>
@@ -72,7 +68,7 @@
     <details class="method">
       <summary>资料与统计说明</summary>
       <p>表现按来源提供的周期与真实数值展示；逐笔胜率由同周期的盈利交易数和已关闭交易数计算。未提供的指标、曲线和交易记录保持为空。</p>
-      <p>我的资料保存在当前浏览器，可随时编辑或导出备份，不会自动发布给其他访客。导入支持 Books JSON 和 OKX 榜单 JSON；快照不自动更新。</p>
+      <p>我的资料仅保存在当前浏览器，不会自动同步到其他设备或发布给其他访客。表现按实际来源时间展示。</p>
     </details>
     <footer>Books · 研究资料，不提供跟单或交易功能。过往表现不代表未来收益。</footer>
   </main>
@@ -84,7 +80,7 @@
   </dialog>
   <dialog id="record-editor" aria-labelledby="record-editor-title">
     <div class="dialog-head"><div><p class="eyebrow">MY RESEARCH</p><h2 id="record-editor-title">添加带单员</h2></div><button id="editor-close" type="button" class="icon-button" aria-label="关闭资料编辑">✕</button></div>
-    <p class="editor-intro">保存账号与来源，表现记录可稍后补充。资料仅保存在此浏览器，可导出备份。</p>
+    <p class="editor-intro">保存账号与来源，表现记录可稍后补充。资料仅保存在此浏览器。</p>
     <form id="record-form">
       <input id="record-id" type="hidden">
       <div class="record-form-grid">

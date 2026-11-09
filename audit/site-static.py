@@ -66,6 +66,10 @@ for p in pages:
   if 'tvwidgetsymbol' in q:check(q['tvwidgetsymbol'][0] in supported,f'{p}: unsupported chart link')
 feed=json.loads((root/'trader/feed.json').read_text())
 check(feed['status']=='unavailable' and feed['traders']==[], 'Real trader data unavailable, no fake rows')
+trader_page=html.fromstring((root/'trader/index.html').read_text())
+check(not trader_page.xpath('//*[@id="import-trigger" or @id="export-records" or @id="import-file"]'), 'trader file import/export controls removed')
+check(not trader_page.xpath('//script[contains(@src,"okx-import.js")]'), 'trader page does not load the offline file adapter')
+check('导入' not in trader_page.text_content() and '导出' not in trader_page.text_content(), 'trader page contains no removed import/export instructions')
 check('本页无外部请求' not in (root/'screening/history.html').read_text(),'External source disclosure correct')
 check('"showChart":false' in (root/'index.html').read_text(),'Home compact market cards preserved')
 # Preserve the latest concurrent navigation/trader work, without requiring a Git checkout.

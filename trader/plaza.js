@@ -81,7 +81,7 @@ function hasMetrics(w) { return !!w && (['roi','pnl','mdd','wins','closedTrades'
 function stampLabel(w) {
   if(!w) return '';
   const stamp = new Date(w.asOf).toLocaleString('zh-CN',{hour12:false});
-  if(w.asOfType==='imported') return `导入于 ${stamp} · 快照日期未知`;
+  if(w.asOfType==='imported') return `记录于 ${stamp} · 快照日期未知`;
   if(w.asOfType==='observed') return `读取于 ${stamp} · 来源更新时间未提供`;
   return `数据截至 ${stamp}`;
 }
@@ -160,7 +160,6 @@ function render() {
   $('total-count').textContent=state.rows.length;$('coverage-count').textContent=state.rows.filter(r=>Object.values(r.windows).some(hasMetrics)).length;$('local-count').textContent=state.localRows.length;
   $('count').textContent=`${rows.length} 位带单员${state.rows.length!==rows.length?' · 共 '+state.rows.length+' 位':''}${grouped?' · 按币种分组':''}`;
   $('page').textContent=rows.length?`${state.page} / ${pages}`:'0 / 0';$('prev').disabled=state.loading||!rows.length||state.page===1;$('next').disabled=state.loading||!rows.length||state.page>=pages;
-  $('export-records').disabled=!state.localRows.length;
 }
 function statusText() {
   if(state.status==='error')return state.localRows.length?'公开资料暂不可用；我的资料仍可查看。':'公开资料暂不可用，可添加自己的研究资料。';
@@ -192,13 +191,13 @@ function renderDetail() {
 }
 function loadLocal() {
   try { const saved=localStorage.getItem(storageKey);if(saved){if(new Blob([saved]).size>maxBytes)fail();state.localRows=validate(JSON.parse(saved));}state.storageReadError=false; }
-  catch { state.storageReadError=true;feedback('本机资料读取失败。为保留原有存储，本次已暂停写入，请先恢复有效备份后刷新。'); }
+  catch { state.storageReadError=true;feedback('本机资料读取失败，原有存储未改动。本次已暂停写入，请稍后刷新重试。'); }
   mergeRows();
 }
 function commitLocal(rows) {
-  if(state.storageReadError)throw Error('旧资料尚未成功读取，为保留原有存储，暂不能写入。请先恢复有效备份后刷新。');
+  if(state.storageReadError)throw Error('旧资料尚未成功读取，原有存储未改动，暂不能写入。请稍后刷新重试。');
   const checked=validate(feed(rows)),serialized=JSON.stringify(feed(checked));
-  if(new Blob([serialized]).size>maxBytes)throw Error('资料超过 2 MB，请拆分后导入。');
+  if(new Blob([serialized]).size>maxBytes)throw Error('本机资料超过 2 MB，本次未保存。请先整理已有资料。');
   try { localStorage.setItem(storageKey,serialized); } catch { throw Error('浏览器未能保存资料，请检查存储权限或剩余空间。现有资料未改动。'); }
   state.localRows=checked;mergeRows();return checked;
 }
@@ -247,44 +246,12 @@ function saveRecord(event) {
     let checked;try {checked=validate(feed([r]))[0];}catch {throw Error('请检查名称、账号和来源链接；来源须为不含账号密码的 HTTPS 地址。');}
     const rows=state.localRows.filter(item=>item.id!==checked.id);rows.push(checked);commitLocal(rows);
     $('search').value='';$('exchange').value='all';$('source').value='local';$('currency').value='all';$('period').value=state.editor.period;state.explicitPeriod=true;state.page=1;state.revealId=checked.id;
-    $('record-editor').close();state.editor=null;updateView('已保存到当前浏览器，可导出备份。');saveURL();
+    $('record-editor').close();state.editor=null;updateView('已保存到当前浏览器。');saveURL();
   }catch(e){$('record-error').textContent=e.message;const details=$('record-asof').closest('details');if(details)details.open=true;if(!$('record-asof').value&&['roi','pnl','mdd','wins','trades'].some(k=>$('record-'+k).value!==''))$('record-asof').focus();}
 }
 function removeRecord(r) {
   if(!r._local||!confirm(`删除「${r.name}」的本机资料？`))return;
   try {commitLocal(state.localRows.filter(item=>item.id!==r.id));if(state.detail?.id===r.id){$('detail').close();state.detail=null;}updateView('已删除这份本机资料。');saveURL(true);}catch(e){feedback(e.message);}
-}
-async function importPayload(payload) {
-  const normalized=payload?.schemaVersion===1?payload:await globalThis.BooksTraderImport?.normalize(payload,new Date().toISOString());
-  const rows=validate(normalized),known=new Set(state.localRows.map(r=>r.id)),added=[];let skipped=0;
-  for(const record of rows) {
-    let id=record.id;
-    if(!id.startsWith('local-')) {
-      const hash=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify([record.exchange,record.id,record.sourceUrl])));
-      id='local-import-'+Array.from(new Uint8Array(hash),v=>v.toString(16).padStart(2,'0')).join('');
-    }
-    if(known.has(id)){skipped++;continue;}known.add(id);
-    added.push({...record,id,accountId:record.accountId||record.id});
-  }
-  if(state.localRows.length+added.length>500)throw Error('本机最多保存 500 份资料，请先导出并整理已有资料。');
-  if(added.length)commitLocal([...state.localRows,...added]);
-  $('search').value='';$('exchange').value='all';$('source').value='local';$('currency').value='all';state.explicitPeriod=false;state.page=1;state.revealId=added[0]?.id||null;
-  updateView(`已导入 ${added.length} 份资料${skipped?'，跳过 '+skipped+' 份已有资料':''}。仅保存在当前浏览器。`);saveURL();
-  return {added:added.length,skipped};
-}
-async function importFile(file) {
-  if(!file)return;
-  if(file.size>maxBytes){feedback('文件超过 2 MB，请拆分后导入。');return;}
-  $('import-trigger').disabled=true;
-  try {const raw=await file.text();if(new Blob([raw]).size>maxBytes)throw Error('文件超过 2 MB。');await importPayload(JSON.parse(raw));}
-  catch(e){feedback('导入未完成，现有资料未改动。'+(e instanceof SyntaxError?'文件不是有效 JSON。':e.message));}
-  finally{$('import-trigger').disabled=false;$('import-file').value='';}
-}
-function exportRecords() {
-  if(!state.localRows.length)return;
-  const blob=new Blob([JSON.stringify(feed(state.localRows),null,2)],{type:'application/json;charset=utf-8'}),url=URL.createObjectURL(blob),a=node('a');
-  a.href=url;a.download=`books-traders-${new Date().toISOString().slice(0,10)}.json`;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
-  feedback(`已导出 ${state.localRows.length} 份本机资料。`);
 }
 async function refresh() {
   if(state.loading)return;const restoreFocus=document.activeElement===$('refresh')||$('detail').open;
@@ -307,7 +274,7 @@ for(const id of controls)$(id).addEventListener('change',()=>{if(id==='period')s
 $('search').addEventListener('input',()=>{state.page=1;render();saveURL(true);});
 $('reset').onclick=()=>{$('search').value='';$('period').value='30D';$('exchange').value='all';$('source').value='all';$('sort').value='roi';$('currency').value='all';state.explicitPeriod=false;state.page=1;choosePeriod();render();saveURL();};
 $('prev').onclick=()=>{state.page--;render();saveURL();};$('next').onclick=()=>{state.page++;render();saveURL();};$('refresh').onclick=refresh;
-$('add-trader').onclick=()=>openEditor();$('import-trigger').onclick=()=>$('import-file').click();$('import-file').addEventListener('change',()=>importFile($('import-file').files[0]));$('export-records').onclick=exportRecords;
+$('add-trader').onclick=()=>openEditor();
 $('record-form').addEventListener('invalid',e=>{const details=e.target.closest('details');if(details)details.open=true;},true);
 $('record-form').addEventListener('submit',saveRecord);$('record-period').addEventListener('change',changeEditorPeriod);
 for(const id of ['editor-close','editor-cancel'])$(id).onclick=()=>$('record-editor').close();

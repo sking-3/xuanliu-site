@@ -1,19 +1,19 @@
 # Trader research page verification
 
-## Change
+## Current scope
 
-Removed the AlphaFox dependency notice and rebuilt the trader page around compact research cards, real period labels, source links and optional browser-local records. Record management is a collapsed secondary control. The shared sidebar, scrolling ticker, other market pages and public feed are unchanged.
+The trader page no longer exposes file import or export. Buttons, file input, associated handlers and transfer-related instructions were removed in accordance with the user's earlier preference. The page no longer loads the offline OKX adapter. Its standalone module and tests remain developer preparation only, not a working online data source.
 
-The page can add/edit/delete local records, validate/import JSON and export a backup. Local and public rows are separate; a public fetch failure cannot erase private records. Corrupt local storage blocks later writes instead of overwriting the unreadable original. Storage failures do not report success. Saving a low-ranked record reveals its actual result page.
+Optional local add/edit/delete remains in the secondary record-management control. Existing browser records are retained; legacy snapshot time labels remain readable. A corrupt local store blocks writes rather than overwriting the original. Public feed failures cannot erase personal records.
 
-The OKX converter is offline only. Raw snapshots have unknown source time and no imported curve. A wrapper with an explicit collection timestamp can retain valid source points. No calculated drawdown, trade win rate, positions or orders are invented. No exchange API polling is enabled; one cloud probe returned HTTP 403. No API response or synthetic trader fixture is in the production feed.
+The AlphaFox notice remains removed. Shared navigation, ticker and other pages are unchanged. Production feed remains empty; no synthetic identities or performance figures are published. The single prior official OKX GET returned HTTP 403; no retry or proxy workaround was performed and no online collection is enabled.
 
-## Automated checks
+## Verification
 
-- `node --check trader/plaza.js` and `node --check trader/okx-import.js`: passed.
-- `node audit/trader-unit.cjs`: 46 logic/DOM-model tests passed.
-- `node audit/okx-import-unit.cjs`: 13 offline adapter tests passed.
-- `python audit/site-static.py`: 614 assertions passed across 12 HTML documents, including shared-shell/resource/cache checks.
-- Independent read-only review: no remaining release-blocking findings.
+- `node --check trader/plaza.js`: passed.
+- `node audit/trader-unit.cjs`: 47 logic and DOM-model tests passed, including absence of removed script entry points and preservation of old records.
+- `python audit/site-static.py`: 615 assertions across 12 HTML documents, including absence of transfer controls, instructions and adapter loading.
+- Every literal script DOM ID exists in the updated HTML.
+- The previous release was verified in cloud Chrome. This corrective release is checked after GitHub Pages deployment for removed entries and retained record editing.
 
-The DOM-model tests do not establish browser layout, native dialog behavior, or persistence in a real browser. Live deployment and browser interaction checks are performed after publishing and reported with the release. All test identities and numbers remain synthetic fixtures in tests, never production data.
+Test fixtures are synthetic and remain confined to test processes. DOM-model checks do not substitute for actual browser verification.

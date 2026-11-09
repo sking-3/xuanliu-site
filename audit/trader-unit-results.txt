@@ -1,4 +1,3 @@
 PASS node audit/trader-unit.cjs
-46 logic and DOM-model tests passed. Fixtures are synthetic and are not public website data.
-PASS node audit/okx-import-unit.cjs
-13 offline adapter tests passed. No network requests or real records used.
+47 logic and DOM-model tests passed. Fixtures are synthetic and are not public website data.
+PASS node --check trader/plaza.js
