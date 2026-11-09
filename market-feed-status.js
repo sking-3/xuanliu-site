@@ -5,7 +5,7 @@
  function stateFor(section){let s=states.get(section);if(!s){s={timer:null,generation:0,ready:false,area:null,status:null,toggle:null};states.set(section,s);}return s;}
  function controls(s,hidden){s.area.hidden=hidden;s.toggle.textContent=hidden?'展开行情区域':'收起行情区域';s.toggle.setAttribute('aria-expanded',String(!hidden));}
  function fail(s,text){clearTimeout(s.timer);s.ready=false;s.status.textContent=text;controls(s,true);}
- function start(s){clearTimeout(s.timer);s.ready=false;controls(s,false);s.status.textContent='正在加载第三方行情组件…';s.timer=setTimeout(()=>{if(!s.ready)fail(s,'未能在 15 秒内确认组件就绪，已收起空白区域。可能是网络、浏览器拦截或数据源响应慢。可重新加载、展开查看，或打开上方来源链接。');},15000);}
+ function start(s){clearTimeout(s.timer);s.ready=false;controls(s,false);s.status.textContent='正在加载第三方行情组件…';s.timer=setTimeout(()=>{if(!s.ready){clearTimeout(s.timer);const frame=s.area.querySelector('iframe');if(frame){s.status.textContent='组件容器已建立。本站无法跨域确认报价状态；若下方仍为空白，可重试、收起或打开来源页面。';}else{fail(s,'行情组件未能建立，已收起空白区域。可重试或打开上方来源链接。');}}},15000);}
  window.addEventListener('message',event=>{
   if(event.origin!=='https://www.tradingview-widget.com')return;
   for(const [section,s] of states){const frame=section.querySelector('iframe');if(!frame||event.source!==frame.contentWindow||!s.status)continue;
