@@ -156,5 +156,30 @@ await test('contradictory unavailable result cannot be resurrected from cache',a
 await test('two hundred accounts remain bounded by the real twenty-two minute quota',async()=>{
   const e=env(),r=await e.run({feed:feed(200)});assert.equal(r.source.stopCode,'batch_timeout');assert.equal(r.source.attempted,154);assert.equal(r.source.succeeded,154);assert.equal(r.source.unattempted,46);assert.equal(e.now(),T+22*60000);assert.equal(Object.keys(r.accounts).length,200);
 });
+await test('a portfolio-stage block prevents all closing-fill requests',async()=>{
+  for(const priorStopCode of ['http_403','http_429']) {
+    const e=env(()=>{throw Error('unexpected request');}),r=await e.run({priorStopCode,feed:feed(2),previous:previous([[1,0]])});
+    assert.equal(e.calls.length,0);assert.equal(r.source.stopCode,priorStopCode);assert.equal(r.accounts[address(1)].status,'stale');assert.equal(r.accounts[address(1)].fetchedAt,iso(T));
+  }
+});
+await test('CLI validates current portfolio stop status before using the API',async()=>{
+  for(const code of ['http_403','http_429']) {
+    const status={schemaVersion:1,methodVersion:'portfolio-periods-v1',generatedAt:iso(T),source:{id:'hyperliquid',status:'unavailable',stopCode:code}};
+    const files=new Map([['/test/feed.json',JSON.stringify(feed())],['/test/portfolios.json',JSON.stringify(status)]]);
+    const io={stat:async file=>{if(!files.has(file)){const e=Error('missing');e.code='ENOENT';throw e;}return {size:Buffer.byteLength(files.get(file))};},readFile:async file=>files.get(file),mkdir:async()=>{},writeFile:async(file,value)=>files.set(file,value),rename:async(a,b)=>{files.set(b,files.get(a));files.delete(a);},unlink:async file=>files.delete(file)};
+    const args=['--feed','/test/feed.json','--output','/test/analytics.json','--portfolio-status','/test/portfolios.json'];
+    const deps={io,now:()=>T,fetch:async()=>{throw Error('unexpected fetch');},log:()=>{}};
+    const r=await API.main(args,deps);assert.equal(r.source.stopCode,code);assert.equal(r.source.attempted,0);
+    for(const malformed of ['http_403 ',42,undefined]) {
+      status.source.stopCode=malformed;files.set('/test/portfolios.json',JSON.stringify(status));
+      await assert.rejects(API.main(args,deps),/invalid_portfolio_status/);
+    }
+    status.source.stopCode=code;
+    status.generatedAt=iso(T-600001);files.set('/test/portfolios.json',JSON.stringify(status));
+    await assert.rejects(API.main(args,deps),/invalid_portfolio_status/);
+    status.generatedAt=iso(T+5001);files.set('/test/portfolios.json',JSON.stringify(status));
+    await assert.rejects(API.main(args,deps),/invalid_portfolio_status/);
+  }
+});
 console.log('PASS '+count+' offline collector tests');
 })().catch(error=>{console.error(error);process.exitCode=1;});

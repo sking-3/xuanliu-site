@@ -14,6 +14,7 @@ const MAX_BYTES = 5 * 1024 * 1024, CACHE_MS = 300000, MAX_RECORDS = 200;
 const BUDGET = 400, INTERVAL = 60000, TIMEOUT = 12000;
 const WEIGHTS = {portfolio:20, win:120};
 const PERIODS = {week:'7D', month:'30D', allTime:'ALL'};
+const DAY_MS = 86400000, DERIVED_PERIODS = {'90D':90, '180D':180, '365D':365};
 const sharedLedger = [];
 const copy = value => JSON.parse(JSON.stringify(value));
 const invalid = () => { throw Error('invalid_response'); };
@@ -75,20 +76,50 @@ function sampledDrawdown(pnl, equity) {
   if (!Number.isFinite(value)) return unavailable('invalid_denominator');
   return {value,reason:null,pairedSampleCount:pnl.length};
 }
+/* Native source windows keep the source UI metric unchanged. Longer windows are
+ * selected from validated allTime samples before downsampling. No interpolated
+ * boundaries, lifetime ROI substitution, or inferred cash-flow denominator.
+ */
+function portfolioWindow(sourcePeriod, pnl, equity, sourcePnl=pnl, days=null) {
+  const derived=days!==null, first=pnl[0], last=pnl[pnl.length-1];
+  const sourceFirst=sourcePnl[0], sourceLast=sourcePnl[sourcePnl.length-1];
+  const baseline=first?first[1]:0;
+  const rebased=pnl.map(([time,value])=>[time,numeric(value-baseline)]);
+  const metric=sampledDrawdown(derived?rebased:pnl,equity);
+  const startAt=first?iso(first[0]):null, endAt=last?iso(last[0]):null;
+  const cutoff=derived&&sourceLast?sourceLast[0]-days*DAY_MS:null;
+  let maxSampleGapMs=null;
+  for(let i=1;i<pnl.length;i++)maxSampleGapMs=Math.max(maxSampleGapMs??0,pnl[i][0]-pnl[i-1][0]);
+  const coverageStatus=!derived?'source_window':!first||sourceFirst[0]>cutoff?'insufficient_history':first[0]===cutoff?'full':'sampled_boundary';
+  return {sourcePeriod,derived,startAt,endAt,sampleCount:pnl.length,
+    points:downsample(rebased.map(([time,value])=>({time:iso(time),value}))),
+    pnl:pnl.length>=2?rebased[rebased.length-1][1]:null,curveUnit:'USD',curveBasis:'pnl_change_from_first_sample',
+    mdd:metric.value,mddUnavailableReason:metric.reason,mddPairedSampleCount:metric.pairedSampleCount,
+    mddMethod:derived?'window_pnl_peak_equity':'hyperliquid_ui_pnl_peak_equity',mddUnit:'percent',scope:'all_account',
+    requestedDays:days,requestedStartAt:cutoff===null?null:iso(cutoff),requestedEndAt:sourceLast?iso(sourceLast[0]):null,
+    coverageDays:pnl.length>=2?(last[0]-first[0])/DAY_MS:0,coverageStatus,
+    sourceHistoryStartAt:sourceFirst?iso(sourceFirst[0]):null,sourceHistoryEndAt:sourceLast?iso(sourceLast[0]):null,
+    sourceSampleCount:sourcePnl.length,maxSampleGapMs,
+    ...(derived?{roi:null,roiUnavailableReason:'cash_flow_adjusted_return_unavailable'}:{})};
+}
 function portfolio(payload, now=Date.now()) {
-  const windows={}, seen=new Set();
+  const windows={}, seen=new Set();let allTime=null;
   for (const row of list(payload,32)) {
     if (!Array.isArray(row) || row.length!==2 || typeof row[0]!=='string') invalid();
     const key=Object.hasOwn(PERIODS,row[0])?PERIODS[row[0]]:null; if(!key)continue;
     if(seen.has(key))invalid(); seen.add(key);
     const raw=object(row[1]), pnl=history(raw.pnlHistory,now);
     const equity=raw.accountValueHistory===undefined?null:history(raw.accountValueHistory,now);
-    const metric=sampledDrawdown(pnl,equity), baseline=pnl.length?pnl[0][1]:0;
-    const points=pnl.map(([time,value])=>({time:iso(time),value:numeric(value-baseline)}));
-    windows[key]={sourcePeriod:row[0],startAt:pnl.length?iso(pnl[0][0]):null,endAt:pnl.length?iso(pnl[pnl.length-1][0]):null,
-      sampleCount:pnl.length,points:downsample(points),curveUnit:'USD',curveBasis:'pnl_change_from_first_sample',
-      mdd:metric.value,mddUnavailableReason:metric.reason,mddPairedSampleCount:metric.pairedSampleCount,
-      mddMethod:'hyperliquid_ui_pnl_peak_equity',mddUnit:'percent',scope:'all_account'};
+    windows[key]=portfolioWindow(row[0],pnl,equity);
+    if(key==='ALL')allTime={pnl,equity};
+  }
+  if(allTime)for(const [key,days] of Object.entries(DERIVED_PERIODS)) {
+    const end=allTime.pnl.length?allTime.pnl[allTime.pnl.length-1][0]:null;
+    const pnl=end===null?[]:allTime.pnl.filter(point=>point[0]>=end-days*DAY_MS);
+    // Retain actual equity samples only inside the selected PnL range, then
+    // require exact timestamp pairing. A missing point is never interpolated.
+    const equity=allTime.equity===null?null:pnl.length?allTime.equity.filter(point=>point[0]>=pnl[0][0]&&point[0]<=end):[];
+    windows[key]=portfolioWindow('allTime',pnl,equity,allTime.pnl,days);
   }
   return {windows};
 }

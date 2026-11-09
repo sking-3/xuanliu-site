@@ -233,3 +233,10 @@ th{color:#728098;font-weight:500;background:#fbfcfe}
 .books-shell.trader-page .card .win-cache-note[data-state=stale],.win-cache-status[data-state=stale]{color:#9b702b}
 .books-shell.trader-page .card .performance-body{min-height:140px}
 .books-shell.trader-page .card .performance-chart{min-height:140px}
+
+.performance-range{font-size:10px;line-height:1.5;color:#7e8b9c;margin:6px 0 0;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.books-shell.trader-page .card.compact-history{min-height:0}
+.books-shell.trader-page .card.compact-history .performance-body{grid-template-columns:minmax(0,1fr);min-height:0}
+.books-shell.trader-page .card.compact-history .performance-chart{display:none}
+.books-shell.trader-page .card.compact-history .roi{font-size:24px}
+.books-shell.trader-page .card.compact-history .roi-label{margin-bottom:10px}

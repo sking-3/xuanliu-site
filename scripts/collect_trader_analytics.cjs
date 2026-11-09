@@ -107,7 +107,7 @@ async function readJsonResponse(response, maxBytes=LIMITS.maxBytes) {
   try{return JSON.parse(text);}catch(_){fail('invalid_response');}
 }
 function blank(){return {status:'unavailable',fetchedAt:null,lastAttemptAt:null,errorCode:null,win:null};}
-async function collect({feed,previous=null,fetch:fetcher=globalThis.fetch,now=Date.now,clock=()=>performance.now(),
+async function collect({feed,previous=null,priorStopCode=null,fetch:fetcher=globalThis.fetch,now=Date.now,clock=()=>performance.now(),
   sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms)),setTimer=setTimeout,clearTimer=clearTimeout,limits={}}={}) {
   const config={...LIMITS,...limits};
   // Test configuration can tighten bounds, never raise the production ceilings.
@@ -121,7 +121,7 @@ async function collect({feed,previous=null,fetch:fetcher=globalThis.fetch,now=Da
   const queue=addresses.filter(address=>accounts[address].status!=='ready'||!accounts[address].fetchedAt||now()-time(accounts[address].fetchedAt)>config.freshMs)
     .sort((a,b)=>(time(accounts[a].fetchedAt)||0)-(time(accounts[b].fetchedAt)||0));
   const cached=addresses.length-queue.length,active=new Map(),ledger=[];
-  let attempted=0,succeeded=0,failed=0,stopCode=blockedByFeed(feed),batchTimer=null;
+  let attempted=0,succeeded=0,failed=0,stopCode=blockedByFeed(feed)||(['http_403','http_429'].includes(priorStopCode)?priorStopCode:null),batchTimer=null;
   const stop=code=>{
     if(!stopCode)stopCode=code;
     for(const task of active.values())task.cancel(stopCode);
@@ -192,11 +192,19 @@ async function atomicWrite(file,value,io=fs) {
   finally{await io.unlink(temporary).catch(()=>{});}
 }
 async function main(args=process.argv.slice(2),dependencies={}) {
-  const root=path.resolve(__dirname,'..');let feedPath=path.join(root,'trader/feed.json'),outputPath=path.join(root,'trader/analytics.json');
-  for(let i=0;i<args.length;i++){if(args[i]==='--feed'&&args[i+1])feedPath=path.resolve(args[++i]);else if(args[i]==='--output'&&args[i+1])outputPath=path.resolve(args[++i]);else fail('invalid_arguments');}
+  const root=path.resolve(__dirname,'..');let feedPath=path.join(root,'trader/feed.json'),outputPath=path.join(root,'trader/analytics.json'),portfolioStatusPath=null;
+  for(let i=0;i<args.length;i++){if(args[i]==='--feed'&&args[i+1])feedPath=path.resolve(args[++i]);else if(args[i]==='--output'&&args[i+1])outputPath=path.resolve(args[++i]);else if(args[i]==='--portfolio-status'&&args[i+1])portfolioStatusPath=path.resolve(args[++i]);else fail('invalid_arguments');}
   const io=dependencies.io||fs,feed=await readFileJson(feedPath,io);let previous=null;
   try{previous=await readFileJson(outputPath,io);}catch(error){if(!['ENOENT'].includes(error.code)&&!(error instanceof SyntaxError)&&error.message!=='cache_file_too_large')throw error;}
-  const result=await collect({feed,previous,...dependencies});await atomicWrite(outputPath,result,io);
+  let priorStopCode=null;
+  if(portfolioStatusPath){
+    const stat=await io.stat(portfolioStatusPath);if(stat.size>12*1024*1024)fail('invalid_portfolio_status');
+    const raw=await io.readFile(portfolioStatusPath,'utf8');if(Buffer.byteLength(raw)>12*1024*1024)fail('invalid_portfolio_status');
+    const status=JSON.parse(raw),generated=time(status.generatedAt),current=(dependencies.now||Date.now)();
+    if(status.schemaVersion!==1||status.methodVersion!=='portfolio-periods-v1'||!plain(status.source)||status.source.id!=='hyperliquid'||!['ready','partial','unavailable'].includes(status.source.status)||!Object.hasOwn(status.source,'stopCode')||![null,'http_403','http_429','batch_timeout','cancelled'].includes(status.source.stopCode)||!Number.isFinite(generated)||generated>current+5000||current-generated>600000)fail('invalid_portfolio_status');
+    if(['http_403','http_429'].includes(status.source.stopCode))priorStopCode=status.source.stopCode;
+  }
+  const result=await collect({feed,previous,...dependencies,priorStopCode});await atomicWrite(outputPath,result,io);
   (dependencies.log||console.log)(JSON.stringify(result.source));return result;
 }
 module.exports={collect,main,selectAccounts,validatedCache,validWin,readJsonResponse,atomicWrite,readFileJson,blockedByFeed,LIMITS,METHOD_VERSION};

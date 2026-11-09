@@ -19,7 +19,7 @@ concurrency:
 jobs:
   collect-build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     permissions:
       contents: write
       pages: read
@@ -43,6 +43,8 @@ jobs:
           node audit/account-analytics-unit.cjs
           node --check scripts/collect_trader_analytics.cjs
           node audit/trader-analytics-collector-unit.cjs
+          node --check scripts/collect_trader_portfolios.cjs
+          node audit/trader-portfolio-collector-unit.cjs
           node audit/trader-unit.cjs
 
       - name: Test snapshot validation and last-good handling
@@ -52,10 +54,18 @@ jobs:
         # Source failures produce a stale last-good snapshot, not invented data.
         run: python3 -B scripts/collect_hyperliquid.py
 
+      - name: Precompute native and 90/180/365-day portfolio windows
+        # At most 600 weight/minute; only real source samples are retained.
+        run: node scripts/collect_trader_portfolios.cjs
+
+      - name: Separate shared API rate windows
+        # The next worker has its own rolling budget. Let this source's prior window expire.
+        run: sleep 60
+
       - name: Precompute closing-fill win rates with persistent last-good cache
         # At most 900 weight/minute; a 403/429 stops the batch. No raw fills are published.
         # A cold batch may take up to 22 minutes; missing/old accounts go first next time.
-        run: node scripts/collect_trader_analytics.cjs
+        run: node scripts/collect_trader_analytics.cjs --portfolio-status trader/portfolios.json
 
       - name: Save the snapshot without overwriting concurrent edits
         id: snapshot
@@ -67,7 +77,7 @@ jobs:
             echo '::error::main changed during collection. Skipping this deployment; a later run will use the new version.'
             exit 1
           fi
-          git add -- trader/feed.json trader/analytics.json
+          git add -- trader/feed.json trader/analytics.json trader/portfolios.json
           if ! git diff --cached --quiet; then
             git config user.name 'github-actions[bot]'
             git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
@@ -89,6 +99,7 @@ jobs:
           test -s "$RUNNER_TEMP/books-pages/index.html"
           test -s "$RUNNER_TEMP/books-pages/trader/feed.json"
           test -s "$RUNNER_TEMP/books-pages/trader/analytics.json"
+          test -s "$RUNNER_TEMP/books-pages/trader/portfolios.json"
           # Raw downloads and test temporary files are never part of git archive.
 
       - name: Upload Pages artifact
