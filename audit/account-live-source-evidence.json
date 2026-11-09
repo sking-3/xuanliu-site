@@ -1,0 +1,104 @@
+{
+  "rest": [
+    {
+      "kind": "preflight",
+      "user": "0x5b5d51203a0f9079f8aeb098a6523a13f298c060",
+      "fetchedAt": "2026-11-09T20:33:21.894290+00:00",
+      "status": 200,
+      "headers": {
+        "server": "envoy",
+        "access-control-allow-origin": "*",
+        "access-control-allow-methods": "*",
+        "access-control-allow-headers": "*"
+      }
+    },
+    {
+      "kind": "clearinghouseState",
+      "user": "0x5b5d51203a0f9079f8aeb098a6523a13f298c060",
+      "fetchedAt": "2026-11-09T20:33:28.935812+00:00",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json",
+        "server": "envoy",
+        "access-control-allow-origin": "*"
+      },
+      "topKeys": [
+        "marginSummary",
+        "crossMarginSummary",
+        "crossMaintenanceMarginUsed",
+        "withdrawable",
+        "assetPositions",
+        "time"
+      ],
+      "count": 23
+    },
+    {
+      "kind": "frontendOpenOrders",
+      "user": "0x5b5d51203a0f9079f8aeb098a6523a13f298c060",
+      "fetchedAt": "2026-11-09T20:33:34.739925+00:00",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json",
+        "server": "envoy",
+        "access-control-allow-origin": "*"
+      },
+      "topKeys": null,
+      "count": 0
+    },
+    {
+      "kind": "userFills",
+      "user": "0x5b5d51203a0f9079f8aeb098a6523a13f298c060",
+      "fetchedAt": "2026-11-09T20:33:41.692959+00:00",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json",
+        "server": "envoy",
+        "access-control-allow-origin": "*"
+      },
+      "topKeys": null,
+      "count": 2000
+    }
+  ],
+  "websocket": {
+    "url": "wss://api.hyperliquid.xyz/ws",
+    "origin": "https://sking-3.github.io",
+    "user": "0x5b5d51203a0f9079f8aeb098a6523a13f298c060",
+    "connected": true,
+    "messages": [
+      {
+        "channel": "subscriptionResponse",
+        "isSnapshot": null,
+        "keys": [
+          "method",
+          "subscription"
+        ],
+        "count": 0
+      },
+      {
+        "channel": "userFills",
+        "isSnapshot": true,
+        "keys": [
+          "isSnapshot",
+          "user",
+          "fills"
+        ],
+        "count": 30
+      },
+      {
+        "channel": "subscriptionResponse",
+        "isSnapshot": null,
+        "keys": [
+          "method",
+          "subscription"
+        ],
+        "count": 0
+      }
+    ]
+  },
+  "scope": "Single public account, read-only; first WebSocket fill snapshot received, no new incremental fills observed during bounded 25-second probe.",
+  "documentation": [
+    "https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint",
+    "https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/websocket/subscriptions",
+    "https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/rate-limits-and-user-limits"
+  ]
+}

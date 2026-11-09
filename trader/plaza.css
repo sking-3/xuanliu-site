@@ -166,3 +166,14 @@ th{color:#728098;font-weight:500;background:#fbfcfe}
   .trader-page .filters select{padding-right:22px}
   .trader-page .hint{margin:6px 1px 10px;font-size:11px;line-height:1.6}
 }
+
+/* Account activity is read only and scoped to the open detail panel. */
+.tabs [hidden]{display:none!important}
+.live-panel{min-width:0}.live-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:8px}
+.live-connection{font-size:12px;color:#52647a;line-height:1.6}.live-connection[data-state=live]{color:#267864}.live-connection[data-state=error],.live-gap{color:#9b702b}
+.live-refresh{flex:none;font-size:12px;min-height:36px}.live-scope,.live-footnote{font-size:11px;line-height:1.7;color:#748196;margin:7px 0}.live-gap{font-size:11px;line-height:1.6;margin:6px 0}
+.live-section{border:1px solid #e5eaf1;border-radius:9px;margin-top:15px;min-width:0;padding:13px 14px}.live-section-head{display:flex;gap:9px;align-items:center}.live-section-head h3{font-size:14px;margin:0}.live-count{font-size:11px;border-radius:20px;background:#f0f4f9;color:#64748b;padding:2px 7px;font-variant-numeric:tabular-nums}
+.live-section-status{font-size:10px;line-height:1.6;color:#7a8798;margin:5px 0}.live-table-wrap{max-height:340px;max-width:100%;margin:9px 0 0;overscroll-behavior:contain}.live-table-wrap th{position:sticky;top:0;background:#f8fafc;z-index:1}.live-table-wrap td,.live-table-wrap th{padding:9px 10px}.live-table-wrap td{font-variant-numeric:tabular-nums}.live-empty{padding:12px 0 5px;font-size:12px;color:#8190a3}
+@media(max-width:760px){.live-section{padding:10px;margin-top:12px}.live-table-wrap{max-height:290px}.live-connection{font-size:11px}.live-toolbar{gap:7px}.live-section-head h3{font-size:13px}}
+
+.live-section-status[data-state=stale],.live-section-status[data-state=error]{color:#9b702b}

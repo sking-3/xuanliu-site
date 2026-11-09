@@ -64,4 +64,16 @@ PASS background refresh replaces account metrics and title without closing detai
 PASS unchanged background snapshot preserves open detail nodes and focus
 PASS an unavailable replacement preserves last-good data, detail nodes and focus with a stale status
 PASS expired-source status updates outside the focused detail content
-66 logic and DOM-model tests passed. Synthetic fixtures stay local; the published feed is checked separately.
+PASS live reads are available only for verified public Hyperliquid account records
+PASS opening analysis does not initiate account network reads
+PASS live tab starts one scoped account and renders actual fill directions and quote units
+PASS re-rendered leaderboard data does not restart the open live account or replace controls
+PASS unknown or failed account sections are not described as empty positions
+PASS leaving the live tab stops its client and rejects late updates
+PASS switching the detail account stops the old stream before the next starts
+PASS manual records cannot enter live mode or create a subscription
+PASS fill direction labels preserve close and reversal meaning
+PASS a stale ranking snapshot does not label independent live activity stale
+PASS an old successful position response is visibly stale independently of the connected stream
+77 logic and DOM-model tests passed. Synthetic fixtures stay local; the published feed is checked separately.
+PASS node --check trader/plaza.js

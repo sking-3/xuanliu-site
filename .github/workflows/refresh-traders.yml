@@ -32,6 +32,13 @@ jobs:
           ref: main
           fetch-depth: 1
 
+      - name: Test account activity client and page logic
+        run: |
+          node --check trader/account-live.js
+          node --check trader/plaza.js
+          node audit/account-live-unit.cjs
+          node audit/trader-unit.cjs
+
       - name: Test snapshot validation and last-good handling
         run: python3 -B audit/hyperliquid-collector-test.py
 

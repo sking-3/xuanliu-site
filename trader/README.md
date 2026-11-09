@@ -35,3 +35,19 @@ OKX 当前云端返回 Cloudflare Error 1010 / HTTP 403，已停止尝试；Bybi
 2026-11-09 核验官方前端 `Leaderboard-D06I9MTf.js` 和 `config-BOv79UVk.js` 的请求路径及字段映射，并阅读 Terms（页面标注 2026-06-15 更新）。未发现一般性公开账户展示禁令，也未将 SDK 的 MIT 软件许可误作数据许可。实现不绕过访问限制或限流，不暗示官方合作。
 
 合成测试仅在测试进程中运行，不写入生产快照。
+
+## 按需持仓、挂单与成交
+
+公开 Hyperliquid 账户详情新增“实时交易”视图。只有打开该视图才向官方 `https://api.hyperliquid.xyz/info` 请求 `clearinghouseState`、`frontendOpenOrders` 和 `userFills`，并连接 `wss://api.hyperliquid.xyz/ws` 订阅该地址的 `userFills` 与 `orderUpdates`。公开名单加载不会为200个账户同时建立连接；个人手工记录不会被自动发送到来源。
+
+持仓、挂单是 REST 状态快照，页面打开期间约每60秒核对一次；成交和订单事件通过 WebSocket 接收。实时流不可用但 REST 可读时，最近成交退回每60秒快照查询，页面明确显示降级状态。首次 `isSnapshot` 是此前成交记录，不能当作新开仓。A表示卖、B表示买，开仓/平仓直接采用来源 `dir`；成交金额为价格乘数量的名义金额，不是保证金。手续费保留来源币种，负数可能是返佣。现货代码通过官方 `spotMeta` 解析，缺少映射时显示原始代码，不猜报价币。
+
+REST 成交接口最多返回最近2000笔，本页面保留最近200笔用于阅读，不宣称完整历史。记录按成交标识去重，不用短暂静默判断订单全部成交。当前永续持仓仅覆盖默认永续DEX，挂单覆盖默认DEX及其返回的现货订单；其他DEX覆盖不被暗示为完整。
+
+关闭详情、切换标签/账户或隐藏页面时停止连接；返回页面后重新读取状态。错误/断开会在详情中显示，旧数据与读取时间保留。本功能不在关闭页面后继续监听，不是全天后台档案，也不含任何下单、授权、签名或交易密钥。
+
+来源文档：
+- [REST Info](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint)
+- [WebSocket 订阅及消息格式](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/websocket/subscriptions)
+- [订阅限制](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/rate-limits-and-user-limits)
+- [现货品种元数据](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint/spot)

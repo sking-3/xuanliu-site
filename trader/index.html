@@ -3,12 +3,13 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'self'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self' https://api.hyperliquid.xyz wss://api.hyperliquid.xyz; img-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'self'">
   <meta name="referrer" content="no-referrer">
   <meta name="robots" content="noindex,nofollow">
   <title>Books · 带单员广场</title>
-  <link rel="stylesheet" href="plaza.css?v=1fff9f4d">
-  <script defer src="plaza.js?v=ca7f288d"></script>
+  <link rel="stylesheet" href="plaza.css?v=8dce74eb">
+  <script defer src="account-live.js?v=f6bc762c"></script>
+  <script defer src="plaza.js?v=d21cf62d"></script>
   <link rel="stylesheet" href="../books-ui.css?v=20261110-1">
   <link rel="stylesheet" href="../index-ticker.css?v=d6459a25">
   <script defer src="../index-ticker.js?v=c49031ee"></script>
@@ -72,7 +73,7 @@
     <details class="method">
       <summary>资料与统计说明</summary>
       <p>Hyperliquid 名单按来源月度盈亏选取前 200 个公开账户；切换排序只影响已收录范围。收益率与盈亏直接来自官方公开榜单，周度 / 月度按来源窗口显示，不代表认证带单员或 Books 推荐。</p>
-      <p>未提供的最大回撤、逐笔胜率、曲线和仓位记录保持为空；不以余额变化推算策略收益。来源快照文件的更新时间与采集时间分别展示，均不等同于逐笔成交时间。</p>
+      <p>未提供的最大回撤、逐笔胜率和收益曲线保持为空；账户详情可按需读取持仓、挂单与最近成交，不以余额变化推算策略收益。来源快照文件的更新时间与采集时间分别展示，均不等同于逐笔成交时间。</p>
       <p>我的资料仅保存在当前浏览器，不会自动同步到其他设备或发布给其他访客。表现按实际来源时间展示。</p>
     </details>
     <footer>Books · 研究资料，不提供跟单或交易功能。过往表现不代表未来收益。</footer>
@@ -81,7 +82,7 @@
     <div class="dialog-head"><div><p class="eyebrow">TRADER RESEARCH</p><h2 id="detail-title"></h2></div><button id="close" type="button" class="icon-button" aria-label="关闭详情">✕</button></div>
     <p id="detail-meta"></p>
     <p id="detail-data-status" class="detail-stale" role="status" aria-live="polite" hidden></p>
-    <div id="tabs" class="tabs" aria-label="详情视图"><button type="button" data-tab="analysis" aria-pressed="true">交易分析</button><button type="button" data-tab="positions" aria-pressed="false">仓位历史</button><button type="button" data-tab="points" aria-pressed="false">交易点位</button><button type="button" data-tab="orders" aria-pressed="false">订单流水</button></div>
+    <div id="tabs" class="tabs" aria-label="详情视图"><button type="button" data-tab="analysis" aria-pressed="true">交易分析</button><button type="button" data-tab="live" aria-pressed="false" hidden>实时交易</button><button type="button" data-tab="positions" aria-pressed="false">仓位历史</button><button type="button" data-tab="points" aria-pressed="false">交易点位</button><button type="button" data-tab="orders" aria-pressed="false">订单流水</button></div>
     <div id="detail-body"></div>
   </dialog>
   <dialog id="record-editor" aria-labelledby="record-editor-title">

@@ -106,6 +106,20 @@ if raw_path.is_file() and source.get('rawSha256')==hashlib.sha256(raw_path.read_
    for metric,multiplier in [('roi',100),('pnl',1)]:
     check(math.isclose(row['windows'][period][metric],float(native[key][metric])*multiplier,rel_tol=1e-12,abs_tol=1e-9), 'published performance equals source value with correct unit conversion')
 trader_page=html.fromstring((root/'trader/index.html').read_text())
+
+# On-demand public account reads are limited to Hyperliquid's documented hosts.
+csp=trader_page.xpath('//meta[@http-equiv="Content-Security-Policy"]/@content')[0]
+connect=next((part.strip().split()[1:] for part in csp.split(';') if part.strip().startswith('connect-src ')),[])
+check(set(connect)=={"'self'",'https://api.hyperliquid.xyz','wss://api.hyperliquid.xyz'}, 'account read CSP permits only same-origin and exact official REST/WS hosts')
+live_scripts=trader_page.xpath('//script[starts-with(@src,"account-live.js")]')
+check(len(live_scripts)==1 and 'defer' in live_scripts[0].attrib, 'public live-data module loaded exactly once without blocking page')
+live_ref=live_scripts[0].get('src')
+check(bool(re.fullmatch('[0-9a-f]{8}',parse_qs(urlsplit(live_ref).query).get('v',[''])[0])), 'live-data module has a content hash version')
+script_sources=trader_page.xpath('//script[@src]/@src')
+check(script_sources.index(live_ref)<next(i for i,ref in enumerate(script_sources) if ref.startswith('plaza.js')), 'public live client initializes before detail UI')
+check(len(trader_page.xpath('//*[@id="tabs"]//button[@data-tab="live"][@hidden]'))==1, 'live tab is initially hidden until an eligible public account is selected')
+check(not trader_page.xpath('//input[@type="password"]'), 'public account reads do not introduce credential collection')
+
 check(not trader_page.xpath('//*[@id="import-trigger" or @id="export-records" or @id="import-file"]'), 'trader file import/export controls removed')
 check(not trader_page.xpath('//script[contains(@src,"okx-import.js")]'), 'trader page does not load the offline file adapter')
 check('导入' not in trader_page.text_content() and '导出' not in trader_page.text_content(), 'trader page contains no removed import/export instructions')
