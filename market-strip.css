@@ -1,3 +1,4 @@
+/* Scale the complete provider widget, including its attribution. Never crop or relocate branding. */
 html,body{margin:0;padding:0;background:#fff;color-scheme:light}
 body{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
-tv-tickers{display:block;zoom:.8;--tv-widget-font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;--tv-widget-background-color:#fff}
+tv-ticker-tape{display:block;zoom:.7;--tv-widget-font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;--tv-widget-background-color:#fff}

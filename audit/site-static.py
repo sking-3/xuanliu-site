@@ -57,9 +57,27 @@ feed=json.loads((root/'trader/feed.json').read_text())
 check(feed['status']=='unavailable' and feed['traders']==[], 'Real trader data unavailable, no fake rows')
 check('本页无外部请求' not in (root/'screening/history.html').read_text(),'External source disclosure correct')
 check('"showChart":false' in (root/'index.html').read_text(),'Home compact market cards preserved')
-# Core charts/header files owned by a separate task must remain byte-identical.
+# Quote recovery and real data must remain byte-identical in the header-only release.
 import subprocess
-for path in ['index-ticker.css','index-ticker.js','market-strip.css','market-strip.js','market-strip.html','trader/feed.json']:
+for path in ['index-ticker.js','market-feed.css','market-feed-status.js','trader/feed.json']:
  baseline=subprocess.check_output(['git','show','HEAD:'+path],cwd=root)
  check((root/path).read_bytes()==baseline,f'{path}: unrelated/header/data unchanged')
+strip=html.fromstring((root/'market-strip.html').read_text())
+tape=strip.xpath('//tv-ticker-tape')
+check(len(tape)==1,'One official scrolling ticker')
+tape=tape[0]
+check(tape.get('direction')=='horizontal' and tape.get('item-size')=='compact','Compact horizontal official variant')
+check('disable-scroll' not in tape.attrib,'Automatic scrolling enabled')
+check('hide-chart' in tape.attrib and 'hide-logo' in tape.attrib,'Compact symbol presentation')
+check('white-label' not in tape.attrib,'Provider attribution retained')
+check(set(tape.get('symbols').split(','))=={'SSE:000001','SZSE:399001','SZSE:399006','SSE:000688','HSI:HSI','FRED:NDQCOM'},'All six original indices retained')
+check(set(tape.get('symbols').split(',')) <= supported,'All top indices resolve to internal charts')
+check('chart.html?tvwidgetsymbol={tvprosymbol}' in tape.get('symbol-url'),'Ticker targets internal chart')
+check(bool(strip.xpath('//script[@src="https://widgets.tradingview-widget.com/w/zh_CN/tv-ticker-tape.js"]')),'Official provider script')
+for p in pages:
+ if p.name=='market-strip.html':continue
+ tree=html.fromstring(p.read_text())
+ if tree.xpath('//body[contains(@class,"books-shell")]'):
+  check(len(tree.xpath('//iframe[contains(@src,"market-strip.html?v=")]'))==1,f'{p}: one versioned shared scrolling strip')
+  check('books-market-credit' not in p.read_text(),f'{p}: attribution not moved to footer')
 print(f'PASS {checks} static assertions across {len(pages)} HTML documents (11 full pages + shared strip).')

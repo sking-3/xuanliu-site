@@ -1,6 +1,6 @@
 'use strict';
 (() => {
-  const widget = document.querySelector('tv-tickers');
+  const widget = document.querySelector('tv-ticker-tape');
   const reportSize = () => {
     const height = widget.getBoundingClientRect().height;
     if (height >= 40) parent.postMessage({type:'books-market-strip-size',height:height + 1}, location.origin);
