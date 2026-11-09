@@ -1,3 +1,11 @@
+# Attribution cleanup and compact scrolling header
+
+This update removes site-controlled provider credit text from the shared header, market cards, market pages and chart page, including the JavaScript paths that recreate it on reload. It does not relocate credits to the footer. The header uses the official regular scrolling tape scaled to a 45px host. Market and chart containers no longer reserve space for deleted credit rows.
+
+Native logos inside third-party frames remain provider-controlled and are not claimed to be removed. Existing quote configuration, same-site chart routing, hidden recovery controls, navigation and trader data are preserved. The current baseline is `9143a0b01a7c8228412c76d1091aac7582dce7be`. Earlier reports below describe prior releases.
+
+---
+
 # Corrective compact-state update
 
 The published UI was checked against the user’s two mobile screenshots. The extra loading/status, retry/collapse/source action row and direct-chart disclosure had been reintroduced during the resilience work. They are now hidden without allocating space in normal/loading states. The collapse button is removed. Minimal recovery actions and chart alternatives appear only after an explicit failure. Required TradingView attribution stays visible; no iframe cropping or branding concealment is used. See the official attribution FAQ: https://www.tradingview.com/widget-docs/faq/general/

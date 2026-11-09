@@ -62,11 +62,11 @@
   document.title = symbols.get(symbol) + ' · ' + chartKind + ' · Books';
   document.getElementById('chart-symbol').textContent = symbol;
   document.getElementById('chart-data-note').textContent = symbol.startsWith('SSE:') || symbol.startsWith('SZSE:')
-    ? 'A股日终数据，非盘中实时。可用性以 TradingView 组件为准。'
-    : symbol.startsWith('HSI:') ? '恒生指数日终数据，非盘中实时。可用性以 TradingView 组件为准。'
+    ? 'A股日终数据，非盘中实时。可用性以图表显示为准。'
+    : symbol.startsWith('HSI:') ? '恒生指数日终数据，非盘中实时。可用性以图表显示为准。'
     : closeOnly ? '纳斯达克综合指数 · FRED 每日收盘序列，仅绘制收盘走势，不表示盘中K线。更新日期与可用性以来源为准。'
-    : symbol.startsWith('COINBASE:') ? 'Coinbase 现货 / USD。报价时间与可用性以 TradingView 组件为准。'
-    : '美股行情可能延迟。报价时间与可用性以 TradingView 组件为准。';
+    : symbol.startsWith('COINBASE:') ? 'Coinbase 现货 / USD。报价时间与可用性以图表显示为准。'
+    : '美股行情可能延迟。报价时间与可用性以图表显示为准。';
   let generation = 0, timer, observer;
   function mount() {
     const current = ++generation;
@@ -81,13 +81,7 @@
     const slot = document.createElement('div');
     slot.className = 'tradingview-widget-container__widget';
     container.append(slot);
-    const credit = document.createElement('div');
-    credit.className = 'tradingview-widget-copyright';
-    const source = document.createElement('a');
-    source.href = 'https://www.tradingview.com/';
-    source.target = '_blank'; source.rel = 'noopener nofollow';
-    source.textContent = 'Track all markets on TradingView';
-    credit.append(source); container.append(credit); host.append(container);
+    host.append(container);
     observer = new MutationObserver(() => {
       const frame = container.querySelector('iframe');
       if (frame && current === generation) {

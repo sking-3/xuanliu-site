@@ -28,15 +28,7 @@
     container.className = 'tradingview-widget-container';
     const widget = document.createElement('div');
     widget.className = 'tradingview-widget-container__widget';
-    const credit = document.createElement('div');
-    credit.className = 'tradingview-widget-copyright';
-    const link = document.createElement('a');
-    link.href = s.creditUrl;
-    link.target = '_blank';
-    link.rel = 'noopener nofollow';
-    link.textContent = s.creditText;
-    credit.append(link);
-    container.append(widget, credit);
+    container.append(widget);
     s.area.replaceChildren(container);
     s.observer = new MutationObserver(() => {
       const frame = container.querySelector('iframe');
@@ -71,14 +63,9 @@
     const retry = section.querySelector('.feed-retry');
     const configNode = section.querySelector('script[data-feed-config]');
     if (!area || !status || !controls || !retry || !configNode) return;
-    const credit = section.querySelector('.tradingview-widget-copyright a');
     const s = {area, status, controls, shortcuts, retry, generation: 0, timer: null, observer: null,
-      label: section.querySelector('h2,h3')?.textContent || '市场行情',
-      creditUrl: credit?.href || 'https://www.tradingview.com/markets/',
-      creditText: section.querySelector('.tradingview-widget-copyright')?.textContent.trim() || 'Markets by TradingView'};
+      label: section.querySelector('h2,h3')?.textContent || '市场行情'};
     if (!area.id) area.id = 'market-feed-area-' + index;
-    const fallback = section.querySelector('.feed-source');
-    if (fallback) fallback.href = s.creditUrl;
     try { s.config = JSON.parse(configNode.textContent); }
     catch { fail(s, '行情配置无法读取，请查看来源。'); retry.disabled = true; return; }
     retry.addEventListener('click', () => mount(s));

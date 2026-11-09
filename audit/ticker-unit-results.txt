@@ -1,0 +1,8 @@
+PASS host requests measurement on startup and iframe load
+PASS host rejects wrong origin, wrong frame and invalid heights
+PASS host fits the entire scaled provider component without clipping
+PASS host keeps safe minimum height
+PASS tape reports full measured height and observes resize
+PASS tape ignores untrusted measurement messages
+PASS tape accepts parent measurement and ignores transient zero size
+7 ticker sizing/security DOM-model tests passed. Real rendering is verified separately.
