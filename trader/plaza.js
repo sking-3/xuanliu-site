@@ -163,7 +163,7 @@ function performanceWindow(r,period) {
   const part=portfolioSection(r),w=part?.status==='ready'?part.windows[period]:null;
   return w?{...w,asOf:w.endAt,roi:null,wins:null,closedTrades:null,curve:[]}:null;
 }
-function periodName(period,w) {return w?.derived?parseInt(period,10)+'天':displayPeriod(period,w);}
+function periodName(period,w) {return derivedPeriods.includes(period)&&(w?.derived||!w)?({'90D':'季度','180D':'半年','365D':'年度'})[period]:displayPeriod(period,w);}
 function historyDate(value) {return new Date(value).toLocaleDateString('zh-CN',{year:'numeric',month:'2-digit',day:'2-digit'});}
 function performanceRange(r,period) {
   const part=portfolioSection(r),w=part?.status==='ready'?part.windows[period]:null;
@@ -173,16 +173,16 @@ function performanceRange(r,period) {
 }
 function fillPerformanceSummary(r,period,view) {
   const w=performanceWindow(r,period),derived=isPublicAccount(r)&&derivedPeriods.includes(period),part=portfolioSection(r),history=part?.status==='ready'?part.windows[period]:null;
-  const amount=derived?w?.pnl:w?.roi,formatted=derived?compactMoney(amount,'USD'):pct(amount),formattedSigned=signedValue(amount,formatted);
+  const amount=w?.roi,formattedSigned=signedValue(amount,pct(amount));
   view.roi.textContent=formattedSigned;view.roi.className='roi '+directionClass(amount)+(formattedSigned.length>8?' long-roi':'');
-  view.roi.setAttribute('title',derived?`${periodName(period,w)} 区间盈亏 ${money(amount,'USD')} USD；收益率缺少可核验的出入金调整口径`: `${periodName(period,w)} 收益率 ${formattedSigned}`);
-  view.roiLabel.textContent=derived?`${parseInt(period,10)}天区间盈亏 · USD`:`${periodName(period,w)} 收益率`;
+  view.roi.setAttribute('title',derived?`${periodName(period,w)}收益率（近${parseInt(period,10)}天滚动窗口）暂无可核验数据：缺少经过出入金调整的资金基准；区间盈亏另列`: `${periodName(period,w)} 收益率 ${formattedSigned}`);
+  view.roiLabel.textContent=`${periodName(period,w)} 收益率${derived&&amount==null?' · 暂缺':''}`;
   if(view.rangeNote){view.rangeNote.textContent=performanceRange(r,period);view.rangeNote.hidden=!(derived||period==='ALL');view.rangeNote.setAttribute('title',history?`${performanceRange(r,period)}；采集时间 ${part?.fetchedAt?timeLabel(part.fetchedAt):'—'}；来源真实 ${history.sampleCount} 个采样点`:'暂无可核验的区间历史采样');}
   if(view.cardRoot)view.cardRoot.className='card'+(derived&&!(history?.sampleCount>1)?' compact-history':'');
 }
 function sortValue(r,period,sort) {
   const w=performanceWindow(r,period),part=portfolioSection(r);
-  if(isPublicAccount(r)&&sort==='mdd')return part?.status==='ready'?part.windows[period]?.mdd:null;
+  if(isPublicAccount(r)&&sort==='mdd')return null;
   if(isPublicAccount(r)&&sort==='winRate')return cachedWin(r)?.win?.value??null;
   return sort==='winRate'?win(w):w?.[sort];
 }
@@ -250,7 +250,7 @@ function compactCacheTime(stamp,stale=false) {
 }
 function fillWinCacheNote(r,target) {
   const entry=cachedWin(r),w=entry?.win,stale=winCacheIsStale(entry);
-  target.textContent=w?`平仓样本 ${w.eligibleCount} 笔 · ${stale?'陈旧':'采集'} ${compactCacheTime(entry.fetchedAt,stale)}`:'平仓样本 —';
+  target.textContent=w?`永续近期 ${w.eligibleCount} 片段 · 不随周期 · ${stale?'陈旧':'采集'} ${compactCacheTime(entry.fetchedAt,stale)}`:'永续平仓片段 — · 不随周期';
   target.setAttribute('data-state',stale?'stale':w?'ready':'unavailable');
   target.setAttribute('title',w?`后台采集 ${timeLabel(entry.fetchedAt)}；${w.eligibleCount?`平仓样本 ${timeLabel(w.startAt)} 至 ${timeLabel(w.endAt)}`:'来源没有可统计的平仓样本'}；与所选表现周期独立${stale?'；显示上次成功结果，等待后台更新':''}`:'后台尚未取得有效平仓样本；资料不足时留空');
 }
@@ -319,7 +319,7 @@ function renderSource() {
     const v=s.positionVerification,eligible=eligiblePublicRows().length;
     $('source-selection').textContent=v?`${eligible} 个可看持仓 · ${v.candidateAccounts} 个候选 · ${v.emptyAccounts} 个空仓${v.failedAccounts?' · '+v.failedAccounts+' 个读取失败':''}${v.unattemptedAccounts?' · '+v.unattemptedAccounts+' 个待核验':''}`:`${s.selection} · 持仓待核验`;
     $('source-timing').textContent=`${s.snapshotAt?'快照文件更新 '+timeLabel(s.snapshotAt):'快照文件时间未提供'} · 采集于 ${timeLabel(s.fetchedAt)}`;
-    $('source-cadence').textContent='约 30 分钟核验 · 超过 60 分钟自动移出名单';
+    $('source-cadence').textContent='持仓核验有效期 60 分钟';
   }
   $('status').textContent=statusText();$('status').setAttribute('data-state',stale?'stale':eligiblePublicRows().length?'ready':'empty');
   $('source-universe').textContent=s?.positionVerification?s.positionVerification.candidateAccounts.toLocaleString('zh-CN'):'—';
@@ -386,13 +386,13 @@ function mddReason(reason) {return ({non_positive_peak_equity:'该窗口部分�
 function metrics(w,currency,includeROI=false,r=null,period=null) {
   const el=node('div',undefined,'metrics');
   const publicAccount=r&&isPublicAccount(r),part=publicAccount?portfolioSection(r):null,window=part?.status==='ready'?part.windows[period]:null;
-  const drawdown=publicAccount?window?.mdd:w?.mdd,winEntry=publicAccount?cachedWin(r):null;
-  const items=[['盈亏 '+currency,signedValue(w?.pnl,includeROI?money(w?.pnl,currency):compactMoney(w?.pnl,currency)),w?.pnl==null?'—':signedValue(w.pnl,money(w.pnl,currency))+' '+currency,directionClass(w?.pnl)],[publicAccount?(derivedPeriods.includes(period)?'区间采样回撤':'来源采样回撤'):'最大回撤',pct(drawdown),undefined,drawdown==null?'':'negative'],[publicAccount?'平仓成交胜率':'逐笔胜率',pct(publicAccount?winEntry?.win?.value:win(w))]];
-  if(includeROI&&!(publicAccount&&derivedPeriods.includes(period)))items.unshift(['收益率',signedValue(w?.roi,pct(w?.roi)),undefined,directionClass(w?.roi)]);
+  const drawdown=publicAccount?null:w?.mdd,winEntry=publicAccount?cachedWin(r):null;
+  const items=[['盈亏 '+currency,signedValue(w?.pnl,includeROI?money(w?.pnl,currency):compactMoney(w?.pnl,currency)),w?.pnl==null?'—':signedValue(w.pnl,money(w.pnl,currency))+' '+currency,directionClass(w?.pnl)],['最大回撤',pct(drawdown),undefined,drawdown==null?'':'negative'],[publicAccount?'平仓片段胜率':'逐笔胜率',pct(publicAccount?winEntry?.win?.value:win(w))]];
+  if(includeROI)items.unshift(['收益率',signedValue(w?.roi,pct(w?.roi)),undefined,directionClass(w?.roi)]);
   for(const [label,v,exact,color]of items) {
     const c=node('div'),amount=node('strong',v,color);amount.setAttribute('title',exact||v);c.append(node('small',label),amount);
-    if(publicAccount&&['来源采样回撤','区间采样回撤'].includes(label))amount.setAttribute('title',window?.mdd==null?mddReason(window?.mddUnavailableReason):`${pct(window.mdd)} · 来源采样口径，非策略净值回撤`);
-    if(publicAccount&&label==='平仓成交胜率')amount.setAttribute('title',winEntry?.win?`${winEntry.win.eligibleCount} 笔平仓成交样本，独立于所选表现周期；后台采集 ${timeLabel(winEntry.fetchedAt)}${winCacheIsStale(winEntry)?'；上次成功结果，待更新':''}`:'尚未取得有效后台统计；资料不足时留空');
+    if(publicAccount&&label==='最大回撤')amount.setAttribute('title','缺少可核验的资金调整净值，暂不提供标准最大回撤');
+    if(publicAccount&&label==='平仓片段胜率')amount.setAttribute('title',winEntry?.win?`${winEntry.win.eligibleCount} 笔近期永续平仓片段，独立于所选表现周期；不含现货、开仓及其他不符合口径的成交，非完整订单或开平仓回合；${winEntry.win.eligibleCount?'样本 '+timeLabel(winEntry.win.startAt)+' 至 '+timeLabel(winEntry.win.endAt)+'；':''}盈利 ${winEntry.win.winning} · 亏损 ${winEntry.win.losing} · 持平 ${winEntry.win.breakeven}；仅扣平仓成交手续费，未扣开仓手续费和资金费；采集 ${timeLabel(winEntry.fetchedAt)}${winCacheIsStale(winEntry)?'；上次成功结果，待更新':''}`:'尚未取得有效后台统计；资料不足时留空');
     el.append(c);
   }
   return el;
@@ -415,8 +415,8 @@ function refreshAnalyticsViews(address) {
     if(view.winNote)fillWinCacheNote(view.r,view.winNote);if(view.roi)fillPerformanceSummary(view.r,view.period,view);
     if(view.kind==='detail') {
       const portfolio=portfolioSection(view.r),window=portfolio?.windows?.[view.period],entry=cachedWin(view.r),win=entry?.win;
-      view.portfolioStatus.textContent=portfolio?.status==='ready'?(window?.sampleCount>1?`来源采样 ${window.sampleCount} 点 · ${timeLabel(window.startAt)} 至 ${timeLabel(window.endAt)}${window.mdd==null?' · '+mddReason(window.mddUnavailableReason):''}${derivedPeriods.includes(view.period)?' · '+performanceRange(view.r,view.period):''}${portfolio.fetchedAt?' · 采集 '+timeLabel(portfolio.fetchedAt):''}${portfolio.stale?' · 上次成功采样':''}`:'来源未提供当前周期的有效曲线样本。'):portfolio?.status==='error'?'曲线读取失败，尚未取得可用数据。':portfolio?.status==='queued'?'正在排队读取来源盈亏曲线…':portfolio?.status==='loading'?'正在读取来源盈亏曲线…':'尚未取得当前窗口的盈亏曲线。';
-      view.winStatus.textContent=win?(win.eligibleCount?`平仓成交 ${win.eligibleCount} 笔 · 盈利 ${win.winning} · 亏损 ${win.losing} · 持平 ${win.breakeven}；样本 ${timeLabel(win.startAt)} 至 ${timeLabel(win.endAt)}`:'最近成交中没有可统计的永续平仓样本。')+` · 后台采集 ${timeLabel(entry.fetchedAt)}${entry.lastAttemptAt?' · 最近尝试 '+timeLabel(entry.lastAttemptAt):''}${winCacheIsStale(entry)?' · 上次成功结果，等待后台更新':''}`:'后台尚未取得有效平仓样本；取得后自动显示。'+(entry?.lastAttemptAt?' · 最近尝试 '+timeLabel(entry.lastAttemptAt):'');
+      view.portfolioStatus.textContent=portfolio?.status==='ready'?(window?.sampleCount>1?`来源采样 ${window.sampleCount} 点 · ${timeLabel(window.startAt)} 至 ${timeLabel(window.endAt)}${derivedPeriods.includes(view.period)?' · '+performanceRange(view.r,view.period):''}${portfolio.fetchedAt?' · 采集 '+timeLabel(portfolio.fetchedAt):''}${portfolio.stale?' · 上次成功采样':''}`:'来源未提供当前周期的有效曲线样本。'):portfolio?.status==='error'?'曲线读取失败，尚未取得可用数据。':portfolio?.status==='queued'?'正在排队读取来源盈亏曲线…':portfolio?.status==='loading'?'正在读取来源盈亏曲线…':'尚未取得当前窗口的盈亏曲线。';
+      view.winStatus.textContent=win?(win.eligibleCount?`永续平仓片段 ${win.eligibleCount} 笔 · 盈利 ${win.winning} · 亏损 ${win.losing} · 持平 ${win.breakeven}；样本 ${timeLabel(win.startAt)} 至 ${timeLabel(win.endAt)}`:'最近成交中没有可统计的永续平仓样本。')+` · 来源返回 ${win.receivedFills} 条 → 有效 ${win.eligibleCount}、排除 ${win.excludedCount}${win.duplicateCount?'、重复 '+win.duplicateCount:''}${win.capped?' · 达到 2000 条上限，可能截断更早历史':' · 仅近期样本，非完整历史'} · 后台采集 ${timeLabel(entry.fetchedAt)}${entry.lastAttemptAt?' · 最近尝试 '+timeLabel(entry.lastAttemptAt):''}${winCacheIsStale(entry)?' · 上次成功结果，等待后台更新':''}`:'后台尚未取得有效平仓样本；取得后自动显示。'+(entry?.lastAttemptAt?' · 最近尝试 '+timeLabel(entry.lastAttemptAt):'');
       view.winStatus.setAttribute('data-state',winCacheIsStale(entry)?'stale':win?'ready':'unavailable');
       view.portfolioButton.hidden=portfolio?.status!=='error';view.portfolioButton.disabled=['queued','loading'].includes(portfolio?.status);
 
@@ -473,7 +473,8 @@ function render() {
   const q=$('search').value.trim().toLocaleLowerCase(),p=$('period').value,source=$('source').value,currency=$('currency').value;
   const available=state.rows.filter(r=>qualifiedPosition(r)&&((source==='local')?r._local:!r._local));
   let rows=available.filter(r=>(r.name+' '+r.id+' '+r.accountId+' '+r.exchange+' '+r.note).toLocaleLowerCase().includes(q) && ($('exchange').value==='all'||r.exchange===$('exchange').value) && (source==='all'||source==='local'&&r._local||source==='paid'&&r.paid||source==='public'&&!r._local&&!r.paid) && (currency==='all'||r.currency===currency));
-  $('sort-hint').textContent=$('sort').value==='winRate'?'按后台平仓样本胜率排序 · 缺数账户排在后面':$('sort').value==='mdd'?'按已有回撤排序 · 缺数账户排在后面 · 新结果在重新选择排序后应用':'仅显示已核验持仓账户 · 永续主市场';
+  const winSortOption=[...$('sort').options].find(option=>option.value==='winRate');if(winSortOption)winSortOption.textContent=source==='local'?'逐笔胜率 ↓':'平仓片段胜率 ↓';
+  $('sort-hint').textContent=$('sort').value==='winRate'?(source==='local'?'按已记录逐笔胜率排序 · 缺数账户排在后面':'按近期永续平仓片段胜率排序 · 缺数账户排在后面'):$('sort').value==='mdd'?($('source').value==='local'?'按已记录最大回撤排序 · 缺数账户排在后面':'公开账户标准最大回撤暂缺 · 缺数账户排在后面'):'按永续持仓筛选 · 表现采用来源账户口径';
   const sort=$('sort').value,grouped=sort==='pnl'&&currency==='all'&&new Set(rows.map(r=>r.currency)).size>1;
   rows.sort((a,b)=>{
     if(grouped&&a.currency!==b.currency)return currencies.indexOf(a.currency)-currencies.indexOf(b.currency);
@@ -604,14 +605,14 @@ function renderDetail() {
       if(r.accountValue!=null)b.append(node('p',`账户权益 ${money(r.accountValue,'USD')} USD`,'account-equity'));
     }
     if(hasMetrics(w)||isPublicAccount(r)) {
-      const figures=metrics(w,r.currency,true,r,state.window);b.append(figures,node('p',w?.derived?performanceRange(r,state.window):stampLabel(w),'meta'));if(isPublicAccount(r)&&derivedPeriods.includes(state.window))b.append(node('p','区间盈亏来自实际首末采样差；该窗口缺少可核验的出入金调整收益率，收益率留空。','detail-method'));
+      const figures=metrics(w,r.currency,true,r,state.window);b.append(figures,node('p',w?.derived?performanceRange(r,state.window):stampLabel(w),'meta'));if(isPublicAccount(r)&&derivedPeriods.includes(state.window))b.append(node('p',`${parseInt(state.window,10)}天滚动窗口，非自然季度或年度；区间盈亏来自实际首末采样差。缺少可核验的出入金调整资金基准，收益率留空。`,'detail-method'));
       if(isPublicAccount(r)) {
         const graph=node('div',undefined,'detail-pnl-chart'),portfolioStatus=node('p',undefined,'meta'),portfolioButton=button('重试曲线',()=>ensureAnalyticsClient()?.ensurePortfolio(r.accountId,{force:true}),'portfolio-retry'),winStatus=node('p',undefined,'meta win-cache-status');
         portfolioButton.hidden=true;b.append(graph,portfolioStatus,portfolioButton,winStatus);state.analyticsViews.push({kind:'detail',r,period:state.window,metrics:figures,graph,portfolioStatus,portfolioButton,winStatus});refreshAnalyticsViews(r.accountId);if(state.analyticsTargets.includes(r.accountId))ensureAnalyticsClient()?.ensurePortfolio(r.accountId);
       }else {if(w.curve.length>1)b.append(chart(w));if(w.closedTrades!=null||w.wins!=null)b.append(node('p',`已关闭交易 ${value(w.closedTrades)} 笔 · 盈利交易 ${value(w.wins)} 笔`));}
     }
     else b.append(node('p','当前周期暂无表现记录。'));
-    if(isPublicAccount(r))b.append(node('p','周度、月度及来源累计的收益率与盈亏采用来源榜单值；90/180/365天的区间盈亏按实际首末历史采样计算。来源采样回撤以来源盈亏从峰值的回落额除以峰值时账户权益，不是剔除出入金后的策略净值回撤，可能超过 100%。曲线显示实际来源样本的盈亏变化。90/180/365天区间取来源累计历史中实际落入窗口的采样，不插值、不把累计收益率改名为区间收益率。来源累计仅代表已返回历史，非完整账户历史。平仓成交胜率按最近最多 2000 笔成交中的永续平仓样本统计，按该笔已实现盈亏扣平仓成交手续费判断盈亏，未扣除对应开仓手续费和资金费；持平计入分母。它不等同于完整订单、开平仓回合或当前所选周期的胜率。资料不足时留空。','detail-method'));
+    if(isPublicAccount(r))b.append(node('p','周度、月度及来源累计的收益率与盈亏采用来源账户口径；按永续持仓筛选仅决定名单，不改变这些指标的来源范围。90/180/365天的区间盈亏按实际首末历史采样计算。标准最大回撤需要可核验的资金调整净值，目前暂缺，保持空值。曲线显示实际来源样本的盈亏变化。90/180/365天区间取来源累计历史中实际落入窗口的采样，不插值、不把累计收益率改名为区间收益率。来源累计仅代表已返回历史，非完整账户历史。平仓片段胜率仅按最近最多 2000 笔成交中的永续平仓片段统计，不包括现货和开仓成交，按该笔已实现盈亏扣平仓成交手续费判断盈亏，未扣除对应开仓手续费和资金费；持平计入分母。它不等同于完整订单、开平仓回合或当前所选周期的胜率。资料不足时留空。','detail-method'));
     if(r.note)b.append(node('h3','研究备注'),node('p',r.note,'profile-note'));
     b.append(sourceLink(r));return;
   }
