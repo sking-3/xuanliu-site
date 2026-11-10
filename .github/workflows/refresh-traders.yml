@@ -30,6 +30,12 @@ jobs:
   collect-build:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    # Serialize Binance requests with the Python watch. UI-only publications
+    # never request a source and keep their own unique job group.
+    concurrency:
+      group: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[ui-only]') && format('binance-ui-only-{0}-{1}', github.run_id, github.run_attempt) || 'binance-public-source' }}
+      queue: max
+      cancel-in-progress: false
     permissions:
       contents: write
       pages: read
@@ -144,9 +150,53 @@ jobs:
           sleep 60
           node scripts/refresh_trader_positions.cjs --not-before "$BOOKS_COLLECTION_STARTED_AT"
 
+      - name: Select the latest Python Binance source checkpoint
+        id: binance-peer-select
+        if: steps.refresh-mode.outputs.mode != 'skip'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          python3 -B tools/binance_watch/actions_state.py select-peer
+          --directory "$RUNNER_TEMP/binance-watch-peer"
+          --selection "$RUNNER_TEMP/binance-watch-peer-selection.json"
+
+      - name: Restore the exact Python Binance source checkpoint
+        id: binance-peer-restore
+        if: steps.refresh-mode.outputs.mode != 'skip' && steps.binance-peer-select.outcome == 'success' && steps.binance-peer-select.outputs.restore_run_id != ''
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ steps.binance-peer-select.outputs.restore_artifact_id }}
+          run-id: ${{ steps.binance-peer-select.outputs.restore_run_id }}
+          github-token: ${{ github.token }}
+          repository: sking-3/xuanliu-site
+          path: ${{ runner.temp }}/binance-watch-peer
+          merge-multiple: true
+
+      - name: Validate the Python Binance global source-stop state
+        id: binance-peer-validate
+        if: steps.refresh-mode.outputs.mode != 'skip' && steps.binance-peer-select.outcome == 'success' && (steps.binance-peer-select.outputs.restore_run_id == '' || steps.binance-peer-restore.outcome == 'success')
+        continue-on-error: true
+        run: >-
+          python3 -B tools/binance_watch/actions_state.py validate-peer
+          --directory "$RUNNER_TEMP/binance-watch-peer"
+          --selection "$RUNNER_TEMP/binance-watch-peer-selection.json"
+
+      - name: Report blocked Binance collection without changing its snapshots
+        if: steps.refresh-mode.outputs.mode != 'skip'
+        env:
+          BINANCE_PEER_ALLOWED: ${{ steps.binance-peer-validate.outputs.allowed }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$BINANCE_PEER_ALLOWED" != "true" ]; then
+            printf '%s\n' 'Binance source collection skipped: the Python watch reported a global stop or its checkpoint could not be verified. Existing Binance snapshots and timestamps are preserved. Hyperliquid and publication retain their existing guards.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - name: Verify the preceding Binance run was safely committed
         id: binance-guard
-        if: steps.refresh-mode.outputs.mode != 'skip'
+        if: steps.refresh-mode.outputs.mode != 'skip' && steps.binance-peer-validate.outputs.allowed == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -160,7 +210,7 @@ jobs:
           fi
 
       - name: Collect the public Binance lead sample
-        if: steps.refresh-mode.outputs.mode != 'skip'
+        if: steps.refresh-mode.outputs.mode != 'skip' && steps.binance-peer-validate.outputs.allowed == 'true'
         # Anonymous read-only sample. Access refusal is persisted; halted sources are not retried.
         run: node scripts/collect_binance.cjs
 
