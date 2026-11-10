@@ -9,6 +9,7 @@ const storageKey = 'books.trader.records.v1', maxBytes = 2097152;
 const publicCacheKeys={feed:'books.trader.public.feed.v1',win:'books.trader.public.analytics.v1',binance:'books.trader.public.binance.v1'},publicSnapshots={feed:null,win:null,binance:null};
 const state = {status:'unavailable', publicRows:[], binanceRows:[], binanceCollection:null, binanceReadFailed:false, binanceCheckedAt:null, binanceText:null, localRows:[], rows:[], page:1, detail:null, window:'30D', tab:'analysis', loading:false, explicitPeriod:false, editor:null, storageReadError:false, revealId:null, source:null, lastReadFailed:false, feedText:null, liveClient:null, liveUser:null, liveData:null, liveView:null, liveVersion:0, positionExclusions:Object.create(null), analytics:Object.create(null), analyticsClient:null, analyticsViews:[], cardControls:[], analyticsTargets:[], winCache:Object.create(null), winCacheLoading:false, winCacheReadFailed:false, winCacheGeneratedAt:null, portfolioCache:Object.create(null), portfolioCacheLoading:false, portfolioCacheAttempted:false, portfolioCacheReadFailed:false, portfolioCacheGeneratedAt:null, performanceOrderPending:false, chartSeq:0};
 const fail = () => { throw Error('数据格式未通过校验，未展示此批记录。'); };
+let linkedAccount=null;
 // Only validated same-origin public snapshots enter these keys. Original source
 // timestamps, failures and position exclusions survive a reload; cache age never
 // renews the 60-minute holdings qualification.
@@ -684,9 +685,20 @@ function card(r,period) {
 }
 function readURL() {
   const p=new URL(location.href).searchParams, defaults={period:'30D',exchange:'all',source:'all',sort:'mixed',currency:'all'};
+  const account=p.get('account');linkedAccount=/^0x[0-9a-f]{40}$/.test(account||'')?account:null;
   state.explicitPeriod=periods.includes(p.get('period'));
   for(const id of controls) { const el=$(id); el.value=[...el.options].some(o=>o.value===p.get(id))?p.get(id):defaults[id]; }
   $('search').value=(p.get('q')||'').slice(0,100); const page=Number(p.get('page')); state.page=Number.isSafeInteger(page)&&page>0?page:1;
+}
+function openLinkedAccount(finalRead=false) {
+  if(!linkedAccount)return false;
+  // The URL can select only an already validated public account. It cannot
+  // supply a profile, external destination or a new account to fetch.
+  const row=state.rows.find(r=>isPublicAccount(r)&&r.accountId===linkedAccount);
+  if(!row){if(finalRead)linkedAccount=null;return false;}
+  linkedAccount=null;
+  openDetail(row,$('period').value);
+  return true;
 }
 function saveURL(replace=false) {
   const url=new URL(location.href); for(const id of controls)url.searchParams.set(id,$(id).value);
@@ -966,7 +978,7 @@ async function revalidate(background=false) {
     clearTimeout(timeout);state.loading=false;$('refresh').disabled=false;$('leaders').setAttribute('aria-busy','false');
     if(!background)updateView();else {if(changed){mergeRows();choosePeriod();}reevaluatePositions();}
     if(changed&&state.detail&&!state.detail._local&&$('detail').open)renderDetail();
-    saveURL(true);if(restoreFocus&&document.activeElement===document.body)$('refresh').focus();
+    saveURL(true);openLinkedAccount(true);if(restoreFocus&&document.activeElement===document.body)$('refresh').focus();
   }
   await Promise.all([winRequest,portfolioRequest,binanceRequest]);
 }
@@ -985,8 +997,8 @@ function selectTab(b){if(!state.detail||!tabs.includes(b)||b.hidden)return;activ
 $('tabs').addEventListener('click',e=>selectTab(e.target.closest('[data-tab]')));
 $('tabs').addEventListener('keydown',e=>{const visibleTabs=tabs.filter(b=>!b.hidden),i=visibleTabs.indexOf(e.target);if(i<0)return;let n;if(e.key==='ArrowRight')n=(i+1)%visibleTabs.length;else if(e.key==='ArrowLeft')n=(i+visibleTabs.length-1)%visibleTabs.length;else if(e.key==='Home')n=0;else if(e.key==='End')n=visibleTabs.length-1;else return;e.preventDefault();visibleTabs[n].focus();selectTab(visibleTabs[n]);});
 $('detail').addEventListener('close',()=>{stopLive();state.analyticsViews=state.analyticsViews.filter(v=>v.kind!=='detail');state.detail=null;});
-addEventListener('popstate',()=>{if($('detail').open)$('detail').close();readURL();choosePeriod();render();});
-readURL();loadLocal();const hydrated=hydratePublicSnapshots();state.loading=!hydrated;choosePeriod();render();renderSource();state.loading=false;refresh(hydrated);
+addEventListener('popstate',()=>{if($('detail').open)$('detail').close();readURL();choosePeriod();render();openLinkedAccount();});
+readURL();loadLocal();const hydrated=hydratePublicSnapshots();state.loading=!hydrated;choosePeriod();render();renderSource();state.loading=false;openLinkedAccount();refresh(hydrated);
 setInterval(()=>{reevaluatePositions();if(document.visibilityState==='visible')refresh(true);},60000);
 document.addEventListener('visibilitychange',()=>{state.analyticsClient?.setVisible(document.visibilityState==='visible');state.liveClient?.setVisible(document.visibilityState==='visible');if(document.visibilityState==='visible'){reevaluatePositions();refresh(true);}});
 })();

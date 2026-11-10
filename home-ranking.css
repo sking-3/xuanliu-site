@@ -1,0 +1,29 @@
+/* Homepage projection of the plaza snapshots; scoped to avoid global footer/card rules. */
+#home-trader-ranking{display:flex;flex-direction:column;min-width:0}
+#home-trader-ranking>header{min-height:58px;gap:12px}
+.home-ranking-periods{display:flex;gap:5px;margin:14px 16px 8px;padding:4px;background:#f3f5f8;border-radius:9px}
+.home-ranking-periods button{flex:1;min-width:0;min-height:34px;padding:6px 10px;border:0;border-radius:6px;background:transparent;font:inherit;font-size:12px;color:#738093;cursor:pointer}
+.home-ranking-periods button[aria-pressed=true]{background:#fff;color:#b14f16;font-weight:650;box-shadow:0 1px 4px #24314c12}
+#home-ranking-status{margin:0 16px 9px;font-size:11px;line-height:1.6;color:#79869a;min-height:18px}
+#home-ranking-list{margin:0 16px;padding:0;min-width:0}
+.home-rank-row{padding:14px 0;border-top:1px solid #edf0f5;min-width:0}
+.home-rank-top{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0}
+.home-rank-identity{display:flex;align-items:center;gap:8px;min-width:0;color:#263245;text-decoration:none;font-size:13px;font-weight:650}
+.home-rank-number{flex:none;display:grid;place-items:center;width:22px;height:22px;border-radius:6px;background:#f5f0e8;color:#ac762d;font-size:11px;font-variant-numeric:tabular-nums}
+.home-rank-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.home-rank-profit{flex:none;display:flex;align-items:baseline;gap:4px;font-size:15px;font-weight:650;font-variant-numeric:tabular-nums}
+.home-rank-profit small{font-size:9px;font-weight:400;color:#8a94a4}
+.home-rank-positive{color:#159d84}.home-rank-negative{color:#dc6279}
+.home-rank-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:11px}
+.home-rank-metric{display:flex;flex-direction:column;gap:4px;min-width:0;font-size:10px;line-height:1.5;color:#8390a2}
+.home-rank-metric strong{font-size:12px;color:#354256;font-weight:550;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.home-rank-metric .home-rank-negative{color:#dc6279}
+.home-rank-metric .home-rank-positive{color:#159d84}
+.home-rank-timing{margin:8px 0 0;color:#8c96a6;font-size:10px;line-height:1.6;overflow-wrap:anywhere}
+.home-rank-empty{padding:30px 12px;text-align:center;color:#8a95a6;font-size:12px;line-height:1.8}
+#home-ranking-note{margin:10px 16px 15px;padding-top:10px;border-top:1px solid #edf0f5;font-size:10px;color:#8c96a6;line-height:1.7}
+#home-trader-ranking[data-stale=true] #home-ranking-status{color:#977349}
+.home-rank-identity:hover .home-rank-name{text-decoration:underline}
+#home-trader-ranking a:focus-visible,.home-ranking-periods button:focus-visible{outline:2px solid #bd6c29;outline-offset:3px;border-radius:4px}
+@media(max-width:720px){.home-ranking-periods{margin:12px 12px 8px}#home-ranking-status,#home-ranking-list{margin-left:12px;margin-right:12px}#home-ranking-note{margin:10px 12px 14px}.home-ranking-periods button{min-height:40px}.home-rank-row{padding:15px 0}.home-rank-identity{min-height:32px}.home-rank-metric{font-size:10px}}
+@media(max-width:360px){.home-rank-top{flex-wrap:wrap}.home-rank-profit{margin-left:30px}.home-rank-metrics{gap:5px}.home-rank-metric strong{font-size:11px}}
