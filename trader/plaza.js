@@ -513,7 +513,7 @@ function renderBinancePerformance(r,parent,period,compact=false) {
   let note=!value.periodSupported?'未接入该周期的币安表现':r.referenceOnly?'表现数据未取得':value.status==='restricted'?'表现资料不可见':value.lastSuccessAt?'表现采集 '+timeLabel(value.lastSuccessAt)+(value.status==='ready'?' · 有效期 60 分钟':' · 上次成功结果，待更新'):'尚未取得该周期的币安表现';
   if(value.lastSuccessAt&&!value.sourceAsOf)note+=' · 来源未提供统计截止时间';
   const summary=!value.periodSupported?'未接入该周期的币安表现':r.referenceOnly?'表现数据未取得':value.status==='restricted'?'表现资料不可见':value.lastSuccessAt?'表现采集 '+timeLabel(value.lastSuccessAt)+(value.status==='ready'?'':' · 上次成功结果，待更新'):'尚未取得该周期的币安表现';
-  const status=node('p',compact?summary:note,'binance-performance-note');status.setAttribute('title',note+' · 来源曲线未接入');status.setAttribute('data-state',value.status);if(!compact)parent.append(status);return status;
+  const status=node('p',compact?summary:note,'binance-performance-note');status.setAttribute('title',note);status.setAttribute('data-state',value.status);if(!compact)parent.append(status);return status;
 }
 function renderBinanceCard(r,c,period=$('period').value,compact=false) {
   const view=binanceView(r),status=node('p',binanceStatus(view,r)+' · '+binanceTiming(view,r),'card-data-status');status.setAttribute('data-state',view.status);
