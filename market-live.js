@@ -8,7 +8,7 @@
       config:{colorTheme:'light',dateRange:'1D',locale:'zh_CN',width:'100%',height:180,
         largeChartUrl:chart,isTransparent:true},
       symbols:{a:'SSE:000001',us:'NASDAQ:AAPL',crypto:'COINBASE:BTCUSD'},
-      notes:{a:'上证指数 · CNY · 日终行情',us:'Apple · USD · 行情可能延迟',crypto:'Bitcoin · Coinbase现货 · USD'},
+      notes:{a:'上证指数 · CNY · 日终；来源未提供报价时间',us:'Apple · USD · 可能延迟；来源未提供逐笔时间',crypto:'Bitcoin · Coinbase · USD；来源未提供逐笔时间'},
       note:'观察标的报价 · 时效以来源标记为准'
     },
     macro: {

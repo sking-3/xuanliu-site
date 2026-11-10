@@ -10,12 +10,13 @@ const publicCacheKeys={feed:'books.trader.public.feed.v1',win:'books.trader.publ
 const state = {status:'unavailable', publicRows:[], binanceRows:[], binanceCollection:null, binanceReadFailed:false, binanceCheckedAt:null, binanceText:null, localRows:[], rows:[], page:1, detail:null, window:'30D', tab:'analysis', loading:false, explicitPeriod:false, editor:null, storageReadError:false, revealId:null, source:null, lastReadFailed:false, feedText:null, liveClient:null, liveUser:null, liveData:null, liveView:null, liveVersion:0, positionExclusions:Object.create(null), analytics:Object.create(null), analyticsClient:null, analyticsViews:[], cardControls:[], analyticsTargets:[], winCache:Object.create(null), winCacheLoading:false, winCacheReadFailed:false, winCacheGeneratedAt:null, portfolioCache:Object.create(null), portfolioCacheLoading:false, portfolioCacheAttempted:false, portfolioCacheReadFailed:false, portfolioCacheGeneratedAt:null, performanceOrderPending:false, chartSeq:0};
 const fail = () => { throw Error('数据格式未通过校验，未展示此批记录。'); };
 let linkedAccount=null;
-const publicFocus={record:typeof BooksPublicFocus==='undefined'?null:BooksPublicFocus.identity(),snapshot:null,readFailed:false,renderKey:null};
+const publicFocus={record:typeof BooksPublicFocus==='undefined'?null:BooksPublicFocus.identity(),snapshot:null,fromLive:false,readFailed:false,renderKey:null};
 function isPublicFocus(r) {return !!r&&r===publicFocus.record;}
 function focusStatus(now=Date.now()) {
   const s=publicFocus.snapshot;
   if(!s)return '尚无有效持仓快照 · 可打开实时交易读取官方数据';
-  const stale=publicFocus.readFailed||now-Date.parse(s.fetchedAt)>3600000||now-Date.parse(s.sourceTime)>3600000;
+  const maxAge=publicFocus.fromLive?120000:3600000;
+  const stale=publicFocus.readFailed||now-Date.parse(s.fetchedAt)>maxAge||now-Date.parse(s.sourceTime)>maxAge;
   return (publicFocus.readFailed?'快照读取失败 · ':stale?'快照已过期 · ':'')+
     (stale?'上次快照':'最近快照')+(s.positions.length?'持仓 '+s.positions.length+' 项':'为空仓')+
     (stale?' · 当前仓位未知':'')+' · 来源 '+timeLabel(s.sourceTime)+' · 读取 '+timeLabel(s.fetchedAt);
@@ -45,6 +46,20 @@ function renderPublicFocus() {
   card.append(node('p','独立关注记录；空仓时仍保留，不代表认证带单员。实时交易面板打开后读取公开持仓、挂单和最近成交。','hint'));
   target.replaceChildren(card);publicFocus.renderKey=key;return true;
 }
+function syncPublicFocusLive(r,data,now=Date.now()) {
+  if(!isPublicFocus(r)||data?.address!==r.accountId)return false;
+  const part=data.positions;
+  if(part?.status==='error'&&publicFocus.fromLive){publicFocus.readFailed=true;renderPublicFocus();return false;}
+  if(part?.status!=='ready'||part.error||!Number.isSafeInteger(part.sourceTime)||!Number.isSafeInteger(part.fetchedAt)||now-part.sourceTime>120000||now-part.fetchedAt>120000)return false;
+  try{
+    // The live client reads the default perpetual DEX. Its normalized holdings
+    // carry source/read times but no account equity, so equity stays unknown.
+    const snapshot=BooksPublicFocus.validate({schemaVersion:1,address:r.accountId,scope:'default_perp_dex',sourceTime:new Date(part.sourceTime).toISOString(),fetchedAt:new Date(part.fetchedAt).toISOString(),accountValue:null,positions:part.rows},now),previous=publicFocus.snapshot;
+    if(previous&&(part.fetchedAt<Date.parse(previous.fetchedAt)||part.sourceTime<Date.parse(previous.sourceTime)))return false;
+    if(previous&&part.fetchedAt===Date.parse(previous.fetchedAt)&&part.sourceTime===Date.parse(previous.sourceTime))return false;
+    publicFocus.snapshot=snapshot;publicFocus.fromLive=true;publicFocus.readFailed=false;renderPublicFocus();return true;
+  }catch(_){return false;}
+}
 function refreshPublicFocus() {return sharedRequest('focusRequest',async()=>{
   if(!publicFocus.record)return;
   const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),10000);
@@ -54,9 +69,10 @@ function refreshPublicFocus() {return sharedRequest('focusRequest',async()=>{
     const reader=response.body.getReader(),chunks=[];let bytes=0;
     while(true){const {done,value}=await reader.read();if(done)break;bytes+=value.byteLength;if(bytes>BooksPublicFocus.maxBytes){await reader.cancel();throw Error('focus_oversized');}chunks.push(value);}
     const snapshot=BooksPublicFocus.validate(JSON.parse(await new Blob(chunks).text())),previous=publicFocus.snapshot;
+    if(publicFocus.fromLive&&previous&&(Date.parse(snapshot.fetchedAt)<=Date.parse(previous.fetchedAt)||Date.parse(snapshot.sourceTime)<=Date.parse(previous.sourceTime)))return;
     if(previous&&(Date.parse(snapshot.fetchedAt)<Date.parse(previous.fetchedAt)||Date.parse(snapshot.sourceTime)<Date.parse(previous.sourceTime)))throw Error('focus_older');
-    publicFocus.snapshot=snapshot;publicFocus.readFailed=false;
-  }catch(_){publicFocus.readFailed=true;}
+    publicFocus.snapshot=snapshot;publicFocus.fromLive=false;publicFocus.readFailed=false;
+  }catch(_){if(!publicFocus.fromLive)publicFocus.readFailed=true;}
   finally{clearTimeout(timer);const changed=renderPublicFocus();if(changed&&isPublicFocus(state.detail)&&$('detail').open&&state.tab!=='live')renderDetail();}
 });}
 // Only validated same-origin public snapshots enter these keys. Original source
@@ -971,7 +987,7 @@ function buildLivePanel(r,b) {
   try {
     state.liveClient=BooksAccountLive.create({visible:document.visibilityState!=='hidden',onChange:data=>{
       if(version!==state.liveVersion||state.tab!=='live'||state.detail?.accountId!==r.accountId||!state.liveView||data.address!==r.accountId)return;
-      state.liveData=data;observeEmptyPositions(r,data.positions);renderLiveData();
+      state.liveData=data;syncPublicFocusLive(r,data);observeEmptyPositions(r,data.positions);renderLiveData();
     }});
     state.liveClient.start(r.accountId);
   } catch {connection.textContent='实时连接暂不可用，可重新打开此面板。';}
