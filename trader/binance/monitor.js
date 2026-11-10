@@ -5,8 +5,13 @@
   else if (root.document) api.start(root.document, root);
 })(typeof globalThis === 'object' ? globalThis : this, function () {
   'use strict';
-  const PORTFOLIO_ID = '5156287639231681792';
-  const SOURCE_URL = 'https://www.binance.com/en/copy-trading/lead-details/' + PORTFOLIO_ID;
+  const PORTFOLIOS = Object.freeze({
+    '5156287639231681792': '爱喝快乐肥宅水',
+    '5139646755272846081': '0xEggg',
+    '5178595252342363392': 'FaribaFinance'
+  });
+  const allowed = id => typeof id === 'string' && Object.hasOwn(PORTFOLIOS, id);
+  const SOURCE_BASE = 'https://www.binance.com/en/copy-trading/lead-details/';
   const MAX_AGE = 30 * 60 * 1000;
   const POLL_MS = 5 * 60 * 1000;
   const DAY = 86400000;
@@ -25,21 +30,37 @@
     const stamp = typeof value === 'number' ? value : (iso(value) ? Date.parse(value) : NaN);
     return Number.isFinite(stamp) && stamp > 0 ? new Date(stamp).toLocaleString('zh-CN', { hour12: false }) : '—';
   }
-  function sourceUrl(value) {
-    try {
-      const url = new URL(value);
-      return url.protocol === 'https:' && url.hostname === 'www.binance.com' && !url.username && !url.password &&
-        /^\/[a-z]{2}(?:-[A-Za-z]{2})?\/copy-trading\/lead-details\//.test(url.pathname) &&
-        url.pathname.split('/').filter(Boolean).pop() === PORTFOLIO_ID ? url.href : SOURCE_URL;
-    } catch (_) { return SOURCE_URL; }
+  function sourceUrl(value, id) {
+    if (!allowed(id)) return null;
+    const canonical = SOURCE_BASE + id;
+    return value === canonical ? value : canonical;
+  }
+  function selectionFromSearch(search) {
+    const ids = new URLSearchParams(search || '').getAll('portfolioId');
+    return { id: ids.length === 1 && allowed(ids[0]) ? ids[0] : null,
+      invalid: ids.length > 0 && (ids.length !== 1 || !allowed(ids[0])) };
   }
   function parseFeed(data) {
-    if (!data || data.schemaVersion !== 1 || data.sourceType !== 'copy_trade' || data.portfolioId !== PORTFOLIO_ID ||
-        !data.profile || String(data.profile.id) !== PORTFOLIO_ID || !isText(data.profile.name) ||
+    if (!data || data.schemaVersion !== 1 || data.sourceType !== 'copy_trade' || !allowed(data.portfolioId) ||
+        !data.profile || data.profile.id !== data.portfolioId || !isText(data.profile.name) ||
         !['public', 'restricted', 'unknown'].includes(data.profile.visibility) || !data.source ||
         !Object.hasOwn(labels, data.source.status) || typeof data.source.refreshStopped !== 'boolean') {
       throw new Error('SNAPSHOT_SCHEMA');
     }
+    return data;
+  }
+  function parseCollection(data) {
+    if (!data || data.schemaVersion !== 1 || !iso(data.generatedAt) ||
+        !Array.isArray(data.portfolios) || data.portfolios.length > Object.keys(PORTFOLIOS).length) {
+      throw new Error('PORTFOLIOS_SCHEMA');
+    }
+    const seen = new Set();
+    data.portfolios.forEach(feed => {
+      parseFeed(feed);
+      if (seen.has(feed.portfolioId) || (feed.snapshot !== null && !validSnapshot(feed.snapshot)) ||
+          (feed.source.status === 'ready' && !validSnapshot(feed.snapshot))) throw new Error('PORTFOLIOS_SCHEMA');
+      seen.add(feed.portfolioId);
+    });
     return data;
   }
   function validPosition(p) {
@@ -70,8 +91,7 @@
     }
     if (part.status === 'unavailable') return { state: 'unavailable', rows: [], fetchedAt: part.fetchedAt, count: 0 };
     const state = part.status === 'stale' || requestFailed || old(part.fetchedAt, now) ? 'stale' : 'ready';
-    const rows = orders ? part.rows.filter(r => r.orderTime >= Date.parse(part.fetchedAt) - 7 * DAY &&
-      r.orderTime <= Date.parse(part.fetchedAt) + 300000).slice().sort((a, b) => b.orderTime - a.orderTime) :
+    const rows = orders ? part.rows.slice().sort((a, b) => b.orderUpdateTime - a.orderUpdateTime || b.orderTime - a.orderTime) :
       part.rows.slice().sort((a, b) => (b.closed || b.opened) - (a.closed || a.opened));
     return { state, fetchedAt: part.fetchedAt, rows: rows.slice(0, LIMIT), count: rows.length };
   }
@@ -108,16 +128,21 @@
     if (o.kind === 'baseline') return prefix + '：' + str(o.after) + '（不作为新开仓）';
     return prefix + '：' + str(o.before) + ' → ' + str(o.after);
   }
-  function render(doc, data, now, requestFailed) {
+  function render(doc, data, now, requestFailed, selectedId) {
     const view = viewModel(data, now, requestFailed);
     const set = (id, value) => { doc.getElementById(id).textContent = str(value); };
     const badge = doc.getElementById('status-badge');
     badge.textContent = labels[view.state];
     badge.dataset.state = view.state;
     set('status-message', view.reason);
-    set('trader-name', data ? data.profile.name : '爱喝快乐肥宅水');
-    set('portfolio-id', PORTFOLIO_ID);
-    doc.getElementById('source-link').href = sourceUrl(data && data.profile.sourceUrl);
+    const id = data ? data.portfolioId : (allowed(selectedId) ? selectedId : null);
+    set('trader-name', data ? data.profile.name : (id ? PORTFOLIOS[id] : '请选择账号'));
+    set('portfolio-id', id);
+    const link = doc.getElementById('source-link');
+    link.hidden = !id;
+    if (id) link.href = sourceUrl(data && data.profile.sourceUrl, id);
+    else link.removeAttribute('href');
+    if (!id) set('status-message', '请选择一个账号查看仓位与交易样本。');
     set('visibility', data ? ({ public: '公开', restricted: '受限 / 隐藏', unknown: '尚未核验' })[data.profile.visibility] : '尚未核验');
     set('profile-status', data && data.profile.status);
     set('last-success', time(data && data.source.lastSuccessAt));
@@ -161,7 +186,7 @@
     function sampleNote(part, orders) {
       if (part.state === 'unavailable') return '样本不可用或未核验；不能据此判断没有交易。';
       return (part.state === 'stale' ? '样本过期 · ' : '样本采集于 ') + time(part.fetchedAt) + ' · ' +
-        (orders ? '窗口截至采样时刻，向前 7 天 · ' : '') + '展示 ' + part.rows.length + ' / ' + part.count +
+        (orders ? '按近 7 天窗口查询，含较早下单但近期更新的记录 · ' : '') + '展示 ' + part.rows.length + ' / ' + part.count +
         ' 条本地样本。来源历史未核实完整，不是完整交割单。';
     }
     set('orders-note', sampleNote(view.orders, true));
@@ -177,9 +202,47 @@
     return view;
   }
   function start(doc, env) {
-    let feed = null, requestFailed = false, busy = false, stopped = false, controller = null;
+    let collection = null, requestFailed = false, busy = false, stopped = false, controller = null;
+    const initial = selectionFromSearch(env.location && env.location.search);
+    let selectedId = initial.id, invalidSelection = initial.invalid;
     const button = doc.getElementById('refresh');
-    function paint() { render(doc, feed, Date.now(), requestFailed); }
+    const nav = doc.getElementById('portfolio-nav'), cards = new Map();
+    nav.replaceChildren();
+    Object.entries(PORTFOLIOS).forEach(([id, name]) => {
+      const card = doc.createElement('button'), title = doc.createElement('strong'), detail = doc.createElement('span');
+      card.type = 'button'; card.className = 'portfolio-card';
+      title.textContent = name; detail.textContent = '等待读取';
+      card.append(title, detail); card.addEventListener('click', () => select(id));
+      nav.append(card); cards.set(id, { card, title, detail });
+    });
+    function selectedFeed() {
+      return collection && collection.portfolios.find(feed => feed.portfolioId === selectedId) || null;
+    }
+    function paint() {
+      const now = Date.now();
+      render(doc, selectedFeed(), now, requestFailed, selectedId);
+      doc.getElementById('selection-note').textContent = invalidSelection ?
+        '链接中的账号不在监控范围，请从下方选择。' : (selectedId ? '已选择 ' + (selectedFeed() ? selectedFeed().profile.name : PORTFOLIOS[selectedId]) :
+          '选择账号查看详情；各账号数据分别采集。');
+      cards.forEach(({ card, title, detail }, id) => {
+        const feed = collection && collection.portfolios.find(item => item.portfolioId === id);
+        title.textContent = feed ? feed.profile.name : PORTFOLIOS[id];
+        const state = viewModel(feed, now, requestFailed).state;
+        detail.textContent = collection || requestFailed ? labels[state] : '等待读取';
+        card.setAttribute('aria-pressed', String(id === selectedId));
+        card.dataset.state = state;
+      });
+    }
+    function select(id) {
+      if (stopped || !allowed(id)) return false;
+      selectedId = id; invalidSelection = false;
+      if (env.history && env.location && env.location.href) {
+        const url = new URL(env.location.href);
+        url.searchParams.set('portfolioId', id);
+        env.history.replaceState(null, '', url.pathname + url.search + url.hash);
+      }
+      paint(); return true;
+    }
     async function refresh() {
       if (stopped || busy || doc.visibilityState !== 'visible') return;
       busy = true; button.disabled = true;
@@ -187,19 +250,19 @@
       const timeout = env.setTimeout(() => controller && controller.abort(), 12000);
       doc.getElementById('refresh-status').textContent = '正在检查本站快照…';
       try {
-        const response = await env.fetch('./snapshot.json', { cache: 'no-store', credentials: 'omit', redirect: 'error', signal: controller.signal });
+        const response = await env.fetch('./portfolios.json', { cache: 'no-store', credentials: 'omit', redirect: 'error', signal: controller.signal });
         if (!response.ok) throw new Error('HTTP_' + response.status);
         const text = await response.text();
-        if (text.length > 2000000) throw new Error('SNAPSHOT_TOO_LARGE');
-        const next = parseFeed(JSON.parse(text));
-        if ((next.snapshot !== null && !validSnapshot(next.snapshot)) || (next.source.status === 'ready' && !validSnapshot(next.snapshot))) throw new Error('SNAPSHOT_SCHEMA');
+        if (text.length > 6000000) throw new Error('SNAPSHOT_TOO_LARGE');
+        const next = parseCollection(JSON.parse(text));
         if (stopped || doc.visibilityState !== 'visible') return;
-        feed = next; requestFailed = false;
+        collection = next; requestFailed = false;
+        if (!selectedId && !invalidSelection && collection.portfolios.length) selectedId = collection.portfolios[0].portfolioId;
         doc.getElementById('refresh-status').textContent = '已检查本站快照 · ' + time(Date.now());
       } catch (_) {
         if (stopped || doc.visibilityState !== 'visible') return;
         requestFailed = true;
-        doc.getElementById('refresh-status').textContent = '读取本站快照失败；' + (feed ? '保留上次资料。' : '尚无可展示资料。');
+        doc.getElementById('refresh-status').textContent = '读取本站快照失败；' + (collection ? '保留各账号上次资料。' : '尚无可展示资料。');
       } finally {
         env.clearTimeout(timeout); controller = null; busy = false; button.disabled = false;
         if (!stopped) paint();
@@ -219,9 +282,10 @@
       env.clearInterval(poll); env.clearInterval(age);
       button.removeEventListener('click', refresh);
       doc.removeEventListener('visibilitychange', visibilityChanged);
+      nav.replaceChildren();
     }
     paint(); refresh();
-    return { refresh, destroy };
+    return { refresh, select, destroy };
   }
-  return { PORTFOLIO_ID, MAX_AGE, POLL_MS, parseFeed, viewModel, changeText, sourceUrl, render, start };
+  return { PORTFOLIOS, MAX_AGE, POLL_MS, parseFeed, parseCollection, selectionFromSearch, viewModel, changeText, sourceUrl, render, start };
 });

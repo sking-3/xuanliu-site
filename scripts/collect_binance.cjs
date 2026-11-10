@@ -3,7 +3,14 @@
 const fs=require('node:fs/promises');
 const path=require('node:path');
 const crypto=require('node:crypto');
-const ID='5156287639231681792';
+const PORTFOLIOS=Object.freeze([
+ {id:'5156287639231681792',name:'爱喝快乐肥宅水'},
+ {id:'5139646755272846081',name:'0xEggg'},
+ {id:'5178595252342363392',name:'FaribaFinance'}
+].map(Object.freeze));
+function createCollector(id){
+const spec=PORTFOLIOS.find(p=>p.id===id);if(!spec)throw Error('unsupported_portfolio');
+const ID=spec.id;
 const BASE='https://www.binance.com/bapi/futures/v1/friendly/future/copy-trade/';
 const PROFILE_URL='https://www.binance.com/en/copy-trading/lead-details/'+ID;
 const HALT=new Set(['http_202','http_401','http_403','http_418','http_429','http_451','restricted','inactive','identity_mismatch','schema_changed']);
@@ -15,7 +22,7 @@ const hash=x=>crypto.createHash('sha256').update(typeof x==='string'?x:JSON.stri
 function compare(a,b){const p=abs(a).split('.'),q=abs(b).split('.'),n=Math.max((p[1]||'').length,(q[1]||'').length);
  const x=BigInt(p[0]+(p[1]||'').padEnd(n,'0')),y=BigInt(q[0]+(q[1]||'').padEnd(n,'0'));return x<y?-1:x>y?1:0;}
 function emptyHistory(){return {status:'unavailable',fetchedAt:null,errorCode:null,complete:false,rows:[]};}
-function initial(){return {schemaVersion:1,sourceType:'copy_trade',portfolioId:ID,profile:{id:ID,name:'爱喝快乐肥宅水',status:'UNKNOWN',visibility:'unknown',sourceUrl:PROFILE_URL},generatedAt:null,
+function initial(){return {schemaVersion:1,sourceType:'copy_trade',portfolioId:ID,profile:{id:ID,name:spec.name,status:'UNKNOWN',visibility:'unknown',sourceUrl:PROFILE_URL},generatedAt:null,
  source:{status:'unavailable',lastAttemptAt:null,lastSuccessAt:null,errorCode:null,refreshStopped:false},
  snapshot:null,observations:[],pendingAbsent:{},snapshots:[],evidence:{},history:{orders:emptyHistory(),closedPositions:emptyHistory()}};}
 function checkPrevious(p){if(p===null||p===undefined)return initial();
@@ -102,13 +109,90 @@ async function collect(previous=null,{fetchImpl=fetch,now=()=>Date.now(),sleep=m
  }
  out.generatedAt=at();return out;
 }
-async function main(){
- const args=process.argv.slice(2);if(args.length>1)throw Error('usage: collect_binance.cjs [output.json]');
- const file=path.resolve(args[0]||'trader/binance/snapshot.json');
- let prev=null;try{const stat=await fs.stat(file);if(stat.size>2*1024*1024)throw Error('state_too_large');prev=JSON.parse(await fs.readFile(file,'utf8'));}catch(e){if(e.code!=='ENOENT')throw e;}
- const out=await collect(prev,{stopBeforeRequest:process.env.BINANCE_PREVIOUS_RUN_UNVERIFIED==='1'});await fs.mkdir(path.dirname(file),{recursive:true});
- const temp=file+'.tmp';await fs.writeFile(temp,JSON.stringify(out,null,2)+'\n');await fs.rename(temp,file);
- console.log(JSON.stringify({status:out.source.status,refreshStopped:out.source.refreshStopped,errorCode:out.source.errorCode,lastSuccessAt:out.source.lastSuccessAt,positions:out.snapshot?.positions.length??null,orders:out.history.orders.rows.length,closedPositions:out.history.closedPositions.rows.length}));
+
+return {ID,BASE,HALT,initial,profile,positions,orders,closed,changes,compare,request,collect,validateState:checkPrevious};
 }
-module.exports={ID,BASE,HALT,initial,profile,positions,orders,closed,changes,compare,request,collect};
+const DEFAULT_ID='5156287639231681792';
+const defaultCollector=createCollector(DEFAULT_ID);
+const clone=value=>JSON.parse(JSON.stringify(value));
+function validateCollection(previous){
+ if(previous==null)return {schemaVersion:1,generatedAt:null,source:{refreshStopped:false,errorCode:null},portfolios:PORTFOLIOS.map(p=>createCollector(p.id).initial())};
+ if(previous.schemaVersion!==1||!Array.isArray(previous.portfolios)||previous.portfolios.length!==PORTFOLIOS.length||!previous.source||typeof previous.source.refreshStopped!=='boolean')throw Error('invalid_collection');
+ const seen=new Set();
+ for(const p of previous.portfolios){
+  if(!p||!PORTFOLIOS.some(s=>s.id===p.portfolioId)||seen.has(p.portfolioId)||p.profile?.id!==p.portfolioId||p.schemaVersion!==1||!p.source||typeof p.source.refreshStopped!=='boolean')throw Error('invalid_collection');
+  createCollector(p.portfolioId).validateState(p);
+  seen.add(p.portfolioId);
+ }
+ return clone(previous);
+}
+function paused(feed,error,at){
+ const out=clone(feed);
+ out.generatedAt=at;
+ if(!out.source.refreshStopped){out.source={...out.source,status:out.snapshot?'stale':'unavailable',errorCode:error,refreshStopped:true};out.pendingAbsent={};}
+ return out;
+}
+function globalRefusal(code){return /^http_(202|401|403|418|429|451)$/.test(code||'')||(code||'').startsWith('source_error_');}
+async function collectAll(previous=null,options={}){
+ const out=validateCollection(previous),now=options.now||(()=>Date.now()),sleep=options.sleep||(ms=>new Promise(r=>setTimeout(r,ms)));
+ const at=()=>new Date(now()).toISOString();
+ out.generatedAt=at();
+ const priorRefusal=out.portfolios.find(p=>p.source.refreshStopped&&globalRefusal(p.source.errorCode));
+ if(priorRefusal)out.source={refreshStopped:true,errorCode:priorRefusal.source.errorCode};
+ if(out.source.refreshStopped){
+  out.portfolios=out.portfolios.map(p=>paused(p,out.source.errorCode||'batch_halted',at()));return out;
+ }
+ if(options.stopBeforeRequest){
+  out.source={refreshStopped:true,errorCode:'previous_run_unverified'};
+  for(let i=0;i<out.portfolios.length;i++)out.portfolios[i]=await createCollector(out.portfolios[i].portfolioId).collect(out.portfolios[i],{...options,stopBeforeRequest:true});
+  return out;
+ }
+ for(let i=0;i<out.portfolios.length;i++){
+  const feed=out.portfolios[i];
+  if(i)await sleep(2000);
+  const next=await createCollector(feed.portfolioId).collect(feed,options);
+  out.portfolios[i]=next;
+  if(globalRefusal(next.source.errorCode)){
+   out.source={refreshStopped:true,errorCode:next.source.errorCode};
+   out.portfolios=out.portfolios.map(p=>paused(p,'batch_halted_'+next.source.errorCode,at()));break;
+  }
+ }
+ out.generatedAt=at();return out;
+}
+function reconcileLegacy(previous,legacy){
+ const out=validateCollection(previous);
+ if(legacy==null)return out;
+ const value=defaultCollector.validateState(legacy);
+ if(typeof value.source.refreshStopped!=='boolean')throw Error('invalid_legacy_state');
+ const index=out.portfolios.findIndex(p=>p.portfolioId===DEFAULT_ID),current=out.portfolios[index];
+ const stamp=p=>Math.max(Date.parse(p.generatedAt)||0,Date.parse(p.source.lastAttemptAt)||0,Date.parse(p.source.lastSuccessAt)||0);
+ const restricted=p=>p.profile.visibility==='restricted'||p.source.status==='restricted'||p.source.errorCode==='restricted';
+ if(restricted(current)||restricted(value)){
+  const hidden=clone(restricted(current)?current:value);
+  hidden.profile.visibility='restricted';hidden.source={...hidden.source,status:'restricted',errorCode:'restricted',refreshStopped:true};
+  hidden.snapshot=null;hidden.snapshots=[];hidden.observations=[];hidden.pendingAbsent={};
+  hidden.history={orders:{status:'unavailable',fetchedAt:null,errorCode:null,complete:false,rows:[]},closedPositions:{status:'unavailable',fetchedAt:null,errorCode:null,complete:false,rows:[]}};
+  out.portfolios[index]=hidden;
+ }else if((value.source.refreshStopped&&!current.source.refreshStopped)||(!current.source.refreshStopped&&stamp(value)>stamp(current)))out.portfolios[index]=value;
+ const refusal=[current,value].find(p=>p.source.refreshStopped&&globalRefusal(p.source.errorCode));
+ if(refusal&&!out.source.refreshStopped)out.source={refreshStopped:true,errorCode:refusal.source.errorCode};
+ return out;
+}
+async function main(){
+ const args=process.argv.slice(2);if(args.length>1)throw Error('usage: collect_binance.cjs [portfolios.json]');
+ const file=path.resolve(args[0]||'trader/binance/portfolios.json');
+ let previous=null;
+ try{const stat=await fs.stat(file);if(stat.size>8*1024*1024)throw Error('state_too_large');previous=JSON.parse(await fs.readFile(file,'utf8'));}catch(e){if(e.code!=='ENOENT')throw e;}
+ // Preserve legacy updates made by a concurrently finishing pre-migration workflow.
+ let legacy=null;
+ try{legacy=JSON.parse(await fs.readFile(path.join(path.dirname(file),'snapshot.json'),'utf8'));}catch(e){if(e.code!=='ENOENT')throw e;}
+ previous=reconcileLegacy(previous,legacy);
+ const out=await collectAll(previous,{stopBeforeRequest:process.env.BINANCE_PREVIOUS_RUN_UNVERIFIED==='1'});
+ await fs.mkdir(path.dirname(file),{recursive:true});
+ const save=async(name,value)=>{const temp=name+'.tmp';await fs.writeFile(temp,JSON.stringify(value,null,2)+'\n');await fs.rename(temp,name);};
+ await save(file,out);
+ await save(path.join(path.dirname(file),'snapshot.json'),out.portfolios.find(p=>p.portfolioId===DEFAULT_ID));
+ console.log(JSON.stringify({batch:out.source,portfolios:out.portfolios.map(p=>({id:p.portfolioId,name:p.profile.name,status:p.source.status,refreshStopped:p.source.refreshStopped,errorCode:p.source.errorCode,lastSuccessAt:p.source.lastSuccessAt,positions:p.snapshot?.positions.length??null,orders:p.history.orders.rows.length,closedPositions:p.history.closedPositions.rows.length}))}));
+}
+module.exports={...defaultCollector,DEFAULT_ID,PORTFOLIOS,createCollector,validateCollection,globalRefusal,collectAll,reconcileLegacy};
 if(require.main===module)main().catch(e=>{console.error(e.message);process.exitCode=1;});

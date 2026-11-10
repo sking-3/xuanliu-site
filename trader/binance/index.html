@@ -6,7 +6,7 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'">
   <meta name="referrer" content="no-referrer">
   <meta name="robots" content="noindex,nofollow">
-  <title>Books · 币安带单员观察</title>
+  <title>Books · 币安带单员监控</title>
   <link rel="stylesheet" href="../../books-ui.css">
   <link rel="stylesheet" href="./monitor.css">
   <script defer src="./monitor.js"></script>
@@ -27,15 +27,23 @@
     <header class="page-header">
       <div>
         <p class="eyebrow">BINANCE · PUBLIC PORTFOLIO</p>
-        <h1 id="trader-name">爱喝快乐肥宅水</h1>
+        <h1>币安带单员监控</h1>
         <p class="intro">公开仓位与交易记录观察</p>
       </div>
       <div class="header-actions">
-        <a id="source-link" href="https://www.binance.com/en/copy-trading/lead-details/5156287639231681792" target="_blank" rel="noopener noreferrer">币安来源 ↗</a>
         <button id="refresh" type="button">刷新本站快照</button>
       </div>
     </header>
-    <p class="identity">币安合约带单组合 · <span id="portfolio-id">5156287639231681792</span></p>
+    <section class="portfolio-picker" aria-labelledby="picker-title">
+      <h2 id="picker-title">选择账号</h2>
+      <p id="selection-note" class="hint" role="status" aria-live="polite">正在读取监控名单…</p>
+      <nav id="portfolio-nav" aria-label="监控账号"></nav>
+    </section>
+    <div class="selected-heading">
+      <div><p class="eyebrow">SELECTED PORTFOLIO</p><h2 id="trader-name">请选择账号</h2></div>
+      <a id="source-link" target="_blank" rel="noopener noreferrer" hidden>币安来源 ↗</a>
+    </div>
+    <p class="identity">币安合约带单组合 · <span id="portfolio-id">—</span></p>
     <section class="status-panel" aria-labelledby="status-title">
       <div class="status-heading"><h2 id="status-title">数据状态</h2><span id="status-badge" class="badge" data-state="unavailable">等待读取</span></div>
       <p id="status-message" role="status" aria-live="polite">正在读取本站快照…</p>
@@ -62,10 +70,10 @@
       <ol id="observations" class="timeline"></ol>
     </section>
     <section class="panel" aria-labelledby="orders-title">
-      <div class="section-heading"><div><p class="eyebrow">ORDER SAMPLES</p><h2 id="orders-title">近 7 天订单样本</h2></div><span class="sample-label">非完整交割单</span></div>
+      <div class="section-heading"><div><p class="eyebrow">ORDER SAMPLES</p><h2 id="orders-title">近 7 天查询返回的订单样本</h2></div><span class="sample-label">非完整交割单</span></div>
       <p id="orders-note" class="hint">尚无可用样本。</p>
       <div class="table-scroll" tabindex="0" role="region" aria-label="订单样本表，可横向滚动">
-        <table><caption class="sr-only">截至采样时间的近七天订单样本</caption><thead><tr><th scope="col">订单时间</th><th scope="col">合约</th><th scope="col">买卖 / 仓位</th><th scope="col">类型</th><th scope="col">成交数量</th><th scope="col">成交均价</th><th scope="col">来源盈亏</th><th scope="col">更新时间</th></tr></thead><tbody id="orders-body"></tbody></table>
+        <table><caption class="sr-only">近七天查询窗口返回的订单样本</caption><thead><tr><th scope="col">订单时间</th><th scope="col">合约</th><th scope="col">买卖 / 仓位</th><th scope="col">类型</th><th scope="col">成交数量</th><th scope="col">成交均价</th><th scope="col">来源盈亏</th><th scope="col">更新时间</th></tr></thead><tbody id="orders-body"></tbody></table>
       </div>
     </section>
     <section class="panel" aria-labelledby="history-title">
@@ -78,7 +86,7 @@
     <details class="panel method">
       <summary>数据范围与阅读说明</summary>
       <p>页面按组合 ID 展示币安公开资料。仓位是采集时刻的状态，不保证此刻仍然持有；隐藏、读取失败和缺失数据都不代表空仓。</p>
-      <p>订单与历史仓位仅为来源返回的样本，分页、保留窗口和公开范围可能限制完整性。订单记录不等同于逐笔成交，无法仅靠时间戳确认唯一订单；此处不推断手续费、资金费或完整账户收益。</p>
+      <p>订单与历史仓位仅为来源返回的样本，分页、保留窗口和公开范围可能限制完整性。查询窗口可能包含较早下单、近期更新的订单；订单记录不等同于逐笔成交，无法仅靠时间戳确认唯一订单；此处不推断手续费、资金费或完整账户收益。</p>
       <p>页面只读取本站快照，不向币安发送请求。没有可用数据时保留缺失状态，不使用示例记录。上次成功快照即使保留，也会显示其原始时间与过期状态。</p>
     </details>
     <noscript><p class="panel">启用 JavaScript 后可读取本站快照；当前页面不能判断仓位状态。</p></noscript>

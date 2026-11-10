@@ -4,13 +4,14 @@ const vm = require('node:vm');
 
 async function run(source, html) {
   const moduleStub = { exports: {} };
-  vm.runInNewContext(source, { module: moduleStub, URL, Date, Set, Object, console }, { filename: 'monitor.js' });
+  vm.runInNewContext(source, { module: moduleStub, URL, URLSearchParams, Date, Set, Object, console }, { filename: 'monitor.js' });
   const api = moduleStub.exports;
+  const firstId = '5156287639231681792', secondId = '5139646755272846081', thirdId = '5178595252342363392';
   const now = Date.parse('2026-11-10T12:00:00Z');
   const stamp = new Date(now - 60000).toISOString();
   const base = () => ({
-    schemaVersion: 1, sourceType: 'copy_trade', portfolioId: api.PORTFOLIO_ID,
-    profile: { id: api.PORTFOLIO_ID, name: '爱喝快乐肥宅水', status: 'ACTIVE', visibility: 'public', sourceUrl: 'https://www.binance.com/en/copy-trading/lead-details/' + api.PORTFOLIO_ID },
+    schemaVersion: 1, sourceType: 'copy_trade', portfolioId: firstId,
+    profile: { id: firstId, name: '爱喝快乐肥宅水', status: 'ACTIVE', visibility: 'public', sourceUrl: 'https://www.binance.com/en/copy-trading/lead-details/' + firstId },
     generatedAt: stamp, source: { status: 'ready', lastAttemptAt: stamp, lastSuccessAt: stamp, errorCode: null, refreshStopped: false },
     snapshot: { observedAt: stamp, complete: true, rawCount: 1, positions: [{ key: 'BTCUSDT:LONG', symbol: 'BTCUSDT', side: 'LONG', quantity: '0.00000001', entryPrice: '100.01', markPrice: '101.00', leverage: 3, unrealizedPnl: '0', collateral: 'USDT' }] },
     observations: [{ id: 'base', kind: 'baseline', symbol: 'BTCUSDT', side: 'LONG', from: null, to: stamp, before: null, after: '0.00000001' }],
@@ -28,7 +29,7 @@ async function run(source, html) {
   check('reject another portfolio and schema version', () => {
     const data = base(); data.portfolioId = '5075281354358777856';
     assert.throws(() => api.parseFeed(data), /SNAPSHOT_SCHEMA/);
-    data.portfolioId = api.PORTFOLIO_ID; data.schemaVersion = 2;
+    data.portfolioId = firstId; data.schemaVersion = 2;
     assert.throws(() => api.parseFeed(data), /SNAPSHOT_SCHEMA/);
   });
   check('data ages out locally after 30 minutes', () => {
@@ -78,19 +79,27 @@ async function run(source, html) {
     assert.match(api.changeText({ ...item, kind: 'absent', before: '1', after: '0' }), /观察到归零/);
     assert.doesNotMatch(api.changeText({ ...item, kind: 'absent' }), /已平仓|确认成交/);
   });
-  check('history ages independently and order sample retains only seven-day window', () => {
+  check('history ages independently and preserves earlier orders updated inside the source query window', () => {
     const data = base(); const order = data.history.orders.rows[0];
     data.history.orders.rows.push({ ...order, orderTime: now - 8 * 86400000 });
     let view = api.viewModel(data, now, false);
-    assert.equal(view.orders.rows.length, 1);
+    assert.equal(view.orders.rows.length, 2);
     view = api.viewModel(data, now + api.MAX_AGE, false);
     assert.equal(view.orders.state, 'stale'); assert.equal(view.closed.state, 'stale');
     data.history.orders.rows[0].executedQty = '';
     assert.equal(api.viewModel(data, now, false).orders.state, 'unavailable');
   });
+  check('real Fariba sample retains all three source rows including the older limit order', () => {
+    const data=base();data.history.orders.rows=[{"symbol":"FILUSDT","side":"BUY","positionSide":"LONG","type":"LIMIT","executedQty":"200","avgPrice":"0.75","totalPnl":"0","orderTime":1793307239021,"orderUpdateTime":1794174665389},{"symbol":"BTCUSDT","side":"BUY","positionSide":"SHORT","type":"MARKET","executedQty":"0.015","avgPrice":"74956.3","totalPnl":"1.6439","orderTime":1793977518887,"orderUpdateTime":1793977518887},{"symbol":"FILUSDT","side":"BUY","positionSide":"LONG","type":"LIMIT","executedQty":"93.5","avgPrice":"0.8013","totalPnl":"0","orderTime":1793893748115,"orderUpdateTime":1793893775588}];
+    data.history.orders.fetchedAt="2026-11-10T01:07:37.773Z";
+    const view=api.viewModel(data,Date.parse("2026-11-10T01:07:37.773Z"),false);
+    assert.equal(view.orders.rows.length,3);
+    assert.equal(view.orders.rows[0].orderTime,1793307239021);
+    assert.equal(view.orders.rows[0].orderUpdateTime,1794174665389);
+  });
   check('external or executable source links are not accepted', () => {
-    for (const link of ['javascript:alert(1)', 'https://evil.example/', 'https://www.binance.com.evil.example/en/copy-trading/lead-details/' + api.PORTFOLIO_ID, 'https://u:p@www.binance.com/en/copy-trading/lead-details/' + api.PORTFOLIO_ID]) {
-      assert.equal(api.sourceUrl(link), base().profile.sourceUrl);
+    for (const link of ['javascript:alert(1)', 'https://evil.example/', 'https://www.binance.com.evil.example/en/copy-trading/lead-details/' + firstId, 'https://u:p@www.binance.com/en/copy-trading/lead-details/' + firstId]) {
+      assert.equal(api.sourceUrl(link, firstId), base().profile.sourceUrl);
     }
   });
   class Element {
@@ -102,6 +111,8 @@ async function run(source, html) {
     replaceChildren(...children) { this.children = children; this.text = ''; }
     addEventListener(event, callback) { this.listeners[event] = callback; }
     removeEventListener(event) { delete this.listeners[event]; }
+    setAttribute(key, value) { this[key] = String(value); }
+    removeAttribute(key) { delete this[key]; }
   }
   function fakeDoc() {
     const elements = new Map();
@@ -133,17 +144,62 @@ async function run(source, html) {
     assert.match(html, /script-src 'self';/);
     assert.doesNotMatch(html, /<script(?![^>]*\bsrc=)[^>]*>/i);
     assert.doesNotMatch(source, /\.innerHTML\s*=|eval\s*\(/);
-    assert.match(source, /fetch\('\.\/snapshot\.json'/);
+    assert.ok(source.includes("fetch('./portfolios.json'"));
     assert.equal(api.POLL_MS, 300000);
   });
+  function allFeeds() {
+    return { schemaVersion: 1, generatedAt: stamp, portfolios: [firstId, secondId, thirdId].map((id, index) => {
+      const data = base(), symbol = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'][index];
+      data.portfolioId = id; data.profile.id = id; data.profile.name = api.PORTFOLIOS[id];
+      data.profile.sourceUrl = 'https://www.binance.com/en/copy-trading/lead-details/' + id;
+      data.snapshot.positions[0].symbol = symbol;
+      data.observations[0].symbol = symbol;
+      data.history.orders.rows[0].symbol = symbol;
+      data.history.closedPositions.rows[0].symbol = symbol;
+      return data;
+    }) };
+  }
+  check('collection accepts exactly allowed identities and rejects mixed or duplicate identities', () => {
+    assert.equal(api.parseCollection(allFeeds()).portfolios.length, 3);
+    const mismatched = allFeeds(); mismatched.portfolios[1].profile.id = firstId;
+    assert.throws(() => api.parseCollection(mismatched), /SCHEMA/);
+    const duplicate = allFeeds(); duplicate.portfolios[1] = duplicate.portfolios[0];
+    assert.throws(() => api.parseCollection(duplicate), /SCHEMA/);
+    const illegal = allFeeds(); illegal.portfolios[0].portfolioId = '5075281354358777856';
+    assert.throws(() => api.parseCollection(illegal), /SCHEMA/);
+  });
+  check('URL selection rejects unknown, numeric-imprecise and duplicate IDs', () => {
+    assert.equal(api.selectionFromSearch('?portfolioId=' + secondId).id, secondId);
+    assert.equal(api.selectionFromSearch('').invalid, false);
+    for (const search of ['?portfolioId=bad', '?portfolioId=' + Number(firstId), '?portfolioId=' + firstId + '&portfolioId=' + secondId]) {
+      const selected = api.selectionFromSearch(search);
+      assert.equal(selected.id, null); assert.equal(selected.invalid, true);
+    }
+  });
+  check('each source link is canonical and bound to the selected portfolio', () => {
+    assert.equal(api.sourceUrl(base().profile.sourceUrl, secondId), 'https://www.binance.com/en/copy-trading/lead-details/' + secondId);
+    assert.equal(api.sourceUrl('https://www.binance.com/en/copy-trading/lead-details/' + secondId + '?x=1', secondId),
+      'https://www.binance.com/en/copy-trading/lead-details/' + secondId);
+    assert.equal(api.sourceUrl(base().profile.sourceUrl, 'bad'), null);
+  });
+  check('initial HTML is a monitor page rather than a named account', () => {
+    assert.match(html, /<h1>币安带单员监控<\/h1>/);
+    assert.match(html, /id="portfolio-nav"/);
+    assert.match(html, /id="trader-name">请选择账号/);
+    assert.doesNotMatch(html, /5156287639231681792/);
+    assert.doesNotMatch(source, /fetch\('\.\/snapshot\.json'/);
+  });
   const doc = fakeDoc(), requests = [], intervals = new Map(), timeouts = new Map();
-  let nextId = 0, failing = false, malformed = false;
+  let nextId = 0, failing = false, malformed = false, payloadOverride = null;
+  const navigations = [];
   const env = {
     AbortController,
+    location: { href: 'https://example.test/trader/binance/?portfolioId=' + secondId, search: '?portfolioId=' + secondId },
+    history: { replaceState: (_, __, url) => navigations.push(url) },
     fetch: async (url, options) => {
       requests.push({ url, options });
       if (failing) throw new Error('offline');
-      return { ok: true, text: async () => { const data = base(); if (malformed) data.snapshot.positions = null; return JSON.stringify(data); } };
+      return { ok: true, text: async () => { const data = payloadOverride || allFeeds(); if (malformed) data.portfolios[0].snapshot.positions = null; return JSON.stringify(data); } };
     },
     setInterval: (fn, delay) => { const id = ++nextId; intervals.set(id, { fn, delay }); return id; },
     clearInterval: id => intervals.delete(id),
@@ -157,10 +213,31 @@ async function run(source, html) {
   doc.visibilityState = 'visible';
   await app.refresh();
   check('visible page fetches only same-origin file without credentials or redirects', () => {
-    assert.equal(requests.length, 1); assert.equal(requests[0].url, './snapshot.json');
+    assert.equal(requests.length, 1); assert.equal(requests[0].url, './portfolios.json');
     assert.equal(requests[0].options.credentials, 'omit'); assert.equal(requests[0].options.redirect, 'error');
     assert.equal(timeouts.size, 0);
   });
+  check('URL-selected account owns every rendered section after loading', () => {
+    assert.equal(doc.getElementById('trader-name').textContent, '0xEggg');
+    for (const id of ['positions-body', 'observations', 'orders-body', 'history-body']) {
+      assert.match(doc.getElementById(id).textContent, /ETHUSDT/);
+      assert.doesNotMatch(doc.getElementById(id).textContent, /BTCUSDT|SOLUSDT/);
+    }
+  });
+  check('switching accounts is local, changes all sections, and records the URL', () => {
+    const before = requests.length;
+    assert.equal(app.select(thirdId), true);
+    assert.equal(requests.length, before);
+    assert.equal(doc.getElementById('trader-name').textContent, 'FaribaFinance');
+    for (const id of ['positions-body', 'observations', 'orders-body', 'history-body']) {
+      assert.match(doc.getElementById(id).textContent, /SOLUSDT/);
+      assert.doesNotMatch(doc.getElementById(id).textContent, /BTCUSDT|ETHUSDT/);
+    }
+    assert.match(navigations.at(-1), new RegExp('portfolioId=' + thirdId));
+    assert.equal(app.select('bad'), false);
+    assert.equal(doc.getElementById('portfolio-id').textContent, thirdId);
+  });
+  app.select(firstId);
   failing = true; await app.refresh();
   check('transport failure preserves prior successful rows and marks stale', () => {
     assert.equal(doc.getElementById('status-badge').dataset.state, 'stale');
@@ -170,6 +247,23 @@ async function run(source, html) {
   check('malformed successful response retains last valid snapshot', () => {
     assert.equal(doc.getElementById('status-badge').dataset.state, 'stale');
     assert.match(doc.getElementById('positions-body').textContent, /BTCUSDT/);
+  });
+  malformed = false; payloadOverride = allFeeds();
+  payloadOverride.portfolios = payloadOverride.portfolios.filter(feed => feed.portfolioId !== firstId);
+  await app.refresh();
+  check('missing selected account never falls back to another account', () => {
+    assert.equal(doc.getElementById('portfolio-id').textContent, firstId);
+    assert.equal(doc.getElementById('status-badge').dataset.state, 'unavailable');
+    assert.doesNotMatch(doc.getElementById('positions-body').textContent, /BTCUSDT|ETHUSDT|SOLUSDT/);
+  });
+  payloadOverride = allFeeds();
+  payloadOverride.portfolios[1].profile.visibility = 'restricted';
+  await app.refresh(); app.select(secondId);
+  check('switching to a newly restricted account clears every cached table', () => {
+    assert.equal(doc.getElementById('status-badge').dataset.state, 'restricted');
+    for (const id of ['positions-body', 'observations', 'orders-body', 'history-body']) {
+      assert.doesNotMatch(doc.getElementById(id).textContent, /BTCUSDT|ETHUSDT|SOLUSDT/);
+    }
   });
   app.destroy();
   check('destroy cleans timers and event handlers', () => {
