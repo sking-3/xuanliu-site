@@ -13,6 +13,7 @@ function day(value,year=false){return new Intl.DateTimeFormat('zh-CN',{timeZone:
 function moreHref(period){if(!PERIODS.includes(period))period='30D';return 'trader/index.html?'+new URLSearchParams({period,exchange:'Hyperliquid',source:'public',sort:'roi',currency:'USD'}).toString();}
 function node(doc,tag,text,cls){const el=doc.createElement(tag);if(text!==undefined)el.textContent=text;if(cls)el.className=cls;return el;}
 function title(el,text){el.setAttribute('title',text);return el;}
+function metric(doc,label,value,description,cls=''){const box=node(doc,'div',undefined,'home-rank-metric');box.append(node(doc,'span',label),title(node(doc,'strong',value,cls),description));return box;}
 function roiDescription(row,period){
   if(period==='30D')return Number.isFinite(row.roi)?'来源公布的同期收益率。':'来源未提供同期收益率，不以收益额代替。';
   const e=row.roiEvidence;
@@ -27,9 +28,14 @@ function renderRow(doc,row,index,period,Data){
   identity.append(node(doc,'span',String(index+1),'home-rank-number'),title(node(doc,'span',row.name,'home-rank-name'),row.name));
   const headline=title(node(doc,'strong',percent(row.roi,true),row.roi<0?'home-rank-negative':'home-rank-positive'),roiDescription(row,period));
   const value=node(doc,'div',undefined,'home-rank-profit');value.append(headline);
-  top.append(identity,value);el.append(top);
+  top.append(identity,value);
+  const metrics=node(doc,'div',undefined,'home-rank-metrics');
+  if(Number.isFinite(row.pnl))metrics.append(metric(doc,'同期盈亏 · USD',amount(row.pnl),decimal(row.pnl)+' USD；收益截至 '+time(row.performanceAsOf,true)+'；采集 '+time(row.performanceFetchedAt,true)+'。',row.pnl<0?'home-rank-negative':'home-rank-positive'));
+  if(Number.isFinite(row.mdd))metrics.append(metric(doc,'采样盈亏回撤',percent(row.mdd),'基于来源盈亏及权益采样，可能超过100%；不是资金流调整净值最大回撤。采样截至 '+time(row.mddAsOf,true)+'；采集 '+time(row.mddFetchedAt,true)+'。'+(row.mddStale?' 历史采样，等待更新。':'')));
+  if(Number.isFinite(row.winRate))metrics.append(metric(doc,'近期片段胜率',percent(row.winRate),`${row.winCount}个近期永续平仓片段；样本 ${time(row.winStart,true)} 至 ${time(row.winEnd,true)}；采集 ${time(row.winFetchedAt,true)}。已扣平仓手续费，未计开仓手续费及资金费；独立于所选周期，不参与排行。${row.winStale?' 历史样本，等待更新。':''}`));
   const meta=node(doc,'p','收益截至 '+time(row.performanceAsOf,true)+(row.performanceStale?' · 历史快照':''),'home-rank-timing');
-  el.append(meta);return el;
+  title(meta,(row.startAt&&row.endAt?'实际采样区间 '+time(row.startAt,true)+' 至 '+time(row.endAt,true)+'；':'')+'收益采集 '+time(row.performanceFetchedAt,true)+'；持仓核验 '+time(row.positionCheckedAt,true)+'。'+(!row.currentHolding?'当前仓位未知。':'')+'各项更新时间独立，刷新页面不会刷新来源数据。');
+  el.append(top);if(metrics.children.length)el.append(metrics);el.append(meta);return el;
 }
 function render(doc,view,period,Data,pending=false){
   const root=doc.getElementById('home-trader-ranking'),list=doc.getElementById('home-ranking-list'),status=doc.getElementById('home-ranking-status'),note=doc.getElementById('home-ranking-note'),more=doc.getElementById('home-ranking-more');

@@ -15,7 +15,7 @@ def check(ok,msg):
 pages=list(root.rglob('*.html'))
 nav_destinations=[('市场总览','index.html'),('A股选股','screening/index.html'),('美股选股','us.html'),('带单员广场','trader/index.html'),('公司研究','research.html'),('历史研究','screening/history.html'),('研究工具','tools.html')]
 shared_versions={name:hashlib.sha256((root/name).read_bytes()).hexdigest()[:8] for name in ('books-shell.js','books-ui.css')}
-attribution_counts={'index.html':4,'a-shares.html':1,'us.html':1,'crypto.html':1,'chart.html':1,'market-strip.html':1}
+attribution_counts={'index.html':5,'a-shares.html':1,'us.html':1,'crypto.html':1,'chart.html':1,'market-strip.html':1}
 for p in pages:
  tree=html.fromstring(p.read_text())
  ids=tree.xpath('//@id')
@@ -31,11 +31,11 @@ for p in pages:
  attributions=tree.xpath('//*[@data-books-attribution or contains(concat(" ",normalize-space(@class)," ")," tradingview-widget-copyright ") or contains(concat(" ",normalize-space(@class)," ")," books-market-credit ")]')
  check(len(attributions)==attribution_counts.get(str(p.relative_to(root)),0),f'{p}: original attribution nodes retained')
  for node in attributions:
-  check('hidden' not in node.attrib and 'data-books-attribution' in node.attrib,f'{p}: site attribution is visible')
+  check('hidden' in node.attrib and 'data-books-attribution' in node.attrib,f'{p}: user-hidden duplicate caption preserved')
   check(not node.xpath('ancestor::*[@id="chart-widget" or contains(concat(" ",normalize-space(@class)," ")," feed-widget-area ")]'),f'{p}: attribution outside provider and retry hosts')
   check(bool(node.xpath('.//a[@href]')) and bool(node.text_content().strip()),f'{p}: original attribution text and link retained')
  visible_text=' '.join(tree.xpath('//body//text()[not(ancestor::script) and not(ancestor::style) and not(ancestor::*[@hidden])]'))
- if attributions:check('TradingView' in visible_text,f'{p}: provider name visible')
+ # Provider frames supply their own native branding; duplicate site captions stay hidden.
  if not tree.xpath('//body[contains(@class,"books-shell")]'):continue
  check(len(tree.xpath('//main'))==1,f'{p}: one main landmark')
  check(len(tree.xpath('//h1'))==1,f'{p}: one page heading')
@@ -63,8 +63,8 @@ for p in pages:
    check(len(section.xpath('.//*[contains(concat(" ",@class," "),$cls)]',cls=' '+cls+' '))==1,f'{p}: feed {cls}')
   check(not section.xpath('.//*[contains(concat(" ",@class," ")," feed-toggle ")]'),f'{p}: removed persistent collapse control')
   check(bool(section.xpath('.//div[contains(@class,"feed-controls")][@hidden]')),f'{p}: recovery controls hidden before JS')
-  check(bool(section.xpath('.//details[contains(@class,"symbol-shortcuts")][not(@hidden)]')),f'{p}: direct chart choices accessible')
-  check(len(section.xpath('.//div[@data-books-attribution][not(@hidden)]'))==1,f'{p}: visible market attribution retained')
+  check(bool(section.xpath('.//details[contains(@class,"symbol-shortcuts")][@hidden]')),f'{p}: direct chart fallback initially hidden')
+  check(len(section.xpath('.//div[@data-books-attribution][@hidden]'))==1,f'{p}: duplicate market caption stays hidden')
   check(not section.xpath('.//script[@src]'),f'{p}: provider mounted only by recovery code')
   check('largeChartUrl' in config,f'{p}: stays in site charts')
   check(bool(section.xpath('.//details[contains(@class,"symbol-shortcuts")]')),f'{p}: direct chart fallback')
@@ -193,9 +193,10 @@ check(ticker.get('displayMode')=='regular','ticker uses regular height on all vi
 check(ticker.get('largeChartUrl')=='https://sking-3.github.io/xuanliu-site/chart.html','ticker links remain in site')
 check(ticker.get('locale')=='zh_CN' and ticker.get('showSymbolLogo') is False,'ticker language and symbol-logo settings preserved')
 check('--books-ticker-height:45px' in re.sub(r'\s+','',(root/'index-ticker.css').read_text()),'compact header starts at 45px')
-check(len(strip.xpath('//div[contains(@class,"tradingview-widget-container")]/div[@data-books-attribution][not(@hidden)]'))==1,'ticker measurement includes visible provider credit')
+check(len(strip.xpath('//body/div[@data-books-attribution][@hidden]'))==1,'duplicate ticker caption stays outside measured provider frame')
+check('zoom:.75' in (root/'market-strip.css').read_text(),'ticker restores original full-component scale')
 for path in ['market-feed.css','chart.css','market-strip.css']:
- check('[data-books-attribution]{display:block' in re.sub(r'\s+','',(root/path).read_text()),f'{path}: provider credit visible')
+ check('[data-books-attribution][hidden]{display:none!important}' in re.sub(r'\s+','',(root/path).read_text()),f'{path}: site duplicate caption follows hidden attribute')
 for p in pages:
  tree=html.fromstring(p.read_text())
  for node in tree.xpath('//*[@href or @src]'):

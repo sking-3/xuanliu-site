@@ -43,13 +43,20 @@ let count=0;async function test(name,fn){await fn();count++;console.log('PASS '+
 (async()=>{
 await test('formats signed USD without inventing missing percentages',()=>{assert.equal(UI.amount(12000000),'+1,200.00万');assert.equal(UI.amount(100000000),'+1.00亿');assert.equal(UI.amount(-30),'−30.00');assert.equal(UI.percent(null),'—');assert.equal(UI.percent(0),'0.00%');assert.match(UI.time('2026-11-10T10:00:00Z'),/18:00/);});
 await test('more links preserve allowed rolling period, USD and ROI ordering',()=>{for(const p of UI.PERIODS){const u=new URL(UI.moreHref(p),'https://test.invalid/');assert.equal(u.pathname,'/trader/index.html');assert.equal(u.searchParams.get('period'),p);assert.equal(u.searchParams.get('sort'),'roi');assert.equal(u.searchParams.get('currency'),'USD');}assert.match(UI.moreHref('javascript:bad'),/period=30D/);});
-await test('compact ranking shows percentage, identity, date, detail link and no empty metrics',()=>{
+await test('original ranking row structure retains ROI headline and valid supporting metrics',()=>{
  const d=dom(),f=fixture(),view=Data.rank({...f,failures:{}},'30D');
  UI.render(d.doc,view,'30D',Data);
  const s=d.ids['home-ranking-list'].textContent;
- assert.match(s,/Trader A.*\+40.10%.*收益截至/);assert.doesNotMatch(s,/USD|1,200.00万|采样盈亏回撤|近期片段胜率|—/);
+ assert.match(s,/Trader A.*\+40.10%.*同期盈亏 · USD\+1,200.00万.*采样盈亏回撤12.30%.*近期片段胜率75.00%.*收益截至/);assert.doesNotMatch(s,/—/);
+ const row=d.ids['home-ranking-list'].children[0];assert.equal(row.children[0].className,'home-rank-top');assert.equal(row.children[1].className,'home-rank-metrics');assert.equal(row.children[2].className,'home-rank-timing');
+ assert.equal(row.children[0].querySelector('.home-rank-profit').textContent,'+40.10%');
+ assert.match(row.querySelector('.home-rank-metrics').children[2].children[1].getAttribute('title'),/40个近期永续平仓片段.*未计开仓手续费及资金费.*独立于所选周期/);
  assert.match(d.ids['home-ranking-status'].textContent,/收益率前1名/);
  assert.match(d.ids['home-ranking-list'].querySelector('a').href,/sort=roi/);
+});
+await test('unavailable supporting metrics are omitted without changing the ROI headline',()=>{
+ const d=dom(),f=fixture(),view=Data.rank({...f,failures:{}},'30D');Object.assign(view.rows[0],{pnl:null,mdd:null,winRate:null});
+ UI.render(d.doc,view,'30D',Data);const list=d.ids['home-ranking-list'];assert.match(list.textContent,/\+40.10%.*收益截至/);assert.doesNotMatch(list.textContent,/同期盈亏|采样盈亏回撤|近期片段胜率|—/);assert.equal(list.querySelector('.home-rank-metrics'),null);
 });
 await test('untrusted names stay text, zero return is retained and stale snapshots are dated',()=>{
  const d=dom(),f=fixture();f.feed.traders[0].name='<img src=x onerror=alert(1)>';

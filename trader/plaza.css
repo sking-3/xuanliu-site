@@ -229,8 +229,7 @@ th{color:#728098;font-weight:500;background:#fbfcfe}
 @media(max-width:360px){.books-shell.trader-page .card{padding:17px}.books-shell.trader-page .card-top{grid-template-columns:30px minmax(0,1fr) auto;gap:8px}.books-shell.trader-page .card .avatar{width:30px;height:30px}.books-shell.trader-page .card-links{gap:6px}.books-shell.trader-page .card .performance-body{grid-template-columns:minmax(140px,1.2fr) minmax(0,1fr);gap:12px}.books-shell.trader-page .card .roi{font-size:31px}.books-shell.trader-page .card .roi.long-roi{font-size:23px}.books-shell.trader-page .card .performance-body .metrics>div{gap:5px}}
 
 /* Cached closing-fill results remain visible while the background snapshot updates. */
-.books-shell.trader-page .card .win-cache-note{margin:6px 0 0;font-size:10px;line-height:1.5;color:#7e8b9c;font-variant-numeric:tabular-nums}
-.books-shell.trader-page .card .win-cache-note[data-state=stale],.win-cache-status[data-state=stale]{color:#9b702b}
+.win-cache-status[data-state=stale]{color:#9b702b}
 .books-shell.trader-page .card .performance-body{min-height:140px}
 .books-shell.trader-page .card .performance-chart{min-height:140px}
 
@@ -305,3 +304,5 @@ th{color:#728098;font-weight:500;background:#fbfcfe}
 .books-shell.trader-page .card[data-layout=aligned]>.card-footer:empty{display:none}
 .books-shell.trader-page .card .platform-id{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .books-shell.trader-page #leaders{scroll-margin-top:calc(var(--books-ticker-height,45px) + 10px)}
+
+.snapshot-update-note{margin:5px 0 10px;color:#6b7787;font-size:11px;line-height:1.5}

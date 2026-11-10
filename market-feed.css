@@ -38,5 +38,4 @@
 .feed-controls[hidden],.symbol-shortcuts[hidden]{display:none!important}
 .public-feed .feed-controls:not([hidden]){margin-top:8px;padding-top:8px;border-top:1px solid #edf0f5}
 
-[data-books-attribution]{display:block;padding:4px 12px;text-align:right;font:13px/1.4 -apple-system,BlinkMacSystemFont,sans-serif;color:#435269}
-[data-books-attribution] a{color:inherit;text-underline-offset:2px}
+[data-books-attribution][hidden]{display:none!important}

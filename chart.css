@@ -13,5 +13,5 @@
 /* Do not inherit the screening workspace minimum height on empty chart links. */
 .books-shell .chart-shell .chart-panel{min-height:0}
 
-[data-books-attribution]{display:block;padding:4px 12px;text-align:right;font:13px/1.4 -apple-system,BlinkMacSystemFont,sans-serif;color:#435269}
+[data-books-attribution][hidden]{display:none!important}
 [data-books-attribution] a{color:inherit;text-underline-offset:2px}
