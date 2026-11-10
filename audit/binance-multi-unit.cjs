@@ -5,13 +5,13 @@ const TIME=Date.UTC(2026,10,10,1,20),initial=()=>validateCollection(null);
 const raw=id=>({symbol:id===PORTFOLIOS[0].id?'BTCUSDT':'ETHUSDT',positionSide:'LONG',positionAmount:'1',entryPrice:'100',markPrice:'101',unrealizedProfit:'1',leverage:10,collateral:'USDT'});
 let passed=0;
 async function test(name,fn){await fn();passed++;console.log('ok '+name);}
-function fake({hidden=[],blocked=null,badIdentity=null}={}){
+function fake({hidden=[],blocked=null,badIdentity=null,avatars={}}={}){
  const calls=[];
  const fetchImpl=async(url,options)=>{
   const id=options.body?JSON.parse(options.body).portfolioId:new URL(url).searchParams.get('portfolioId');
   calls.push({id,url,options});
   if(blocked===id)return new Response('Forbidden',{status:403});
-  const data=url.includes('/detail?')?{leadPortfolioId:id===badIdentity?PORTFOLIOS[0].id:id,nickname:PORTFOLIOS.find(p=>p.id===id).name,status:'ACTIVE',positionShow:!hidden.includes(id)}:
+  const data=url.includes('/detail?')?{leadPortfolioId:id===badIdentity?PORTFOLIOS[0].id:id,nickname:PORTFOLIOS.find(p=>p.id===id).name,status:'ACTIVE',positionShow:!hidden.includes(id),avatarUrl:avatars[id]}:
    url.includes('/positions?')?[raw(id)]:url.includes('/performance?')?{timeRange:'30D',roi:id===PORTFOLIOS[0].id?'1.2':2.3,pnl:'100',mdd:'-3',winRate:50}:{list:[],total:0,indexValue:'0'};
   return new Response(JSON.stringify({code:'000000',success:true,data}),{status:200,headers:{'content-type':'application/json'}});
  };
@@ -25,6 +25,17 @@ const run=(p,f,extra={})=>collectAll(p,{fetchImpl:f.fetchImpl,sleep:async()=>{},
   for(const p of out.portfolios){assert.equal(p.profile.id,p.portfolioId);assert(p.profile.sourceUrl.endsWith('/'+p.portfolioId));assert.equal(p.source.status,'ready');assert.equal(f.calls.filter(c=>c.id===p.portfolioId).length,5);}
   assert.equal(out.portfolios[0].snapshot.positions[0].symbol,'BTCUSDT');
   assert.equal(out.portfolios[1].snapshot.positions[0].symbol,'ETHUSDT');
+ });
+ await test('avatars stay scoped to the same three portfolio IDs without new requests',async()=>{
+  const avatars={
+   '5156287639231681792':'https://public.bnbstatic.com/image/pgc/first.png',
+   '5139646755272846081':'https://public-1306379396.file.myqcloud.com/image/avatar/second.jpg',
+   '5178595252342363392':'https://untrusted.test/image/third.png'
+  },f=fake({avatars}),out=await run(null,f);
+  assert.equal(f.calls.length,15);assert.equal(f.calls.some(c=>c.id==='5075281354358777856'),false);
+  for(const [index,p] of out.portfolios.entries()){assert.equal(typeof p.profile.id,'string');assert.equal(p.profile.id,PORTFOLIOS[index].id);assert.equal(p.profile.avatarUrl,index<2?avatars[p.portfolioId]:null);assert.equal(p.source.status,'ready');}
+  out.portfolios[1].source.refreshStopped=true;out.portfolios[1].source.errorCode='schema_changed';
+  const next=fake({avatars}),kept=await run(out,next);assert.equal(next.calls.length,10);assert.equal(next.calls.some(c=>c.id===PORTFOLIOS[1].id),false);assert.equal(kept.portfolios[1].profile.avatarUrl,avatars[PORTFOLIOS[1].id]);
  });
  await test('unsupported, duplicate and mismatched records fail before any request',async()=>{
   const f=fake(),a=initial();a.portfolios[1]=a.portfolios[0];

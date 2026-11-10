@@ -12,7 +12,7 @@
     '5178595252342363392': 'FaribaFinance'
   });
   const REFERENCE_PORTFOLIOS = Object.freeze({
-    '5075281354358777856': Object.freeze({name:'熬鹰资本',note:'已收录，交易数据未取得；此前记录未公开持仓'})
+    '5075281354358777856': Object.freeze({name:'熬鹰资本',note:'已收录，交易数据未取得；此前记录未公开持仓',avatarUrl:'https://public.bnbstatic.com/image/pgc/202412/e891a1e22f14b5223e15f43c4b195abc.png',avatarSourceUrl:'https://www.binance.com/zh-CN/square/profile/god_of_trader_tony'})
   });
   const SOURCE_BASE = 'https://www.binance.com/en/copy-trading/lead-details/';
   const MAX_AGE = 30 * 60 * 1000;
@@ -32,6 +32,10 @@
   const old = (value, now) => !iso(value) || now - Date.parse(value) > MAX_AGE || Date.parse(value) > now + 300000;
   const sourceUrl = id => allowed(id) ? SOURCE_BASE + id : null;
 
+  function avatarUrl(value) {
+    if(typeof value!=='string'||value.length>2048||/[\s\u0000-\u001f\u007f\\]/.test(value))return null;
+    try{const url=new URL(value);return url.protocol==='https:'&&!url.username&&!url.password&&!url.port&&!url.hash&&['public.bnbstatic.com','public-1306379396.file.myqcloud.com'].includes(url.hostname)&&url.pathname.startsWith('/image/')?url.href:null;}catch(_){return null;}
+  }
   function validPosition(p) {
     return record(p) && text(p.key) && text(p.symbol) && ['LONG', 'SHORT', 'BOTH'].includes(p.side) &&
       ['quantity', 'entryPrice', 'markPrice', 'unrealizedPnl'].every(key => decimal(p[key])) &&
@@ -218,7 +222,7 @@
       return {
         id: 'binance-' + id, name, accountId: id, exchange: 'Binance', currency: 'USDT',
         sourceKind: 'copy_trade', featured: false, paid: false, observedAt: view.observedAt,
-        sourceUrl: sourceUrl(id), sourceName: feed.profile.name.trim(),
+        sourceUrl: sourceUrl(id), sourceName: feed.profile.name.trim(), avatarUrl:avatarUrl(feed.profile.avatarUrl),
         windows: {}, positions: [], points: [], orders: [],
         binance: feed,
         binanceBatchSource: { refreshStopped: data.source.refreshStopped, errorCode: data.source.errorCode }
@@ -226,7 +230,7 @@
     });
     for (const [id, reference] of Object.entries(REFERENCE_PORTFOLIOS)) rows.push({
       id:'binance-'+id,name:reference.name,accountId:id,exchange:'Binance',currency:'USDT',
-      sourceKind:'copy_trade',featured:false,paid:false,observedAt:null,sourceUrl:SOURCE_BASE+id,sourceName:null,
+      sourceKind:'copy_trade',featured:false,paid:false,observedAt:null,sourceUrl:SOURCE_BASE+id,sourceName:null,avatarUrl:avatarUrl(reference.avatarUrl),avatarSourceUrl:reference.avatarSourceUrl,
       windows:{},positions:[],points:[],orders:[],binance:null,referenceOnly:true,referenceNote:reference.note,
       binanceBatchSource:{refreshStopped:false,errorCode:null}
     });

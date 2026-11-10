@@ -35,7 +35,7 @@ test('raw snapshot records import time, excludes untrusted curve and never inven
   assert.match(row.note, /20260101080000/); assert.match(row.note, /快照日期未知/); assert.match(row.note, /曲线需可靠采集时间/);
   assert.equal(JSON.stringify(input), before);
   assert.doesNotMatch(JSON.stringify(feed), /secret-avatar|must-not-copy|apiKeyTag|winRatio|portLink/);
-  assert.deepEqual(Object.keys(row).sort(), ['id','accountId','name','exchange','currency','featured','paid','sourceUrl','observedAt','note','windows','positions','points','orders'].sort());
+  assert.deepEqual(Object.keys(row).sort(), ['id','accountId','avatarUrl','name','exchange','currency','featured','paid','sourceUrl','observedAt','note','windows','positions','points','orders'].sort());
 });
 test('raw snapshot ignores malformed untrusted curve rather than presenting it', () => {
   const input = raw(); input.data[0].ranks[0].pnlRatios = 'not a usable dated curve';
@@ -114,9 +114,12 @@ test('one MiB UTF-8 cap and JSON serializability apply before output', () => {
 });
 test('browser global works without network or storage facilities', () => {
   const source = fs.readFileSync(path.join(__dirname, '../trader/okx-import.js'), 'utf8');
-  const context = { TextEncoder, input: raw(), imported };
+  const context = { TextEncoder, URL, input: raw(), imported };
   vm.createContext(context); vm.runInContext(source, context);
   const feed = vm.runInContext('BooksTraderImport.normalize(input, imported)', context);
   assert.equal(feed.traders.length, 1);
   assert.equal(typeof context.fetch, 'undefined'); assert.equal(typeof context.localStorage, 'undefined');
 });
+
+test('official portLink is preserved with the original uniqueCode without enabling a source request',()=>{const input=raw(),url='https://static.okx.com/cdn/okex/users/headimages/source.png';input.data[0].ranks[0].portLink=url;const row=normalize(input,imported).traders[0];assert.equal(row.avatarUrl,url);assert.equal(row.accountId,'SYNTHETIC0000001');assert.equal(Object.hasOwn(row,'portrait'),false);});
+test('unsupported or unsafe portraits stay null and never use an invented alias',()=>{for(const value of [undefined,null,'http://static.okx.com/cdn/okex/users/headimages/a.png','https://static.okx.com.evil/cdn/okex/users/headimages/a.png','https://a:b@static.okx.com/cdn/okex/users/headimages/a.png','https://static.okx.com:444/cdn/okex/users/headimages/a.png','https://static.okx.com/other/a.png','data:image/svg+xml,x','https://static.okx.com/cdn/okex/users/headimages/a'+String.fromCharCode(0)+'.png']){const input=raw();input.data[0].ranks[0].portLink=value;input.data[0].ranks[0].portrait='https://static.okx.com/cdn/okex/users/headimages/guess.png';assert.equal(normalize(input,imported).traders[0].avatarUrl,null);}});

@@ -3,15 +3,15 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self' https://api.hyperliquid.xyz wss://api.hyperliquid.xyz; img-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'self'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self' https://api.hyperliquid.xyz wss://api.hyperliquid.xyz; img-src https://public.bnbstatic.com https://public-1306379396.file.myqcloud.com https://static.okx.com; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'self'">
   <meta name="referrer" content="no-referrer">
   <meta name="robots" content="noindex,nofollow">
   <title>Books · 带单员广场</title>
-  <link rel="stylesheet" href="plaza.css?v=12c95d3f">
+  <link rel="stylesheet" href="plaza.css?v=6778a518">
   <script defer src="account-live.js?v=f6bc762c"></script>
   <script defer src="account-analytics.js?v=47bc4409"></script>
-  <script defer src="binance-data.js?v=f0c27612"></script>
-  <script defer src="plaza.js?v=5fdaba38"></script>
+  <script defer src="binance-data.js?v=9b2d0f65"></script>
+  <script defer src="plaza.js?v=497ff355"></script>
   <link rel="stylesheet" href="../books-ui.css?v=78760a2a">
   <link rel="stylesheet" href="../index-ticker.css?v=d6459a25">
   <script defer src="../index-ticker.js?v=c49031ee"></script>
@@ -84,7 +84,7 @@
     <footer>Books · 研究资料，不提供跟单或交易功能。过往表现不代表未来收益。</footer>
   </main>
   <dialog id="detail" aria-labelledby="detail-title">
-    <div class="dialog-head"><div><p class="eyebrow">TRADER RESEARCH</p><h2 id="detail-title"></h2></div><button id="close" type="button" class="icon-button" aria-label="关闭详情">✕</button></div>
+    <div class="dialog-head"><div id="detail-avatar" class="detail-avatar"></div><div class="detail-identity"><p class="eyebrow">TRADER RESEARCH</p><h2 id="detail-title"></h2></div><button id="close" type="button" class="icon-button" aria-label="关闭详情">✕</button></div>
     <p id="detail-meta"></p>
     <p id="detail-data-status" class="detail-stale" role="status" aria-live="polite" hidden></p>
     <div id="tabs" class="tabs" aria-label="详情视图"><button type="button" data-tab="analysis" aria-pressed="true">交易分析</button><button type="button" data-tab="live" aria-pressed="false" hidden>实时交易</button><button type="button" data-tab="positions" aria-pressed="false">仓位历史</button><button type="button" data-tab="points" aria-pressed="false">交易点位</button><button type="button" data-tab="orders" aria-pressed="false">订单流水</button></div>

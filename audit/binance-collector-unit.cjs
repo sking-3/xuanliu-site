@@ -13,6 +13,39 @@ function fake({rows=[raw()],details=pd,fail=null,orders=[],closed=[],performance
 const run=(p,f,time=TIME)=>collect(p,{fetchImpl:f.fetchImpl,now:()=>time,sleep:async()=>{}});
 (async()=>{
 await test('ID remains exact string and mismatched identity rejected',()=>{assert.equal(typeof ID,'string');assert.equal(profile(pd).id,'5156287639231681792');assert.throws(()=>profile({...pd,leadPortfolioId:'5156287639231681793'}),/identity_mismatch/);});
+await test('profile retains only the source avatarUrl on evidenced HTTPS image hosts',()=>{
+ const urls=['https://public.bnbstatic.com/image/pgc/test.png','https://public-1306379396.file.myqcloud.com/image/avatar/test.jpg'];
+ for(const avatarUrl of urls){const value=profile({...pd,avatarUrl});assert.equal(value.avatarUrl,avatarUrl);assert.equal(value.id,ID);assert.equal(value.sourceUrl,profile(pd).sourceUrl);}
+ assert.equal(initial().profile.avatarUrl,null);assert.equal(profile(pd).avatarUrl,null);
+ assert.equal(profile({...pd,avatar:urls[0],portrait:urls[0],userId:'12345'}).avatarUrl,null);
+ for(const avatarUrl of [null,undefined,'',42,true,{},[],
+  'http://public.bnbstatic.com/image/pgc/test.png','//public.bnbstatic.com/image/pgc/test.png',
+  'data:image/png;base64,a','javascript:alert(1)','https://public.bnbstatic.com.evil.test/image/test.png',
+  'https://evil.test/image/test.png','https://public.bnbstatic.com@evil.test/image/test.png',
+  'https://user:pass@public.bnbstatic.com/image/test.png','https://public.bnbstatic.com:444/image/test.png',
+  'https://public.bnbstatic.com/image/test.png#x','https://public.bnbstatic.com/image/test.png'+String.fromCharCode(0),'https://public.bnbstatic.com/image/test.png'+String.fromCharCode(127),'https://public.bnbstatic.com/redirect?url=elsewhere',
+  ' https://public.bnbstatic.com/image/test.png','https://public.bnbstatic.com/image/test\n.png',
+  'https://public.bnbstatic.com\\image\\test.png','https://public.bnbstatic.com/image/'+ 'a'.repeat(2048)
+ ])assert.equal(profile({...pd,avatarUrl}).avatarUrl,null);
+});
+await test('optional avatar does not add requests or change source clocks and stopping',async()=>{
+ const url='https://public.bnbstatic.com/image/pgc/test.png',f=fake({details:{...pd,avatarUrl:url}}),out=await run(null,f);
+ assert.equal(out.profile.avatarUrl,url);assert.equal(f.calls.length,5);
+ const invalid=fake({details:{...pd,avatarUrl:'https://untrusted.test/image/test.png'}}),other=await run(null,invalid);
+ assert.equal(other.profile.avatarUrl,null);assert.equal(invalid.calls.length,5);assert.deepEqual(other.source,out.source);assert.deepEqual(other.snapshot,out.snapshot);assert.deepEqual(other.performance,out.performance);
+ const stopped=structuredClone(out);stopped.source.refreshStopped=true;stopped.source.errorCode='schema_changed';
+ const next=fake(),kept=await run(stopped,next,TIME+60000);assert.equal(next.calls.length,0);assert.equal(kept.profile.avatarUrl,url);assert.deepEqual(kept.source,stopped.source);assert.deepEqual(kept.performance,stopped.performance);
+ const uncertain=fake(),paused=await collect(out,{fetchImpl:uncertain.fetchImpl,now:()=>TIME+60000,sleep:async()=>{},stopBeforeRequest:true});
+ assert.equal(uncertain.calls.length,0);assert.equal(paused.source.refreshStopped,true);assert.equal(paused.source.lastSuccessAt,out.source.lastSuccessAt);assert.equal(paused.snapshot,null);
+ const mismatch=fake({details:{...pd,leadPortfolioId:'5075281354358777856',avatarUrl:'https://public.bnbstatic.com/image/pgc/other.png'}}),rejected=await run(out,mismatch,TIME+60000);
+ assert.equal(mismatch.calls.length,1);assert.equal(rejected.profile.avatarUrl,url);assert.equal(rejected.source.errorCode,'identity_mismatch');assert.equal(rejected.source.refreshStopped,true);
+});
+await test('legacy avatars normalize safely without mutating source state or input',()=>{
+ const old=initial();delete old.profile.avatarUrl;old.source.refreshStopped=true;old.source.errorCode='http_429';
+ const restored=validateState(old);assert.equal(restored.profile.avatarUrl,null);assert.deepEqual(restored.source,old.source);assert.equal(Object.hasOwn(old.profile,'avatarUrl'),false);
+ const safe=structuredClone(old);safe.profile.avatarUrl='https://public-1306379396.file.myqcloud.com/image/avatar/test.jpg';assert.equal(validateState(safe).profile.avatarUrl,safe.profile.avatarUrl);
+ const bad=structuredClone(old);bad.profile.avatarUrl='https://untrusted.test/image/test.png';assert.equal(validateState(bad).profile.avatarUrl,null);assert.deepEqual(validateState(bad).source,old.source);
+});
 await test('decimal comparison retains precision and handles short quantity',()=>{assert.equal(compare('9007199254740993.01','9007199254740993.00'),1);assert.equal(positions([raw('-0.20','BTCUSDT','SHORT')],iso(0)).positions[0].quantity,'0.20');});
 await test('zero positions filtered; malformed and duplicates rejected',()=>{assert.equal(positions([raw('0'),raw('1','ETHUSDT')],iso(0)).positions.length,1);assert.throws(()=>positions([raw(),raw()],iso(0)),/schema_changed/);assert.throws(()=>positions([{...raw(),positionAmount:'NaN'}],iso(0)),/schema_changed/);assert.throws(()=>positions(null,iso(0)),/schema_changed/);});
 await test('initial successful sample has baseline and incomplete history',async()=>{const f=fake(),v=await run(null,f);assert.equal(v.source.status,'ready');assert.equal(v.observations[0].kind,'baseline');assert.equal(v.history.orders.complete,false);assert.equal(v.history.orders.coverage.truncated,true);assert.equal(f.calls.length,5);assert(!f.calls.some(c=>c.options.headers.cookie||c.options.headers.authorization));assert.equal(JSON.parse(f.calls[2].options.body).portfolioId,ID);});

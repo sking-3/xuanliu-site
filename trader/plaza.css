@@ -247,3 +247,23 @@ th{color:#728098;font-weight:500;background:#fbfcfe}
 .platform-switch{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 12px}.platform-switch button{border:1px solid #dce4ef;border-radius:999px;padding:8px 14px;background:#fff;color:#65738a;font-size:12px}.platform-switch button[aria-pressed=true]{background:#edf4fb;border-color:#b7cee7;color:#2d527c}.card-data-status{margin:9px 0 0;font-size:11px;line-height:1.7;color:#617b70;font-variant-numeric:tabular-nums}.card-data-status[data-state=stale],.card-data-status[data-state=unavailable],.card-data-status[data-state=restricted]{color:#9b702b}.binance-card-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:20px}.binance-card-summary strong{display:block;font-size:22px;color:#33465d}.binance-card-summary small{font-size:10px;color:#7c889b}.binance-sample-note{font-size:11px;color:#7e8998;line-height:1.7;margin-top:14px}#binance-source-summary{background:#fbfaf4;border-color:#ebe5d3}.source-heading span{font-size:11px;color:#76849a}.binance-data-section{margin-top:20px}.binance-data-section h3{font-size:15px}.binance-data-section>p{font-size:12px;line-height:1.8;color:#7b8796}.binance-data-section .table-wrap{margin-top:10px}
 
 .books-shell.trader-page .card .performance-body.binance-performance{grid-template-columns:minmax(0,1fr);min-height:0;margin-top:12px}.binance-performance .metrics{margin-top:12px}.binance-performance-note{font-size:10px;line-height:1.7;color:#788497;margin:10px 0}.binance-performance-note[data-state=stale],.binance-performance-note[data-state=restricted]{color:#9b702b}.binance-card-summary{margin-top:10px;padding-top:10px;border-top:1px solid #edf0f5;gap:8px}.binance-card-summary strong{font-size:13px;font-weight:500;color:#64748a}.binance-card-summary small{font-size:10px}.binance-sample-note{margin-top:8px;font-size:10px}
+
+/* Share the same content tracks across a desktop row without clipping identity or status. */
+.books-shell.trader-page .cards{align-items:stretch}
+.books-shell.trader-page .card[data-layout=aligned]{display:flex;flex-direction:column;min-height:0}
+.books-shell.trader-page .card[data-layout=aligned]>.card-footer{margin-top:auto;padding-top:10px}
+.books-shell.trader-page .card[data-layout=aligned]>.card-data-status{margin:9px 0 0;overflow-wrap:anywhere}
+.books-shell.trader-page .card[data-layout=aligned]>.performance-body{min-height:140px;grid-template-columns:minmax(145px,1.05fr) minmax(90px,1fr);margin:12px 0 0}
+.books-shell.trader-page .card[data-layout=aligned] .roi{font-size:34px;line-height:1.15}
+.books-shell.trader-page .card[data-layout=aligned] .roi.long-roi{font-size:25px}
+.books-shell.trader-page .card[data-layout=aligned] .roi-label{margin-bottom:16px}
+.books-shell.trader-page .card .platform-id{font-size:10px;color:#7e8a9a;line-height:1.6;overflow-wrap:anywhere;word-break:normal;margin-top:3px;font-variant-numeric:tabular-nums}
+.avatar{position:relative;overflow:hidden}.avatar img{width:100%;height:100%;object-fit:cover;position:absolute;inset:0}.avatar img[hidden]{display:none}
+.detail-avatar{flex:none}.detail-avatar .avatar{width:48px;height:48px;border-radius:12px}.detail-identity{flex:1;min-width:0}
+.binance-curve-unavailable{display:grid;place-items:center;color:#8d97a5;font-size:10px;line-height:1.7;text-align:center;border-left:1px solid #edf0f5;padding-left:12px}
+.card-footer .binance-performance-note{margin:0;font-size:10px}.card-footer:empty{padding:0}
+@supports(grid-template-rows:subgrid){@media(min-width:761px){.books-shell.trader-page .card[data-layout=aligned]{display:grid;grid-template-rows:subgrid;grid-row:span 5;row-gap:0}.books-shell.trader-page .card[data-layout=aligned]>.card-footer{margin-top:0}}}
+@media(max-width:760px){.books-shell.trader-page .card[data-layout=aligned]{display:flex;min-height:0}.books-shell.trader-page .card[data-layout=aligned]>.performance-body{min-height:0}.books-shell.trader-page .card[data-layout=aligned]>.card-footer{margin-top:0}.books-shell.trader-page .card .platform-id{font-size:11px}}
+@media(max-width:420px){.books-shell.trader-page .card[data-layout=aligned]>.performance-body{grid-template-columns:minmax(0,1fr);gap:10px}.binance-curve-unavailable{border-left:0;border-top:1px solid #edf0f5;padding:8px 0 0}.books-shell.trader-page .card[data-layout=aligned] .roi{font-size:31px}.books-shell.trader-page .card[data-layout=aligned] .roi.long-roi{font-size:23px}}
+
+@media(max-width:420px){.books-shell.trader-page .card[data-layout=aligned] .binance-curve-unavailable{min-height:0}}
