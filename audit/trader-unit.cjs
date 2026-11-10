@@ -557,5 +557,9 @@ await test('an older public response cannot revive hidden samples merely because
  remoteBinance=structuredClone(original);remoteBinance.generatedAt=new Date(Date.parse(original.generatedAt)+1000).toISOString();remoteBinance.portfolios[0].source.refreshStopped=true;await a.refreshBinance();assert.equal(a.state.binanceReadFailed,true);assert.equal(a.state.binanceRows[0].binance.profile.visibility,visibility);assert.equal(a.binanceChart(a.state.binanceRows[0],'30D').pointCount,null);assert.equal(a.binancePerformance(a.state.binanceRows[0],'30D').roi,null);assert.equal(a.binanceView(a.state.binanceRows[0]).currentPositionCount,null);assert.deepEqual(Object.keys(JSON.parse(saved.get(a.publicCacheKeys.binance)).payload.portfolios[0].chart.byPeriod),[]);
  }
 });
+await test('equivalent ISO success timestamps cannot disguise a rewritten successful curve',async()=>{
+ unifiedSetup();const at=Math.floor((Date.now()-1000)/1000)*1000,original=installChart(chartCollection(at)),old=original.portfolios[0].chart.byPeriod['30D'];remoteBinance=chartCollection(at+1000);const next=remoteBinance.portfolios[0].chart.byPeriod['30D'];next.lastSuccessAt=old.lastSuccessAt.replace('.000Z','Z');next.evidence.receivedAt=next.lastSuccessAt;next.points=structuredClone(old.points);next.points[0].value=999;assert.equal(Date.parse(next.lastSuccessAt),Date.parse(old.lastSuccessAt));assert.notEqual(next.lastSuccessAt,old.lastSuccessAt);
+ await a.refreshBinance();assert.equal(a.state.binanceReadFailed,true);assert.equal(a.binanceChart(a.state.binanceRows[0],'30D').points[0].value,125);assert.equal(a.binanceChart(a.state.binanceRows[0],'30D').lastSuccessAt,old.lastSuccessAt);assert.equal(a.binanceChart(a.state.binanceRows[0],'30D').status,'stale');
+});
 console.log(`${passed} logic and DOM-model tests passed. Synthetic fixtures stay local; the published feed is checked separately.`);
 })().catch(e=>{console.error(e);process.exitCode=1;});

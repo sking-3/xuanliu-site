@@ -383,7 +383,7 @@ function rejectOlderBinanceChart(incoming,previous) {
   for(const [period,old]of Object.entries(previous?.chart?.byPeriod||{})){
     const next=incoming.chart?.byPeriod?.[period];if(!next){if(old.lastSuccessAt)fail();continue;}
     for(const key of ['lastAttemptAt','lastSuccessAt','sourceAsOf'])if(old[key]&&(!next[key]||Date.parse(next[key])<Date.parse(old[key])))fail();
-    if(old.lastSuccessAt&&(next.status!=='ready'||next.lastSuccessAt===old.lastSuccessAt)&&JSON.stringify(next.points)!==JSON.stringify(old.points))fail();
+    if(old.lastSuccessAt&&(next.status!=='ready'||Date.parse(next.lastSuccessAt)===Date.parse(old.lastSuccessAt))&&JSON.stringify(next.points)!==JSON.stringify(old.points))fail();
   }
 }
 function currentHolding(r,now=Date.now()) {
