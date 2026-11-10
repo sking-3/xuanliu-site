@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "address": "0x02665a064143936ba3b5e400147b6c92560f7b24",
+  "scope": "default_perp_dex",
+  "fetchedAt": "2026-11-10T15:28:49.070Z",
+  "sourceTime": "2026-11-10T15:28:48.756Z",
+  "accountValue": 63.100944,
+  "positions": [
+    {
+      "coin": "ETH",
+      "signedSize": -0.1448,
+      "quantity": 0.1448,
+      "side": "short",
+      "entryPrice": 2079.87,
+      "positionValue": 299.17128,
+      "unrealizedPnl": 1.99477,
+      "marginUsed": 59.834256,
+      "liquidationPrice": 2461.6593272668,
+      "leverage": {"type": "cross", "value": 5}
+    }
+  ]
+}
