@@ -10,16 +10,16 @@
     "sourceUrl": "https://www.binance.com/en/copy-trading/lead-details/5156287639231681792",
     "avatarUrl": "https://public.bnbstatic.com/image/avatar/202608/2da5ad4f66f54ace20a51b3ca33d2a2e.jpg"
   },
-  "generatedAt": "2026-11-10T11:36:46.155Z",
+  "generatedAt": "2026-11-10T12:32:45.767Z",
   "source": {
     "status": "ready",
-    "lastAttemptAt": "2026-11-10T11:36:36.714Z",
-    "lastSuccessAt": "2026-11-10T11:36:39.650Z",
+    "lastAttemptAt": "2026-11-10T12:32:33.989Z",
+    "lastSuccessAt": "2026-11-10T12:32:36.735Z",
     "errorCode": null,
     "refreshStopped": false
   },
   "snapshot": {
-    "observedAt": "2026-11-10T11:36:39.650Z",
+    "observedAt": "2026-11-10T12:32:36.735Z",
     "complete": true,
     "rawCount": 1938,
     "positions": []
@@ -313,42 +313,48 @@
       "complete": true,
       "rawCount": 1938,
       "positions": []
+    },
+    {
+      "observedAt": "2026-11-10T12:32:36.735Z",
+      "complete": true,
+      "rawCount": 1938,
+      "positions": []
     }
   ],
   "evidence": {
     "lead-portfolio/detail": {
-      "sha256": "291da9dea7d9281d077f67af4936f079704f4450cb4b5e62a8809aca8bc48d00",
+      "sha256": "7d0c1ce2231f13e0494ce103b66233aed20d28bd3d7b372d52cdf0ba8a175174",
       "bytes": 2669,
       "httpStatus": 200,
       "code": "000000",
-      "receivedAt": "2026-11-10T11:36:37.089Z"
+      "receivedAt": "2026-11-10T12:32:34.400Z"
     },
     "lead-data/positions": {
-      "sha256": "37020f10462c2a2659bc9253d27524e60dad82fccd6e95344e8fb3d8aeab154c",
+      "sha256": "5e391d2a93531eae9ae4db49e67805c3eaedb2fce5b8856477b08d09416977b4",
       "bytes": 663594,
       "httpStatus": 200,
       "code": "000000",
-      "receivedAt": "2026-11-10T11:36:39.650Z"
+      "receivedAt": "2026-11-10T12:32:36.735Z"
     },
     "lead-portfolio/order-history": {
       "sha256": "b830294220a2c7148a608c97de600a2817d4c7bdb4aa4478f824da611370e2b0",
       "bytes": 4988,
       "httpStatus": 200,
       "code": "000000",
-      "receivedAt": "2026-11-10T11:36:41.823Z"
+      "receivedAt": "2026-11-10T12:32:38.925Z"
     },
     "lead-portfolio/position-history": {
       "sha256": "4bea9fc5b8243af2743012f403275a671de0cac49d8ab9a5059b8d98d7f97b14",
       "bytes": 8112,
       "httpStatus": 200,
       "code": "000000",
-      "receivedAt": "2026-11-10T11:36:43.996Z"
+      "receivedAt": "2026-11-10T12:32:41.107Z"
     }
   },
   "history": {
     "orders": {
       "status": "ready",
-      "fetchedAt": "2026-11-10T11:36:41.823Z",
+      "fetchedAt": "2026-11-10T12:32:38.925Z",
       "errorCode": null,
       "complete": false,
       "rows": [
@@ -576,8 +582,8 @@
       "coverage": {
         "page": 1,
         "pageSize": 20,
-        "requestedFrom": "2026-11-03T11:36:39.653Z",
-        "requestedTo": "2026-11-10T11:36:39.653Z",
+        "requestedFrom": "2026-11-03T12:32:36.738Z",
+        "requestedTo": "2026-11-10T12:32:36.738Z",
         "sourceTotal": 53,
         "indexValue": "1794183275318",
         "truncated": true,
@@ -586,7 +592,7 @@
     },
     "closedPositions": {
       "status": "ready",
-      "fetchedAt": "2026-11-10T11:36:43.996Z",
+      "fetchedAt": "2026-11-10T12:32:41.107Z",
       "errorCode": null,
       "complete": false,
       "rows": [
@@ -852,8 +858,8 @@
         "mdd": 55.076538,
         "winRate": 80,
         "status": "ready",
-        "lastAttemptAt": "2026-11-10T11:36:45.996Z",
-        "lastSuccessAt": "2026-11-10T11:36:46.155Z",
+        "lastAttemptAt": "2026-11-10T12:32:43.107Z",
+        "lastSuccessAt": "2026-11-10T12:32:43.292Z",
         "sourceAsOf": null,
         "sourcePeriod": "30D",
         "currency": "USDT",
@@ -863,7 +869,151 @@
           "bytes": 258,
           "httpStatus": 200,
           "code": "000000",
-          "receivedAt": "2026-11-10T11:36:46.155Z"
+          "receivedAt": "2026-11-10T12:32:43.292Z"
+        }
+      }
+    }
+  },
+  "chart": {
+    "schemaVersion": 1,
+    "byPeriod": {
+      "30D": {
+        "status": "ready",
+        "lastAttemptAt": "2026-11-10T12:32:45.292Z",
+        "lastSuccessAt": "2026-11-10T12:32:45.767Z",
+        "sourceAsOf": null,
+        "sourcePeriod": "30D",
+        "dataType": "PNL",
+        "currency": "USDT",
+        "points": [
+          {
+            "time": "2026-10-12T00:00:00.000Z",
+            "value": 1315.782329
+          },
+          {
+            "time": "2026-10-13T00:00:00.000Z",
+            "value": 423.511961
+          },
+          {
+            "time": "2026-10-14T00:00:00.000Z",
+            "value": 1443.931486
+          },
+          {
+            "time": "2026-10-15T00:00:00.000Z",
+            "value": 1062.575759
+          },
+          {
+            "time": "2026-10-16T00:00:00.000Z",
+            "value": 1499.238967
+          },
+          {
+            "time": "2026-10-17T00:00:00.000Z",
+            "value": 1593.201202
+          },
+          {
+            "time": "2026-10-18T00:00:00.000Z",
+            "value": 1169.793726
+          },
+          {
+            "time": "2026-10-19T00:00:00.000Z",
+            "value": 1305.490836
+          },
+          {
+            "time": "2026-10-20T00:00:00.000Z",
+            "value": 578.135461
+          },
+          {
+            "time": "2026-10-21T00:00:00.000Z",
+            "value": -143.187636
+          },
+          {
+            "time": "2026-10-22T00:00:00.000Z",
+            "value": 1690.71524
+          },
+          {
+            "time": "2026-10-23T00:00:00.000Z",
+            "value": 88.059967
+          },
+          {
+            "time": "2026-10-24T00:00:00.000Z",
+            "value": 603.850571
+          },
+          {
+            "time": "2026-10-25T00:00:00.000Z",
+            "value": 803.810273
+          },
+          {
+            "time": "2026-10-26T00:00:00.000Z",
+            "value": 1077.207163
+          },
+          {
+            "time": "2026-10-27T00:00:00.000Z",
+            "value": 1632.99341
+          },
+          {
+            "time": "2026-10-28T00:00:00.000Z",
+            "value": 2512.628461
+          },
+          {
+            "time": "2026-10-29T00:00:00.000Z",
+            "value": 2112.604374
+          },
+          {
+            "time": "2026-10-30T00:00:00.000Z",
+            "value": 3045.153577
+          },
+          {
+            "time": "2026-10-31T00:00:00.000Z",
+            "value": 2658.426096
+          },
+          {
+            "time": "2026-11-01T00:00:00.000Z",
+            "value": 1988.65374
+          },
+          {
+            "time": "2026-11-02T00:00:00.000Z",
+            "value": 2717.494522
+          },
+          {
+            "time": "2026-11-03T00:00:00.000Z",
+            "value": 2035.917547
+          },
+          {
+            "time": "2026-11-04T00:00:00.000Z",
+            "value": -795.075343
+          },
+          {
+            "time": "2026-11-05T00:00:00.000Z",
+            "value": 3898.01806
+          },
+          {
+            "time": "2026-11-06T00:00:00.000Z",
+            "value": 3893.218828
+          },
+          {
+            "time": "2026-11-07T00:00:00.000Z",
+            "value": 3781.096669
+          },
+          {
+            "time": "2026-11-08T00:00:00.000Z",
+            "value": 6405.300544
+          },
+          {
+            "time": "2026-11-09T00:00:00.000Z",
+            "value": 7715.735483
+          },
+          {
+            "time": "2026-11-10T11:00:00.000Z",
+            "value": 7588.70254991
+          }
+        ],
+        "errorCode": null,
+        "evidence": {
+          "sha256": "6be2228bb4f5605a1b6ed2ba5d8570bb4684f27cc0519219b7bb8d2db8a953f1",
+          "bytes": 1989,
+          "httpStatus": 200,
+          "code": "000000",
+          "receivedAt": "2026-11-10T12:32:45.767Z"
         }
       }
     }
