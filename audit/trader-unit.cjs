@@ -365,7 +365,7 @@ await test('Binance details stay in the shared dialog and never reuse another po
  unifiedSetup();const [first,empty,third]=a.state.binanceRows;a.openDetail(first,'30D');a.activateDetailTab('positions');assert.match(content(ids['detail-body']),/NVDAUSDT/);
  a.openDetail(empty,'30D');a.activateDetailTab('positions');assert.match(content(ids['detail-body']),/核验.*空仓/);assert.doesNotMatch(content(ids['detail-body']),/NVDAUSDT/);
  a.openDetail(third,'30D');a.activateDetailTab('positions');assert.match(content(ids['detail-body']),/1INCHUSDT/);assert.doesNotMatch(content(ids['detail-body']),/NVDAUSDT/);
- a.activateDetailTab('points');assert.match(content(ids['detail-body']),/首次观察不是开仓/);a.activateDetailTab('orders');assert.match(content(ids['detail-body']),/近 7 天订单样本.*历史仓位样本/);assert.match(content(ids['detail-body']),/非完整交割单/);
+ a.activateDetailTab('points');assert.match(content(ids['detail-body']),/首次观察不是开仓/);a.activateDetailTab('orders');assert.match(content(ids['detail-body']),/订单样本.*历史仓位样本/);assert.match(content(ids['detail-body']),/非完整交割单/);
  assert.equal(ids.detail.open,true);assert.equal(a.state.detail.id,third.id);assert.equal(a.state.liveClient,null);
 });
 for(const [offset,expected]of [[1799999,2],[1800000,2],[1800001,0]])await test('Binance 30-minute boundary retains every card while current holdings change at '+offset,()=>{
@@ -390,6 +390,34 @@ await test('collection halt and account privacy override cached public positions
  const p=unifiedSetup();remoteBinance=structuredClone(p);remoteBinance.source={refreshStopped:true,errorCode:'http_429'};await a.refreshBinance();for(const r of a.state.binanceRows){assert.equal(a.binanceView(r).currentPositionCount,null);assert.equal(a.binanceView(r).refreshStopped,true);}assert.equal(ids['current-count'].textContent,'0');
  remoteBinance=structuredClone(p);remoteBinance.portfolios[0].profile.visibility='restricted';remoteBinance.portfolios[0].source.status='restricted';remoteBinance.portfolios[0].source.refreshStopped=true;remoteBinance.portfolios[0].source.errorCode='restricted';await a.refreshBinance();
  const r=a.state.binanceRows[0],view=a.binanceView(r);assert.equal(view.status,'restricted');assert.equal(view.positions.length,0);assert.equal(view.orders.rows.length,0);assert.equal(view.closedPositions.rows.length,0);a.openDetail(r,'30D');for(const tab of ['positions','points','orders']){a.activateDetailTab(tab);assert.doesNotMatch(content(ids['detail-body']),/NVDAUSDT/);}assert.match(ids['detail-data-status'].textContent,/不可见.*当前仓位未知/);
+});
+await test('older privacy and stop notifications persist before rollback rejection and cannot be undone by the same public version',async()=>{
+ for(const kind of ['restricted','unknown','account-stop','batch-stop']){
+  const original=unifiedSetup(),first=original.portfolios[0],oldTime=new Date(Date.parse(original.generatedAt)-1).toISOString();
+  remoteBinance=structuredClone(original);remoteBinance.generatedAt=oldTime;remoteBinance.portfolios[0].snapshots=[structuredClone(first.snapshot)];remoteBinance.portfolios[0].pendingAbsent=[{symbol:'NVDAUSDT'}];
+  if(kind==='batch-stop')remoteBinance.source={refreshStopped:true,errorCode:'http_429'};
+  else if(kind==='account-stop'){remoteBinance.portfolios[0].source.refreshStopped=true;remoteBinance.portfolios[0].source.errorCode='http_429';}
+  else {remoteBinance.portfolios[0].profile.visibility=kind;remoteBinance.portfolios[0].source.status=kind==='restricted'?'restricted':'unavailable';remoteBinance.portfolios[0].source.lastAttemptAt=oldTime;}
+  await a.refreshBinance();const safe=a.state.binanceRows[0],view=a.binanceView(safe);
+  assert.equal(a.state.binanceCollection.generatedAt,original.generatedAt);assert.equal(a.state.binanceReadFailed,true);assert.equal(view.currentPositionCount,null);
+  const hidden=kind==='restricted'||kind==='unknown';
+  if(hidden){assert.equal(safe.binance.snapshot,null);assert.equal(safe.binance.snapshots,undefined);assert.equal(safe.binance.pendingAbsent,undefined);assert.equal(safe.binance.observations.length,0);for(const part of Object.values(safe.binance.history))assert.equal(part.rows.length,0);assert.equal(safe.binance.source.lastAttemptAt,oldTime);assert.equal(view.observedAt,null);}
+  else {assert.equal(view.refreshStopped,true);assert.equal(view.observedAt,first.snapshot.observedAt);assert.equal(view.lastPositionCount,first.snapshot.positions.length);}
+  a.openDetail(safe,'30D');for(const tab of ['positions','points','orders']){a.activateDetailTab(tab);if(hidden)assert.doesNotMatch(content(ids['detail-body']),/NVDAUSDT/);}
+  const stored=JSON.parse(saved.get(a.publicCacheKeys.binance));assert.equal(stored.payload.generatedAt,original.generatedAt);if(hidden)assert.equal(stored.payload.portfolios[0].snapshot,null);
+  a.state.binanceRows=[];a.state.binanceCollection=null;a.state.binanceText=null;a.hydratePublicSnapshots();assert.equal(a.binanceView(a.state.binanceRows[0]).currentPositionCount,null);if(hidden)assert.equal(a.binanceView(a.state.binanceRows[0]).positions.length,0);
+  remoteBinance=structuredClone(original);await a.refreshBinance();assert.equal(a.state.binanceReadFailed,true);assert.equal(a.binanceView(a.state.binanceRows[0]).currentPositionCount,null);if(hidden)assert.equal(a.binanceView(a.state.binanceRows[0]).positions.length,0);else assert.equal(a.binanceView(a.state.binanceRows[0]).refreshStopped,true);
+  remoteBinance=structuredClone(original);remoteBinance.generatedAt=new Date(Date.parse(original.generatedAt)+1).toISOString();await a.refreshBinance();assert.equal(a.state.binanceReadFailed,true);assert.equal(a.binanceView(a.state.binanceRows[0]).currentPositionCount,null);if(hidden)assert.equal(a.binanceView(a.state.binanceRows[0]).positions.length,0);else assert.equal(a.binanceView(a.state.binanceRows[0]).refreshStopped,true);
+  remoteBinance=freshBinance(Date.parse(original.generatedAt)+1);await a.refreshBinance();assert.equal(a.state.binanceReadFailed,false);assert.equal(a.binanceView(a.state.binanceRows[0]).status,'ready');assert.equal(a.binanceView(a.state.binanceRows[0]).positions.length,first.snapshot.positions.length);
+ }
+});
+await test('batch halt remains while only one account has a new attempt',async()=>{
+ const original=unifiedSetup();remoteBinance=structuredClone(original);remoteBinance.source={refreshStopped:true,errorCode:'http_429'};await a.refreshBinance();
+ remoteBinance=structuredClone(original);remoteBinance.generatedAt=new Date(Date.parse(original.generatedAt)+1).toISOString();remoteBinance.portfolios[0].source.lastAttemptAt=remoteBinance.generatedAt;await a.refreshBinance();
+ assert.equal(a.state.binanceReadFailed,true);for(const row of a.state.binanceRows){assert.equal(a.binanceView(row).refreshStopped,true);assert.equal(a.binanceView(row).currentPositionCount,null);}
+});
+await test('a fresh unknown or restricted feed is persisted without hidden trading payload',async()=>{
+ for(const visibility of ['restricted','unknown']){const original=unifiedSetup();remoteBinance=freshBinance(Date.parse(original.generatedAt)+1);remoteBinance.portfolios[0].profile.visibility=visibility;await a.refreshBinance();assert.equal(a.state.binanceReadFailed,false);const feed=a.state.binanceRows[0].binance;assert.equal(feed.snapshot,null);assert.equal(feed.observations.length,0);assert.equal(feed.history.orders.rows.length,0);assert.equal(feed.history.closedPositions.rows.length,0);assert.equal(a.binanceView(a.state.binanceRows[0]).positions.length,0);}
 });
 await test('Binance browser hydration retains its original old time and failed-read status independently',()=>{
  const p=unifiedSetup(Date.now()-1801000),old=p.portfolios[0].snapshot.observedAt;a.savePublicSnapshot('binance',p,true);a.state.binanceRows=[];a.state.binanceCollection=null;a.state.binanceText=null;a.state.binanceReadFailed=false;

@@ -391,6 +391,33 @@ function installBinance(collection,requestFailed=false,checkedAt=null) {
   state.binanceCollection=collection;state.binanceReadFailed=requestFailed;state.binanceCheckedAt=checkedAt;
   state.binanceRows=BinanceData.toTraders(collection,{requestFailed,checkedAt});state.binanceText=JSON.stringify(collection);
 }
+function hiddenBinanceFeed(feed) {return feed.profile.visibility!=='public'||feed.source.status==='restricted'||feed.source.errorCode==='restricted';}
+function binanceSafetyWatermark(feed) {
+  return Math.max(0,...[feed?.source.lastAttemptAt,feed?.source.lastSuccessAt,feed?.snapshot?.observedAt,feed?.clientSafety?.resumeAfterAt].map(value=>Date.parse(value)||0));
+}
+function hideBinancePayload(feed) {
+  if(!hiddenBinanceFeed(feed))return feed;
+  const restricted=feed.profile.visibility==='restricted'||feed.source.status==='restricted'||feed.source.errorCode==='restricted';
+  const empty={status:'unavailable',fetchedAt:null,errorCode:feed.source.errorCode,complete:false,rows:[],coverage:null};
+  return {schemaVersion:feed.schemaVersion,sourceType:feed.sourceType,portfolioId:feed.portfolioId,profile:{...feed.profile},generatedAt:feed.generatedAt,source:{...feed.source,status:restricted?'restricted':'unavailable'},snapshot:null,observations:[],history:{orders:{...empty},closedPositions:{...empty}}};
+}
+function withBinanceSafety(feed,previous) {
+  const resumeAfter=Math.max(binanceSafetyWatermark(feed),binanceSafetyWatermark(previous));
+  return {...feed,clientSafety:{resumeAfterAt:resumeAfter?new Date(resumeAfter).toISOString():null}};
+}
+function preserveBinanceSafety(incoming) {
+  const previous=state.binanceCollection;if(!previous)return;
+  let changed=false;const byId=new Map(previous.portfolios.map(feed=>[feed.portfolioId,feed]));
+  for(const feed of incoming.portfolios){
+    const old=byId.get(feed.portfolioId);
+    if(hiddenBinanceFeed(feed)){byId.set(feed.portfolioId,withBinanceSafety(withBinanceSafety(hideBinancePayload(feed),feed),old));changed=true;}
+    else if(feed.source.refreshStopped){byId.set(feed.portfolioId,withBinanceSafety(old?{...old,source:{...old.source,status:hiddenBinanceFeed(old)?old.source.status:'stale',refreshStopped:true,errorCode:feed.source.errorCode}}:feed,feed));changed=true;}
+  }
+  if(incoming.source.refreshStopped){changed=true;for(const [id,feed]of byId)byId.set(id,withBinanceSafety(feed,incoming.portfolios.find(p=>p.portfolioId===id)));}
+  if(!changed)return;
+  const safe={...previous,source:incoming.source.refreshStopped?{...incoming.source}:previous.source,portfolios:[...byId.values()]};
+  installBinance(BinanceData.parseCollection(safe),state.binanceReadFailed,state.binanceCheckedAt);savePublicSnapshot('binance',safe,state.binanceReadFailed);
+}
 function refreshBinance() {
   if(typeof BinanceData==='undefined')return Promise.resolve();
   return sharedRequest('binanceRequest',async()=>{
@@ -400,7 +427,10 @@ function refreshBinance() {
       if(!response.ok||Number(response.headers.get('content-length'))>maxBytes)fail();
       const reader=response.body.getReader(),chunks=[];let bytes=0;
       while(true){const {done,value}=await reader.read();if(done)break;bytes+=value.byteLength;if(bytes>maxBytes){await reader.cancel();fail();}chunks.push(value);}
-      const collection=BinanceData.parseCollection(JSON.parse(await new Blob(chunks).text()));
+      const parsed=BinanceData.parseCollection(JSON.parse(await new Blob(chunks).text()));
+      const collection={...parsed,portfolios:parsed.portfolios.map(feed=>{const next=hideBinancePayload(feed);return hiddenBinanceFeed(feed)||feed.source.refreshStopped||parsed.source.refreshStopped?withBinanceSafety(withBinanceSafety(next,feed),state.binanceCollection?.portfolios.find(p=>p.portfolioId===feed.portfolioId)):next;})};
+      preserveBinanceSafety(collection);
+      if(state.binanceCollection){const previous=state.binanceCollection,newer=Date.parse(collection.generatedAt)>Date.parse(previous.generatedAt);if(previous.source.refreshStopped&&!collection.source.refreshStopped&&(!newer||previous.portfolios.some(old=>{const next=collection.portfolios.find(p=>p.portfolioId===old.portfolioId);return !next||!(Date.parse(next.source.lastAttemptAt)>binanceSafetyWatermark(old));})))fail();for(const incoming of collection.portfolios){const old=previous.portfolios.find(p=>p.portfolioId===incoming.portfolioId);if(old&&(hiddenBinanceFeed(old)||old.source.refreshStopped)&&!hiddenBinanceFeed(incoming)&&!incoming.source.refreshStopped&&(!newer||!(Date.parse(incoming.source.lastAttemptAt)>binanceSafetyWatermark(old))))fail();}}
       if(Date.parse(collection.generatedAt)>Date.now()+5000)fail();
       if(state.binanceCollection&&Date.parse(collection.generatedAt)<Date.parse(state.binanceCollection.generatedAt))fail();
       for(const incoming of collection.portfolios){const old=state.binanceCollection?.portfolios.find(p=>p.portfolioId===incoming.portfolioId);if(!collection.source.refreshStopped&&incoming.profile.visibility==='public'&&!incoming.source.refreshStopped&&incoming.source.status==='ready'&&old?.source.lastAttemptAt&&incoming.source.lastAttemptAt&&Date.parse(incoming.source.lastAttemptAt)<Date.parse(old.source.lastAttemptAt))fail();}
@@ -452,7 +482,7 @@ function renderBinanceDetail(r,b) {
     binanceTable(b,'持仓变化观察',['观察时间','品种','方向','观察结果','之前数量','之后数量'],view.observations.map(o=>[sourceTime(o.to),o.symbol,liveSide(o.side.toLowerCase()),kinds[o.kind]||o.kind,o.before,o.after]),'变化由快照比较得出；首次观察不是开仓，归零不代表已确认成交。');return;
   }
   const orderNote='有限订单样本，非完整流水；不按广场表现周期裁剪。'+(view.orders.fetchedAt?' 采集 '+timeLabel(view.orders.fetchedAt):'')+(view.orders.status==='stale'?' · 上次成功样本，待更新':'');
-  binanceTable(b,'近 7 天订单样本',['订单时间','更新时间','品种','买卖','持仓方向','类型','成交数量','成交均价','已实现盈亏'],view.orders.rows.map(o=>[sourceTime(o.orderTime),sourceTime(o.orderUpdateTime),o.symbol,liveSide(o.side.toLowerCase()),liveSide(o.positionSide.toLowerCase()),o.type,o.executedQty,o.avgPrice,o.totalPnl]),orderNote);
+  binanceTable(b,'订单样本',['订单时间','更新时间','品种','买卖','持仓方向','类型','成交数量','成交均价','已实现盈亏'],view.orders.rows.map(o=>[sourceTime(o.orderTime),sourceTime(o.orderUpdateTime),o.symbol,liveSide(o.side.toLowerCase()),liveSide(o.positionSide.toLowerCase()),o.type,o.executedQty,o.avgPrice,o.totalPnl]),orderNote);
   binanceTable(b,'历史仓位样本',['开仓时间','结束时间','品种','方向','开仓均价','平仓均价','平仓数量','已实现盈亏'],view.closedPositions.rows.map(p=>[sourceTime(p.opened),sourceTime(p.closed),p.symbol,liveSide(p.side.toLowerCase()),p.avgCost,p.avgClosePrice,p.closedVolume,p.closingPnl]),'有限历史样本，非完整交割单。'+(view.closedPositions.fetchedAt?' 采集 '+timeLabel(view.closedPositions.fetchedAt):'')+(view.closedPositions.status==='stale'?' · 上次成功样本，待更新':''));
 }
 function positionSummary(now=Date.now()) {
