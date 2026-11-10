@@ -26,7 +26,7 @@ concurrency:
 jobs:
   collect-build:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 45
     permissions:
       contents: write
       pages: read
@@ -53,6 +53,8 @@ jobs:
           node audit/trader-analytics-collector-unit.cjs
           node --check scripts/collect_trader_portfolios.cjs
           node audit/trader-portfolio-collector-unit.cjs
+          node --check scripts/refresh_trader_positions.cjs
+          node audit/refresh-trader-positions-unit.cjs
           node audit/trader-unit.cjs
 
       - name: Test snapshot validation and last-good handling
@@ -61,6 +63,11 @@ jobs:
       # UI-only pushes reuse snapshots. Positions-only recovery rechecks holdings but retains analytics timestamps.
       # Scheduled runs always collect all data; delayed push events checking out newer code also collect fully.
       # Tests, commit consistency checks, and deployment remain required for every push.
+      - name: Record this collection start
+        if: github.event_name != 'push' || !contains(github.event.head_commit.message, '[ui-only]') || github.event.after != steps.checkout.outputs.commit
+        shell: bash
+        run: printf 'BOOKS_COLLECTION_STARTED_AT=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
+
       - name: Collect one public Hyperliquid snapshot
         if: github.event_name != 'push' || !contains(github.event.head_commit.message, '[ui-only]') || github.event.after != steps.checkout.outputs.commit
         # Source failures produce a stale last-good snapshot, not invented data.
@@ -90,6 +97,18 @@ jobs:
         # At most 900 weight/minute; a 403/429 stops the batch. No raw fills are published.
         # A cold batch may take up to 22 minutes; missing/old accounts go first next time.
         run: node scripts/collect_trader_analytics.cjs --portfolio-status trader/portfolios.json
+
+      - name: Reverify holdings after the long analytics batch
+        if: >-
+          (github.event_name != 'push' || !contains(github.event.head_commit.message, '[ui-only]') || github.event.after != steps.checkout.outputs.commit) &&
+          !(github.event_name == 'workflow_dispatch' && inputs.refresh_scope == 'positions') &&
+          !(github.event_name == 'push' && contains(github.event.head_commit.message, '[positions-only]') && github.event.after == steps.checkout.outputs.commit)
+        # Do not publish holdings that aged while win rates were calculated.
+        # Any same-run 403/429 stops this final check; the wrapper validates all three source statuses.
+        shell: bash
+        run: |
+          sleep 60
+          node scripts/refresh_trader_positions.cjs --not-before "$BOOKS_COLLECTION_STARTED_AT"
 
       - name: Save the snapshot without overwriting concurrent edits
         id: snapshot
