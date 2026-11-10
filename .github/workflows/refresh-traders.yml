@@ -70,6 +70,8 @@ jobs:
           node audit/trader-portfolio-collector-unit.cjs
           node --check scripts/resolve_trader_refresh_mode.cjs
           node audit/trader-refresh-mode-unit.cjs
+          node --check scripts/hyperliquid_run_guard.cjs
+          node audit/hyperliquid-run-guard-unit.cjs
           node --check scripts/refresh_trader_positions.cjs
           node audit/refresh-trader-positions-unit.cjs
           node audit/trader-unit.cjs
@@ -83,37 +85,48 @@ jobs:
       - name: Test snapshot validation and last-good handling
         run: python3 -B audit/hyperliquid-collector-test.py
 
+      - name: Check persisted Hyperliquid source refusals
+        id: hyperliquid-guard
+        if: steps.refresh-mode.outputs.mode != 'skip'
+        shell: bash
+        run: |
+          set -euo pipefail
+          gate=$(node scripts/hyperliquid_run_guard.cjs)
+          case "$gate" in allowed=true|allowed=false) ;; *) exit 1 ;; esac
+          printf '%s\n' "$gate" >> "$GITHUB_OUTPUT"
+          printf 'Hyperliquid persisted-source guard: %s\n' "$gate" >> "$GITHUB_STEP_SUMMARY"
+
       # Scope applies to Hyperliquid only; Binance's independent guards remain required.
       # Positions preserve analysis files and their original timestamps; full also refreshes analytics.
       # UI-only pushes reuse Hyperliquid snapshots. Tests and deployment remain required.
       - name: Record this collection start
-        if: steps.refresh-mode.outputs.mode != 'skip'
+        if: steps.refresh-mode.outputs.mode != 'skip' && steps.hyperliquid-guard.outputs.allowed == 'true'
         shell: bash
         run: printf 'BOOKS_COLLECTION_STARTED_AT=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
 
       - name: Collect one public Hyperliquid snapshot
-        if: steps.refresh-mode.outputs.mode != 'skip'
+        if: steps.refresh-mode.outputs.mode != 'skip' && steps.hyperliquid-guard.outputs.allowed == 'true'
         # Source failures produce a stale last-good snapshot, not invented data.
         run: python3 -B scripts/collect_hyperliquid.py
 
       - name: Precompute native and 90/180/365-day portfolio windows
-        if: steps.refresh-mode.outputs.mode == 'full'
+        if: steps.refresh-mode.outputs.mode == 'full' && steps.hyperliquid-guard.outputs.allowed == 'true'
         # At most 600 weight/minute; only real source samples are retained.
         run: node scripts/collect_trader_portfolios.cjs
 
       - name: Separate shared API rate windows
-        if: steps.refresh-mode.outputs.mode == 'full'
+        if: steps.refresh-mode.outputs.mode == 'full' && steps.hyperliquid-guard.outputs.allowed == 'true'
         # The next worker has its own rolling budget. Let this source's prior window expire.
         run: sleep 60
 
       - name: Precompute closing-fill win rates with persistent last-good cache
-        if: steps.refresh-mode.outputs.mode == 'full'
+        if: steps.refresh-mode.outputs.mode == 'full' && steps.hyperliquid-guard.outputs.allowed == 'true'
         # At most 900 weight/minute; a 403/429 stops the batch. No raw fills are published.
         # A cold batch may take up to 22 minutes; missing/old accounts go first next time.
         run: node scripts/collect_trader_analytics.cjs --portfolio-status trader/portfolios.json
 
       - name: Reverify holdings after the long analytics batch
-        if: steps.refresh-mode.outputs.mode == 'full'
+        if: steps.refresh-mode.outputs.mode == 'full' && steps.hyperliquid-guard.outputs.allowed == 'true'
         # Do not publish holdings that aged while win rates were calculated.
         # Any same-run 403/429 stops this final check; the wrapper validates all three source statuses.
         shell: bash
