@@ -6,7 +6,7 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'">
   <meta name="referrer" content="no-referrer">
   <meta name="robots" content="noindex,nofollow">
-  <title>Books · 币安带单员观察</title>
+  <title>Books · 币安带单员监控</title>
   <link rel="stylesheet" href="../../books-ui.css">
   <link rel="stylesheet" href="./monitor.css">
   <script defer src="./monitor.js"></script>
@@ -27,15 +27,23 @@
     <header class="page-header">
       <div>
         <p class="eyebrow">BINANCE · PUBLIC PORTFOLIO</p>
-        <h1 id="trader-name">爱喝快乐肥宅水</h1>
+        <h1>币安带单员监控</h1>
         <p class="intro">公开仓位与交易记录观察</p>
       </div>
       <div class="header-actions">
-        <a id="source-link" href="https://www.binance.com/en/copy-trading/lead-details/5156287639231681792" target="_blank" rel="noopener noreferrer">币安来源 ↗</a>
         <button id="refresh" type="button">刷新本站快照</button>
       </div>
     </header>
-    <p class="identity">币安合约带单组合 · <span id="portfolio-id">5156287639231681792</span></p>
+    <section class="portfolio-picker" aria-labelledby="picker-title">
+      <h2 id="picker-title">选择账号</h2>
+      <p id="selection-note" class="hint" role="status" aria-live="polite">正在读取监控名单…</p>
+      <nav id="portfolio-nav" aria-label="监控账号"></nav>
+    </section>
+    <div class="selected-heading">
+      <div><p class="eyebrow">SELECTED PORTFOLIO</p><h2 id="trader-name">请选择账号</h2></div>
+      <a id="source-link" target="_blank" rel="noopener noreferrer" hidden>币安来源 ↗</a>
+    </div>
+    <p class="identity">币安合约带单组合 · <span id="portfolio-id">—</span></p>
     <section class="status-panel" aria-labelledby="status-title">
       <div class="status-heading"><h2 id="status-title">数据状态</h2><span id="status-badge" class="badge" data-state="unavailable">等待读取</span></div>
       <p id="status-message" role="status" aria-live="polite">正在读取本站快照…</p>

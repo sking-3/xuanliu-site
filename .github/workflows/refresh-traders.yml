@@ -60,6 +60,7 @@ jobs:
           node --check scripts/collect_binance.cjs
           node --check trader/binance/monitor.js
           node audit/binance-collector-unit.cjs
+          node audit/binance-multi-unit.cjs
           node audit/binance-run-guard-unit.cjs
           node audit/binance-ui-unit.cjs
 
@@ -144,7 +145,7 @@ jobs:
             echo '::error::main changed during collection. Skipping this deployment; a later run will use the new version.'
             exit 1
           fi
-          git add -- trader/feed.json trader/analytics.json trader/portfolios.json trader/binance/snapshot.json
+          git add -- trader/feed.json trader/analytics.json trader/portfolios.json trader/binance/snapshot.json trader/binance/portfolios.json
           if ! git diff --cached --quiet; then
             git config user.name 'github-actions[bot]'
             git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
@@ -168,6 +169,7 @@ jobs:
           test -s "$RUNNER_TEMP/books-pages/trader/analytics.json"
           test -s "$RUNNER_TEMP/books-pages/trader/portfolios.json"
           test -s "$RUNNER_TEMP/books-pages/trader/binance/snapshot.json"
+          test -s "$RUNNER_TEMP/books-pages/trader/binance/portfolios.json"
           # Raw downloads and test temporary files are never part of git archive.
 
       - name: Upload Pages artifact
