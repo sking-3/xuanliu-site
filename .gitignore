@@ -1,1 +1,7 @@
 audit/browser-output/
+
+# Binance monitor runtime state stays in Actions artifacts, never Pages.
+tools/binance_watch/__pycache__/
+tools/binance_watch/*.sqlite3*
+tools/binance_watch/*.db*
+tools/binance_watch/*.log

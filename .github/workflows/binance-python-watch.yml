@@ -1,0 +1,144 @@
+name: Bounded Binance Python watch
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'tools/binance_watch/**'
+      - '.github/workflows/binance-python-watch.yml'
+  pull_request:
+    paths:
+      - 'tools/binance_watch/**'
+      - '.github/workflows/binance-python-watch.yml'
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: 'Prepared runtime, 1–14 minutes; source execution is currently disabled'
+        required: true
+        default: '14'
+        type: string
+  # No active schedule until source permission and polling limits are verified.
+  # Proposed schedule for later code review: 3,18,33,48 * * * *
+
+permissions:
+  contents: read
+  actions: read
+
+# Independent of Pages. GitHub may replace an older pending run; only proven
+# never-started source steps may be skipped during checkpoint handoff.
+concurrency:
+  group: binance-python-watch-${{ github.event_name == 'pull_request' && github.event.pull_request.number || 'main' }}
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  test:
+    name: Offline monitor tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run fixture tests without source requests
+        run: python -m unittest discover -s tools/binance_watch -p 'test_*.py' -v
+
+  monitor:
+    name: Monitor public positions
+    # Deliberately disabled in code. Source permission/frequency verification
+    # and a reviewed code change are required before any real polling begins.
+    # A dispatch input or repository variable cannot override this gate.
+    if: ${{ false && github.event_name != 'pull_request' && github.repository == 'sking-3/xuanliu-site' && github.ref == 'refs/heads/main' }}
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # The existing snapshot collector uses the same lock. This can create long
+    # gaps; expired scheduled watch jobs skip source requests rather than catch up.
+    concurrency:
+      group: binance-public-source
+      queue: max
+      cancel-in-progress: false
+    steps:
+      - name: Initialize runner state paths
+        shell: bash
+        run: |
+          printf 'WATCH_STATE_DIR=%s\n' "$RUNNER_TEMP/binance-watch" >> "$GITHUB_ENV"
+          printf 'WATCH_SELECTION=%s\n' "$RUNNER_TEMP/binance-watch-selection.json" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Record actual checked out main commit
+        shell: bash
+        run: |
+          actual_sha=$(git rev-parse HEAD)
+          printf 'WATCH_CHECKOUT_SHA=%s\n' "$actual_sha" >> "$GITHUB_ENV"
+          printf 'Event commit: %s\nActual main checkout: %s\n' "$GITHUB_SHA" "$actual_sha" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify tests on the actual main checkout
+        run: python -m unittest discover -s tools/binance_watch -p 'test_*.py' -v
+      - name: Select exact prior checkpoint
+        id: prior
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WATCH_MINUTES: ${{ inputs.minutes || '14' }}
+        run: python tools/binance_watch/actions_state.py select --directory "$WATCH_STATE_DIR" --selection "$WATCH_SELECTION"
+      - name: Restore exact prior checkpoint
+        if: steps.prior.outputs.duration_seconds != '0' && steps.prior.outputs.restore_run_id != ''
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ steps.prior.outputs.restore_artifact_id }}
+          run-id: ${{ steps.prior.outputs.restore_run_id }}
+          github-token: ${{ github.token }}
+          repository: sking-3/xuanliu-site
+          path: ${{ env.WATCH_STATE_DIR }}
+          merge-multiple: true
+      - name: Validate checkpoint and stop state
+        if: steps.prior.outputs.duration_seconds != '0'
+        run: python tools/binance_watch/actions_state.py validate --directory "$WATCH_STATE_DIR" --selection "$WATCH_SELECTION"
+      - name: Verify the other Binance collector ended safely
+        if: steps.prior.outputs.duration_seconds != '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          guard=$(node scripts/binance_run_guard.cjs)
+          if [ "$guard" != "ok" ]; then
+            echo 'The existing Binance collector is not verified safe; source requests skipped.' >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+      - name: Recheck remaining schedule budget
+        id: budget
+        if: steps.prior.outputs.duration_seconds != '0'
+        run: python tools/binance_watch/actions_state.py budget --directory "$WATCH_STATE_DIR" --selection "$WATCH_SELECTION"
+      # Keep this step name stable: handoff examines it to distinguish a source
+      # attempt from a job that failed before any source request was possible.
+      - name: Poll public positions
+        id: monitor
+        if: steps.budget.outputs.duration_seconds != '' && steps.budget.outputs.duration_seconds != '0'
+        run: >-
+          python tools/binance_watch/monitor.py
+          --interval 5
+          --duration-seconds "${{ steps.budget.outputs.duration_seconds }}"
+          --state-db "$WATCH_STATE_DIR/state.sqlite3"
+          --repo-snapshot trader/binance/portfolios.json
+      - name: Seal terminal checkpoint
+        if: always() && steps.monitor.outcome != 'skipped' && steps.monitor.outcome != ''
+        run: python tools/binance_watch/actions_state.py seal --directory "$WATCH_STATE_DIR" --selection "$WATCH_SELECTION"
+      - name: Preserve checkpoint including durable source stops
+        if: always() && steps.monitor.outcome != 'skipped' && steps.monitor.outcome != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: binance-watch-state
+          path: |
+            ${{ env.WATCH_STATE_DIR }}/state.sqlite3
+            ${{ env.WATCH_STATE_DIR }}/checkpoint.json
+          if-no-files-found: error
+          retention-days: 30
+          overwrite: false
