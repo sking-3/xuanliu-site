@@ -1,0 +1,128 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-11-10T09:42:29Z",
+  "cards": {
+    "sentiment": {
+      "status": "ready",
+      "sourceName": "Alternative.me",
+      "sourceUrl": "https://alternative.me/crypto/fear-and-greed-index/",
+      "sourceUpdatedAt": "2026-11-10T00:00:00Z",
+      "fetchedAt": "2026-11-10T09:40:02Z",
+      "lastAttemptAt": "2026-11-10T09:39:54Z",
+      "asOf": "2026-11-10T00:00:00Z",
+      "errorCode": null,
+      "data": {
+        "value": 32,
+        "previous": 29,
+        "classification": "Fear"
+      }
+    },
+    "valuation": {
+      "status": "ready",
+      "sourceName": "中证指数",
+      "sourceUrl": "https://oss-ch.csindex.com.cn/static/html/csindex/public/uploads/indices/detail/files/zh_CN/000300factsheet.pdf",
+      "sourceUpdatedAt": "2026-11-03T08:41:20Z",
+      "fetchedAt": "2026-11-10T09:40:13Z",
+      "lastAttemptAt": "2026-11-10T09:40:02Z",
+      "asOf": "2026-10-29T16:00:00Z",
+      "errorCode": null,
+      "data": {
+        "name": "沪深300",
+        "indexCode": "000300",
+        "pe": 12.61,
+        "pb": 1.3,
+        "dividendYield": 2.73
+      }
+    },
+    "flows": {
+      "status": "ready",
+      "sourceName": "美国财政部 TIC",
+      "sourceUrl": "https://home.treasury.gov/data/treasury-international-capital-tic-system-home-page/tic-forms-instructions/securities-a-us-transactions-with-foreign-residents-in-long-term-securities",
+      "sourceUpdatedAt": "2026-10-16T20:06:51Z",
+      "fetchedAt": "2026-11-10T09:40:20Z",
+      "lastAttemptAt": "2026-11-10T09:40:13Z",
+      "asOf": "2026-08-31T00:00:00Z",
+      "errorCode": null,
+      "data": {
+        "period": "2026-08",
+        "netMillions": 300724.0,
+        "treasuryMillions": 108908.0,
+        "agencyMillions": -3746.0,
+        "corporateMillions": 41620.0,
+        "equityMillions": 153942.0
+      }
+    },
+    "active": {
+      "status": "ready",
+      "sourceName": "Alternative.me",
+      "sourceUrl": "https://alternative.me/crypto/",
+      "sourceUpdatedAt": "2026-11-10T09:37:56Z",
+      "fetchedAt": "2026-11-10T09:40:27Z",
+      "lastAttemptAt": "2026-11-10T09:40:21Z",
+      "asOf": "2026-11-10T09:37:56Z",
+      "errorCode": null,
+      "data": {
+        "universe": "Alternative.me 返回的成交额前10样本 · 收录 190 币种 · 含稳定币",
+        "items": [
+          {
+            "symbol": "USDT",
+            "name": "Tether",
+            "volumeUsd": 42098542364.0,
+            "change24h": 0.00173,
+            "lastUpdated": "2026-11-10T09:37:56Z"
+          },
+          {
+            "symbol": "BTC",
+            "name": "Bitcoin",
+            "volumeUsd": 24771422480.0,
+            "change24h": 0.00201,
+            "lastUpdated": "2026-11-10T09:37:56Z"
+          },
+          {
+            "symbol": "ETH",
+            "name": "Ethereum",
+            "volumeUsd": 9591459253.0,
+            "change24h": -0.65965,
+            "lastUpdated": "2026-11-10T09:37:56Z"
+          }
+        ]
+      }
+    },
+    "macro": {
+      "status": "ready",
+      "sourceName": "美国劳工统计局 BLS",
+      "sourceUrl": "https://www.bls.gov/",
+      "sourceUpdatedAt": "2026-11-06T12:50:31Z",
+      "fetchedAt": "2026-11-10T09:40:42Z",
+      "lastAttemptAt": "2026-11-10T09:40:27Z",
+      "asOf": "2026-11-06T12:50:31Z",
+      "errorCode": null,
+      "data": {
+        "latest": {
+          "title": "Payroll employment rises by 165,000 in October; unemployment rate changes little at 4.1%",
+          "url": "https://www.bls.gov/news.release/archives/empsit_11062026.htm",
+          "publishedAt": "2026-11-06T12:50:31Z",
+          "updatedAt": "2026-11-06T12:50:31Z"
+        },
+        "events": [
+          {
+            "title": "Consumer Price Index",
+            "startAt": "2026-11-10T13:30:00Z",
+            "url": "https://www.bls.gov/schedule/news_release/"
+          },
+          {
+            "title": "Producer Price Index",
+            "startAt": "2026-11-13T13:30:00Z",
+            "url": "https://www.bls.gov/schedule/news_release/"
+          },
+          {
+            "title": "Employment Situation",
+            "startAt": "2026-12-04T13:30:00Z",
+            "url": "https://www.bls.gov/schedule/news_release/"
+          }
+        ]
+      }
+    }
+  },
+  "sourceStops": {}
+}
