@@ -109,7 +109,7 @@ function validateSource(p,rows) {
   return result;
 }
 function validatePortfolioCache(p) {
-  if(!p||typeof p!=='object'||Array.isArray(p)||p.schemaVersion!==1||p.methodVersion!=='portfolio-periods-v1'||!p.accounts||typeof p.accounts!=='object'||Array.isArray(p.accounts)||Object.keys(p.accounts).length>200)fail();
+  if(!p||typeof p!=='object'||Array.isArray(p)||p.schemaVersion!==1||p.methodVersion!=='portfolio-periods-v2'||!p.accounts||typeof p.accounts!=='object'||Array.isArray(p.accounts)||Object.keys(p.accounts).length>200)fail();
   const generatedAt=date(p.generatedAt),generated=Date.parse(generatedAt),accounts=Object.create(null),now=Date.now();if(generated>now+5000)fail();
   const metric=v=>v===null?null:typeof v==='number'&&Number.isFinite(v)&&Math.abs(v)<1e20?v:fail();
   const count=v=>Number.isSafeInteger(v)&&v>=0&&v<=20000?v:fail();
@@ -119,12 +119,12 @@ function validatePortfolioCache(p) {
     const fetchedAt=stamp(entry.fetchedAt),lastAttemptAt=stamp(entry.lastAttemptAt),errorCode=entry.errorCode==null?null:text(entry.errorCode,80);
     for(const value of [fetchedAt,lastAttemptAt])if(value&&(Date.parse(value)>generated+5000||Date.parse(value)>now+5000))fail();
     if(entry.portfolio===null){if(fetchedAt!==null||entry.status!=='unavailable')fail();accounts[address]={status:'unavailable',fetchedAt:null,lastAttemptAt,errorCode,portfolio:null};continue;}
-    if(!fetchedAt||entry.status==='unavailable'||!entry.portfolio||typeof entry.portfolio!=='object'||Array.isArray(entry.portfolio)||!entry.portfolio.windows||typeof entry.portfolio.windows!=='object'||Array.isArray(entry.portfolio.windows)||Object.keys(entry.portfolio.windows).length>6)fail();
+    if(!fetchedAt||entry.status==='unavailable'||!entry.portfolio||typeof entry.portfolio!=='object'||Array.isArray(entry.portfolio)||!entry.portfolio.windows||typeof entry.portfolio.windows!=='object'||Array.isArray(entry.portfolio.windows)||!Object.keys(entry.portfolio.windows).length||Object.keys(entry.portfolio.windows).length>6)fail();
     const windows={};
     for(const [period,w]of Object.entries(entry.portfolio.windows)) {
       if(!periods.includes(period)||!w||typeof w!=='object'||Array.isArray(w))fail();
-      const derived=derivedPeriods.includes(period),expectedSource=derived||period==='ALL'?'allTime':period==='7D'?'week':'month';
-      if(w.derived!==derived||w.sourcePeriod!==expectedSource||w.scope!=='all_account'||w.curveUnit!=='USD'||w.curveBasis!=='pnl_change_from_first_sample'||w.mddUnit!=='percent'||w.mddMethod!==(derived?'window_pnl_peak_equity':'hyperliquid_ui_pnl_peak_equity'))fail();
+      const derived=derivedPeriods.includes(period),expectedSource=derived||period==='ALL'?'perpAllTime':period==='7D'?'perpWeek':'perpMonth';
+      if(w.derived!==derived||w.sourcePeriod!==expectedSource||w.scope!=='perp_account'||w.curveUnit!=='USD'||w.curveBasis!=='pnl_change_from_first_sample'||w.mddUnit!=='percent'||w.mddMethod!==(derived?'window_pnl_peak_equity':'hyperliquid_ui_pnl_peak_equity'))fail();
       if(w.requestedDays!==(derived?parseInt(period,10):null)||!['source_window','full','sampled_boundary','insufficient_history'].includes(w.coverageStatus)||(!derived&&w.coverageStatus!=='source_window')||(derived&&w.coverageStatus==='source_window'))fail();
       const clean={derived,sourcePeriod:w.sourcePeriod,scope:w.scope,curveUnit:w.curveUnit,curveBasis:w.curveBasis,mddUnit:w.mddUnit,mddMethod:w.mddMethod,requestedDays:w.requestedDays,coverageStatus:w.coverageStatus,points:[]};
       for(const key of ['startAt','endAt','requestedStartAt','requestedEndAt','sourceHistoryStartAt','sourceHistoryEndAt']){clean[key]=stamp(w[key]);if(clean[key]&&(Date.parse(clean[key])>Date.parse(fetchedAt)+5000||Date.parse(clean[key])>now+5000))fail();}
@@ -151,12 +151,17 @@ function validatePortfolioCache(p) {
   }
   return {generatedAt,accounts};
 }
+function hasPortfolioWindowContract(w,period) {
+  const derived=derivedPeriods.includes(period),sourcePeriod=derived||period==='ALL'?'perpAllTime':period==='7D'?'perpWeek':'perpMonth';
+  return periods.includes(period)&&w?.scope==='perp_account'&&w.sourcePeriod===sourcePeriod&&w.derived===derived&&w.mddMethod===(derived?'window_pnl_peak_equity':'hyperliquid_ui_pnl_peak_equity')&&w.mddUnit==='percent';
+}
 function portfolioSection(r) {
   if(!isPublicAccount(r))return null;
   const live=state.analytics[r.accountId]?.portfolio,entry=state.portfolioCache[r.accountId];
-  if(live?.status==='ready'&&(!entry?.portfolio||Date.parse(live.fetchedAt||'')>=Date.parse(entry.fetchedAt)))return live;
+  const validLive=live?.status==='ready'&&live.windows&&Object.keys(live.windows).length>0&&Object.entries(live.windows).every(([period,w])=>hasPortfolioWindowContract(w,period));
+  if(validLive&&(!entry?.portfolio||Date.parse(live.fetchedAt||'')>=Date.parse(entry.fetchedAt)))return live;
   if(entry?.portfolio)return {...entry.portfolio,status:'ready',fetchedAt:entry.fetchedAt,lastAttemptAt:entry.lastAttemptAt,stale:state.portfolioCacheReadFailed||entry.status!=='ready'||Date.now()-Date.parse(entry.fetchedAt)>3600000};
-  return live||null;
+  return live?.status==='ready'&&!validLive?{status:'error',error:'portfolio_scope'}:live||null;
 }
 function performanceWindow(r,period) {
   if(!isPublicAccount(r)||!derivedPeriods.includes(period))return r.windows[period];
@@ -182,7 +187,7 @@ function fillPerformanceSummary(r,period,view) {
 }
 function sortValue(r,period,sort) {
   const w=performanceWindow(r,period),part=portfolioSection(r);
-  if(isPublicAccount(r)&&sort==='mdd')return null;
+  if(isPublicAccount(r)&&sort==='mdd')return sampledDrawdown(part?.status==='ready'?part.windows[period]:null,period);
   if(isPublicAccount(r)&&sort==='winRate')return cachedWin(r)?.win?.value??null;
   return sort==='winRate'?win(w):w?.[sort];
 }
@@ -190,9 +195,10 @@ function renderPreservingCardFocus() {
   const focused=state.analyticsViews.find(v=>v.kind==='card'&&(v.detailButton===document.activeElement||v.sourceLink===document.activeElement)),kind=focused?.detailButton===document.activeElement?'detailButton':'sourceLink';
   render();if(focused){const replacement=state.analyticsViews.find(v=>v.kind==='card'&&v.r.id===focused.r.id);(replacement?.[kind]||$('sort')).focus();}
 }
+function isPortfolioSort() {return $('sort').value==='mdd'||$('sort').value==='pnl'&&derivedPeriods.includes($('period').value);}
 function schedulePerformanceOrder() {
-  if(state.performanceOrderPending||state.loading||!['pnl','mdd'].includes($('sort').value)||!derivedPeriods.includes($('period').value)||$('source').value==='local')return;
-  state.performanceOrderPending=true;setTimeout(()=>{state.performanceOrderPending=false;if(!state.loading&&['pnl','mdd'].includes($('sort').value)&&derivedPeriods.includes($('period').value))renderPreservingCardFocus();},0);
+  if(state.performanceOrderPending||state.loading||!isPortfolioSort()||$('source').value==='local')return;
+  state.performanceOrderPending=true;setTimeout(()=>{state.performanceOrderPending=false;if(!state.loading&&isPortfolioSort()&&$('source').value!=='local')renderPreservingCardFocus();},0);
 }
 async function refreshPortfolioCache() {
   if(state.portfolioCacheLoading)return;state.portfolioCacheLoading=true;
@@ -309,7 +315,7 @@ function observeEmptyPositions(r,part) {
   state.positionExclusions[r.accountId]=excluded;reevaluatePositions();
 }
 function compactAccount(r) {return isPublicAccount(r)?r.accountId.slice(0,8)+'…'+r.accountId.slice(-6):r.accountId||r.id;}
-function displayPeriod(p,w) {return w?.derived?parseInt(p,10)+'天':({week:'周度',month:'月度',allTime:'来源累计'})[w?.sourcePeriod]||periodLabel(p);}
+function displayPeriod(p,w) {return w?.derived?parseInt(p,10)+'天':({week:'周度',month:'月度',allTime:'来源累计',perpWeek:'周度',perpMonth:'月度',perpAllTime:'来源累计'})[w?.sourcePeriod]||periodLabel(p);}
 function timeLabel(iso) {return new Date(iso).toLocaleString('zh-CN',{hour12:false});}
 function renderSource() {
   const s=state.source,stale=sourceIsStale();
@@ -382,16 +388,24 @@ function chart(w,kind='return') {
   } else {const line=document.createElementNS(svg.namespaceURI,'polyline');line.setAttribute('points',coordinates);svg.append(line);}
   el.append(svg); return el;
 }
-function mddReason(reason) {return ({non_positive_peak_equity:'该窗口部分峰值权益无效，无法计算完整回撤',unpaired_samples:'盈亏与权益采样时间不一致，无法计算回撤',insufficient_samples:'有效来源样本不足，无法计算回撤',no_valid_peak:'缺少有效峰值权益，无法计算回撤',invalid_denominator:'权益分母无效，无法计算回撤'})[reason]||'来源未提供可计算的完整回撤数据';}
+function mddReason(reason) {return ({non_positive_peak_equity:'峰值时的永续账户权益非正，无法计算采样盈亏回撤',unpaired_samples:'盈亏与永续权益采样时间不一致，无法计算采样盈亏回撤',insufficient_samples:'有效来源样本不足，无法计算采样盈亏回撤',no_valid_peak:'缺少有效的峰值权益，无法计算采样盈亏回撤',invalid_denominator:'永续权益分母无效，无法计算采样盈亏回撤'})[reason]||'尚未取得可核验的永续账户历史，采样盈亏回撤暂缺';}
+function sampledDrawdown(w,period) {
+  if(!hasPortfolioWindowContract(w,period)||w.mddUnavailableReason!==null||!Number.isFinite(w.mdd)||w.mdd<0||!Number.isSafeInteger(w.sampleCount)||w.sampleCount<2||w.mddPairedSampleCount!==w.sampleCount)return null;
+  return w.mdd;
+}
+function drawdownDescription(w,period) {
+  const value=sampledDrawdown(w,period);
+  return value===null?mddReason(w?.mddUnavailableReason):'采样盈亏回撤：累计盈亏从此前运行峰值的下跌额 ÷ 峰值时的永续账户权益，仅按有效正权益峰值取区间内最大比值；可能超过 100%，不是资金流调整净值的最大回撤。'+(derivedPeriods.includes(period)?'按所选实际采样区间重算，并非 Hyperliquid 官方直接发布的区间指标。':'参考 Hyperliquid 实际界面的计算方式。');
+}
 function metrics(w,currency,includeROI=false,r=null,period=null) {
   const el=node('div',undefined,'metrics');
   const publicAccount=r&&isPublicAccount(r),part=publicAccount?portfolioSection(r):null,window=part?.status==='ready'?part.windows[period]:null;
-  const drawdown=publicAccount?null:w?.mdd,winEntry=publicAccount?cachedWin(r):null;
-  const items=[['盈亏 '+currency,signedValue(w?.pnl,includeROI?money(w?.pnl,currency):compactMoney(w?.pnl,currency)),w?.pnl==null?'—':signedValue(w.pnl,money(w.pnl,currency))+' '+currency,directionClass(w?.pnl)],['最大回撤',pct(drawdown),undefined,drawdown==null?'':'negative'],[publicAccount?'平仓片段胜率':'逐笔胜率',pct(publicAccount?winEntry?.win?.value:win(w))]];
+  const drawdown=publicAccount?sampledDrawdown(window,period):w?.mdd,winEntry=publicAccount?cachedWin(r):null;
+  const items=[['盈亏 '+currency,signedValue(w?.pnl,includeROI?money(w?.pnl,currency):compactMoney(w?.pnl,currency)),w?.pnl==null?'—':signedValue(w.pnl,money(w.pnl,currency))+' '+currency,directionClass(w?.pnl)],[publicAccount?'采样盈亏回撤':'最大回撤',pct(drawdown),undefined,drawdown==null?'':'negative'],[publicAccount?'平仓片段胜率':'逐笔胜率',pct(publicAccount?winEntry?.win?.value:win(w))]];
   if(includeROI)items.unshift(['收益率',signedValue(w?.roi,pct(w?.roi)),undefined,directionClass(w?.roi)]);
   for(const [label,v,exact,color]of items) {
     const c=node('div'),amount=node('strong',v,color);amount.setAttribute('title',exact||v);c.append(node('small',label),amount);
-    if(publicAccount&&label==='最大回撤')amount.setAttribute('title','缺少可核验的资金调整净值，暂不提供标准最大回撤');
+    if(publicAccount&&label==='采样盈亏回撤')amount.setAttribute('title',drawdownDescription(window,period));
     if(publicAccount&&label==='平仓片段胜率')amount.setAttribute('title',winEntry?.win?`${winEntry.win.eligibleCount} 笔近期永续平仓片段，独立于所选表现周期；不含现货、开仓及其他不符合口径的成交，非完整订单或开平仓回合；${winEntry.win.eligibleCount?'样本 '+timeLabel(winEntry.win.startAt)+' 至 '+timeLabel(winEntry.win.endAt)+'；':''}盈利 ${winEntry.win.winning} · 亏损 ${winEntry.win.losing} · 持平 ${winEntry.win.breakeven}；仅扣平仓成交手续费，未扣开仓手续费和资金费；采集 ${timeLabel(winEntry.fetchedAt)}${winCacheIsStale(winEntry)?'；上次成功结果，待更新':''}`:'尚未取得有效后台统计；资料不足时留空');
     el.append(c);
   }
@@ -416,6 +430,7 @@ function refreshAnalyticsViews(address) {
     if(view.kind==='detail') {
       const portfolio=portfolioSection(view.r),window=portfolio?.windows?.[view.period],entry=cachedWin(view.r),win=entry?.win;
       view.portfolioStatus.textContent=portfolio?.status==='ready'?(window?.sampleCount>1?`来源采样 ${window.sampleCount} 点 · ${timeLabel(window.startAt)} 至 ${timeLabel(window.endAt)}${derivedPeriods.includes(view.period)?' · '+performanceRange(view.r,view.period):''}${portfolio.fetchedAt?' · 采集 '+timeLabel(portfolio.fetchedAt):''}${portfolio.stale?' · 上次成功采样':''}`:'来源未提供当前周期的有效曲线样本。'):portfolio?.status==='error'?'曲线读取失败，尚未取得可用数据。':portfolio?.status==='queued'?'正在排队读取来源盈亏曲线…':portfolio?.status==='loading'?'正在读取来源盈亏曲线…':'尚未取得当前窗口的盈亏曲线。';
+      if(portfolio?.status==='ready'&&window)view.portfolioStatus.textContent+=' · '+drawdownDescription(window,view.period);
       view.winStatus.textContent=win?(win.eligibleCount?`永续平仓片段 ${win.eligibleCount} 笔 · 盈利 ${win.winning} · 亏损 ${win.losing} · 持平 ${win.breakeven}；样本 ${timeLabel(win.startAt)} 至 ${timeLabel(win.endAt)}`:'最近成交中没有可统计的永续平仓样本。')+` · 来源返回 ${win.receivedFills} 条 → 有效 ${win.eligibleCount}、排除 ${win.excludedCount}${win.duplicateCount?'、重复 '+win.duplicateCount:''}${win.capped?' · 达到 2000 条上限，可能截断更早历史':' · 仅近期样本，非完整历史'} · 后台采集 ${timeLabel(entry.fetchedAt)}${entry.lastAttemptAt?' · 最近尝试 '+timeLabel(entry.lastAttemptAt):''}${winCacheIsStale(entry)?' · 上次成功结果，等待后台更新':''}`:'后台尚未取得有效平仓样本；取得后自动显示。'+(entry?.lastAttemptAt?' · 最近尝试 '+timeLabel(entry.lastAttemptAt):'');
       view.winStatus.setAttribute('data-state',winCacheIsStale(entry)?'stale':win?'ready':'unavailable');
       view.portfolioButton.hidden=portfolio?.status!=='error';view.portfolioButton.disabled=['queued','loading'].includes(portfolio?.status);
@@ -474,7 +489,8 @@ function render() {
   const available=state.rows.filter(r=>qualifiedPosition(r)&&((source==='local')?r._local:!r._local));
   let rows=available.filter(r=>(r.name+' '+r.id+' '+r.accountId+' '+r.exchange+' '+r.note).toLocaleLowerCase().includes(q) && ($('exchange').value==='all'||r.exchange===$('exchange').value) && (source==='all'||source==='local'&&r._local||source==='paid'&&r.paid||source==='public'&&!r._local&&!r.paid) && (currency==='all'||r.currency===currency));
   const winSortOption=[...$('sort').options].find(option=>option.value==='winRate');if(winSortOption)winSortOption.textContent=source==='local'?'逐笔胜率 ↓':'平仓片段胜率 ↓';
-  $('sort-hint').textContent=$('sort').value==='winRate'?(source==='local'?'按已记录逐笔胜率排序 · 缺数账户排在后面':'按近期永续平仓片段胜率排序 · 缺数账户排在后面'):$('sort').value==='mdd'?($('source').value==='local'?'按已记录最大回撤排序 · 缺数账户排在后面':'公开账户标准最大回撤暂缺 · 缺数账户排在后面'):'按永续持仓筛选 · 表现采用来源账户口径';
+  const mddSortOption=[...$('sort').options].find(option=>option.value==='mdd');if(mddSortOption)mddSortOption.textContent=source==='local'?'最大回撤 ↑':'采样盈亏回撤 ↑';
+  $('sort-hint').textContent=$('sort').value==='winRate'?(source==='local'?'按已记录逐笔胜率排序 · 缺数账户排在后面':'按近期永续平仓片段胜率排序 · 缺数账户排在后面'):$('sort').value==='mdd'?($('source').value==='local'?'按已记录最大回撤排序 · 缺数账户排在后面':'按采样盈亏回撤排序 · 缺数账户排在后面'):'按永续持仓筛选 · 收益率沿用来源榜单';
   const sort=$('sort').value,grouped=sort==='pnl'&&currency==='all'&&new Set(rows.map(r=>r.currency)).size>1;
   rows.sort((a,b)=>{
     if(grouped&&a.currency!==b.currency)return currencies.indexOf(a.currency)-currencies.indexOf(b.currency);
@@ -612,7 +628,7 @@ function renderDetail() {
       }else {if(w.curve.length>1)b.append(chart(w));if(w.closedTrades!=null||w.wins!=null)b.append(node('p',`已关闭交易 ${value(w.closedTrades)} 笔 · 盈利交易 ${value(w.wins)} 笔`));}
     }
     else b.append(node('p','当前周期暂无表现记录。'));
-    if(isPublicAccount(r))b.append(node('p','周度、月度及来源累计的收益率与盈亏采用来源账户口径；按永续持仓筛选仅决定名单，不改变这些指标的来源范围。90/180/365天的区间盈亏按实际首末历史采样计算。标准最大回撤需要可核验的资金调整净值，目前暂缺，保持空值。曲线显示实际来源样本的盈亏变化。90/180/365天区间取来源累计历史中实际落入窗口的采样，不插值、不把累计收益率改名为区间收益率。来源累计仅代表已返回历史，非完整账户历史。平仓片段胜率仅按最近最多 2000 笔成交中的永续平仓片段统计，不包括现货和开仓成交，按该笔已实现盈亏扣平仓成交手续费判断盈亏，未扣除对应开仓手续费和资金费；持平计入分母。它不等同于完整订单、开平仓回合或当前所选周期的胜率。资料不足时留空。','detail-method'));
+    if(isPublicAccount(r))b.append(node('p','收益率沿用来源榜单；周度、月度及来源累计的盈亏也沿用来源榜单。曲线与采样盈亏回撤采用永续账户历史，90/180/365天的区间盈亏按永续历史的实际首末采样计算。采样盈亏回撤参考 Hyperliquid 实际界面算法：累计盈亏从此前运行峰值的下跌额除以峰值时的永续权益，仅按有效正权益峰值取最大比值；可以超过 100%，不代表资金流调整净值的最大回撤。周度、月度及来源累计按对应来源窗口计算，90/180/365天按实际采样区间重算，并非官方直接发布的区间指标。90/180/365天区间取来源累计历史中实际落入窗口的采样，不插值、不把累计收益率改名为区间收益率。来源累计仅代表已返回历史，非完整账户历史。平仓片段胜率仅按最近最多 2000 笔成交中的永续平仓片段统计，不包括现货和开仓成交，按该笔已实现盈亏扣平仓成交手续费判断盈亏，未扣除对应开仓手续费和资金费；持平计入分母。它不等同于完整订单、开平仓回合或当前所选周期的胜率。资料不足时留空。','detail-method'));
     if(r.note)b.append(node('h3','研究备注'),node('p',r.note,'profile-note'));
     b.append(sourceLink(r));return;
   }

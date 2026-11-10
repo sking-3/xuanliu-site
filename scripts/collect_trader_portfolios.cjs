@@ -9,11 +9,11 @@ const {performance} = require('node:perf_hooks');
 const analytics = require('../trader/account-analytics.js');
 const shared = require('./collect_trader_analytics.cjs');
 const INFO = 'https://api.hyperliquid.xyz/info';
-const METHOD_VERSION = 'portfolio-periods-v1';
+const METHOD_VERSION = 'portfolio-periods-v2';
 const LIMITS = Object.freeze({maxAccounts:200,weightPerMinute:600,requestWeight:20,intervalMs:60000,
   concurrency:2,timeoutMs:10000,batchMs:7*60000,freshMs:30*60000,staleMs:60*60000,
   maxBytes:5*1024*1024,maxFileBytes:12*1024*1024,maxPoints:120});
-const PERIODS={"7D":'week',"30D":'month',"90D":'allTime',"180D":'allTime',"365D":'allTime',ALL:'allTime'};
+const PERIODS={"7D":'perpWeek',"30D":'perpMonth',"90D":'perpAllTime',"180D":'perpAllTime',"365D":'perpAllTime',ALL:'perpAllTime'};
 const DAYS={"90D":90,"180D":180,"365D":365};
 const MDD_REASONS=new Set(['insufficient_samples','unpaired_samples','non_positive_peak_equity','no_valid_peak','invalid_denominator']);
 const ERROR_CODES = new Set(['http_403','http_429','network_error','request_timeout','batch_timeout','source_blocked',
@@ -30,16 +30,19 @@ function safeError(error) {
   const message=error?.message;
   return ERROR_CODES.has(message)||/^http_[45]\d\d$/.test(message||'')?message:'invalid_response';
 }
+function failureReport(error) {
+  return {status:'failed',errorCode:error?.message==='migration_no_verified_portfolios'?'migration_no_verified_portfolios':safeError(error)};
+}
 const blockedByFeed=shared.blockedByFeed;
 const selectAccounts=shared.selectAccounts;
 function validPortfolio(raw, fetchedAt) {
-  if(!plain(raw)||!plain(raw.windows)||Object.keys(raw.windows).length>6)return null;
+  if(!plain(raw)||!plain(raw.windows)||Object.keys(raw.windows).length===0||Object.keys(raw.windows).length>6)return null;
   const windows={};
   const finite=value=>typeof value==='number'&&Number.isFinite(value)&&Math.abs(value)<1e20;
   const close=(a,b)=>Math.abs(a-b)<=1e-8*Math.max(1,Math.abs(a),Math.abs(b));
   for(const [key,w] of Object.entries(raw.windows)) {
     if(!Object.hasOwn(PERIODS,key)||!plain(w)||w.sourcePeriod!==PERIODS[key]||w.curveUnit!=='USD'||
-      w.curveBasis!=='pnl_change_from_first_sample'||w.scope!=='all_account'||w.mddMethod!==(Object.hasOwn(DAYS,key)?'window_pnl_peak_equity':'hyperliquid_ui_pnl_peak_equity')||w.mddUnit!=='percent')return null;
+      w.curveBasis!=='pnl_change_from_first_sample'||w.scope!=='perp_account'||w.mddMethod!==(Object.hasOwn(DAYS,key)?'window_pnl_peak_equity':'hyperliquid_ui_pnl_peak_equity')||w.mddUnit!=='percent')return null;
     const derived=Object.hasOwn(DAYS,key),days=derived?DAYS[key]:null;
     if(w.derived!==derived||w.requestedDays!==days)return null;
     for(const name of ['sampleCount','sourceSampleCount','mddPairedSampleCount'])if(!Number.isSafeInteger(w[name])||w[name]<0||w[name]>20000)return null;
@@ -77,7 +80,7 @@ function validPortfolio(raw, fetchedAt) {
     }else if(w.coverageStatus!=='source_window'||w.sourceSampleCount!==w.sampleCount||w.sourceHistoryStartAt!==w.startAt||w.sourceHistoryEndAt!==w.endAt||w.requestedStartAt!==null||w.requestedEndAt!==w.endAt||Object.hasOwn(w,'roi'))return null;
     windows[key]={sourcePeriod:w.sourcePeriod,startAt:w.startAt,endAt:w.endAt,sampleCount:w.sampleCount,points,
       curveUnit:'USD',curveBasis:'pnl_change_from_first_sample',mdd:w.mdd,mddUnavailableReason:w.mddUnavailableReason,
-      mddPairedSampleCount:w.mddPairedSampleCount,mddMethod:w.mddMethod,mddUnit:'percent',scope:'all_account',pnl:w.pnl,
+      mddPairedSampleCount:w.mddPairedSampleCount,mddMethod:w.mddMethod,mddUnit:'percent',scope:'perp_account',pnl:w.pnl,
       derived,requestedDays:days,requestedStartAt:w.requestedStartAt,requestedEndAt:w.requestedEndAt,
       coverageDays:w.coverageDays,coverageStatus:w.coverageStatus,sourceHistoryStartAt:w.sourceHistoryStartAt,
       sourceHistoryEndAt:w.sourceHistoryEndAt,sourceSampleCount:w.sourceSampleCount,maxSampleGapMs:w.maxSampleGapMs,
@@ -199,8 +202,13 @@ async function main(args=process.argv.slice(2),dependencies={}) {
   for(let i=0;i<args.length;i++){if(args[i]==='--feed'&&args[i+1])feedPath=path.resolve(args[++i]);else if(args[i]==='--output'&&args[i+1])outputPath=path.resolve(args[++i]);else fail('invalid_arguments');}
   const io=dependencies.io||fs,feed=await readFileJson(feedPath,io);let previous=null;
   try{previous=await readFileJson(outputPath,io);}catch(error){if(!['ENOENT'].includes(error.code)&&!(error instanceof SyntaxError)&&error.message!=='cache_file_too_large')throw error;}
-  const result=await collect({feed,previous,...dependencies});await atomicWrite(outputPath,result,io);
+  const result=await collect({feed,previous,...dependencies});
+  // A failed scope migration must not replace a live legacy snapshot with an empty v2 file.
+  // Keep the previous file byte-for-byte and stop the workflow before later API stages.
+  if(plain(previous)&&previous.methodVersion!==METHOD_VERSION&&result.source.accounts>0&&result.source.available===0)
+    fail('migration_no_verified_portfolios');
+  await atomicWrite(outputPath,result,io);
   (dependencies.log||console.log)(JSON.stringify(result.source));return result;
 }
-module.exports={collect,main,selectAccounts,validatedCache,validPortfolio,compactPortfolio,readJsonResponse,atomicWrite,readFileJson,blockedByFeed,LIMITS,METHOD_VERSION};
-if(require.main===module)main().catch(error=>{console.error(JSON.stringify({status:'failed',errorCode:safeError(error)}));process.exitCode=1;});
+module.exports={collect,main,selectAccounts,validatedCache,validPortfolio,compactPortfolio,readJsonResponse,atomicWrite,readFileJson,blockedByFeed,failureReport,LIMITS,METHOD_VERSION};
+if(require.main===module)main().catch(error=>{console.error(JSON.stringify(failureReport(error)));process.exitCode=1;});

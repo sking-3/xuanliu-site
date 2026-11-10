@@ -201,7 +201,7 @@ async function main(args=process.argv.slice(2),dependencies={}) {
     const stat=await io.stat(portfolioStatusPath);if(stat.size>12*1024*1024)fail('invalid_portfolio_status');
     const raw=await io.readFile(portfolioStatusPath,'utf8');if(Buffer.byteLength(raw)>12*1024*1024)fail('invalid_portfolio_status');
     const status=JSON.parse(raw),generated=time(status.generatedAt),current=(dependencies.now||Date.now)();
-    if(status.schemaVersion!==1||status.methodVersion!=='portfolio-periods-v1'||!plain(status.source)||status.source.id!=='hyperliquid'||!['ready','partial','unavailable'].includes(status.source.status)||!Object.hasOwn(status.source,'stopCode')||![null,'http_403','http_429','batch_timeout','cancelled'].includes(status.source.stopCode)||!Number.isFinite(generated)||generated>current+5000||current-generated>600000)fail('invalid_portfolio_status');
+    if(status.schemaVersion!==1||status.methodVersion!=='portfolio-periods-v2'||!plain(status.source)||status.source.id!=='hyperliquid'||!['ready','partial','unavailable'].includes(status.source.status)||!Object.hasOwn(status.source,'stopCode')||![null,'http_403','http_429','batch_timeout','cancelled'].includes(status.source.stopCode)||!Number.isFinite(generated)||generated>current+5000||current-generated>600000)fail('invalid_portfolio_status');
     if(['http_403','http_429'].includes(status.source.stopCode))priorStopCode=status.source.stopCode;
   }
   const result=await collect({feed,previous,...dependencies,priorStopCode});await atomicWrite(outputPath,result,io);

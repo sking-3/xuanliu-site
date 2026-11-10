@@ -164,7 +164,7 @@ await test('a portfolio-stage block prevents all closing-fill requests',async()=
 });
 await test('CLI validates current portfolio stop status before using the API',async()=>{
   for(const code of ['http_403','http_429']) {
-    const status={schemaVersion:1,methodVersion:'portfolio-periods-v1',generatedAt:iso(T),source:{id:'hyperliquid',status:'unavailable',stopCode:code}};
+    const status={schemaVersion:1,methodVersion:'portfolio-periods-v2',generatedAt:iso(T),source:{id:'hyperliquid',status:'unavailable',stopCode:code}};
     const files=new Map([['/test/feed.json',JSON.stringify(feed())],['/test/portfolios.json',JSON.stringify(status)]]);
     const io={stat:async file=>{if(!files.has(file)){const e=Error('missing');e.code='ENOENT';throw e;}return {size:Buffer.byteLength(files.get(file))};},readFile:async file=>files.get(file),mkdir:async()=>{},writeFile:async(file,value)=>files.set(file,value),rename:async(a,b)=>{files.set(b,files.get(a));files.delete(a);},unlink:async file=>files.delete(file)};
     const args=['--feed','/test/feed.json','--output','/test/analytics.json','--portfolio-status','/test/portfolios.json'];
@@ -180,6 +180,13 @@ await test('CLI validates current portfolio stop status before using the API',as
     status.generatedAt=iso(T+5001);files.set('/test/portfolios.json',JSON.stringify(status));
     await assert.rejects(API.main(args,deps),/invalid_portfolio_status/);
   }
+});
+
+await test('closing-fill CLI rejects v1 portfolio stage status before making any request',async()=>{
+  const status={schemaVersion:1,methodVersion:'portfolio-periods-v1',generatedAt:iso(T),source:{id:'hyperliquid',status:'ready',stopCode:null}};
+  const files=new Map([['/test/feed.json',JSON.stringify(feed())],['/test/portfolios.json',JSON.stringify(status)]]);let calls=0;
+  const io={stat:async file=>{if(!files.has(file)){const error=Error('missing');error.code='ENOENT';throw error;}return {size:Buffer.byteLength(files.get(file))};},readFile:async file=>files.get(file)};
+  await assert.rejects(API.main(['--feed','/test/feed.json','--output','/test/analytics.json','--portfolio-status','/test/portfolios.json'],{io,now:()=>T,fetch:async()=>{calls++;return response();},log:()=>{}}),/invalid_portfolio_status/);assert.equal(calls,0);
 });
 console.log('PASS '+count+' offline collector tests');
 })().catch(error=>{console.error(error);process.exitCode=1;});

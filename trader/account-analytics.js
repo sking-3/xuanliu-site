@@ -13,7 +13,7 @@ const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 const MAX_BYTES = 5 * 1024 * 1024, CACHE_MS = 300000, MAX_RECORDS = 200;
 const BUDGET = 400, INTERVAL = 60000, TIMEOUT = 12000;
 const WEIGHTS = {portfolio:20, win:120};
-const PERIODS = {week:'7D', month:'30D', allTime:'ALL'};
+const PERIODS = {perpWeek:'7D', perpMonth:'30D', perpAllTime:'ALL'};
 const DAY_MS = 86400000, DERIVED_PERIODS = {'90D':90, '180D':180, '365D':365};
 const sharedLedger = [];
 const copy = value => JSON.parse(JSON.stringify(value));
@@ -56,28 +56,31 @@ function downsample(points, maximum=240) {
 }
 /* Hyperliquid UI utility Gce, exported as Mn in config-BOv79UVk.js:
  * peak starts at zero; drawdown=(peakPnL-currentPnL)/equityAtPeak.
- * Source reference: https://hyperliquid.gitbook.io/hyperliquid-docs/trading/miscellaneous-ui
+ * Actual UI source: https://app.hyperliquid.xyz/assets/config-BOv79UVk.js (Gce as Mn),
+ * called by Portfolio-CGEhWz7d.js (Mn as re). This is the running-PnL-peak
+ * convention, NOT the different all-start/end-pairs wording in the docs.
  * Exact timestamp alignment is checked rather than guessing across missing points.
  */
 function sampledDrawdown(pnl, equity) {
   const unavailable=reason=>({value:null,reason,pairedSampleCount:0});
   if (pnl.length<2) return unavailable('insufficient_samples');
   if (!equity || equity.length!==pnl.length || pnl.some((point,i)=>point[0]!==equity[i][0])) return unavailable('unpaired_samples');
-  let peak=0, denominator=0, maximum=0, comparisons=0, missingDenominator=false;
+  let peak=0, denominator=0, maximum=0, comparisons=0, negativePeakEquity=false;
   for (let i=0;i<pnl.length;i++) {
     const current=pnl[i][1];
     if (denominator>0) { maximum=Math.max(maximum,(peak-current)/denominator); comparisons++; }
-    else if (current<peak && i>0) missingDenominator=true;
-    if (current>=peak) { peak=current; denominator=equity[i][1]; }
+    // Like the actual HL UI, a zero peak denominator contributes no comparison.
+    // Later positive-equity peaks may still establish a meaningful source ratio.
+    if (current>=peak) { peak=current; denominator=equity[i][1]; if(denominator<0)negativePeakEquity=true; }
   }
-  if (missingDenominator) return unavailable('non_positive_peak_equity');
+  if (negativePeakEquity) return unavailable('non_positive_peak_equity');
   if (!comparisons) return unavailable('no_valid_peak');
   const value=maximum*100;
   if (!Number.isFinite(value)) return unavailable('invalid_denominator');
   return {value,reason:null,pairedSampleCount:pnl.length};
 }
 /* Native source windows keep the source UI metric unchanged. Longer windows are
- * selected from validated allTime samples before downsampling. No interpolated
+ * selected from validated perpAllTime samples before downsampling. No interpolated
  * boundaries, lifetime ROI substitution, or inferred cash-flow denominator.
  */
 function portfolioWindow(sourcePeriod, pnl, equity, sourcePnl=pnl, days=null) {
@@ -95,7 +98,7 @@ function portfolioWindow(sourcePeriod, pnl, equity, sourcePnl=pnl, days=null) {
     points:downsample(rebased.map(([time,value])=>({time:iso(time),value}))),
     pnl:pnl.length>=2?rebased[rebased.length-1][1]:null,curveUnit:'USD',curveBasis:'pnl_change_from_first_sample',
     mdd:metric.value,mddUnavailableReason:metric.reason,mddPairedSampleCount:metric.pairedSampleCount,
-    mddMethod:derived?'window_pnl_peak_equity':'hyperliquid_ui_pnl_peak_equity',mddUnit:'percent',scope:'all_account',
+    mddMethod:derived?'window_pnl_peak_equity':'hyperliquid_ui_pnl_peak_equity',mddUnit:'percent',scope:'perp_account',
     requestedDays:days,requestedStartAt:cutoff===null?null:iso(cutoff),requestedEndAt:sourceLast?iso(sourceLast[0]):null,
     coverageDays:pnl.length>=2?(last[0]-first[0])/DAY_MS:0,coverageStatus,
     sourceHistoryStartAt:sourceFirst?iso(sourceFirst[0]):null,sourceHistoryEndAt:sourceLast?iso(sourceLast[0]):null,
@@ -119,7 +122,7 @@ function portfolio(payload, now=Date.now()) {
     // Retain actual equity samples only inside the selected PnL range, then
     // require exact timestamp pairing. A missing point is never interpolated.
     const equity=allTime.equity===null?null:pnl.length?allTime.equity.filter(point=>point[0]>=pnl[0][0]&&point[0]<=end):[];
-    windows[key]=portfolioWindow('allTime',pnl,equity,allTime.pnl,days);
+    windows[key]=portfolioWindow('perpAllTime',pnl,equity,allTime.pnl,days);
   }
   return {windows};
 }

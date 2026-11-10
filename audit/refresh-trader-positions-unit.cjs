@@ -6,7 +6,7 @@ const T=1800000000000,iso=n=>new Date(n).toISOString(),A='0x'+'1'.repeat(40);
 const copy=x=>JSON.parse(JSON.stringify(x));
 function fixture(){
   const feed={schemaVersion:1,status:'ready',source:{id:'hyperliquid',status:'ok',selectedAccounts:1,lastAttemptAt:iso(T-25*60000),positionVerification:{scope:'default_perp_dex',completedAt:iso(T-25*60000),candidateAccounts:1,checkedAccounts:1,holdingAccounts:1,emptyAccounts:0,failedAccounts:0,unattemptedAccounts:0}},traders:[{accountId:A}]};
-  const aggregate=(kind,end,start)=>({schemaVersion:1,methodVersion:kind==='portfolio'?'portfolio-periods-v1':'closing-fill-v1',generatedAt:iso(end),source:{id:'hyperliquid',status:'ready',startedAt:iso(start),completedAt:iso(end),accounts:1,cached:0,attempted:1,succeeded:1,failed:0,unattempted:0,available:1,stopCode:null},accounts:{[A]:{status:'ready',fetchedAt:iso(end),lastAttemptAt:iso(end-1000),errorCode:null,[kind==='portfolio'?'portfolio':'win']:kind==='portfolio'?{windows:{}}:{value:50}}}});
+  const aggregate=(kind,end,start)=>({schemaVersion:1,methodVersion:kind==='portfolio'?'portfolio-periods-v2':'closing-fill-v1',generatedAt:iso(end),source:{id:'hyperliquid',status:'ready',startedAt:iso(start),completedAt:iso(end),accounts:1,cached:0,attempted:1,succeeded:1,failed:0,unattempted:0,available:1,stopCode:null},accounts:{[A]:{status:'ready',fetchedAt:iso(end),lastAttemptAt:iso(end-1000),errorCode:null,[kind==='portfolio'?'portfolio':'win']:kind==='portfolio'?{windows:{}}:{value:50}}}});
   return {feed,portfolios:aggregate('portfolio',T-20*60000,T-24*60000),analytics:aggregate('analytics',T-61000,T-19*60000),notBefore:iso(T-30*60000),now:T};
 }
 function ioFixture(values){const files=new Map(Object.entries(values).map(([k,v])=>[k,JSON.stringify(v)]));return {files,stat:async f=>{if(!files.has(f)){const e=Error('missing');e.code='ENOENT';throw e;}return {size:Buffer.byteLength(files.get(f))};},readFile:async f=>files.get(f)};}
@@ -76,6 +76,12 @@ await test('the Python collector may return a new stale status without a false r
   const f=fixture(),io=ioFixture({'/f/feed':f.feed,'/f/p':f.portfolios,'/f/a':f.analytics});let clock=T;
   const r=await API.main(['--feed','/f/feed','--portfolios','/f/p','--analytics','/f/a','--not-before',f.notBefore],{io,now:()=>clock,log:()=>{},run:async()=>{clock++;const changed=copy(f.feed);changed.source.status='stale';changed.source.errorCode='http_429';changed.source.lastAttemptAt=iso(clock);io.files.set('/f/feed',JSON.stringify(changed));return{};}});
   assert.equal(r.status,'source_stale');assert.equal(r.errorCode,'http_429');
+});
+
+await test('the final position guard rejects a v1 portfolio snapshot during v2 migration',async()=>{
+  const f=fixture();f.portfolios.methodVersion='portfolio-periods-v1';assert.throws(()=>API.guardSnapshots(f),/invalid_portfolio_status/);
+  const io=ioFixture({'/f/feed':f.feed,'/f/p':f.portfolios,'/f/a':f.analytics});let launches=0;
+  await assert.rejects(API.main(['--feed','/f/feed','--portfolios','/f/p','--analytics','/f/a','--not-before',f.notBefore],{io,now:()=>T,run:async()=>{launches++;},log:()=>{}}),/invalid_portfolio_status/);assert.equal(launches,0);
 });
 console.log('PASS '+count+' offline final-position-guard tests');
 })().catch(error=>{console.error(error);process.exitCode=1;});

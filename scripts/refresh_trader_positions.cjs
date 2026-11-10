@@ -42,7 +42,7 @@ function validateFeed(feed,{since,now}) {
   return {completed,addresses,block};
 }
 function validateAggregate(snapshot,kind,{since,now,addresses}) {
-  const method=kind==='portfolio'?'portfolio-periods-v1':'closing-fill-v1',field=kind==='portfolio'?'portfolio':'win';
+  const method=kind==='portfolio'?'portfolio-periods-v2':'closing-fill-v1',field=kind==='portfolio'?'portfolio':'win';
   const source=snapshot?.source;
   if(!plain(snapshot)||snapshot.schemaVersion!==1||snapshot.methodVersion!==method||!plain(source)||source.id!=='hyperliquid'||
     !['ready','partial','unavailable'].includes(source.status)||!Object.hasOwn(source,'stopCode')||!STOPS.has(source.stopCode)||

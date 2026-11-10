@@ -4,12 +4,12 @@ const assert=require('node:assert/strict');
 const API=require('../scripts/collect_trader_portfolios.cjs');
 const normalizer=require('../trader/account-analytics.js');
 const T=1800000000000,DAY=86400000,iso=t=>new Date(t).toISOString(),address=i=>'0x'+i.toString(16).padStart(40,'0');
-const sample=(period='month',times=[T-2000,T-1000,T],pnl=[0,10,5],equity=[100,110,105])=>[[period,{pnlHistory:times.map((t,i)=>[t,String(pnl[i])]),accountValueHistory:times.map((t,i)=>[t,String(equity[i])])}]];
-const wide=()=>sample('allTime',[T-400*DAY,T-365*DAY,T-200*DAY,T-180*DAY,T-100*DAY,T-90*DAY,T-60*DAY,T],[0,10,20,30,25,40,35,50],[100,110,120,130,125,140,135,150]);
+const sample=(period='perpMonth',times=[T-2000,T-1000,T],pnl=[0,10,5],equity=[100,110,105])=>[[period,{pnlHistory:times.map((t,i)=>[t,String(pnl[i])]),accountValueHistory:times.map((t,i)=>[t,String(equity[i])])}]];
+const wide=()=>sample('perpAllTime',[T-400*DAY,T-365*DAY,T-200*DAY,T-180*DAY,T-100*DAY,T-90*DAY,T-60*DAY,T],[0,10,20,30,25,40,35,50],[100,110,120,130,125,140,135,150]);
 const feed=(n=1)=>({source:{id:'hyperliquid',status:'ok',positionVerification:{scope:'default_perp_dex',completedAt:iso(T)}},traders:Array.from({length:n},(_,i)=>({accountId:address(i+1),exchange:'Hyperliquid',sourceKind:'public_account',positionCheck:{scope:'default_perp_dex',count:1,checkedAt:iso(T),sourceTime:iso(T-1000)}}))});
 const response=(payload=sample(),status=200,headers={})=>({status,headers:{get:key=>({'content-type':'application/json',...headers})[key]??null},text:async()=>typeof payload==='string'?payload:JSON.stringify(payload)});
 function previous(records) {
-  return {schemaVersion:1,methodVersion:API.METHOD_VERSION,generatedAt:iso(T),accounts:Object.fromEntries(records.map(([id,age=0,extra={}])=>[address(id),{status:'ready',fetchedAt:iso(T-age),lastAttemptAt:iso(T-age),errorCode:null,portfolio:API.compactPortfolio(normalizer.normalize.portfolio(sample('month',[T-age-2000,T-age-1000,T-age]),T-age)),...extra}]))};
+  return {schemaVersion:1,methodVersion:API.METHOD_VERSION,generatedAt:iso(T),accounts:Object.fromEntries(records.map(([id,age=0,extra={}])=>[address(id),{status:'ready',fetchedAt:iso(T-age),lastAttemptAt:iso(T-age),errorCode:null,portfolio:API.compactPortfolio(normalizer.normalize.portfolio(sample('perpMonth',[T-age-2000,T-age-1000,T-age]),T-age)),...extra}]))};
 }
 function env(handler=()=>response(),options={}) {
   let tick=0,serial=0,live=0,maximum=0;const timers=new Map(),calls=[];
@@ -26,33 +26,33 @@ function env(handler=()=>response(),options={}) {
 let count=0;async function test(name,fn){await fn();count++;console.log('ok '+name);}
 (async()=>{
 await test('portfolio endpoint returns validated native windows without raw source histories',async()=>{
-  const e=env(),r=await e.run({feed:feed(2)});assert.equal(r.schemaVersion,1);assert.equal(r.methodVersion,'portfolio-periods-v1');assert.equal(r.source.succeeded,2);
+  const e=env(),r=await e.run({feed:feed(2)});assert.equal(r.schemaVersion,1);assert.equal(r.methodVersion,'portfolio-periods-v2');assert.equal(r.source.succeeded,2);
   assert.deepEqual(r.accounts[address(1)].portfolio,API.compactPortfolio(normalizer.normalize.portfolio(sample(),T)));
   for(const call of e.calls){assert.equal(call.url,'https://api.hyperliquid.xyz/info');assert.deepEqual(call.body,{type:'portfolio',user:call.body.user});assert.equal(call.settings.redirect,'error');assert.equal(call.settings.credentials,'omit');}
   const json=JSON.stringify(r);assert(!json.includes('accountValueHistory'));assert(!json.includes('pnlHistory'));assert(e.maximum()<=2);assert.equal(e.timers.size,0);
 });
 await test('native windows and all three derived periods retain their real ranges and methods',async()=>{
-  const r=await env(()=>response([...sample('week'),...sample('month'),...wide()])).run(),w=r.accounts[address(1)].portfolio.windows;
+  const r=await env(()=>response([...sample('perpWeek'),...sample('perpMonth'),...wide()])).run(),w=r.accounts[address(1)].portfolio.windows;
   assert.deepEqual(Object.keys(w).sort(),['180D','30D','365D','7D','90D','ALL'].sort());
   for(const key of ['90D','180D','365D']){const x=w[key];assert.equal(x.derived,true);assert.equal(x.roi,null);assert.equal(x.roiUnavailableReason,'cash_flow_adjusted_return_unavailable');assert.equal(x.coverageStatus,'full');assert.equal(x.mddMethod,'window_pnl_peak_equity');assert.equal(x.startAt,iso(T-parseInt(key)*DAY));assert.equal(x.endAt,iso(T));}
   assert.equal(w['30D'].requestedStartAt,null);assert.equal(w['30D'].mddMethod,'hyperliquid_ui_pnl_peak_equity');
 });
 await test('empty histories and single samples preserve null PnL and drawdown',async()=>{
-  const r=await env(()=>response(sample('allTime',[],[],[]))).run(),w=r.accounts[address(1)].portfolio.windows;
+  const r=await env(()=>response(sample('perpAllTime',[],[],[]))).run(),w=r.accounts[address(1)].portfolio.windows;assert.equal(r.source.available,1);assert.equal(r.accounts[address(1)].status,'ready');assert.equal(Object.keys(w).length,4);
   for(const x of Object.values(w)){assert.equal(x.pnl,null);assert.equal(x.mdd,null);assert.equal(x.sampleCount,0);assert.equal(x.coverageDays,0);assert.deepEqual(x.points,[]);}
-  const one=await env(()=>response(sample('allTime',[T],[5],[100]))).run();assert.equal(one.accounts[address(1)].portfolio.windows['90D'].pnl,null);
+  const one=await env(()=>response(sample('perpAllTime',[T],[5],[100]))).run();assert.equal(one.accounts[address(1)].portfolio.windows['90D'].pnl,null);
 });
 await test('insufficient long history stays explicitly insufficient rather than inventing points',async()=>{
-  const r=await env(()=>response(sample('allTime',[T-60*DAY,T],[10,20],[100,110]))).run(),w=r.accounts[address(1)].portfolio.windows;
+  const r=await env(()=>response(sample('perpAllTime',[T-60*DAY,T],[10,20],[100,110]))).run(),w=r.accounts[address(1)].portfolio.windows;
   for(const key of ['90D','180D','365D']){assert.equal(w[key].coverageStatus,'insufficient_history');assert.equal(w[key].coverageDays,60);assert.equal(w[key].points.length,2);assert.equal(w[key].roi,null);}
 });
 await test('sampled boundary keeps the first actual point after cutoff',async()=>{
-  const r=await env(()=>response(sample('allTime',[T-400*DAY,T-80*DAY,T],[0,10,20],[100,110,120]))).run(),w=r.accounts[address(1)].portfolio.windows;
+  const r=await env(()=>response(sample('perpAllTime',[T-400*DAY,T-80*DAY,T],[0,10,20],[100,110,120]))).run(),w=r.accounts[address(1)].portfolio.windows;
   assert.equal(w['90D'].coverageStatus,'sampled_boundary');assert.equal(w['90D'].startAt,iso(T-80*DAY));assert.equal(w['90D'].requestedStartAt,iso(T-90*DAY));assert.equal(w['90D'].coverageDays,80);
 });
 await test('chart compaction preserves actual endpoints and computed metrics with original sample counts',async()=>{
   const times=Array.from({length:1000},(_,i)=>T-1000*DAY+i*DAY),pnl=times.map((_,i)=>i===420?900:i===810?-40:i%11),equity=times.map(()=>1000);
-  const raw=sample('allTime',times,pnl,equity),normalized=normalizer.normalize.portfolio(raw,T),r=await env(()=>response(raw)).run(),stored=r.accounts[address(1)].portfolio;
+  const raw=sample('perpAllTime',times,pnl,equity),normalized=normalizer.normalize.portfolio(raw,T),r=await env(()=>response(raw)).run(),stored=r.accounts[address(1)].portfolio;
   for(const [key,w] of Object.entries(stored.windows)){const source=normalized.windows[key];assert(w.points.length<=120);assert.equal(w.sampleCount,source.sampleCount);assert.equal(w.sourceSampleCount,source.sourceSampleCount);assert.equal(w.mdd,source.mdd);assert.deepEqual(w.points[0],source.points[0]);assert.deepEqual(w.points.at(-1),source.points.at(-1));const actual=new Set(source.points.map(p=>JSON.stringify(p)));assert(w.points.every(p=>actual.has(JSON.stringify(p))));}
 });
 await test('fresh persisted result bypasses network and retains earlier request-start time',async()=>{
@@ -102,7 +102,7 @@ await test('timeout cancels once and a partial request window never launches',as
   const small=env(()=>response(),{limits:{batchMs:1000}}),s=await small.run();assert.equal(small.calls.length,0);assert.equal(s.source.stopCode,'batch_timeout');
 });
 await test('malformed responses do not replace last-good portfolio',async()=>{
-  for(const reply of [response('bad json'),response('<html>',200,{'content-type':'text/html'}),response('{}',200,{'content-length':String(API.LIMITS.maxBytes+1)}),response(sample('month',[T+6000],[0],[100]))]){
+  for(const reply of [response('bad json'),response('<html>',200,{'content-type':'text/html'}),response('{}',200,{'content-length':String(API.LIMITS.maxBytes+1)}),response(sample('perpMonth',[T+6000],[0],[100]))]){
     const r=await env(()=>reply).run({previous:previous([[1,1900000]])});assert.equal(r.accounts[address(1)].status,'stale');assert.equal(r.accounts[address(1)].fetchedAt,iso(T-1900000));}
 });
 await test('zero or stale holdings are excluded from persistent outputs',async()=>{
@@ -126,8 +126,58 @@ await test('coverage and full-sample gap metadata cannot be silently corrupted',
   for(const change of [w=>{w.coverageDays=null;},w=>{w.coverageDays=999;},w=>{w.maxSampleGapMs=1;},w=>{w.sourceSampleCount=1;}]){const p=previous([[1,0]]);change(p.accounts[address(1)].portfolio.windows['30D']);const e=env();await e.run({previous:p});assert.equal(e.calls.length,1);}
 });
 await test('derived windows cannot publish invented ROI or relabel incomplete boundaries as full',async()=>{
-  const raw=sample('allTime',[T-400*DAY,T-80*DAY,T],[0,10,20],[100,110,120]),p={schemaVersion:1,methodVersion:API.METHOD_VERSION,generatedAt:iso(T),accounts:{[address(1)]:{status:'ready',fetchedAt:iso(T),lastAttemptAt:iso(T),errorCode:null,portfolio:API.compactPortfolio(normalizer.normalize.portfolio(raw,T))}}};
+  const raw=sample('perpAllTime',[T-400*DAY,T-80*DAY,T],[0,10,20],[100,110,120]),p={schemaVersion:1,methodVersion:API.METHOD_VERSION,generatedAt:iso(T),accounts:{[address(1)]:{status:'ready',fetchedAt:iso(T),lastAttemptAt:iso(T),errorCode:null,portfolio:API.compactPortfolio(normalizer.normalize.portfolio(raw,T))}}};
   for(const change of [w=>{w.roi=10;},w=>{w.coverageStatus='full';},w=>{w.requestedStartAt=w.startAt;}]){const bad=JSON.parse(JSON.stringify(p));change(bad.accounts[address(1)].portfolio.windows['90D']);const e=env();await e.run({previous:bad});assert.equal(e.calls.length,1);}
+});
+
+await test('v1 portfolio caches are rejected rather than relabeled as perpetual v2 data',async()=>{
+  const old=previous([[1,0]]);old.methodVersion='portfolio-periods-v1';
+  const e=env(),r=await e.run({previous:old});assert.equal(e.calls.length,1);assert.equal(r.methodVersion,'portfolio-periods-v2');assert.equal(r.accounts[address(1)].portfolio.windows['30D'].scope,'perp_account');assert.equal(r.accounts[address(1)].portfolio.windows['30D'].sourcePeriod,'perpMonth');
+  const failed=await env(()=>response('source failed',500)).run({previous:old});assert.equal(failed.accounts[address(1)].portfolio,null);assert.equal(failed.accounts[address(1)].fetchedAt,null);assert.equal(failed.accounts[address(1)].status,'unavailable');
+});
+await test('v2 cache cannot carry old all-account scope or non-perpetual source periods',async()=>{
+  for(const change of [w=>{w.scope='all_account';},w=>{w.sourcePeriod='month';},w=>{w.sourcePeriod='perpWeek';}]){const bad=previous([[1,0]]);change(bad.accounts[address(1)].portfolio.windows['30D']);const e=env();await e.run({previous:bad});assert.equal(e.calls.length,1);}
+});
+
+await test('failed v1 migration preserves the file byte-for-byte and stops before publishing',async()=>{
+  const old=previous([[1,1900000]]);old.methodVersion='portfolio-periods-v1';const original=JSON.stringify(old),files=new Map([['/test/feed.json',JSON.stringify(feed())],['/test/portfolios.json',original]]);let writes=0,calls=0;
+  const io={stat:async f=>({size:Buffer.byteLength(files.get(f))}),readFile:async f=>files.get(f),mkdir:async()=>{},writeFile:async(f,v)=>{writes++;files.set(f,v);},rename:async(a,b)=>{files.set(b,files.get(a));files.delete(a);},unlink:async f=>files.delete(f)};
+  await assert.rejects(API.main(['--feed','/test/feed.json','--output','/test/portfolios.json'],{io,now:()=>T,fetch:async()=>{calls++;return response('unavailable',503);},log:()=>{}}),/migration_no_verified_portfolios/);
+  assert.equal(calls,1);assert.equal(writes,0);assert.equal(files.get('/test/portfolios.json'),original);
+});
+await test('an upstream denial during migration neither sends requests nor overwrites legacy data',async()=>{
+  const old=previous([[1,0]]);old.methodVersion='portfolio-periods-v1';const f=feed();f.source.positionVerification.stopCode='http_429';const original=JSON.stringify(old),files=new Map([['/test/feed.json',JSON.stringify(f)],['/test/portfolios.json',original]]);let calls=0;
+  const io={stat:async name=>({size:Buffer.byteLength(files.get(name))}),readFile:async name=>files.get(name),writeFile:async()=>{throw Error('must not write');}};
+  await assert.rejects(API.main(['--feed','/test/feed.json','--output','/test/portfolios.json'],{io,now:()=>T,fetch:async()=>{calls++;return response();},log:()=>{}}),/migration_no_verified_portfolios/);assert.equal(calls,0);assert.equal(files.get('/test/portfolios.json'),original);
+});
+await test('partial verified migration publishes only new v2 values and leaves failed accounts null',async()=>{
+  const old=previous([[1,1900000],[2,1900000]]);old.methodVersion='portfolio-periods-v1';const files=new Map([['/test/feed.json',JSON.stringify(feed(2))],['/test/portfolios.json',JSON.stringify(old)]]);let calls=0;
+  const io={stat:async f=>({size:Buffer.byteLength(files.get(f))}),readFile:async f=>files.get(f),mkdir:async()=>{},writeFile:async(f,v)=>files.set(f,v),rename:async(a,b)=>{files.set(b,files.get(a));files.delete(a);},unlink:async f=>files.delete(f)};
+  const result=await API.main(['--feed','/test/feed.json','--output','/test/portfolios.json'],{io,now:()=>T,fetch:async()=>response(++calls===1?sample():'unavailable',calls===1?200:503),log:()=>{}});
+  assert.equal(result.methodVersion,'portfolio-periods-v2');assert.equal(result.source.available,1);assert.equal(result.accounts[address(1)].portfolio.windows['30D'].scope,'perp_account');assert.equal(result.accounts[address(2)].portfolio,null);assert.equal(JSON.parse(files.get('/test/portfolios.json')).methodVersion,'portfolio-periods-v2');
+});
+await test('already-v2 failures retain their last good values under the existing semantics',async()=>{
+  const old=previous([[1,1900000]]),files=new Map([['/test/feed.json',JSON.stringify(feed())],['/test/portfolios.json',JSON.stringify(old)]]);
+  const io={stat:async f=>({size:Buffer.byteLength(files.get(f))}),readFile:async f=>files.get(f),mkdir:async()=>{},writeFile:async(f,v)=>files.set(f,v),rename:async(a,b)=>{files.set(b,files.get(a));files.delete(a);},unlink:async f=>files.delete(f)};
+  const result=await API.main(['--feed','/test/feed.json','--output','/test/portfolios.json'],{io,now:()=>T,fetch:async()=>response('unavailable',503),log:()=>{}});assert.equal(result.accounts[address(1)].status,'stale');assert.equal(result.accounts[address(1)].fetchedAt,old.accounts[address(1)].fetchedAt);assert.deepEqual(result.accounts[address(1)].portfolio,old.accounts[address(1)].portfolio);
+});
+
+await test('unrecognized all-account-only response cannot count as a verified perpetual portfolio',async()=>{
+  assert.equal(API.validPortfolio({windows:{}},T),null);
+  const oldShape=[...sample('week'),...sample('month'),...sample('allTime')];
+  const r=await env(()=>response(oldShape)).run();assert.equal(r.accounts[address(1)].portfolio,null);assert.equal(r.accounts[address(1)].errorCode,'invalid_response');assert.equal(r.source.available,0);assert.equal(r.source.failed,1);
+});
+await test('HTTP 200 with no recognized perpetual windows cannot bypass migration protection',async()=>{
+  const old=previous([[1,1900000]]);old.methodVersion='portfolio-periods-v1';const original=JSON.stringify(old),files=new Map([['/test/feed.json',JSON.stringify(feed())],['/test/portfolios.json',original]]);let writes=0;
+  const io={stat:async f=>({size:Buffer.byteLength(files.get(f))}),readFile:async f=>files.get(f),mkdir:async()=>{},writeFile:async()=>{writes++;},rename:async()=>{},unlink:async()=>{}};
+  await assert.rejects(API.main(['--feed','/test/feed.json','--output','/test/portfolios.json'],{io,now:()=>T,fetch:async()=>response(sample('allTime')),log:()=>{}}),/migration_no_verified_portfolios/);
+  assert.equal(writes,0);assert.equal(files.get('/test/portfolios.json'),original);
+});
+
+await test('top-level migration failure retains its precise public-safe log code',()=>{
+  assert.deepEqual(API.failureReport(Error('migration_no_verified_portfolios')),{status:'failed',errorCode:'migration_no_verified_portfolios'});
+  assert.deepEqual(API.failureReport(Error('do-not-log-body-or-credentials')),{status:'failed',errorCode:'invalid_response'});
+  const bad=previous([[1,0,{status:'stale',errorCode:'migration_no_verified_portfolios'}]]);assert.deepEqual(API.validatedCache(bad,[address(1)],T),{});
 });
 console.log('PASS '+count+' offline portfolio collector tests');
 })().catch(error=>{console.error(error);process.exitCode=1;});

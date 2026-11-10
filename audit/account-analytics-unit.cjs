@@ -4,7 +4,7 @@ const assert=require('node:assert/strict');
 const API=require('../trader/account-analytics.js');
 const T=1800000000000,A='0x'+'1'.repeat(40),B='0x'+'2'.repeat(40);
 const addr=i=>'0x'+i.toString(16).padStart(40,'0');
-const sample=(pnl=[0,10,5],equity=[100,110,105],period='month')=>[[period,{pnlHistory:pnl.map((v,i)=>[T-3000+i*1000,String(v)]),accountValueHistory:equity.map((v,i)=>[T-3000+i*1000,String(v)])}]];
+const sample=(pnl=[0,10,5],equity=[100,110,105],period='perpMonth')=>[[period,{pnlHistory:pnl.map((v,i)=>[T-3000+i*1000,String(v)]),accountValueHistory:equity.map((v,i)=>[T-3000+i*1000,String(v)])}]];
 const baseFill={coin:'BTC',time:T-1000,dir:'Close Long',side:'A',sz:'1',startPosition:'2',closedPnl:'10',fee:'1',feeToken:'USDC',tid:1,oid:101,hash:'0x123'};
 const fill=(changes={})=>({...baseFill,...changes});
 function response(payload,status=200,headers={}) {
@@ -28,15 +28,22 @@ async function test(name,fn){await fn();count++;console.log('ok '+name);}
 await test('MDD uses equity at the running PnL peak, not cumulative PnL denominator',()=>{
   const result=API.normalize.portfolio(sample(),T).windows['30D'];
   assert.equal(result.mdd,5/110*100);assert.notEqual(result.mdd,50);
-  assert.equal(result.sampleCount,3);assert.equal(result.sourcePeriod,'month');assert.equal(result.scope,'all_account');
+  assert.equal(result.sampleCount,3);assert.equal(result.sourcePeriod,'perpMonth');assert.equal(result.scope,'perp_account');
   assert.deepEqual(result.points.map(p=>p.value),[0,10,5]);assert.equal(result.mddUnit,'percent');
 });
 await test('sampled MDD may exceed 100 and is not clipped',()=>{
   assert.equal(API.normalize.portfolio(sample([0,100,-200],[100,100,1]),T).windows['30D'].mdd,300);
 });
 await test('native windows retain source periods while longer windows are explicitly derived',()=>{
-  const p=[...sample([0,1],[100,101],'week'),...sample([0,2],[100,102],'month'),...sample([0,3],[100,103],'allTime'),...sample([0,999],[100,999],'perpMonth')];
-  const w=API.normalize.portfolio(p,T).windows;assert.deepEqual(Object.keys(w),['7D','30D','ALL','90D','180D','365D']);assert.equal(w['30D'].points[1].value,2);assert.equal(w['90D'].derived,true);assert.equal(w.ALL.derived,false);assert.equal(w['90D'].roi,null);assert.equal(w['90D'].sourcePeriod,'allTime');
+  const p=[...sample([0,1],[100,101],'perpWeek'),...sample([0,2],[100,102],'perpMonth'),...sample([0,3],[100,103],'perpAllTime'),...sample([0,999],[100,999],'month')];
+  const w=API.normalize.portfolio(p,T).windows;assert.deepEqual(Object.keys(w),['7D','30D','ALL','90D','180D','365D']);assert.equal(w['30D'].points[1].value,2);assert.equal(w['90D'].derived,true);assert.equal(w.ALL.derived,false);assert.equal(w['90D'].roi,null);assert.equal(w['90D'].sourcePeriod,'perpAllTime');
+});
+await test('all-account history cannot silently substitute for missing perp windows',()=>{
+  const onlyAll=[...sample([0,999],[100,1099],'week'),...sample([0,999],[100,1099],'month'),...sample([0,999],[100,1099],'allTime')];
+  assert.deepEqual(API.normalize.portfolio(onlyAll,T).windows,{});
+  const w=API.normalize.portfolio([...onlyAll,...sample([0,20],[100,120],'perpAllTime')],T).windows;
+  for(const period of ['ALL','90D','180D','365D']){assert.equal(w[period].scope,'perp_account');assert.equal(w[period].sourcePeriod,'perpAllTime');assert.equal(w[period].pnl,20);}
+  assert.equal(w['30D'],undefined);
 });
 await test('real curve is rebased PnL in USD and does not recompute source ROI',()=>{
   const w=API.normalize.portfolio(sample([30,25,40]),T).windows['30D'];
@@ -65,11 +72,11 @@ await test('actual-point extrema downsampling is bounded and keeps original sour
   const plot=API.downsample(points);assert(plot.length<=240);assert.deepEqual(plot[0],points[0]);assert.deepEqual(plot.at(-1),points.at(-1));assert(plot.some(p=>p.value===9000));assert(plot.some(p=>p.value===-5000));
   const original=new Set(points.map(p=>JSON.stringify(p)));assert(plot.every(p=>original.has(JSON.stringify(p))));
   const histories=points.map(p=>[Date.parse(p.time),String(p.value)]);
-  const w=API.normalize.portfolio([['month',{pnlHistory:histories,accountValueHistory:histories.map(([t])=>[t,'10000'])}]],T).windows['30D'];
+  const w=API.normalize.portfolio([['perpMonth',{pnlHistory:histories,accountValueHistory:histories.map(([t])=>[t,'10000'])}]],T).windows['30D'];
   assert.equal(w.sampleCount,2000);assert(w.points.length<=240);assert.equal(w.mdd,140);
 });
 const DAY=86400000;
-const longPortfolio=(days,values=days.map((_,i)=>i*10),equities=days.map(()=>100),end=T-10000)=>[['allTime',{
+const longPortfolio=(days,values=days.map((_,i)=>i*10),equities=days.map(()=>100),end=T-10000)=>[['perpAllTime',{
   pnlHistory:days.map((day,i)=>[end-day*DAY,String(values[i])]),
   accountValueHistory:days.map((day,i)=>[end-day*DAY,String(equities[i])])}]];
 await test('long windows anchor to source end and use exact real boundaries without lifetime ROI',()=>{
@@ -85,7 +92,7 @@ await test('long windows anchor to source end and use exact real boundaries with
     assert(x.points.every(point=>p[0][1].pnlHistory.some(([time])=>time===Date.parse(point.time))));
   }
   assert.equal(w['90D'].pnl,10);assert.equal(w['180D'].pnl,20);assert.equal(w['365D'].pnl,30);
-  assert.equal(w.ALL.roi,undefined);assert.equal(w.ALL.sourcePeriod,'allTime');assert.equal(w.ALL.mddMethod,'hyperliquid_ui_pnl_peak_equity');
+  assert.equal(w.ALL.roi,undefined);assert.equal(w.ALL.sourcePeriod,'perpAllTime');assert.equal(w.ALL.mddMethod,'hyperliquid_ui_pnl_peak_equity');
   assert.equal(w.ALL.pnl,-950);assert.equal(w.ALL.coverageDays,400);assert.equal(w.ALL.coverageStatus,'source_window');
   assert.equal(w.ALL.requestedStartAt,null);assert.equal(w.ALL.requestedEndAt,w.ALL.endAt);
 });
@@ -124,12 +131,25 @@ await test('derived drawdown rebases at the actual boundary and requires exact e
   const sparse=longPortfolio([400,170,0],[1000,100,90]);sparse[0][1].accountValueHistory.splice(1,0,[T-10000-175*DAY,'500']);
   w=API.normalize.portfolio(sparse,T).windows['180D'];assert.equal(w.mdd,10);assert.equal(w.mddPairedSampleCount,2);
 });
-await test('derived nonpositive peak equity is unavailable; positive paired rising samples yield real zero',()=>{
+await test('no valid peak comparison stays unavailable; negative peak equity fails closed',()=>{
   for(const equity of [0,-5]) {
     const w=API.normalize.portfolio(longPortfolio([180,90,0],[100,90,110],[equity,100,120]),T).windows['180D'];
-    assert.equal(w.mdd,null);assert.equal(w.mddUnavailableReason,'non_positive_peak_equity');
+    assert.equal(w.mdd,null);assert.equal(w.mddUnavailableReason,equity<0?'non_positive_peak_equity':'no_valid_peak');
   }
   const rising=API.normalize.portfolio(longPortfolio([180,90,0],[100,110,120]),T).windows['180D'];assert.equal(rising.mdd,0);
+});
+await test('initial zero peak equity does not erase later valid source drawdown',()=>{
+  const w=API.normalize.portfolio(sample([0,-1,10,5],[0,100,120,115]),T).windows['30D'];
+  assert.equal(w.mdd,5/120*100);assert.equal(w.mddUnavailableReason,null);assert.equal(w.mddPairedSampleCount,4);
+  // A negative peak denominator remains a failure, even if later peaks recover.
+  const negative=API.normalize.portfolio(sample([0,-1,10,5],[-2,100,120,115]),T).windows['30D'];
+  assert.equal(negative.mdd,null);assert.equal(negative.mddUnavailableReason,'non_positive_peak_equity');
+});
+await test('derived windows follow the same zero-peak convention without inventing zero risk',()=>{
+  const w=API.normalize.portfolio(longPortfolio([180,120,60,0],[100,99,110,105],[0,100,120,115]),T).windows['180D'];
+  assert.equal(w.mdd,5/120*100);assert.equal(w.mddPairedSampleCount,4);assert.equal(w.roi,null);
+  const none=API.normalize.portfolio(sample([0,-1,10],[0,100,120]),T).windows['30D'];
+  assert.equal(none.mdd,null);assert.equal(none.mddUnavailableReason,'no_valid_peak');
 });
 await test('long-window sampling counts and gaps are measured before plotting downsampling',()=>{
   const days=Array.from({length:1001},(_,i)=>(1000-i)/2),values=days.map((_,i)=>i===800?10000:i===850?-1000:i);
