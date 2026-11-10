@@ -11,6 +11,9 @@
     '5139646755272846081': '0xEggg',
     '5178595252342363392': 'FaribaFinance'
   });
+  const REFERENCE_PORTFOLIOS = Object.freeze({
+    '5075281354358777856': Object.freeze({name:'熬鹰资本',note:'已收录，交易数据未取得；此前记录未公开持仓'})
+  });
   const SOURCE_BASE = 'https://www.binance.com/en/copy-trading/lead-details/';
   const MAX_AGE = 30 * 60 * 1000;
   const LIMIT = 5000;
@@ -168,7 +171,7 @@
   }
   function toTraders(collection, options) {
     const data = parseCollection(collection);
-    return Object.entries(PORTFOLIOS).map(([id, name]) => {
+    const rows = Object.entries(PORTFOLIOS).map(([id, name]) => {
       // Keep the identity card when a registered feed is absent; invent no trading data.
       const feed = data.portfolios.find(item => item.portfolioId === id) || missingFeed(id);
       const view = detail(feed, { ...options, batchStopped: data.source.refreshStopped, batchErrorCode: data.source.errorCode });
@@ -181,6 +184,13 @@
         binanceBatchSource: { refreshStopped: data.source.refreshStopped, errorCode: data.source.errorCode }
       };
     });
+    for (const [id, reference] of Object.entries(REFERENCE_PORTFOLIOS)) rows.push({
+      id:'binance-'+id,name:reference.name,accountId:id,exchange:'Binance',currency:'USDT',
+      sourceKind:'copy_trade',featured:false,paid:false,observedAt:null,sourceUrl:SOURCE_BASE+id,sourceName:null,
+      windows:{},positions:[],points:[],orders:[],binance:null,referenceOnly:true,referenceNote:reference.note,
+      binanceBatchSource:{refreshStopped:false,errorCode:null}
+    });
+    return rows;
   }
-  return Object.freeze({ PORTFOLIOS, MAX_AGE, parseCollection, toTraders, detail });
+  return Object.freeze({ PORTFOLIOS, REFERENCE_PORTFOLIOS, MAX_AGE, parseCollection, toTraders, detail });
 });

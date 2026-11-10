@@ -53,12 +53,12 @@ function sampleCollection() {
 }
 function view(feed, options = {}) { return api.detail(feed, { now: NOW, ...options }); }
 
-test('saved real collection is compatible and keeps all three fixed identities', () => {
+test('saved real collection is compatible and keeps three source identities and one reference identity', () => {
   const real = JSON.parse(fs.readFileSync(path.join(__dirname, '../trader/binance/portfolios.json'), 'utf8'));
   const rows = api.toTraders(api.parseCollection(real), { now: Date.parse(real.generatedAt) });
-  assert.deepEqual(rows.map(row => row.accountId), IDS);
+  assert.deepEqual(rows.map(row => row.accountId), [...IDS,...Object.keys(api.REFERENCE_PORTFOLIOS)]);
   rows.forEach(row => {
-    assert.equal(row.name, api.PORTFOLIOS[row.accountId]);
+    assert.equal(row.name, api.PORTFOLIOS[row.accountId] || api.REFERENCE_PORTFOLIOS[row.accountId].name);
     assert.equal(row.id, 'binance-' + row.accountId);
     assert.equal(row.sourceUrl, 'https://www.binance.com/en/copy-trading/lead-details/' + row.accountId);
     assert.deepEqual(row.windows, {});
@@ -146,7 +146,7 @@ test('per-account halt remains stopped regardless of mode or retry options', () 
 });
 test('collection halt is carried by every row and makes details stale', () => {
   const data = sampleCollection(); data.source = { refreshStopped: true, errorCode: 'http_403' };
-  api.toTraders(data, { now: NOW }).forEach(row => {
+  api.toTraders(data, { now: NOW }).filter(row => !row.referenceOnly).forEach(row => {
     const result = view(row.binance, { batchStopped: row.binanceBatchSource.refreshStopped, batchErrorCode: row.binanceBatchSource.errorCode });
     assert.equal(result.refreshStopped, true);
     assert.equal(result.currentPositionCount, null);
@@ -186,7 +186,7 @@ test('unknown visibility suppresses old payload without declaring empty', () => 
 test('missing registered accounts retain identity cards with unknown counts', () => {
   const data = sampleCollection(); data.portfolios = [];
   const rows = api.toTraders(data, { now: NOW });
-  assert.equal(rows.length, 3);
+  assert.equal(rows.length, 4);
   rows.forEach(row => {
     const result = view(row.binance);
     assert.equal(result.status, 'unavailable');
@@ -297,5 +297,16 @@ test('browser export has no DOM, network, timer or storage side effects', () => 
   assert.equal(typeof context.BinanceData.toTraders, 'function');
   assert.equal(typeof context.BinanceData.detail, 'function');
   assert.equal(context.BinanceData.MAX_AGE, 30 * 60 * 1000);
+});
+test('reference identity cannot be substituted into the three-account source allowlist', () => {
+ const id='5075281354358777856';assert.equal(Object.hasOwn(api.PORTFOLIOS,id),false);assert.equal(api.REFERENCE_PORTFOLIOS[id].name,'熬鹰资本');assert.equal(Object.keys(api.PORTFOLIOS).length,3);
+ const data=sampleCollection(),feed=sampleFeed();feed.portfolioId=id;feed.profile={...feed.profile,id,name:'熬鹰资本',sourceUrl:'https://www.binance.com/en/copy-trading/lead-details/'+id};data.portfolios=[feed];assert.throws(()=>api.parseCollection(data),/BINANCE_FEED_SCHEMA/);assert.throws(()=>view(feed),/BINANCE_FEED_SCHEMA/);
+});
+test('reference identity always carries no trading feed or synthetic evidence time', () => {
+ const data=sampleCollection();data.portfolios=[];data.source={refreshStopped:true,errorCode:'http_429'};
+ const row=api.toTraders(data,{now:NOW,requestFailed:true,checkedAt:stamp}).find(row=>row.referenceOnly);
+ assert.equal(row.accountId,'5075281354358777856');assert.equal(row.name,'熬鹰资本');assert.equal(row.binance,null);assert.equal(row.observedAt,null);assert.deepEqual(row.binanceBatchSource,{refreshStopped:false,errorCode:null});assert.match(row.referenceNote,/此前记录未公开持仓/);
+ const result=api.detail(row.binance);for(const key of ['checkedAt','observedAt','lastAttemptAt','lastSuccessAt','currentPositionCount','lastPositionCount'])assert.equal(result[key],null);
+ assert.equal(result.visibility,'unknown');assert.deepEqual(result.positions,[]);assert.deepEqual(result.orders.rows,[]);assert.equal(result.orders.status,'unavailable');
 });
 console.log('Binance plaza adapter: ' + passed + ' tests passed');

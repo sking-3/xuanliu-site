@@ -361,7 +361,7 @@ function qualifiedPosition(r,now=Date.now()) {
 function eligiblePublicRows() {return state.publicRows.filter(r=>qualifiedPosition(r));}
 function retainedPublicRows() {return state.publicRows.filter(r=>!isPublicAccount(r)||state.source?.positionVerification&&r.positionCheck);}
 function isBinanceTrader(r) {return r?.sourceKind==='copy_trade'&&!r._local;}
-function binanceView(r) {return BinanceData.detail(r.binance,{requestFailed:state.binanceReadFailed,checkedAt:state.binanceCheckedAt,batchStopped:r.binanceBatchSource?.refreshStopped===true,batchErrorCode:r.binanceBatchSource?.errorCode||null});}
+function binanceView(r) {if(r.referenceOnly)return BinanceData.detail(null);return BinanceData.detail(r.binance,{requestFailed:state.binanceReadFailed,checkedAt:state.binanceCheckedAt,batchStopped:r.binanceBatchSource?.refreshStopped===true,batchErrorCode:r.binanceBatchSource?.errorCode||null});}
 function currentHolding(r,now=Date.now()) {
   if(r._local)return false;
   if(isBinanceTrader(r))return binanceView(r).currentPositionCount>0;
@@ -378,8 +378,8 @@ function selectPlatform(exchange) {
   $('exchange').value=exchange;$('source').value='all';$('currency').value='all';$('search').value='';state.page=1;render();saveURL();
 }
 function mixPlatforms(rows) {
-  const binance=rows.filter(isBinanceTrader),others=rows.filter(r=>!isBinanceTrader(r)),mixed=[];
-  while(binance.length)mixed.push(binance.shift(),...others.splice(0,3));
+  const binance=rows.filter(isBinanceTrader).sort((a,b)=>Number(b.referenceOnly===true)-Number(a.referenceOnly===true)),others=rows.filter(r=>!isBinanceTrader(r)),mixed=[];
+  while(binance.length)mixed.push(binance.shift(),...others.splice(0,2));
   return [...mixed,...others];
 }
 function ensureBinanceIdentities() {
@@ -443,7 +443,8 @@ function refreshBinance() {
     }
   });
 }
-function binanceStatus(view) {
+function binanceStatus(view,r) {
+  if(r?.referenceOnly)return r.referenceNote;
   if(view.status==='restricted')return '资料不可见 · 当前仓位未知';
   if(state.binanceReadFailed)return '本站快照读取失败 · 当前仓位未知';
   if(view.refreshStopped)return '来源已停止刷新 · 当前仓位未知';
@@ -451,12 +452,12 @@ function binanceStatus(view) {
   if(view.status==='stale')return (view.errorCode?'采集未成功':'快照已过期')+' · 当前仓位未知';
   return view.currentPositionCount===0?'最近核验空仓':'持仓核验有效';
 }
-function binanceTiming(view) {return view.observedAt?'仓位采集 '+timeLabel(view.observedAt):'尚无成功仓位采集';}
+function binanceTiming(view,r) {if(r?.referenceOnly)return '当前公开状态未核验';return view.observedAt?'仓位采集 '+timeLabel(view.observedAt):'尚无成功仓位采集';}
 function renderBinanceCard(r,c) {
-  const view=binanceView(r),status=node('p',binanceStatus(view)+' · '+binanceTiming(view),'card-data-status');status.setAttribute('data-state',view.status);c.append(status);
+  const view=binanceView(r),status=node('p',binanceStatus(view,r)+' · '+binanceTiming(view,r),'card-data-status');status.setAttribute('data-state',view.status);c.append(status);
   const figures=node('div',undefined,'binance-card-summary');
-  for(const [label,count]of [[view.status==='ready'?'核验时持仓':'上次持仓',view.currentPositionCount??view.lastPositionCount],['订单样本',view.orders.status==='unavailable'?null:view.orders.rows.length],['历史仓位样本',view.closedPositions.status==='unavailable'?null:view.closedPositions.rows.length]]){const item=node('div');item.append(node('strong',count===null?'—':String(count)),node('small',label));figures.append(item);}
-  c.append(figures,node('p','有限公开样本 · 非完整交割单 · 未提供可核验的周期收益率','binance-sample-note'));
+  for(const [label,count]of [[r.referenceOnly?'持仓样本':view.status==='ready'?'核验时持仓':'上次持仓',view.currentPositionCount??view.lastPositionCount],['订单样本',view.orders.status==='unavailable'?null:view.orders.rows.length],['历史仓位样本',view.closedPositions.status==='unavailable'?null:view.closedPositions.rows.length]]){const item=node('div');item.append(node('strong',count===null?'—':String(count)),node('small',label));figures.append(item);}
+  c.append(figures,node('p',r.referenceOnly?'— 表示数据未取得，不代表空仓或零订单':'有限公开样本 · 非完整交割单 · 未提供可核验的周期收益率','binance-sample-note'));
 }
 function binanceTable(parent,title,columns,rows,note) {
   const section=node('section',undefined,'binance-data-section');section.append(node('h3',title));if(note)section.append(node('p',note));
@@ -469,13 +470,14 @@ function binanceTable(parent,title,columns,rows,note) {
 function sourceTime(value) {return value===null||value===undefined||value===0?'—':timeLabel(value);}
 function renderBinanceDetail(r,b) {
   const view=binanceView(r);b.replaceChildren();
-  b.append(node('p',binanceTiming(view)+(view.lastAttemptAt?' · 来源最近尝试 '+timeLabel(view.lastAttemptAt):''),'detail-method'));
+  if(r.referenceOnly){b.append(node('h3',({analysis:'已收录带单员身份',positions:'持仓样本未取得',points:'持仓变化样本未取得',orders:'订单与历史仓位样本未取得'})[state.tab]||'交易数据未取得'),node('p',r.referenceNote,'detail-method'),node('p','本站尚未取得该账户可核验的持仓、订单或历史仓位样本。“—”表示数据未取得，不代表空仓或零订单。此前记录不能确认当前公开状态，尚无可展示的核验时间。','detail-method'),sourceLink(r));return;}
+  b.append(node('p',binanceTiming(view,r)+(view.lastAttemptAt?' · 来源最近尝试 '+timeLabel(view.lastAttemptAt):''),'detail-method'));
   if(state.tab==='analysis'){
     b.append(node('h3','公开带单组合'),node('p','持仓、变化和历史均来自本站已保存样本。缺少可核验的周期收益率、回撤和胜率，保持空缺；订单与历史仓位不是完整交割单。','detail-method'));
     renderBinanceCard(r,b);b.append(sourceLink(r));return;
   }
   if(state.tab==='positions'){
-    binanceTable(b,view.status==='ready'?'最近核验持仓':'上次持仓快照（非当前）',['品种','方向','数量','开仓均价','标记价','杠杆','未实现盈亏'],view.positions.map(p=>[p.symbol,liveSide(p.side.toLowerCase()),p.quantity,p.entryPrice,p.markPrice,p.leverage+'×',p.unrealizedPnl+' '+p.collateral]),view.currentPositionCount===0?'最近一次有效核验为空仓。':binanceStatus(view));return;
+    binanceTable(b,view.status==='ready'?'最近核验持仓':'上次持仓快照（非当前）',['品种','方向','数量','开仓均价','标记价','杠杆','未实现盈亏'],view.positions.map(p=>[p.symbol,liveSide(p.side.toLowerCase()),p.quantity,p.entryPrice,p.markPrice,p.leverage+'×',p.unrealizedPnl+' '+p.collateral]),view.currentPositionCount===0?'最近一次有效核验为空仓。':binanceStatus(view,r));return;
   }
   if(state.tab==='points'){
     const kinds={baseline:'首次观察（非开仓）',appeared:'观察到持仓出现',increased:'观察到增仓',decreased:'观察到减仓',absent:'观察到归零（非确认成交）'};
@@ -535,10 +537,10 @@ function renderSource() {
   $('source-universe').textContent=s?.positionVerification?s.positionVerification.candidateAccounts.toLocaleString('zh-CN'):'—';
   $('binance-source-summary').hidden=typeof BinanceData==='undefined';
   if(typeof BinanceData!=='undefined'){
-    const views=state.binanceRows.map(binanceView),current=views.filter(v=>v.currentPositionCount>0).length,empty=views.filter(v=>v.currentPositionCount===0).length;
-    $('binance-source-state').textContent=state.binanceRows.length?`已接入 ${views.length} 个组合 · 有效持仓 ${current} 个 · 有效空仓 ${empty} 个 · 当前未知 ${views.length-current-empty} 个`:(state.binanceReadFailed?'币安快照读取失败，尚无可用资料。':'正在读取本站币安快照…');
-    $('binance-source-timing').textContent=state.binanceRows.map((r,i)=>`${r.name}：${binanceTiming(views[i])} · ${binanceStatus(views[i])}`).join('；');
-    if(state.binanceRows.length){$('status').textContent=`已收录 ${state.rows.filter(r=>!r._local).length} 个公开账户 · 当前有效持仓 ${state.rows.filter(r=>currentHolding(r)).length} 个。历史资料按原时间保留，过期不代表空仓。`;$('status').setAttribute('data-state',positionStatus(summary)==='stale'||views.some(v=>v.status!=='ready')?'stale':'ready');}
+    const views=state.binanceRows.map(binanceView),referenceCount=state.binanceRows.filter(r=>r.referenceOnly).length,current=views.filter(v=>v.currentPositionCount>0).length,empty=views.filter(v=>v.currentPositionCount===0).length;
+    $('binance-source-state').textContent=state.binanceRows.length?`已收录 ${views.length} 个身份 · 样本接入 ${views.length-referenceCount} 个 · 有效持仓 ${current} 个 · 有效空仓 ${empty} 个 · 样本账户当前未知 ${views.length-referenceCount-current-empty} 个 · 仅身份收录 ${referenceCount} 个`:(state.binanceReadFailed?'币安快照读取失败，尚无可用资料。':'正在读取本站币安快照…');
+    $('binance-source-timing').textContent=state.binanceRows.map((r,i)=>`${r.name}：${binanceTiming(views[i],r)} · ${binanceStatus(views[i],r)}`).join('；');
+    if(state.binanceRows.length){$('status').textContent=`已收录 ${state.rows.filter(r=>!r._local).length} 个公开账户 · 当前有效持仓 ${state.rows.filter(r=>currentHolding(r)).length} 个。历史资料按原时间保留，过期不代表空仓。`;$('status').setAttribute('data-state',positionStatus(summary)==='stale'||views.some((v,i)=>!state.binanceRows[i].referenceOnly&&v.status!=='ready')?'stale':'ready');}
   }
   if(state.detail&&$('detail').open)renderDetailStatus();
 }
@@ -752,7 +754,7 @@ function statusText(summary=positionSummary()) {
 function updateView(message) { mergeRows();choosePeriod();render();renderSource();if(message)feedback(message); }
 function renderDetailStatus() {
   const r=state.detail;let message='';
-  if(isBinanceTrader(r)){const view=binanceView(r);message=binanceStatus(view)+' · '+binanceTiming(view);$('detail-data-status').textContent=message;$('detail-data-status').hidden=false;return;}
+  if(isBinanceTrader(r)){const view=binanceView(r);message=binanceStatus(view,r)+' · '+binanceTiming(view,r);$('detail-data-status').textContent=message;$('detail-data-status').hidden=false;return;}
   if(r&&isPublicAccount(r)) {
     if((state.positionExclusions[r.accountId]??-Infinity)>=Date.parse(r.positionCheck?.checkedAt||'1970-01-01T00:00:00Z'))message=Date.now()-state.positionExclusions[r.accountId]>3600000?'上次空仓核验已过期，当前仓位未知；保留历史资料，等待新一轮核验。':'最近读取确认空仓；保留历史资料。';
     else if(!qualifiedPosition(r))message='持仓核验已过期或尚未完成，当前仓位未知；历史表现仍可查看。';

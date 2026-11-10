@@ -342,11 +342,11 @@ function unifiedSetup(at=Date.now()-1000,hlAt=Date.now()-3601000) {
  installQualified(qualify(published,hlAt));a.state.portfolioCacheAttempted=true;a.state.portfolioCache={};
  const p=context.BinanceData.parseCollection(freshBinance(at));a.installBinance(p,false,new Date().toISOString());filters();ids.sort.value='mixed';a.updateView();return p;
 }
-await test('the first mixed page includes all three Binance identities and retained Hyperliquid history once',()=>{
- unifiedSetup();assert.equal(ids['total-count'].textContent,String(published.traders.length+3));assert.equal(ids['current-count'].textContent,'2');assert.equal(ids.leaders.children.length,12);
- const body=content(ids.leaders);for(const name of ['爱喝快乐肥宅水','0xEggg','FaribaFinance'])assert.equal(body.split(name).length-1,1);
- assert.match(body,/核验已过期.*当前仓位未知/);assert.equal(a.state.binanceRows.length,3);assert.equal(a.state.binanceRows.every(r=>Object.keys(r.windows).length===0),true);
- assert.match(ids['binance-source-state'].textContent,/已接入 3 个组合.*有效持仓 2 个.*有效空仓 1 个/);
+await test('the first mixed page includes all four Binance identities and retained Hyperliquid history once',()=>{
+ unifiedSetup();assert.equal(ids['total-count'].textContent,String(published.traders.length+4));assert.equal(ids['current-count'].textContent,'2');assert.equal(ids.leaders.children.length,12);
+ assert.match(content(ids.leaders.children[0]),/熬鹰资本/);const body=content(ids.leaders);for(const name of ['爱喝快乐肥宅水','0xEggg','FaribaFinance','熬鹰资本'])assert.equal(body.split(name).length-1,1);
+ assert.match(body,/核验已过期.*当前仓位未知/);assert.equal(a.state.binanceRows.length,4);assert.equal(a.state.binanceRows.every(r=>Object.keys(r.windows).length===0),true);
+ assert.match(ids['binance-source-state'].textContent,/已收录 4 个身份.*样本接入 3 个.*有效持仓 2 个.*有效空仓 1 个.*仅身份收录 1 个/);
 });
 await test('retained stale Hyperliquid cards and Binance cards never add foreground analytics targets',()=>{
  const before=[analyticsCalls.portfolios.length,analyticsCalls.wins.length];unifiedSetup();a.state.portfolioCacheAttempted=true;a.state.portfolioCache={};a.render();
@@ -355,7 +355,7 @@ await test('retained stale Hyperliquid cards and Binance cards never add foregro
  assert.deepEqual([analyticsCalls.portfolios.length,analyticsCalls.wins.length],before);
 });
 await test('platform switches, search and numeric sorting share the same grid without inventing Binance metrics',()=>{
- unifiedSetup();a.selectPlatform('Binance');assert.equal(ids.leaders.children.length,3);assert.equal(ids.exchange.value,'Binance');assert.match(location.href,/exchange=Binance/);
+ unifiedSetup();a.selectPlatform('Binance');assert.equal(ids.leaders.children.length,4);assert.equal(ids.exchange.value,'Binance');assert.match(location.href,/exchange=Binance/);
  ids.search.value='0xEggg';a.render();assert.equal(ids.leaders.children.length,1);assert.match(content(ids.leaders),/最近核验空仓/);
  a.selectPlatform('Hyperliquid');assert.equal(ids.exchange.value,'Hyperliquid');assert.doesNotMatch(content(ids.leaders),/FaribaFinance/);
  a.selectPlatform('all');ids.sort.value='roi';a.render();for(const r of a.state.binanceRows)assert.equal(a.sortValue(r,'30D','roi')==null,true);
@@ -369,7 +369,7 @@ await test('Binance details stay in the shared dialog and never reuse another po
  assert.equal(ids.detail.open,true);assert.equal(a.state.detail.id,third.id);assert.equal(a.state.liveClient,null);
 });
 for(const [offset,expected]of [[1799999,2],[1800000,2],[1800001,0]])await test('Binance 30-minute boundary retains every card while current holdings change at '+offset,()=>{
- const base=Date.now()-1000,p=unifiedSetup(base),original=Date.now;try{Date.now=()=>base+offset;a.reevaluatePositions();assert.equal(ids['current-count'].textContent,String(expected));assert.equal(a.state.binanceRows.length,3);assert.equal(ids['total-count'].textContent,String(published.traders.length+3));if(!expected)assert.equal(a.binanceView(a.state.binanceRows[0]).currentPositionCount,null);assert.equal(a.state.binanceRows[0].binance.snapshot.observedAt,p.portfolios[0].snapshot.observedAt);}finally{Date.now=original;}
+ const base=Date.now()-1000,p=unifiedSetup(base),original=Date.now;try{Date.now=()=>base+offset;a.reevaluatePositions();assert.equal(ids['current-count'].textContent,String(expected));assert.equal(a.state.binanceRows.length,4);assert.equal(ids['total-count'].textContent,String(published.traders.length+4));if(!expected)assert.equal(a.binanceView(a.state.binanceRows[0]).currentPositionCount,null);assert.equal(a.state.binanceRows[0].binance.snapshot.observedAt,p.portfolios[0].snapshot.observedAt);}finally{Date.now=original;}
 });
 await test('an open Binance dialog expires on the minute tick and unchanged aggregate reads',async()=>{
  const base=Date.now()-1000,p=unifiedSetup(base),original=Date.now;
@@ -384,10 +384,10 @@ await test('Binance snapshot failure keeps original data and affects neither Hyp
  assert.equal(a.state.binanceReadFailed,true);assert.equal(a.state.source.fetchedAt,hl);assert.equal(a.state.lastReadFailed,false);assert.equal(a.state.binanceRows[0].binance.snapshot.observedAt,old);assert.equal(a.binanceView(a.state.binanceRows[0]).currentPositionCount,null);assert.match(content(ids.leaders),/快照读取失败.*当前仓位未知/);
 });
 await test('invalid and older Binance collections preserve last-good snapshots without granting freshness',async()=>{
- const p=unifiedSetup();for(const mutate of [x=>x.portfolios[0].profile.id=x.portfolios[1].portfolioId,x=>x.portfolios.push(x.portfolios[0]),x=>x.generatedAt=new Date(Date.parse(p.generatedAt)-1).toISOString()]){remoteBinance=structuredClone(p);mutate(remoteBinance);await a.refreshBinance();assert.equal(a.state.binanceRows[0].binance.snapshot.observedAt,p.portfolios[0].snapshot.observedAt);assert.equal(a.state.binanceRows.length,3);assert.equal(a.state.binanceReadFailed,true);}
+ const p=unifiedSetup();for(const mutate of [x=>x.portfolios[0].profile.id=x.portfolios[1].portfolioId,x=>x.portfolios.push(x.portfolios[0]),x=>x.generatedAt=new Date(Date.parse(p.generatedAt)-1).toISOString()]){remoteBinance=structuredClone(p);mutate(remoteBinance);await a.refreshBinance();assert.equal(a.state.binanceRows[0].binance.snapshot.observedAt,p.portfolios[0].snapshot.observedAt);assert.equal(a.state.binanceRows.length,4);assert.equal(a.state.binanceReadFailed,true);}
 });
 await test('collection halt and account privacy override cached public positions in cards and dialogs',async()=>{
- const p=unifiedSetup();remoteBinance=structuredClone(p);remoteBinance.source={refreshStopped:true,errorCode:'http_429'};await a.refreshBinance();for(const r of a.state.binanceRows){assert.equal(a.binanceView(r).currentPositionCount,null);assert.equal(a.binanceView(r).refreshStopped,true);}assert.equal(ids['current-count'].textContent,'0');
+ const p=unifiedSetup();remoteBinance=structuredClone(p);remoteBinance.source={refreshStopped:true,errorCode:'http_429'};await a.refreshBinance();for(const r of a.state.binanceRows){assert.equal(a.binanceView(r).currentPositionCount,null);assert.equal(a.binanceView(r).refreshStopped,!r.referenceOnly);}assert.equal(ids['current-count'].textContent,'0');
  remoteBinance=structuredClone(p);remoteBinance.portfolios[0].profile.visibility='restricted';remoteBinance.portfolios[0].source.status='restricted';remoteBinance.portfolios[0].source.refreshStopped=true;remoteBinance.portfolios[0].source.errorCode='restricted';await a.refreshBinance();
  const r=a.state.binanceRows[0],view=a.binanceView(r);assert.equal(view.status,'restricted');assert.equal(view.positions.length,0);assert.equal(view.orders.rows.length,0);assert.equal(view.closedPositions.rows.length,0);a.openDetail(r,'30D');for(const tab of ['positions','points','orders']){a.activateDetailTab(tab);assert.doesNotMatch(content(ids['detail-body']),/NVDAUSDT/);}assert.match(ids['detail-data-status'].textContent,/不可见.*当前仓位未知/);
 });
@@ -414,22 +414,37 @@ await test('older privacy and stop notifications persist before rollback rejecti
 await test('batch halt remains while only one account has a new attempt',async()=>{
  const original=unifiedSetup();remoteBinance=structuredClone(original);remoteBinance.source={refreshStopped:true,errorCode:'http_429'};await a.refreshBinance();
  remoteBinance=structuredClone(original);remoteBinance.generatedAt=new Date(Date.parse(original.generatedAt)+1).toISOString();remoteBinance.portfolios[0].source.lastAttemptAt=remoteBinance.generatedAt;await a.refreshBinance();
- assert.equal(a.state.binanceReadFailed,true);for(const row of a.state.binanceRows){assert.equal(a.binanceView(row).refreshStopped,true);assert.equal(a.binanceView(row).currentPositionCount,null);}
+ assert.equal(a.state.binanceReadFailed,true);for(const row of a.state.binanceRows){assert.equal(a.binanceView(row).refreshStopped,!row.referenceOnly);assert.equal(a.binanceView(row).currentPositionCount,null);}
 });
 await test('a fresh unknown or restricted feed is persisted without hidden trading payload',async()=>{
  for(const visibility of ['restricted','unknown']){const original=unifiedSetup();remoteBinance=freshBinance(Date.parse(original.generatedAt)+1);remoteBinance.portfolios[0].profile.visibility=visibility;await a.refreshBinance();assert.equal(a.state.binanceReadFailed,false);const feed=a.state.binanceRows[0].binance;assert.equal(feed.snapshot,null);assert.equal(feed.observations.length,0);assert.equal(feed.history.orders.rows.length,0);assert.equal(feed.history.closedPositions.rows.length,0);assert.equal(a.binanceView(a.state.binanceRows[0]).positions.length,0);}
 });
 await test('Binance browser hydration retains its original old time and failed-read status independently',()=>{
  const p=unifiedSetup(Date.now()-1801000),old=p.portfolios[0].snapshot.observedAt;a.savePublicSnapshot('binance',p,true);a.state.binanceRows=[];a.state.binanceCollection=null;a.state.binanceText=null;a.state.binanceReadFailed=false;
- const calls=binanceFetches;assert.equal(a.hydratePublicSnapshots(),true);assert.equal(binanceFetches,calls);assert.equal(a.state.binanceRows.length,3);assert.equal(a.state.binanceReadFailed,true);assert.equal(a.state.binanceRows[0].binance.snapshot.observedAt,old);assert.equal(a.binanceView(a.state.binanceRows[0]).currentPositionCount,null);
+ const calls=binanceFetches;assert.equal(a.hydratePublicSnapshots(),true);assert.equal(binanceFetches,calls);assert.equal(a.state.binanceRows.length,4);assert.equal(a.state.binanceReadFailed,true);assert.equal(a.state.binanceRows[0].binance.snapshot.observedAt,old);assert.equal(a.binanceView(a.state.binanceRows[0]).currentPositionCount,null);
 });
 await test('combined refresh reads only the same-origin Binance aggregate and retains current detail identity',async()=>{
  const p=unifiedSetup();a.selectPlatform('Binance');a.openDetail(a.state.binanceRows[2],'30D');remoteBinance=p;remoteFeed=qualify(published);remoteAnalytics=winFixture(remoteFeed.traders[0].accountId);remotePortfolios={schemaVersion:1,methodVersion:'portfolio-periods-v2',generatedAt:new Date().toISOString(),accounts:{}};
  const before=binanceFetches;await a.refresh(true);assert.equal(binanceFetches,before+1);assert.equal(a.state.detail.id,'binance-'+p.portfolios[2].portfolioId);assert.equal(a.state.binanceReadFailed,false);assert.equal(ids.detail.open,true);
 });
-await test('a first Binance read failure retains only the three registered identity cards with unknown positions',async()=>{
+await test('a first Binance read failure retains only the four registered identity cards with unknown positions',async()=>{
  a.state.binanceRows=[];a.state.binanceCollection=null;a.state.binanceText=null;a.publicSnapshots.binance=null;saved.delete(a.publicCacheKeys.binance);binanceFetchError=true;await a.refreshBinance();binanceFetchError=false;
- assert.equal(a.state.binanceRows.length,3);for(const r of a.state.binanceRows){assert.equal(a.binanceView(r).currentPositionCount,null);assert.equal(a.binanceView(r).lastPositionCount,null);assert.equal(a.binanceView(r).observedAt,null);}assert.equal(a.state.binanceCollection,null);assert.equal(saved.has(a.publicCacheKeys.binance),false);a.selectPlatform('Binance');assert.equal(ids.leaders.children.length,3);assert.match(content(ids.leaders),/快照读取失败.*当前仓位未知/);
+ assert.equal(a.state.binanceRows.length,4);for(const r of a.state.binanceRows){assert.equal(a.binanceView(r).currentPositionCount,null);assert.equal(a.binanceView(r).lastPositionCount,null);assert.equal(a.binanceView(r).observedAt,null);}assert.equal(a.state.binanceCollection,null);assert.equal(saved.has(a.publicCacheKeys.binance),false);a.selectPlatform('Binance');assert.equal(ids.leaders.children.length,4);assert.match(content(ids.leaders),/快照读取失败.*当前仓位未知/);
+});
+await test('Aoying is a visible reference identity with no invented metrics, times or source requests',()=>{
+ unifiedSetup();const row=a.state.binanceRows.find(r=>r.accountId==='5075281354358777856'),before=[binanceFetches,analyticsCalls.portfolios.length,analyticsCalls.wins.length];assert.ok(row);assert.equal(row.referenceOnly,true);assert.equal(row.binance,null);assert.equal(a.currentHolding(row),false);assert.equal(a.canReadLive(row),false);
+ const view=a.binanceView(row);for(const key of ['checkedAt','observedAt','lastAttemptAt','lastSuccessAt','currentPositionCount','lastPositionCount'])assert.equal(view[key],null);assert.equal(view.visibility,'unknown');
+ const card=a.card(row,'30D');assert.match(content(card),/熬鹰资本/);assert.match(content(card),/已收录，交易数据未取得；此前记录未公开持仓/);const figures=card.children.find(c=>c.className==='binance-card-summary'||c.attrs.class==='binance-card-summary');assert.ok(figures);assert.equal(figures.children.length,3);for(const item of figures.children)assert.equal(item.children[0].textContent,'—');
+ a.openDetail(row,'30D');for(const tab of ['analysis','positions','points','orders']){a.activateDetailTab(tab);assert.match(content(ids['detail-body']),/未取得/);assert.match(content(ids['detail-body']),/不代表空仓或零订单/);assert.doesNotMatch(content(ids['detail-body']),/NVDAUSDT|1INCHUSDT/);}assert.equal(a.state.liveClient,null);assert.deepEqual([binanceFetches,analyticsCalls.portfolios.length,analyticsCalls.wins.length],before);
+ assert.equal(row.sourceUrl,'https://www.binance.com/en/copy-trading/lead-details/5075281354358777856');
+});
+await test('reference-only Aoying survives expiry, failed reads and identity filtering without sharing batch state',async()=>{
+ unifiedSetup(Date.now()-1801000);binanceFetchError=true;await a.refreshBinance();binanceFetchError=false;a.selectPlatform('Binance');ids.search.value='5075281354358777856';a.render();assert.equal(ids.leaders.children.length,1);assert.match(content(ids.leaders),/熬鹰资本/);assert.doesNotMatch(content(ids.leaders),/快照读取失败/);
+ const row=a.state.binanceRows.find(r=>r.referenceOnly);assert.equal(a.binanceView(row).checkedAt,null);assert.equal(a.binanceView(row).refreshStopped,false);assert.equal(a.binanceView(row).currentPositionCount,null);assert.equal(a.state.binanceCollection.portfolios.some(p=>p.portfolioId===row.accountId),false);
+});
+await test('Aoying transaction payload is rejected without replacing the registered source aggregate',async()=>{
+ const original=unifiedSetup();remoteBinance=structuredClone(original);const feed=remoteBinance.portfolios[0];feed.portfolioId='5075281354358777856';feed.profile.id=feed.portfolioId;feed.profile.name='熬鹰资本';feed.profile.sourceUrl='https://www.binance.com/en/copy-trading/lead-details/'+feed.portfolioId;await a.refreshBinance();
+ assert.equal(a.state.binanceReadFailed,true);assert.equal(a.state.binanceCollection.portfolios[0].portfolioId,original.portfolios[0].portfolioId);assert.equal(a.state.binanceRows.find(r=>r.referenceOnly).binance,null);
 });
 console.log(`${passed} logic and DOM-model tests passed. Synthetic fixtures stay local; the published feed is checked separately.`);
 })().catch(e=>{console.error(e);process.exitCode=1;});

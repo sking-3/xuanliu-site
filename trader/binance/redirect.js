@@ -5,7 +5,7 @@
   else api.start(root);
 })(typeof globalThis === 'object' ? globalThis : this, function () {
   'use strict';
-  const IDS = Object.freeze(['5156287639231681792', '5139646755272846081', '5178595252342363392']);
+  const IDS = Object.freeze(['5156287639231681792', '5139646755272846081', '5178595252342363392', '5075281354358777856']);
   function destination(href) {
     const current = new URL(href), ids = current.searchParams.getAll('portfolioId');
     if (ids.length && (ids.length !== 1 || !IDS.includes(ids[0]))) return null;
@@ -19,7 +19,7 @@
     if (target) env.location.replace(target);
     else {
       const note = env.document.getElementById('redirect-note');
-      if (note) note.textContent = '这个组合 ID 不在已接入名单中，请前往广场选择已有账号。';
+      if (note) note.textContent = '这个组合 ID 不在已收录名单中，请前往广场选择已有账号。';
     }
   }
   return { IDS, destination, start };

@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const api = require('../trader/binance/redirect.js');
 const base = 'https://sking-3.github.io/xuanliu-site/trader/binance/';
 assert.equal(api.destination(base), 'https://sking-3.github.io/xuanliu-site/trader/?exchange=Binance');
+assert.ok(api.IDS.includes('5075281354358777856'));
 for (const id of api.IDS) {
   const target = new URL(api.destination(base + '?portfolioId=' + id));
   assert.equal(target.pathname, '/xuanliu-site/trader/');
@@ -18,5 +19,5 @@ assert.equal(navigation.length, 1);
 env.location.href = base + '?portfolioId=unknown';
 api.start(env);
 assert.equal(navigation.length, 1);
-assert.match(note.textContent, /不在已接入名单/);
+assert.match(note.textContent, /不在已收录名单/);
 console.log('PASS legacy Binance links reach the unified plaza without identity fallback');
