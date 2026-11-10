@@ -34,6 +34,14 @@ scripts/collect_binance.cjs 独立编写，只使用匿名公开网页数据接�
 
 来源指标口径见[币安官方说明](https://www.binance.com/en/support/faq/detail/54aa6d3b43bc4f6eb4a3a6e3aea40acd)：仓位胜率不等于 Hyperliquid 的平仓成交片段胜率；两个来源在统一布局中保留不同名称和说明。
 
+## 30 天来源盈亏曲线
+
+曲线独立保存于 `chart.byPeriod["30D"]`；请求 `GET /bapi/futures/v1/public/future/copy-trade/lead-portfolio/chart-data?portfolioId=…&timeRange=30D&dataType=PNL`。仅原三个获准公开组合通过既有停止与可见性检查后采集。依据[公开请求实现](https://github.com/doppelganger237/gendan/blob/7e8dd5bd195798f9af61dfcd265178f1500cf3d1/copy_trade_api/futures.py#L122)与[图表字段用法](https://github.com/doppelganger237/gendan/blob/7e8dd5bd195798f9af61dfcd265178f1500cf3d1/reports/image_report.py#L999)，将 `dateTime` 毫秒转换为 UTC 时间，`value` 直接保存为 USDT。不乘 100、不减去首点、不累计、不补造采样点；它不是 ROI 百分比曲线，也不是逐笔成交轨迹。
+
+最多接受 1000 个有效点，拒绝重复时间、非有限数值和超过接收时间 5 分钟的未来点。少于两个点不绘制曲线，其他周期不借用 30D 数据。卡片与详情分别注明曲线单位、成功采集时间及实际点列的起止范围；30D 为请求窗口，不保证每一天都有样本或末点就是当前时刻。来源未提供更新时间，`sourceAsOf` 保持 null。
+
+曲线有独立的尝试、成功时间与响应摘要，超过 60 分钟或读取失败标旧；失败保留原成功点列及时间，旧或非法曲线不能覆盖较新的已验证样本。成功曲线不会续期仓位或绩效，不解除账号或批次停止；未知与隐藏状态清空交易曲线。浏览器只读取本站快照，不直连币安补采。
+
 ## 停止与缺失
 
 - 身份不符、结构变化、非公开仓位等使该账号持久停止。隐藏会清除新发布文件中该账号的历史数据；已经存在的仓库历史不会因此撤回。
