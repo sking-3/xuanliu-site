@@ -303,6 +303,8 @@ function reconcileLegacy(previous,legacy){
  return out;
 }
 async function main(){
+ const hold=require('./source-holds.json').binancePublicCollector;
+ if(hold!=='approved')throw Error(hold||'source_policy_unverified');
  const args=process.argv.slice(2);if(args.length>1)throw Error('usage: collect_binance.cjs [portfolios.json]');
  const file=path.resolve(args[0]||'trader/binance/portfolios.json');
  let previous=null;

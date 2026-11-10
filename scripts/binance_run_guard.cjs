@@ -18,6 +18,7 @@ function historyTruncated(response,introduced){
   (response.total_count>response.workflow_runs.length||response.workflow_runs.length>=20);
 }
 function main(){
+ if(require('./source-holds.json').githubRunInventory!=='approved'){console.log('halt');return;}
  const repo=process.env.GITHUB_REPOSITORY,id=process.env.GITHUB_RUN_ID,attempt=Number(process.env.GITHUB_RUN_ATTEMPT||'1');
  if(repo!=='sking-3/xuanliu-site'||!/^\d+$/.test(id||''))throw Error('invalid_workflow_context');
  if(attempt>1){console.log('halt');return;}

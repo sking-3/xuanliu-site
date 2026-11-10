@@ -437,6 +437,14 @@ class BudgetTests(unittest.TestCase):
 
 
 class CommandTests(unittest.TestCase):
+    def test_active_hold_never_constructs_api(self):
+        with tempfile.TemporaryDirectory() as temp:
+            for command in ("select", "select-peer"):
+                argv = ["actions_state.py", command, "--directory", temp, "--selection", str(Path(temp) / "selection.json")]
+                with patch.dict(os.environ, {"GITHUB_REPOSITORY": handoff.REPOSITORY}), patch("sys.argv", argv), patch.object(handoff, "GitHub") as api:
+                    self.assertEqual(handoff.main(), 2)
+                    api.assert_not_called()
+
     def test_runtime_selection_is_bounded(self):
         for event, minutes, expected in (("push", "14", 60), ("schedule", "14", 840),
                                           ("workflow_dispatch", "2", 120)):
@@ -451,7 +459,7 @@ class CommandTests(unittest.TestCase):
                 argv = ["actions_state.py", "select", "--directory", str(root / "state"),
                         "--selection", str(root / "selection.json")]
                 with patch.dict(os.environ, environment), patch("sys.argv", argv), \
-                        patch.object(handoff, "GitHub", return_value=FakeAPI([current])):
+                        patch.object(handoff.source_holds, "reason", return_value=None), patch.object(handoff, "GitHub", return_value=FakeAPI([current])):
                     self.assertEqual(handoff.main(), 0)
                 output = (root / "output").read_text()
                 if event == "schedule":

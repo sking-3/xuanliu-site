@@ -5,6 +5,7 @@ Only the GitHub API is used here. This module never requests exchange data.
 from __future__ import annotations
 
 import argparse
+import source_holds
 import hashlib
 import json
 import os
@@ -325,6 +326,8 @@ def main():
     try:
         require(os.environ.get("GITHUB_REPOSITORY") == REPOSITORY, "This workflow is restricted to its owning repository")
         if args.command in {"select", "select-peer"}:
+            hold = source_holds.reason("githubRunInventory")
+            require(hold is None, f"Run inventory disabled: {hold}")
             run_id = os.environ.get("GITHUB_RUN_ID", "")
             require(run_id.isdecimal() and int(run_id) > 0, "Invalid current run ID")
             require(os.environ.get("GITHUB_RUN_ATTEMPT") == "1", "Reruns cannot reset checkpoint state")
