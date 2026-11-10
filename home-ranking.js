@@ -14,6 +14,13 @@ function moreHref(period){if(!PERIODS.includes(period))period='30D';return 'trad
 function node(doc,tag,text,cls){const el=doc.createElement(tag);if(text!==undefined)el.textContent=text;if(cls)el.className=cls;return el;}
 function title(el,text){el.setAttribute('title',text);return el;}
 function metric(doc,label,value,description,cls=''){const box=node(doc,'div',undefined,'home-rank-metric');box.append(node(doc,'span',label),title(node(doc,'strong',value,cls),description));return box;}
+function roiDescription(row,period){
+  if(period==='30D')return Number.isFinite(row.roi)?'来源公布的同期收益率。':'来源未提供同期收益率，不以收益额代替。';
+  const e=row.roiEvidence;
+  if(Number.isFinite(row.roi)&&e)return `自算收益率 = 区间盈亏 ÷ max(100 USD，期初权益 + 区间最大累计净入金) × 100%；公开资金流水与权益逐段对账，资金基准 ${decimal(e.capitalBase)} USD。实际区间 ${time(e.startAt,true)} 至 ${time(e.endAt,true)}；流水采集 ${time(e.ledgerFetchedAt,true)}。非 TWR、非官方直接值；仅核验返回的公开流水与采样，不承诺完整账户历史。`;
+  const reasons={cash_flow_adjusted_return_unavailable:'尚无可核验的资金流水和资金基准',insufficient_history:'实际历史不足所选周期',insufficient_samples:'有效权益采样不足',unpaired_samples:'权益与盈亏采样未对齐',ledger_unavailable:'公开资金流水暂不可用',ledger_incomplete:'公开资金流水尚未完整读取',unknown_ledger_event:'存在尚未支持的资金流水类型',invalid_ledger_event:'资金流水字段未通过校验',ambiguous_ledger_order:'同一时间的流水顺序无法确定',ledger_reconciliation_failed:'资金流水与权益变化未能对账',invalid_capital_basis:'资金基准无法可靠计算',invalid_portfolio:'来源历史未通过校验'};
+  return `自算收益率暂不可用：${reasons[row.roiUnavailableReason]||'计算证据不足或未通过校验'}；不以收益额代替。`;
+}
 function renderRow(doc,row,index,period,Data){
   const el=node(doc,'article',undefined,'home-rank-row');el.setAttribute('role','listitem');el.setAttribute('data-stale',String(!!row.stale));
   const top=node(doc,'div',undefined,'home-rank-top'),identity=node(doc,'a',undefined,'home-rank-identity');
@@ -22,7 +29,7 @@ function renderRow(doc,row,index,period,Data){
   const profit=node(doc,'div',undefined,'home-rank-profit');profit.append(title(node(doc,'strong',amount(row.pnl),row.pnl>=0?'home-rank-positive':'home-rank-negative'),decimal(row.pnl)+' USD · 同期盈亏'),node(doc,'small','USD'));
   top.append(identity,profit);
   const metrics=node(doc,'div',undefined,'home-rank-metrics');
-  metrics.append(metric(doc,'收益率',percent(row.roi,true),row.roi===null?'缺少可靠的同期收益率或出入金调整资金基准，不以收益额代替。':'来源公布的同期收益率。',Number.isFinite(row.roi)?row.roi>=0?'home-rank-positive':'home-rank-negative':''));
+  metrics.append(metric(doc,period==='30D'?'收益率':'自算收益率',percent(row.roi,true),roiDescription(row,period),Number.isFinite(row.roi)?row.roi>=0?'home-rank-positive':'home-rank-negative':''));
   metrics.append(metric(doc,'采样盈亏回撤',percent(row.mdd),'基于来源盈亏及权益采样的回撤口径，可能超过100%；不是资金流调整净值最大回撤。采样截至 '+time(row.mddAsOf,true)+'；采集 '+time(row.mddFetchedAt,true)+'。'+(row.mddStale?' 历史采样，等待更新。':'')));
   const winDescription=Number.isFinite(row.winRate)?`${row.winCount}个近期永续平仓片段；样本 ${time(row.winStart,true)} 至 ${time(row.winEnd,true)}；采集 ${time(row.winFetchedAt,true)}。已扣平仓手续费，未计开仓手续费及资金费；独立于所选周期，不参与排行。`:`有效平仓片段不足20笔或尚无可核验样本。近期片段胜率不代表所选周期完整胜率，不参与排行。`;
   metrics.append(metric(doc,'近期片段胜率',percent(row.winRate),winDescription));

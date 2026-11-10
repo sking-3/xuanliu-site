@@ -12,6 +12,12 @@ on:
       - 'audit/hyperliquid-run-guard-unit.cjs'
       - 'scripts/collect_trader_analytics.cjs'
       - 'scripts/collect_trader_portfolios.cjs'
+      - 'trader/period-roi.js'
+      - 'audit/period-roi-unit.cjs'
+      - 'home-trader-data.js'
+      - 'home-ranking.js'
+      - 'audit/home-trader-data-unit.cjs'
+      - 'audit/home-ranking-ui-unit.cjs'
       - 'audit/trader-refresh-mode-unit.cjs'
       - 'audit/trader-analytics-collector-unit.cjs'
       - 'audit/trader-portfolio-collector-unit.cjs'
@@ -39,6 +45,10 @@ jobs:
           node-version: '22'
       - name: Check collector, display, and existing trader page
         run: |
+          node --check trader/period-roi.js
+          node audit/period-roi-unit.cjs
+          node audit/home-trader-data-unit.cjs
+          node audit/home-ranking-ui-unit.cjs
           node --check scripts/resolve_trader_refresh_mode.cjs
           node audit/trader-refresh-mode-unit.cjs
           node --check scripts/hyperliquid_run_guard.cjs

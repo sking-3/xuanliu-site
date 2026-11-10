@@ -6,6 +6,7 @@ const LIMITS={feed:2097152,portfolios:4194304,analytics:2097152};
 const HOUR=3600000,DAY=86400000,ADDRESS=/^0x[0-9a-f]{40}$/;
 const SCOPE='Hyperliquid · 本站月度盈亏前200候选中的已核验记录，非全市场';
 function fail(){throw Error('Invalid home trader snapshot');}
+function periodROI(){return typeof module==='object'&&module.exports?require('./trader/period-roi.js'):globalThis.BooksPeriodROI;}
 function object(v){if(!v||typeof v!=='object'||Array.isArray(v))fail();return v;}
 function number(v,nullable=true){if(v===null&&nullable)return null;if(typeof v!=='number'||!Number.isFinite(v)||Math.abs(v)>=1e20)fail();return v;}
 function count(v,max=20000){if(!Number.isSafeInteger(v)||v<0||v>max)fail();return v;}
@@ -44,7 +45,7 @@ function validatePortfolios(raw,now=Date.now()){
    c.mddUnavailableReason=w.mddUnavailableReason===null?null:text(w.mddUnavailableReason,100);
    if(c.coverageDays===null||c.coverageDays<0||(c.maxSampleGapMs!==null&&c.maxSampleGapMs<0)||c.sourceSampleCount<c.sampleCount||c.mddPairedSampleCount>c.sampleCount||c.mdd!==null&&c.mdd<0)fail();
    if(c.mdd===null?(!['insufficient_samples','unpaired_samples','non_positive_peak_equity','no_valid_peak','invalid_denominator'].includes(c.mddUnavailableReason)||c.mddPairedSampleCount!==0):(c.mddUnavailableReason!==null||c.sampleCount<2||c.mddPairedSampleCount!==c.sampleCount))fail();
-   if(derived){if(w.roi!==null||w.roiUnavailableReason!=='cash_flow_adjusted_return_unavailable')fail();c.roi=null;c.roiUnavailableReason=w.roiUnavailableReason;}
+   if(derived){const api=periodROI();if(!api?.validateWindow)fail();Object.assign(c,api.validateWindow(w,key,now));if(c.roiEvidence)timeOrder(c.roiEvidence.ledgerFetchedAt,e.fetchedAt);}
    if(!Array.isArray(w.points)||w.points.length>240||w.points.length>c.sampleCount||c.sampleCount>1&&w.points.length<2)fail();let previous=-Infinity;
    for(const rawPoint of w.points){const point=object(rawPoint),t=stamp(point.time,now),value=number(point.value,false),ms=Date.parse(t);if(ms<=previous||!c.startAt||!c.endAt||ms<Date.parse(c.startAt)||ms>Date.parse(c.endAt))fail();previous=ms;c.points.push({time:t,value});}
    if(!c.sampleCount){if(c.startAt!==null||c.endAt!==null||c.points.length||c.pnl!==null||c.coverageDays!==0)fail();}
@@ -65,7 +66,13 @@ function validateAnalytics(raw,now=Date.now()){
  }return result;
 }
 function aged(at,now,limit){return !at||!Number.isFinite(Date.parse(at))||now-Date.parse(at)>limit||Date.parse(at)>now+5000;}
-function cacheStale(cache,entry,failed,now){return !!failed||!entry||entry.status!=='ready'||cache?.source?.status!=='ready'||cache?.source?.stopCode!==null||aged(entry.fetchedAt,now,HOUR);}
+function cacheStale(cache,entry,failed,now){
+ const source=cache?.source;
+ // A bounded batch can finish this account successfully while other accounts
+ // remain queued. Only that account's result and original time establish age;
+ // source refusals and unavailable files still invalidate the whole source.
+ return !!failed||!entry||entry.status!=='ready'||entry.errorCode!==null||!['ready','partial'].includes(source?.status)||![null,'batch_timeout'].includes(source?.stopCode)||aged(entry.fetchedAt,now,HOUR);
+}
 function rank(input,period,now=Date.now()){
  if(!PERIODS.includes(period)||!Number.isFinite(now))fail();const {feed,portfolios,analytics,failures={}}=input||{},rows=[];
  if(!feed)return {period,rows,eligibleCount:0,stale:true,asOf:null,scope:SCOPE,note:'暂无可核验的榜单快照'};
@@ -78,10 +85,10 @@ function rank(input,period,now=Date.now()){
   const performanceStale=long?cacheStale(portfolios,pe,failures.portfolios,now)||aged(w.endAt,now,HOUR):feedStale;
   const ae=analytics?.accounts?.[r.accountId],win=ae?.win,winRate=win&&win.eligibleCount>=20?win.value:null,winStale=cacheStale(analytics,ae,failures.analytics,now);
   const mdd=w&&w.mddUnavailableReason===null&&w.sampleCount>=2&&w.mddPairedSampleCount===w.sampleCount&&Number.isFinite(w.mdd)?w.mdd:null;
-  rows.push({id:r.id,name:r.name,accountId:r.accountId,currency:'USD',pnl,roi:long?null:native.roi,mdd,mddFetchedAt:pe?.fetchedAt||null,mddAsOf:w?.endAt||null,mddStale:cacheStale(portfolios,pe,failures.portfolios,now)||aged(w?.endAt,now,HOUR),mddMethod:w?.mddMethod||null,winRate,winCount:win?.eligibleCount??0,winStart:win?.startAt||null,winEnd:win?.endAt||null,winFetchedAt:ae?.fetchedAt||null,winStale,winMethod:win?.method||null,winIncludesOpeningFees:false,winIncludesFunding:false,winHistoryComplete:false,performanceAsOf,performanceFetchedAt,performanceStale,coverageDays:w?.coverageDays??null,startAt:long?w.startAt:null,endAt:performanceAsOf,positionCheckedAt:pc.checkedAt,currentHolding,stale:performanceStale||!currentHolding});
+  rows.push({id:r.id,name:r.name,accountId:r.accountId,currency:'USD',pnl,roi:long?w.roi:native.roi,roiMethod:long?w.roiEvidence?.method||null:'source',roiEvidence:long?w.roiEvidence||null:null,roiUnavailableReason:long?w.roiUnavailableReason:null,mdd,mddFetchedAt:pe?.fetchedAt||null,mddAsOf:w?.endAt||null,mddStale:cacheStale(portfolios,pe,failures.portfolios,now)||aged(w?.endAt,now,HOUR),mddMethod:w?.mddMethod||null,winRate,winCount:win?.eligibleCount??0,winStart:win?.startAt||null,winEnd:win?.endAt||null,winFetchedAt:ae?.fetchedAt||null,winStale,winMethod:win?.method||null,winIncludesOpeningFees:false,winIncludesFunding:false,winHistoryComplete:false,performanceAsOf,performanceFetchedAt,performanceStale,coverageDays:w?.coverageDays??null,startAt:long?w.startAt:null,endAt:performanceAsOf,positionCheckedAt:pc.checkedAt,currentHolding,stale:performanceStale||!currentHolding});
  }
  rows.sort((a,b)=>b.pnl-a.pnl||a.id.localeCompare(b.id));const eligibleCount=rows.length,top=rows.slice(0,3),asOf=top.length?top.map(r=>r.performanceAsOf).sort((a,b)=>Date.parse(a)-Date.parse(b))[0]:null;
- return {period,rows:top,eligibleCount,stale:top.some(r=>r.stale)||!!failures.feed,asOf,scope:SCOPE,note:'按正盈亏 USD 排序；胜率为近期片段，非完整周期；采样回撤非净值回撤。'+(period==='30D'?'':' 长期收益率缺可靠资金基准，不估算。')};
+ return {period,rows:top,eligibleCount,stale:top.some(r=>r.stale)||!!failures.feed,asOf,scope:SCOPE,note:'按正盈亏 USD 排序；胜率为近期片段，非完整周期；采样回撤非净值回撤。'+(period==='30D'?'':' 自算收益率采用公开资金流水与权益逐段对账后的峰值投入资金口径，非 TWR 或官方直接值；数据不足留空。')};
 }
 function accountHref(id,period){if(!PERIODS.includes(period))fail();const account=address(typeof id==='string'&&id.startsWith('hl-')?id.slice(3):id);const params=new URLSearchParams({account,period,exchange:'Hyperliquid',source:'public',sort:'pnl',currency:'USD',q:account});return 'trader/index.html?'+params.toString();}
 return {PERIODS,LIMITS,validateFeed,validatePortfolios,validateAnalytics,rank,accountHref};
