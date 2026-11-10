@@ -9,16 +9,16 @@
     "visibility": "public",
     "sourceUrl": "https://www.binance.com/en/copy-trading/lead-details/5156287639231681792"
   },
-  "generatedAt": "2026-11-10T03:11:04.570Z",
+  "generatedAt": "2026-11-10T06:08:36.967Z",
   "source": {
     "status": "ready",
-    "lastAttemptAt": "2026-11-10T03:10:57.544Z",
-    "lastSuccessAt": "2026-11-10T03:11:00.196Z",
+    "lastAttemptAt": "2026-11-10T06:08:29.844Z",
+    "lastSuccessAt": "2026-11-10T06:08:32.600Z",
     "errorCode": null,
     "refreshStopped": false
   },
   "snapshot": {
-    "observedAt": "2026-11-10T03:11:00.196Z",
+    "observedAt": "2026-11-10T06:08:32.600Z",
     "complete": true,
     "rawCount": 1938,
     "positions": [
@@ -28,9 +28,9 @@
         "side": "LONG",
         "quantity": "217.56",
         "entryPrice": "175.5530391615",
-        "markPrice": "181.24666281",
+        "markPrice": "180.14000000",
         "leverage": 40,
-        "unrealizedPnl": "1238.70476129",
+        "unrealizedPnl": "997.93920035",
         "collateral": "USDT"
       }
     ]
@@ -43,6 +43,16 @@
       "side": "LONG",
       "from": null,
       "to": "2026-11-10T00:32:20.394Z",
+      "before": null,
+      "after": "217.56"
+    },
+    {
+      "id": "dc817c97f79832c54a57b9dc",
+      "kind": "baseline",
+      "symbol": "NVDAUSDT",
+      "side": "LONG",
+      "from": null,
+      "to": "2026-11-10T06:08:32.600Z",
       "before": null,
       "after": "217.56"
     }
@@ -192,42 +202,60 @@
           "collateral": "USDT"
         }
       ]
+    },
+    {
+      "observedAt": "2026-11-10T06:08:32.600Z",
+      "complete": true,
+      "rawCount": 1938,
+      "positions": [
+        {
+          "key": "NVDAUSDT:LONG:USDT",
+          "symbol": "NVDAUSDT",
+          "side": "LONG",
+          "quantity": "217.56",
+          "entryPrice": "175.5530391615",
+          "markPrice": "180.14000000",
+          "leverage": 40,
+          "unrealizedPnl": "997.93920035",
+          "collateral": "USDT"
+        }
+      ]
     }
   ],
   "evidence": {
     "lead-portfolio/detail": {
-      "sha256": "66833f6ae2f67b64dc89ba5d05247955576715f43d16bbbf179bd9131e949f46",
+      "sha256": "e0c1183f3590833a6bcc82a2adcd85389a7938068031ff5544b86123b97481cd",
       "bytes": 2669,
       "httpStatus": 200,
       "code": "000000",
-      "receivedAt": "2026-11-10T03:10:57.874Z"
+      "receivedAt": "2026-11-10T06:08:30.261Z"
     },
     "lead-data/positions": {
-      "sha256": "7fb40045587e9ebb695180fc589d75ad1a31d0c0c35ce49f5ce12882051aa6d1",
-      "bytes": 663626,
+      "sha256": "999e2fd75e57a627298f1ba3961f7ce8e7b2e37c999eea94f5e235f157ab207b",
+      "bytes": 663625,
       "httpStatus": 200,
       "code": "000000",
-      "receivedAt": "2026-11-10T03:11:00.196Z"
+      "receivedAt": "2026-11-10T06:08:32.600Z"
     },
     "lead-portfolio/order-history": {
       "sha256": "cf5997d42d5b4b7daee2fdd5d1bdff08a90bd8eab261a79bc9bb761ccae02092",
       "bytes": 4981,
       "httpStatus": 200,
       "code": "000000",
-      "receivedAt": "2026-11-10T03:11:02.390Z"
+      "receivedAt": "2026-11-10T06:08:34.788Z"
     },
     "lead-portfolio/position-history": {
       "sha256": "dfa83d6bff0b5d84fc2181a28656e1ce63a948fd495690b7f28e2d47ed78498b",
       "bytes": 8112,
       "httpStatus": 200,
       "code": "000000",
-      "receivedAt": "2026-11-10T03:11:04.570Z"
+      "receivedAt": "2026-11-10T06:08:36.967Z"
     }
   },
   "history": {
     "orders": {
       "status": "ready",
-      "fetchedAt": "2026-11-10T03:11:02.390Z",
+      "fetchedAt": "2026-11-10T06:08:34.788Z",
       "errorCode": null,
       "complete": false,
       "rows": [
@@ -455,8 +483,8 @@
       "coverage": {
         "page": 1,
         "pageSize": 20,
-        "requestedFrom": "2026-11-03T03:11:00.199Z",
-        "requestedTo": "2026-11-10T03:11:00.199Z",
+        "requestedFrom": "2026-11-03T06:08:32.604Z",
+        "requestedTo": "2026-11-10T06:08:32.604Z",
         "sourceTotal": 50,
         "indexValue": "1794174958281",
         "truncated": true,
@@ -465,7 +493,7 @@
     },
     "closedPositions": {
       "status": "ready",
-      "fetchedAt": "2026-11-10T03:11:04.570Z",
+      "fetchedAt": "2026-11-10T06:08:36.967Z",
       "errorCode": null,
       "complete": false,
       "rows": [
