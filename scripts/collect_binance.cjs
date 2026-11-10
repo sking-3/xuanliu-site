@@ -28,8 +28,9 @@ function profile(d){if(!d||typeof d!=='object')throw Error('schema_changed');
 function positions(data,at){if(!Array.isArray(data)||data.length>10000)throw Error('schema_changed');
  const rows=[],keys=new Set();
  for(const p of data){if(!p||typeof p!=='object')throw Error('schema_changed');const quantity=abs(p.positionAmount);if(compare(quantity,'0')===0)continue;
- const symbol=str(p.symbol,50),side=str(p.positionSide,10),collateral=str(p.collateral,30);
- if(!/^[A-Z0-9_]+$/.test(symbol)||!['LONG','SHORT','BOTH'].includes(side))throw Error('schema_changed');
+ const symbol=str(p.symbol,50),sourceSide=str(p.positionSide,10),collateral=str(p.collateral,30);
+ if(!/^[A-Z0-9_]+$/.test(symbol)||!['LONG','SHORT','BOTH'].includes(sourceSide))throw Error('schema_changed');
+ const side=sourceSide==='BOTH'?(decimal(p.positionAmount).startsWith('-')?'SHORT':'LONG'):sourceSide;
  const key=symbol+':'+side+':'+collateral;if(keys.has(key))throw Error('schema_changed');keys.add(key);
  const leverage=Number(p.leverage);if(!Number.isSafeInteger(leverage)||leverage<1||leverage>1000)throw Error('schema_changed');
  rows.push({key,symbol,side,quantity,entryPrice:decimal(p.entryPrice),markPrice:decimal(p.markPrice),leverage,unrealizedPnl:decimal(p.unrealizedProfit),collateral});
@@ -85,7 +86,7 @@ async function collect(previous=null,{fetchImpl=fetch,now=()=>Date.now(),sleep=m
  out.pendingAbsent=diff.pending;out.snapshot=snap;
  out.snapshots=[...(old.snapshots||[]),snap].slice(-24);
  out.source={status:'ready',lastAttemptAt:out.source.lastAttemptAt,lastSuccessAt:snap.observedAt,errorCode:null,refreshStopped:false};
- }catch(e){const c=code(e);out.source.status=c==='restricted'?'restricted':out.snapshot?'stale':'unavailable';out.source.errorCode=c;out.source.refreshStopped=HALT.has(c);out.pendingAbsent={};return out;}
+ }catch(e){const c=code(e);out.source.status=c==='restricted'?'restricted':out.snapshot?'stale':'unavailable';out.source.errorCode=c;out.source.refreshStopped=(HALT.has(c)||c.startsWith('source_error_'));out.pendingAbsent={};if(c==='restricted'){out.snapshot=null;out.snapshots=[];out.observations=[];out.history={orders:emptyHistory(),closedPositions:emptyHistory()};}return out;}
  const to=now(),from=to-7*86400000;
  const tasks=[['orders','lead-portfolio/order-history',{portfolioId:ID,startTime:from,endTime:to,pageSize:20},orders],
  ['closedPositions','lead-portfolio/position-history',{portfolioId:ID,pageNumber:1,pageSize:20,sort:'OPENING'},closed]];
@@ -96,7 +97,7 @@ async function collect(previous=null,{fetchImpl=fetch,now=()=>Date.now(),sleep=m
  coverage:{page:1,pageSize:20,requestedFrom:kind==='orders'?new Date(from).toISOString():null,requestedTo:kind==='orders'?new Date(to).toISOString():null,
  sourceTotal:Number.isSafeInteger(d.total)?d.total:null,indexValue:typeof d.indexValue==='string'?d.indexValue:null,truncated:true,identity:'source_page_sample_no_cross_run_deduplication'}};}
  catch(e){const c=code(e),h=out.history[kind]||emptyHistory();out.history[kind]={...h,status:h.fetchedAt?'stale':'unavailable',errorCode:c,complete:false};
- if(HALT.has(c)){out.source.refreshStopped=true;out.source.errorCode=c;}}
+ if((HALT.has(c)||c.startsWith('source_error_'))){out.source.refreshStopped=true;out.source.errorCode=c;}}
  }
  out.generatedAt=at();return out;
 }

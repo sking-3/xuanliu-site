@@ -1,0 +1,38 @@
+name: Verify Binance monitor
+
+on:
+  push:
+    branches: ['codex/binance-monitor-20261110']
+  pull_request:
+    paths:
+      - 'scripts/collect_binance.cjs'
+      - 'audit/binance-*.cjs'
+      - 'trader/binance/**'
+      - 'trader/index.html'
+      - '.github/workflows/verify-binance.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  offline-checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Check collector, display, and existing trader page
+        run: |
+          node --check scripts/collect_binance.cjs
+          node --check trader/binance/monitor.js
+          node audit/binance-collector-unit.cjs
+          node audit/binance-ui-unit.cjs
+          node audit/shell-unit.cjs
+          node audit/trader-unit.cjs
+          node audit/account-live-unit.cjs
+          node audit/account-analytics-unit.cjs
+      - name: Check real sample structure without network access
+        run: |
+          node -e "const fs=require('node:fs');const m=require('./trader/binance/monitor.js');const s=JSON.parse(fs.readFileSync('trader/binance/snapshot.json','utf8'));console.log('snapshot',s.portfolioId,s.source.status,s.snapshot?.positions.length);if(s.portfolioId!=='5156287639231681792'||!s.snapshot?.complete)process.exit(1);"

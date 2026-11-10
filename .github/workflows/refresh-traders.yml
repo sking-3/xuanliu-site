@@ -56,6 +56,10 @@ jobs:
           node --check scripts/refresh_trader_positions.cjs
           node audit/refresh-trader-positions-unit.cjs
           node audit/trader-unit.cjs
+          node --check scripts/collect_binance.cjs
+          node --check trader/binance/monitor.js
+          node audit/binance-collector-unit.cjs
+          node audit/binance-ui-unit.cjs
 
       - name: Test snapshot validation and last-good handling
         run: python3 -B audit/hyperliquid-collector-test.py
@@ -110,6 +114,10 @@ jobs:
           sleep 60
           node scripts/refresh_trader_positions.cjs --not-before "$BOOKS_COLLECTION_STARTED_AT"
 
+      - name: Collect the public Binance lead sample
+        # Anonymous read-only sample. Access refusal is persisted; halted sources are not retried.
+        run: node scripts/collect_binance.cjs
+
       - name: Save the snapshot without overwriting concurrent edits
         id: snapshot
         shell: bash
@@ -120,7 +128,7 @@ jobs:
             echo '::error::main changed during collection. Skipping this deployment; a later run will use the new version.'
             exit 1
           fi
-          git add -- trader/feed.json trader/analytics.json trader/portfolios.json
+          git add -- trader/feed.json trader/analytics.json trader/portfolios.json trader/binance/snapshot.json
           if ! git diff --cached --quiet; then
             git config user.name 'github-actions[bot]'
             git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
@@ -143,6 +151,7 @@ jobs:
           test -s "$RUNNER_TEMP/books-pages/trader/feed.json"
           test -s "$RUNNER_TEMP/books-pages/trader/analytics.json"
           test -s "$RUNNER_TEMP/books-pages/trader/portfolios.json"
+          test -s "$RUNNER_TEMP/books-pages/trader/binance/snapshot.json"
           # Raw downloads and test temporary files are never part of git archive.
 
       - name: Upload Pages artifact
