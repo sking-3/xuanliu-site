@@ -14,7 +14,7 @@ for(const [id,values]of Object.entries({period:['7D','30D','90D','180D','365D','
 let remoteFeed,remoteAnalytics={schemaVersion:1,methodVersion:'closing-fill-v1',generatedAt:new Date().toISOString(),accounts:{}},fetches=0,analyticsFetches=0,analyticsFetchError=false,feedGate=null,analyticsGate=null,remotePortfolios={schemaVersion:1,methodVersion:'portfolio-periods-v2',generatedAt:new Date().toISOString(),accounts:{}},portfolioFetches=0,portfolioFetchError=false,portfolioGate=null,storageError=false;const saved=new Map(),localStorage={getItem:key=>saved.get(key)||null,setItem(key,value){if(storageError)throw Error('QUOTA');saved.set(key,value);}};
 const location={href:'https://example.com/trader/?page=2&q=SYNTHETIC#main'},history={pushState(_,__,url){location.href=new URL(url,location.href).href;},replaceState(_,__,url){location.href=new URL(url,location.href).href;}};
 const context={document,location,history,URL,Date,Blob,AbortController,crypto:require('node:crypto').webcrypto,localStorage,confirm:()=>true,setTimeout,clearTimeout,fetch:async url=>{if(url==='portfolios.json'){portfolioFetches++;if(portfolioGate)await portfolioGate;await new Promise(r=>setTimeout(r,5));if(portfolioFetchError)throw Error('unavailable');return new Response(JSON.stringify(remotePortfolios),{headers:{'Content-Type':'application/json'}});}if(url==='analytics.json'){analyticsFetches++;if(analyticsGate)await analyticsGate;await new Promise(r=>setTimeout(r,5));if(analyticsFetchError)throw Error('unavailable');return new Response(JSON.stringify(remoteAnalytics),{headers:{'Content-Type':'application/json'}});}fetches++;if(feedGate)await feedGate;await new Promise(r=>setTimeout(r,5));return new Response(JSON.stringify(remoteFeed));}};
-const source=fs.readFileSync(path.join(__dirname,'../trader/plaza.js'),'utf8').split("for(const id of controls)$(id).addEventListener")[0]+"globalThis.api={validate,date,win,value,readURL,saveURL,render,refresh,state,openDetail,openEditor,saveRecord,captureWindow,changeEditorPeriod,commitLocal,loadLocal,mergeRows,choosePeriod,updateView,stampLabel,hasMetrics,removeRecord,validateSource,sourceIsStale,positionSummary,positionStatus,statusText,renderSource,displayPeriod,isPublicAccount,canReadLive,activateDetailTab,stopLive,renderDetail,liveDirection,liveSide,renderLiveData,qualifiedPosition,eligiblePublicRows,reevaluatePositions,observeEmptyPositions,compactMoney,metrics,card,refreshAnalyticsViews,startVisibleAnalytics,validateWinCache,cachedWin,winCacheIsStale,fillWinCacheNote,refreshWinCache,validatePortfolioCache,refreshPortfolioCache,portfolioSection,performanceWindow,performanceRange,sortValue};})();";
+const source=fs.readFileSync(path.join(__dirname,'../trader/plaza.js'),'utf8').split("for(const id of controls)$(id).addEventListener")[0]+"globalThis.api={validate,date,win,value,readURL,saveURL,render,refresh,state,openDetail,openEditor,saveRecord,captureWindow,changeEditorPeriod,commitLocal,loadLocal,mergeRows,choosePeriod,updateView,stampLabel,hasMetrics,removeRecord,validateSource,sourceIsStale,positionSummary,positionStatus,statusText,renderSource,displayPeriod,isPublicAccount,canReadLive,activateDetailTab,stopLive,renderDetail,liveDirection,liveSide,renderLiveData,qualifiedPosition,eligiblePublicRows,reevaluatePositions,observeEmptyPositions,compactMoney,metrics,card,refreshAnalyticsViews,startVisibleAnalytics,validateWinCache,cachedWin,winCacheIsStale,fillWinCacheNote,refreshWinCache,validatePortfolioCache,refreshPortfolioCache,portfolioSection,performanceWindow,performanceRange,sortValue,publicCacheKeys,publicSnapshots,hydratePublicSnapshots,rejectOlderFeed};})();";
 vm.createContext(context);vm.runInContext(source,context);const a=context.api;
 const stamp='2026-01-15T12:00:00Z';
 const row=i=>({id:`synthetic-${i}`,name:`SYNTHETIC ${i}`,exchange:'Binance',currency:'USDT',featured:false,paid:false,observedAt:stamp,sourceUrl:'https://example.com/synthetic',windows:{'30D':{asOf:stamp,roi:i,pnl:i,mdd:i,wins:i,closedTrades:20,curve:[{time:'2026-01-14T12:00:00Z',value:0},{time:stamp,value:i}]}},positions:[],points:[],orders:[]});
@@ -222,5 +222,113 @@ await test('all public windows use verified perpetual sampled drawdown while man
 await test('old all-account and unverified foreground ratios cannot enter public metrics or sorting',()=>{const r=installQualified();a.state.portfolioCache={};const valid=portfolioFixture(r.accountId).accounts[r.accountId];for(const mutate of [w=>w.scope='all_account',w=>w.sourcePeriod='allTime',w=>w.mddMethod='strategy_nav',w=>w.mddPairedSampleCount=0]){const portfolio=structuredClone(valid.portfolio);mutate(portfolio.windows['180D']);a.state.analytics[r.accountId]={portfolio:{...portfolio,status:'ready',fetchedAt:valid.fetchedAt}};assert.equal(a.sortValue(r,'180D','mdd'),null);assert.equal(a.metrics(a.performanceWindow(r,'180D'),'USD',false,r,'180D').children[1].children[1].textContent,'—');}});
 await test('a newer wrong-scope foreground result cannot overwrite verified perp curves or interval profit',()=>{const r=installQualified(),entry=portfolioFixture(r.accountId).accounts[r.accountId];a.state.portfolioCache={[r.accountId]:entry};const wrong=structuredClone(entry.portfolio);wrong.windows['180D'].scope='all_account';wrong.windows['180D'].pnl=999999;a.state.analytics[r.accountId]={portfolio:{...wrong,status:'ready',fetchedAt:new Date(Date.parse(entry.fetchedAt)+1).toISOString()}};assert.equal(a.performanceWindow(r,'180D').pnl,entry.portfolio.windows['180D'].pnl);assert.equal(a.sortValue(r,'180D','mdd'),entry.portfolio.windows['180D'].mdd);a.state.portfolioCache={};assert.equal(a.performanceWindow(r,'180D'),null);assert.equal(a.portfolioSection(r).status,'error');const card=a.card(r,'180D');assert.doesNotMatch(content(card),/999,999/);assert.match(card.className,/compact-history/);});
 await test('capped partial-close sample exposes source coverage, exclusions and fees without becoming period trade win rate',()=>{const r=installQualified(),p=winFixture(r.accountId,931,0,0),entry=p.accounts[r.accountId],w=entry.win;w.totalFills=2000;w.receivedFills=2000;w.excludedCount=1069;w.capped=true;a.state.winCache=a.validateWinCache(p).accounts;a.openDetail(r,'180D');const view=a.state.analyticsViews.find(v=>v.kind==='detail'),amount=view.metrics.children[3].children[1];assert.equal(view.metrics.children[3].children[0].textContent,'平仓片段胜率');assert.equal(amount.textContent,'100.00%');assert.match(amount.attrs.title,/永续平仓片段.*不含现货、开仓.*非完整订单或开平仓回合/);assert.match(amount.attrs.title,/未扣开仓手续费和资金费/);assert.match(view.winStatus.textContent,/来源返回 2000 条 → 有效 931、排除 1069/);assert.match(view.winStatus.textContent,/达到 2000 条上限，可能截断更早历史/);assert.match(view.winStatus.textContent,/样本.*至.*后台采集/);});
+function resetPublicMemory() {
+  Object.assign(a.state,{source:null,publicRows:[],rows:[],status:'unavailable',feedText:null,lastReadFailed:false,positionExclusions:{},winCache:{},winCacheGeneratedAt:null,winCacheReadFailed:false,portfolioCacheAttempted:false,analyticsViews:[],detail:null});
+  a.publicSnapshots.feed=null;a.publicSnapshots.win=null;ids.detail.open=false;
+}
+function savedSnapshots({at=Date.now()-1000}={}) {
+  const feed=qualify(published,at),win=winFixture(feed.traders[0].accountId);
+  saved.set(a.publicCacheKeys.feed,JSON.stringify({cacheVersion:1,payload:feed,readFailed:false,positionExclusions:{}}));
+  saved.set(a.publicCacheKeys.win,JSON.stringify({cacheVersion:1,payload:win,readFailed:false}));
+  return {feed,win,address:feed.traders[0].accountId};
+}
+await test('reload hydrates validated public cards and win immediately without any network or per-account fallback',()=>{
+  resetPublicMemory();const p=savedSnapshots(),calls=[fetches,analyticsFetches,portfolioFetches,analyticsCalls.portfolios.length,analyticsCalls.wins.length];filters();
+  assert.equal(a.hydratePublicSnapshots(),true);ids.sort.value='winRate';a.render();a.renderSource();
+  const view=a.state.analyticsViews.find(v=>v.kind==='card'&&v.r.accountId===p.address);assert.ok(view);assert.equal(view.metrics.children[2].children[1].textContent,'75.00%');
+  assert.equal(ids['source-summary'].hidden,false);assert.match(ids['source-timing'].textContent,/采集于/);assert.doesNotMatch(ids.status.textContent,/正在读取|正在检查/);
+  assert.equal(a.state.winCache[p.address].fetchedAt,p.win.accounts[p.address].fetchedAt);assert.equal(a.state.publicRows[0].positionCheck.checkedAt,p.feed.traders[0].positionCheck.checkedAt);
+  assert.deepEqual([fetches,analyticsFetches,portfolioFetches,analyticsCalls.portfolios.length,analyticsCalls.wins.length],calls);
+});
+await test('browser cache never renews expired holdings and keeps expired distinct from empty',()=>{
+  resetPublicMemory();const p=savedSnapshots({at:Date.now()-3600001});a.hydratePublicSnapshots();a.render();assert.equal(a.eligiblePublicRows().length,0);
+  assert.equal(a.positionStatus(),'stale');assert.match(a.statusText(),/过期/);assert.doesNotMatch(a.statusText(),/当前均为空仓/);
+  assert.equal(a.state.publicRows[0].positionCheck.checkedAt,p.feed.traders[0].positionCheck.checkedAt);
+});
+await test('a live empty-position exclusion persists through reload and only a later real check requalifies',()=>{
+  resetPublicMemory();const p=savedSnapshots({at:Date.now()-10000});a.hydratePublicSnapshots();const r=a.state.publicRows[0],checked=Date.now()-1000;
+  a.observeEmptyPositions(r,{status:'ready',rows:[],fetchedAt:checked,sourceTime:checked-500});assert.equal(a.qualifiedPosition(r),false);
+  resetPublicMemory();a.hydratePublicSnapshots();const restored=a.state.publicRows[0];assert.equal(a.qualifiedPosition(restored),false);assert.equal(a.positionSummary().excluded,1);
+  assert.equal(a.state.positionExclusions[p.address],checked);
+  restored.positionCheck={...restored.positionCheck,checkedAt:new Date(checked+1).toISOString(),sourceTime:new Date(checked).toISOString()};assert.equal(a.qualifiedPosition(restored),true);
+});
+await test('older win samples retain original coverage, fee scope and stale state after hydration',()=>{
+  resetPublicMemory();const p=savedSnapshots(),entry=p.win.accounts[p.address],old=new Date(Date.now()-7200000).toISOString();
+  entry.fetchedAt=entry.lastAttemptAt=p.win.generatedAt=old;for(const k of ['startAt','endAt','sourceSampleStartAt','sourceSampleEndAt'])entry.win[k]=old;
+  saved.set(a.publicCacheKeys.win,JSON.stringify({cacheVersion:1,payload:p.win,readFailed:false}));a.hydratePublicSnapshots();
+  assert.equal(a.winCacheIsStale(a.state.winCache[p.address]),true);assert.equal(a.state.winCache[p.address].win.historyComplete,false);assert.equal(a.state.winCache[p.address].win.includesOpeningFees,false);assert.equal(a.state.winCache[p.address].win.includesFunding,false);assert.equal(a.state.winCache[p.address].win.startAt,old);
+});
+await test('rotating candidates cannot overflow persisted exclusions or resurrect an empty current account',()=>{
+  resetPublicMemory();const p=savedSnapshots({at:Date.now()-10000});a.hydratePublicSnapshots();const checked=Date.now()-1000;
+  for(let i=0;i<205;i++)a.state.positionExclusions['0x'+(100000+i).toString(16).padStart(40,'0')]=checked;
+  a.observeEmptyPositions(a.state.publicRows[0],{status:'ready',rows:[],fetchedAt:checked,sourceTime:checked-500});
+  assert.equal(Object.keys(a.state.positionExclusions).length,206);const persisted=JSON.parse(saved.get(a.publicCacheKeys.feed));assert.deepEqual(Object.keys(persisted.positionExclusions),[p.address]);
+  resetPublicMemory();assert.equal(a.hydratePublicSnapshots(),true);assert.equal(a.qualifiedPosition(a.state.publicRows[0]),false);
+});
+await test('future analytics and invalid exclusion timestamps cannot become a usable browser snapshot',()=>{
+  resetPublicMemory();const p=savedSnapshots();p.win.generatedAt='2099-01-01T00:00:00Z';saved.set(a.publicCacheKeys.win,JSON.stringify({cacheVersion:1,payload:p.win,readFailed:false}));
+  const f=JSON.parse(saved.get(a.publicCacheKeys.feed));f.positionExclusions[p.address]=Date.now()+60000;saved.set(a.publicCacheKeys.feed,JSON.stringify(f));
+  assert.equal(a.hydratePublicSnapshots(),false);assert.equal(Object.keys(a.state.winCache).length,0);
+});
+for(const [name,corrupt]of [
+  ['malformed JSON',()=>'{'],['unknown cache version',v=>JSON.stringify({...JSON.parse(v),cacheVersion:2})],['oversized cache',()=> 'x'.repeat(2097153)],
+  ['unknown payload schema',v=>{const p=JSON.parse(v);p.payload.schemaVersion=99;return JSON.stringify(p);}],
+])await test('invalid '+name+' cannot prevent normal network revalidation',async()=>{
+  resetPublicMemory();const p=savedSnapshots();for(const key of Object.values(a.publicCacheKeys))saved.set(key,corrupt(saved.get(key)));
+  assert.equal(a.hydratePublicSnapshots(),false);assert.equal(Object.keys(a.state.winCache).length,0);const before=fetches;remoteFeed=p.feed;remoteAnalytics=p.win;
+  await a.refresh(true);assert.equal(fetches,before+1);assert.equal(a.eligiblePublicRows().length,p.feed.traders.length);assert.equal(a.state.winCache[p.address].win.value,75);
+});
+await test('disabled storage reads and quota failures never block the network or usable in-memory results',async()=>{
+  resetPublicMemory();const p=savedSnapshots(),getItem=localStorage.getItem;localStorage.getItem=()=>{throw Error('DENIED');};assert.equal(a.hydratePublicSnapshots(),false);localStorage.getItem=getItem;
+  const prior=saved.get(a.publicCacheKeys.feed),before=fetches;storageError=true;remoteFeed=p.feed;remoteAnalytics=p.win;try{await a.refresh(true);}finally{storageError=false;}
+  assert.equal(fetches,before+1);assert.equal(a.state.winCache[p.address].win.value,75);assert.equal(saved.get(a.publicCacheKeys.feed),prior);
+});
+await test('public persisted snapshots exclude private research records and preserve source refusal metadata',async()=>{
+  resetPublicMemory();const p=savedSnapshots();a.state.localRows=a.validate(feed([plain()]));remoteFeed=p.feed;remoteFeed.source.positionVerification.stopCode='http_429';remoteAnalytics=p.win;remoteAnalytics.source={stopCode:'http_403'};
+  await a.refresh(true);const f=JSON.parse(saved.get(a.publicCacheKeys.feed)),w=JSON.parse(saved.get(a.publicCacheKeys.win));
+  assert.ok(f.payload.traders.every(r=>r.sourceKind==='public_account'));assert.ok(!JSON.stringify(f).includes('A synthetic unit-test note'));assert.equal(f.payload.source.positionVerification.stopCode,'http_429');assert.equal(w.payload.source.stopCode,'http_403');
+});
+await test('network failures preserve last-good snapshot and its stale marker across reload',async()=>{
+  resetPublicMemory();const p=savedSnapshots();a.hydratePublicSnapshots();const originalFeedTime=a.state.source.fetchedAt,originalWinTime=a.state.winCache[p.address].fetchedAt;
+  remoteFeed={schemaVersion:99};analyticsFetchError=true;try{await a.refresh(true);}finally{analyticsFetchError=false;}
+  resetPublicMemory();a.hydratePublicSnapshots();assert.equal(a.state.source.fetchedAt,originalFeedTime);assert.equal(a.state.winCache[p.address].fetchedAt,originalWinTime);assert.equal(a.state.lastReadFailed,true);assert.equal(a.winCacheIsStale(a.state.winCache[p.address]),true);
+});
+await test('feed rollback is rejected for source, attempt, snapshot, batch and per-account check times',()=>{
+  resetPublicMemory();const p=savedSnapshots();a.hydratePublicSnapshots();
+  for(const key of ['fetchedAt','snapshotAt','lastAttemptAt']){const source=structuredClone(a.state.source);source[key]=new Date(Date.parse(source[key])-1).toISOString();assert.throws(()=>a.rejectOlderFeed(source,a.state.publicRows));}
+  const source=structuredClone(a.state.source);source.positionVerification.completedAt=new Date(Date.parse(source.positionVerification.completedAt)-1).toISOString();assert.throws(()=>a.rejectOlderFeed(source,a.state.publicRows));
+  const rows=structuredClone(a.state.publicRows);rows[0].positionCheck.checkedAt=new Date(Date.parse(rows[0].positionCheck.checkedAt)-1).toISOString();assert.throws(()=>a.rejectOlderFeed(a.state.source,rows));
+  assert.doesNotThrow(()=>a.rejectOlderFeed(a.state.source,a.state.publicRows));
+});
+await test('an older remote feed cannot erase the hydrated snapshot or reset its holdings time',async()=>{
+  resetPublicMemory();const p=savedSnapshots();a.hydratePublicSnapshots();const checked=a.state.publicRows[0].positionCheck.checkedAt;remoteFeed=qualify(p.feed,Date.parse(checked)-1);remoteAnalytics=p.win;await a.refresh(true);
+  assert.equal(a.state.lastReadFailed,true);assert.equal(a.state.publicRows[0].positionCheck.checkedAt,checked);assert.equal(JSON.parse(saved.get(a.publicCacheKeys.feed)).readFailed,true);
+});
+await test('analytics generation and per-account attempt rollback preserve hydrated last-good values and times',async()=>{
+  resetPublicMemory();const p=savedSnapshots();a.hydratePublicSnapshots();const original=a.state.winCache[p.address],attempt=original.lastAttemptAt;
+  remoteAnalytics=structuredClone(p.win);remoteAnalytics.generatedAt=new Date(Date.parse(p.win.generatedAt)-1).toISOString();await a.refreshWinCache();assert.equal(a.state.winCacheReadFailed,true);assert.equal(a.state.winCache[p.address].win.value,75);
+  remoteAnalytics=structuredClone(p.win);remoteAnalytics.accounts[p.address].lastAttemptAt=new Date(Date.parse(attempt)-1).toISOString();await a.refreshWinCache();
+  assert.equal(a.state.winCache[p.address].lastAttemptAt,attempt);assert.equal(a.state.winCache[p.address].fetchedAt,original.fetchedAt);assert.equal(a.state.winCache[p.address].status,'stale');assert.equal(a.state.winCache[p.address].errorCode,'older_result');
+});
+await test('successful background revalidation replaces the persisted failure marker without rewriting source times',async()=>{
+  resetPublicMemory();const p=savedSnapshots();for(const key of Object.values(a.publicCacheKeys)){const cached=JSON.parse(saved.get(key));cached.readFailed=true;saved.set(key,JSON.stringify(cached));}a.hydratePublicSnapshots();
+  remoteFeed=p.feed;remoteAnalytics=p.win;await a.refresh(true);assert.equal(a.state.lastReadFailed,false);assert.equal(a.state.winCacheReadFailed,false);
+  const feed=JSON.parse(saved.get(a.publicCacheKeys.feed)),win=JSON.parse(saved.get(a.publicCacheKeys.win));assert.equal(feed.readFailed,false);assert.equal(win.readFailed,false);assert.equal(feed.payload.source.fetchedAt,p.feed.source.fetchedAt);assert.equal(win.payload.accounts[p.address].fetchedAt,p.win.accounts[p.address].fetchedAt);
+});
+await test('overlapping aggregate readers return the same completion promise',async()=>{
+  const win=a.refreshWinCache();assert.equal(a.refreshWinCache(),win);await win;const portfolio=a.refreshPortfolioCache();assert.equal(a.refreshPortfolioCache(),portfolio);await portfolio;
+});
+await test('full refresh remains shared after feed completes while win cache is still pending',async()=>{
+  resetPublicMemory();const p=savedSnapshots();a.hydratePublicSnapshots();remoteFeed=p.feed;remoteAnalytics=p.win;let release;analyticsGate=new Promise(resolve=>{release=resolve;});
+  const before=[fetches,analyticsFetches,portfolioFetches],pending=a.refresh(true);await new Promise(resolve=>setTimeout(resolve,20));assert.equal(a.state.loading,false);assert.equal(a.refresh(true),pending);
+  release();await pending;analyticsGate=null;assert.deepEqual([fetches,analyticsFetches,portfolioFetches],before.map(n=>n+1));assert.equal(a.state.refreshRequest,null);assert.equal(analyticsCalls.wins.length,0);
+});
+await test('canonical feed comparison and quiet revalidation preserve the focused cached card action',async()=>{
+  resetPublicMemory();const p=savedSnapshots();a.hydratePublicSnapshots();filters();ids.sort.value='winRate';a.render();a.renderSource();const canonical=a.state.feedText;
+  const view=a.state.analyticsViews.find(v=>v.kind==='card'&&v.r.accountId===p.address);view.detailButton.focus();remoteFeed=p.feed;remoteAnalytics=p.win;
+  assert.notEqual(JSON.stringify(remoteFeed),canonical);await a.refresh(true);assert.equal(a.state.feedText,canonical);
+  const replacement=a.state.analyticsViews.find(v=>v.kind==='card'&&v.r.accountId===p.address);assert.equal(document.activeElement,replacement.detailButton);assert.doesNotMatch(ids.status.textContent,/正在读取|正在检查/);
+  a.reevaluatePositions();assert.equal(document.activeElement,a.state.analyticsViews.find(v=>v.kind==='card'&&v.r.accountId===p.address).detailButton);
+});
 console.log(`${passed} logic and DOM-model tests passed. Synthetic fixtures stay local; the published feed is checked separately.`);
 })().catch(e=>{console.error(e);process.exitCode=1;});

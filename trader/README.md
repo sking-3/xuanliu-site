@@ -14,7 +14,7 @@ Hyperliquid 官方网页使用 `https://stats-data.hyperliquid.xyz/Mainnet/leade
 
 ## 更新与失败处理
 
-`.github/workflows/refresh-traders.yml` 保留每小时第 27、57 分钟的持仓核验计划，另在 UTC 每日 00:12、06:12、12:12、18:12 计划执行完整分析（`12 */6 * * *`）。两种模式共用同一 `pages` 并发锁，避免采集预算和提交竞争；持仓模式跳过耗时分析，保留分析文件及其原采集时间，完整模式在分析完成后再次核验持仓。该拆分用于降低长分析批次对常规持仓更新的阻塞，不能保证任务按时执行。并发组使用 `queue: max` 保留最多 100 个等待任务，避免排队的完整分析被后到持仓任务替换；队列满时新增任务仍可能取消，六小时完整分析是计划而非完成承诺（[GitHub 并发说明](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency)）。主分支推送和手动触发仍可使用；只有事件提交与实际检出的 main 相同时，`[ui-only]` 才跳过 Hyperliquid 采集、`[positions-only]` 才选择持仓模式；延迟推送检出较新提交时执行完整模式。Binance 的独立停止检查和采集步骤保持原有语义。
+`.github/workflows/refresh-traders.yml` 保留每小时第 27、57 分钟的持仓核验计划，另在 UTC 每日 00:12、06:12、12:12、18:12 计划执行完整分析（`12 */6 * * *`）。两种模式共用同一 `pages` 并发锁，避免采集预算和提交竞争；持仓模式跳过耗时分析，保留分析文件及其原采集时间，完整模式在分析完成后再次核验持仓。该拆分用于降低长分析批次对常规持仓更新的阻塞，不能保证任务按时执行。并发组使用 `queue: max` 保留最多 100 个等待任务，避免排队的完整分析被后到持仓任务替换；队列满时新增任务仍可能取消，六小时完整分析是计划而非完成承诺（[GitHub 并发说明](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency)）。主分支推送和手动触发仍可使用；`[ui-only]` 在事件提交与实际检出的 main 一致时跳过全部 Hyperliquid 与 Binance 采集，仅测试并部署现有快照；若 main 已变化，则在来源请求前停止，不转为完整采集。`[positions-only]` 仍只在提交匹配时选择持仓模式，其他延迟推送保留原有完整模式。所有采集模式继续执行原有来源停止检查，不因仅界面发布清除停止状态。
 
 **定时投递仍待确认。** 2026-11-10 06:28:58 UTC 核查时，仓库尚无 `schedule` 触发记录；`schedule-health.yml` 在每小时第 26、56 分钟计划打印事件和时间，不检出代码、不请求来源、不写仓库、不发布。诊断任务手动运行成功，只证明手动触发可用，不代表定时已恢复；也不能仅凭一轮未见记录排除延迟。实际更新以 Actions 运行记录及各文件、各账户的采集时间为准。这不是实时成交行情。
 

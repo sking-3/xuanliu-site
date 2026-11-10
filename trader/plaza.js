@@ -6,8 +6,57 @@ const exchanges = ['Binance','OKX','Hyperliquid','Gate','Bitget','Bybit','Polyma
 const currencies = ['USDT','USD','USDC','BTC','ETH'];
 const controls = ['period','exchange','source','sort','currency'];
 const storageKey = 'books.trader.records.v1', maxBytes = 2097152;
+const publicCacheKeys={feed:'books.trader.public.feed.v1',win:'books.trader.public.analytics.v1'},publicSnapshots={feed:null,win:null};
 const state = {status:'unavailable', publicRows:[], localRows:[], rows:[], page:1, detail:null, window:'30D', tab:'analysis', loading:false, explicitPeriod:false, editor:null, storageReadError:false, revealId:null, source:null, lastReadFailed:false, feedText:null, liveClient:null, liveUser:null, liveData:null, liveView:null, liveVersion:0, positionExclusions:Object.create(null), analytics:Object.create(null), analyticsClient:null, analyticsViews:[], analyticsTargets:[], winCache:Object.create(null), winCacheLoading:false, winCacheReadFailed:false, winCacheGeneratedAt:null, portfolioCache:Object.create(null), portfolioCacheLoading:false, portfolioCacheAttempted:false, portfolioCacheReadFailed:false, portfolioCacheGeneratedAt:null, performanceOrderPending:false, chartSeq:0};
 const fail = () => { throw Error('数据格式未通过校验，未展示此批记录。'); };
+// Only validated same-origin public snapshots enter these keys. Original source
+// timestamps, failures and position exclusions survive a reload; cache age never
+// renews the 60-minute holdings qualification.
+function savePublicSnapshot(kind,payload=publicSnapshots[kind],readFailed=false) {
+  if(!payload)return;
+  publicSnapshots[kind]=payload;
+  try {
+    const envelope={cacheVersion:1,payload,readFailed};
+    if(kind==='feed') {
+      const addresses=new Set(payload.traders.map(r=>r.accountId));
+      envelope.positionExclusions=Object.fromEntries(Object.entries(state.positionExclusions).filter(([address])=>addresses.has(address)));
+    }
+    const serialized=JSON.stringify(envelope);
+    if(new Blob([serialized]).size>maxBytes)return;
+    localStorage.setItem(publicCacheKeys[kind],serialized);
+  }catch(_){} // Private mode/quota must not prevent network revalidation.
+}
+function readPublicSnapshot(kind) {
+  try {
+    const serialized=localStorage.getItem(publicCacheKeys[kind]);if(!serialized||new Blob([serialized]).size>maxBytes)return null;
+    const cached=JSON.parse(serialized);
+    if(!cached||cached.cacheVersion!==1||typeof cached.readFailed!=='boolean')return null;
+    return cached;
+  }catch(_){return null;}
+}
+function hydratePublicSnapshots() {
+  let hydrated=false;
+  const feed=readPublicSnapshot('feed'),win=readPublicSnapshot('win');
+  if(feed)try {
+    const p=feed.payload,rows=validate(p),source=validateSource(p,rows);
+    if(!source||rows.some(r=>r.sourceKind!=='public_account'))fail();
+    const exclusions=feed.positionExclusions||{},clean=Object.create(null);
+    if(typeof exclusions!=='object'||Array.isArray(exclusions)||Object.keys(exclusions).length>200)fail();
+    for(const [address,at]of Object.entries(exclusions)){if(!/^0x[0-9a-f]{40}$/.test(address)||!Number.isFinite(at)||at<0||at>Date.now()+5000)fail();clean[address]=at;}
+    const snapshot={schemaVersion:1,status:p.status,source:p.source,traders:rows};
+    state.publicRows=rows;state.source=source;state.status=p.status;state.feedText=JSON.stringify(snapshot);state.lastReadFailed=feed.readFailed;state.positionExclusions=clean;
+    publicSnapshots.feed=snapshot;hydrated=true;
+  }catch(_){}
+  if(win)try {
+    const p=validateWinCache(win.payload);
+    state.winCache=p.accounts;state.winCacheGeneratedAt=p.generatedAt;state.winCacheReadFailed=win.readFailed;publicSnapshots.win=win.payload;
+  }catch(_){}
+  mergeRows();return hydrated;
+}
+function sharedRequest(key,operation) {
+  if(state[key])return state[key];
+  const request=operation();state[key]=request.finally(()=>{state[key]=null;});return state[key];
+}
 const text = (v, n=200) => typeof v === 'string' && v.trim().length > 0 && v.length <= n ? v.trim() : fail();
 const optionalText = (v,n) => v === undefined || v === '' ? '' : text(v,n);
 const num = v => v === null ? null : typeof v === 'number' && Number.isFinite(v) && Math.abs(v) < 1e15 ? v : fail();
@@ -200,8 +249,9 @@ function schedulePerformanceOrder() {
   if(state.performanceOrderPending||state.loading||!isPortfolioSort()||$('source').value==='local')return;
   state.performanceOrderPending=true;setTimeout(()=>{state.performanceOrderPending=false;if(!state.loading&&isPortfolioSort()&&$('source').value!=='local')renderPreservingCardFocus();},0);
 }
-async function refreshPortfolioCache() {
-  if(state.portfolioCacheLoading)return;state.portfolioCacheLoading=true;
+function refreshPortfolioCache() {return sharedRequest('portfolioCacheRequest',readPortfolioCache);}
+async function readPortfolioCache() {
+  state.portfolioCacheLoading=true;
   const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),10000),limit=12*1024*1024;let orderChanged=false;
   try {
     const response=await fetch('portfolios.json',{cache:'no-cache',credentials:'omit',redirect:'error',signal:controller.signal});
@@ -260,23 +310,26 @@ function fillWinCacheNote(r,target) {
   target.setAttribute('data-state',stale?'stale':w?'ready':'unavailable');
   target.setAttribute('title',w?`后台采集 ${timeLabel(entry.fetchedAt)}；${w.eligibleCount?`平仓样本 ${timeLabel(w.startAt)} 至 ${timeLabel(w.endAt)}`:'来源没有可统计的平仓样本'}；与所选表现周期独立${stale?'；显示上次成功结果，等待后台更新':''}`:'后台尚未取得有效平仓样本；资料不足时留空');
 }
-async function refreshWinCache() {
-  if(state.winCacheLoading)return;state.winCacheLoading=true;
+function refreshWinCache() {return sharedRequest('winCacheRequest',readWinCache);}
+async function readWinCache() {
+  state.winCacheLoading=true;
   const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),10000);let orderChanged=false;
   try {
     const response=await fetch('analytics.json',{cache:'no-store',credentials:'omit',redirect:'error',signal:controller.signal});
     if(!response.ok||!/application\/(?:[\w.+-]*\+)?json(?:\s*;|$)/i.test(response.headers.get('content-type')||'')||Number(response.headers.get('content-length'))>maxBytes)fail();
     const reader=response.body.getReader(),chunks=[];let bytes=0;
     while(true){const {done,value}=await reader.read();if(done)break;bytes+=value.byteLength;if(bytes>maxBytes){await reader.cancel();fail();}chunks.push(value);}
-    const payload=validateWinCache(JSON.parse(await new Blob(chunks).text()));
+    const raw=JSON.parse(await new Blob(chunks).text()),payload=validateWinCache(raw);
     if(state.winCacheGeneratedAt&&Date.parse(payload.generatedAt)<Date.parse(state.winCacheGeneratedAt))fail();
     for(const [address,incoming]of Object.entries(payload.accounts)) {
       const previous=state.winCache[address];
-      if(previous?.win&&(!incoming.win||Date.parse(incoming.fetchedAt)<Date.parse(previous.fetchedAt)))payload.accounts[address]={...previous,status:'stale',lastAttemptAt:incoming.lastAttemptAt||previous.lastAttemptAt,errorCode:incoming.errorCode||'older_result'};
+      const olderAttempt=previous?.lastAttemptAt&&(!incoming.lastAttemptAt||Date.parse(incoming.lastAttemptAt)<Date.parse(previous.lastAttemptAt));
+      if(previous?.win&&(!incoming.win||Date.parse(incoming.fetchedAt)<Date.parse(previous.fetchedAt)||olderAttempt))payload.accounts[address]={...previous,status:'stale',lastAttemptAt:olderAttempt?previous.lastAttemptAt:incoming.lastAttemptAt||previous.lastAttemptAt,errorCode:incoming.errorCode||'older_result'};
     }
     orderChanged=state.rows.some(r=>isPublicAccount(r)&&qualifiedPosition(r)&&(state.winCache[r.accountId]?.win?.value??null)!==(payload.accounts[r.accountId]?.win?.value??null));
     state.winCache=payload.accounts;state.winCacheGeneratedAt=payload.generatedAt;state.winCacheReadFailed=false;
-  } catch {state.winCacheReadFailed=true;}
+    savePublicSnapshot('win',{...raw,accounts:payload.accounts},false);
+  } catch {state.winCacheReadFailed=true;savePublicSnapshot('win',undefined,true);}
   finally {
     clearTimeout(timeout);state.winCacheLoading=false;
     // When the feed wins the network race, apply the selected order as soon as
@@ -323,7 +376,7 @@ function positionStatus(summary=positionSummary()) {
   if(sourceIsStale()||summary.expired||summary.batchExpired||summary.pending||(!summary.eligible&&(v?.failedAccounts||v?.unattemptedAccounts)))return 'stale';
   return summary.eligible?'ready':'empty';
 }
-function reevaluatePositions() {mergeRows();render();renderSource();}
+function reevaluatePositions() {mergeRows();renderPreservingCardFocus();renderSource();}
 function observeEmptyPositions(r,part) {
   if(!isPublicAccount(r)||part?.status!=='ready'||!Array.isArray(part.rows)||part.rows.length!==0)return;
   const checked=Number(part.fetchedAt),source=Number(part.sourceTime),now=Date.now();
@@ -331,7 +384,7 @@ function observeEmptyPositions(r,part) {
   if(checked<Date.parse(r.positionCheck?.checkedAt||''))return;
   const excluded=Math.max(checked,Date.parse(r.positionCheck?.checkedAt||'')||0);
   if(excluded<=(state.positionExclusions[r.accountId]??-Infinity))return;
-  state.positionExclusions[r.accountId]=excluded;reevaluatePositions();
+  state.positionExclusions[r.accountId]=excluded;savePublicSnapshot('feed',undefined,state.lastReadFailed);reevaluatePositions();
 }
 function compactAccount(r) {return isPublicAccount(r)?r.accountId.slice(0,8)+'…'+r.accountId.slice(-6):r.accountId||r.id;}
 function displayPeriod(p,w) {return w?.derived?parseInt(p,10)+'天':({week:'周度',month:'月度',allTime:'来源累计',perpWeek:'周度',perpMonth:'月度',perpAllTime:'来源累计'})[w?.sourcePeriod]||periodLabel(p);}
@@ -460,7 +513,7 @@ function refreshAnalyticsViews(address) {
   }
 }
 function startVisibleAnalytics(rows,onlyChanged=false) {
-  const visible=rows.filter(r=>canReadLive(r)&&qualifiedPosition(r)),waiting=state.portfolioCacheLoading&&!state.portfolioCacheAttempted;
+  const visible=rows.filter(r=>canReadLive(r)&&qualifiedPosition(r)),waiting=!state.portfolioCacheAttempted;
   const accounts=[...new Set((waiting?[]:visible.filter(r=>{const entry=state.portfolioCache[r.accountId];return !entry?.portfolio||Date.now()-Date.parse(entry.fetchedAt)>3600000;})).map(r=>r.accountId))].slice(0,12),client=accounts.length?ensureAnalyticsClient():state.analyticsClient;
   if(onlyChanged&&accounts.length===state.analyticsTargets.length&&accounts.every((address,i)=>address===state.analyticsTargets[i]))return;
   state.analyticsTargets=accounts;client?.setPortfolioTargets(accounts);
@@ -735,9 +788,19 @@ function removeRecord(r) {
   if(!r._local||!confirm(`删除「${r.name}」的本机资料？`))return;
   try {commitLocal(state.localRows.filter(item=>item.id!==r.id));if(state.detail?.id===r.id){$('detail').close();state.detail=null;}updateView('已删除这份本机资料。');saveURL(true);}catch(e){feedback(e.message);}
 }
-async function refresh(background=false) {
-  if(state.loading)return;const winRequest=refreshWinCache(),portfolioRequest=refreshPortfolioCache();const restoreFocus=!background&&document.activeElement===$('refresh');
-  state.loading=true;$('refresh').disabled=true;$('leaders').setAttribute('aria-busy','true');if(!background)$('status').textContent='正在检查最新快照…';
+function rejectOlderFeed(source,rows) {
+  if(!state.source)return;
+  if(!source)fail();
+  for(const key of ['fetchedAt','snapshotAt','lastAttemptAt'])if(state.source[key]&&(!source[key]||Date.parse(source[key])<Date.parse(state.source[key])))fail();
+  const previous=state.source.positionVerification?.completedAt;
+  if(previous&&(!source.positionVerification||Date.parse(source.positionVerification.completedAt)<Date.parse(previous)))fail();
+  const checks=new Map(state.publicRows.map(r=>[r.accountId,r.positionCheck?.checkedAt]));
+  for(const r of rows)if(checks.get(r.accountId)&&(!r.positionCheck||Date.parse(r.positionCheck.checkedAt)<Date.parse(checks.get(r.accountId))))fail();
+}
+function refresh(background=false) {return sharedRequest('refreshRequest',()=>revalidate(background));}
+async function revalidate(background=false) {
+  const winRequest=refreshWinCache(),portfolioRequest=refreshPortfolioCache();const restoreFocus=!background&&document.activeElement===$('refresh');
+  state.loading=true;$('refresh').disabled=true;$('leaders').setAttribute('aria-busy','true');if(!background&&!state.publicRows.length)$('status').textContent='正在检查最新快照…';
   const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),10000);let changed=false;
   try {
     const response=await fetch('feed.json',{cache:'no-store',credentials:'omit',redirect:'error',signal:controller.signal});if(!response.ok)throw Error('公开资料暂不可用');
@@ -746,12 +809,15 @@ async function refresh(background=false) {
     while(true){const {done,value}=await reader.read();if(done)break;bytes+=value.byteLength;if(bytes>maxBytes){await reader.cancel();fail();}chunks.push(value);}
     const serialized=await new Blob(chunks).text(),data=JSON.parse(serialized),rows=validate(data),source=validateSource(data,rows);
     if(data.status==='unavailable'&&state.publicRows.length)throw Error('最新快照不可用');
-    changed=state.feedText!==serialized;state.feedText=serialized;state.publicRows=rows;state.source=source;state.status=data.status==='unavailable'&&data.source?.status==='error'?'error':data.status;state.lastReadFailed=state.status==='error';
+    rejectOlderFeed(source,rows);
+    const snapshot={schemaVersion:1,status:data.status,source:data.source,traders:rows},canonical=JSON.stringify(snapshot);
+    changed=state.feedText!==canonical;state.feedText=canonical;state.publicRows=rows;state.source=source;state.status=data.status==='unavailable'&&data.source?.status==='error'?'error':data.status;state.lastReadFailed=state.status==='error';
+    if(source&&rows.every(r=>r.sourceKind==='public_account'))savePublicSnapshot('feed',snapshot,state.lastReadFailed);
     if(state.detail&&!state.detail._local) {const latest=rows.find(r=>r.id===state.detail.id);if(latest)state.detail={...latest,_local:false};}
-  } catch(e) {state.status='error';state.lastReadFailed=true;}
+  } catch(e) {state.status='error';state.lastReadFailed=true;savePublicSnapshot('feed',undefined,true);}
   finally {
     clearTimeout(timeout);state.loading=false;$('refresh').disabled=false;$('leaders').setAttribute('aria-busy','false');
-    if(changed||!background)updateView();else reevaluatePositions();
+    if(!background)updateView();else {if(changed){mergeRows();choosePeriod();}reevaluatePositions();}
     if(changed&&state.detail&&!state.detail._local&&$('detail').open)renderDetail();
     saveURL(true);if(restoreFocus&&document.activeElement===document.body)$('refresh').focus();
   }
@@ -772,7 +838,7 @@ $('tabs').addEventListener('click',e=>selectTab(e.target.closest('[data-tab]')))
 $('tabs').addEventListener('keydown',e=>{const visibleTabs=tabs.filter(b=>!b.hidden),i=visibleTabs.indexOf(e.target);if(i<0)return;let n;if(e.key==='ArrowRight')n=(i+1)%visibleTabs.length;else if(e.key==='ArrowLeft')n=(i+visibleTabs.length-1)%visibleTabs.length;else if(e.key==='Home')n=0;else if(e.key==='End')n=visibleTabs.length-1;else return;e.preventDefault();visibleTabs[n].focus();selectTab(visibleTabs[n]);});
 $('detail').addEventListener('close',()=>{stopLive();state.analyticsViews=state.analyticsViews.filter(v=>v.kind!=='detail');state.detail=null;});
 addEventListener('popstate',()=>{if($('detail').open)$('detail').close();readURL();choosePeriod();render();});
-readURL();loadLocal();state.loading=true;choosePeriod();render();state.loading=false;refresh();
+readURL();loadLocal();const hydrated=hydratePublicSnapshots();state.loading=!hydrated;choosePeriod();render();renderSource();state.loading=false;refresh(hydrated);
 setInterval(()=>{reevaluatePositions();if(document.visibilityState==='visible')refresh(true);},60000);
 document.addEventListener('visibilitychange',()=>{state.analyticsClient?.setVisible(document.visibilityState==='visible');state.liveClient?.setVisible(document.visibilityState==='visible');if(document.visibilityState==='visible'){reevaluatePositions();refresh(true);}});
 })();

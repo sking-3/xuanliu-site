@@ -96,9 +96,9 @@ jobs:
           printf '%s\n' "$gate" >> "$GITHUB_OUTPUT"
           printf 'Hyperliquid persisted-source guard: %s\n' "$gate" >> "$GITHUB_STEP_SUMMARY"
 
-      # Scope applies to Hyperliquid only; Binance's independent guards remain required.
+      # UI-only publication skips every source; other modes retain independent Binance guards.
       # Positions preserve analysis files and their original timestamps; full also refreshes analytics.
-      # UI-only pushes reuse Hyperliquid snapshots. Tests and deployment remain required.
+      # UI-only pushes reuse all committed snapshots. Tests and deployment remain required.
       - name: Record this collection start
         if: steps.refresh-mode.outputs.mode != 'skip' && steps.hyperliquid-guard.outputs.allowed == 'true'
         shell: bash
@@ -136,6 +136,7 @@ jobs:
 
       - name: Verify the preceding Binance run was safely committed
         id: binance-guard
+        if: steps.refresh-mode.outputs.mode != 'skip'
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -149,6 +150,7 @@ jobs:
           fi
 
       - name: Collect the public Binance lead sample
+        if: steps.refresh-mode.outputs.mode != 'skip'
         # Anonymous read-only sample. Access refusal is persisted; halted sources are not retried.
         run: node scripts/collect_binance.cjs
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 'use strict';
-/* Resolve Hyperliquid collection scope only. Binance guards and collection remain independent. */
+/* Resolve refresh scope. UI-only publications skip every source; other modes retain independent Binance guards. */
 const fs=require('node:fs');
 const MAX_EVENT_BYTES=2*1024*1024;
 const SCHEDULES=Object.freeze({'27,57 * * * *':'positions','12 */6 * * *':'full'});
@@ -19,9 +19,13 @@ function resolveMode({eventName,event,checkoutSha}={}) {
   }
   if(eventName==='push') {
     if(event.ref!=='refs/heads/main'||typeof event.after!=='string'||!SHA.test(event.after)||typeof event.head_commit?.message!=='string')fail();
-    // A delayed event cannot skip work for newer code checked out from main.
+    // UI-only publication never escalates into collection when main has moved.
+    if(event.head_commit.message.includes('[ui-only]')) {
+      if(event.after!==checkoutSha)fail();
+      return 'skip';
+    }
+    // Other delayed events retain their existing full-refresh behavior.
     if(event.after!==checkoutSha)return 'full';
-    if(event.head_commit.message.includes('[ui-only]'))return 'skip';
     if(event.head_commit.message.includes('[positions-only]'))return 'positions';
     return 'full';
   }
