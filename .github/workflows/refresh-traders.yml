@@ -12,8 +12,10 @@ on:
         default: full
         options: [full, positions]
   schedule:
-    # Offset from the hour; GitHub may delay scheduled runs.
+    # Position checks are frequent; long analytics batches are scheduled separately.
+    # GitHub may delay scheduled runs. These schedules do not guarantee delivery.
     - cron: '27,57 * * * *'
+    - cron: '12 */6 * * *'
 
 permissions:
   contents: read
@@ -21,6 +23,7 @@ permissions:
 # Use the same group for every Pages deployment. Never interrupt a live deploy.
 concurrency:
   group: pages
+  queue: max
   cancel-in-progress: false
 
 jobs:
@@ -41,6 +44,17 @@ jobs:
           ref: main
           fetch-depth: 1
 
+      - name: Resolve Hyperliquid refresh scope
+        id: refresh-mode
+        env:
+          BOOKS_CHECKOUT_SHA: ${{ steps.checkout.outputs.commit }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mode=$(node scripts/resolve_trader_refresh_mode.cjs)
+          printf 'mode=%s\n' "$mode" >> "$GITHUB_OUTPUT"
+          printf 'Hyperliquid refresh scope: %s\n' "$mode" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Test navigation and account page logic
         run: |
           node --check books-shell.js
@@ -54,6 +68,8 @@ jobs:
           node audit/trader-analytics-collector-unit.cjs
           node --check scripts/collect_trader_portfolios.cjs
           node audit/trader-portfolio-collector-unit.cjs
+          node --check scripts/resolve_trader_refresh_mode.cjs
+          node audit/trader-refresh-mode-unit.cjs
           node --check scripts/refresh_trader_positions.cjs
           node audit/refresh-trader-positions-unit.cjs
           node audit/trader-unit.cjs
@@ -67,49 +83,37 @@ jobs:
       - name: Test snapshot validation and last-good handling
         run: python3 -B audit/hyperliquid-collector-test.py
 
-      # UI-only pushes reuse snapshots. Positions-only recovery rechecks holdings but retains analytics timestamps.
-      # Scheduled runs always collect all data; delayed push events checking out newer code also collect fully.
-      # Tests, commit consistency checks, and deployment remain required for every push.
+      # Scope applies to Hyperliquid only; Binance's independent guards remain required.
+      # Positions preserve analysis files and their original timestamps; full also refreshes analytics.
+      # UI-only pushes reuse Hyperliquid snapshots. Tests and deployment remain required.
       - name: Record this collection start
-        if: github.event_name != 'push' || !contains(github.event.head_commit.message, '[ui-only]') || github.event.after != steps.checkout.outputs.commit
+        if: steps.refresh-mode.outputs.mode != 'skip'
         shell: bash
         run: printf 'BOOKS_COLLECTION_STARTED_AT=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
 
       - name: Collect one public Hyperliquid snapshot
-        if: github.event_name != 'push' || !contains(github.event.head_commit.message, '[ui-only]') || github.event.after != steps.checkout.outputs.commit
+        if: steps.refresh-mode.outputs.mode != 'skip'
         # Source failures produce a stale last-good snapshot, not invented data.
         run: python3 -B scripts/collect_hyperliquid.py
 
       - name: Precompute native and 90/180/365-day portfolio windows
-        if: >-
-          (github.event_name != 'push' || !contains(github.event.head_commit.message, '[ui-only]') || github.event.after != steps.checkout.outputs.commit) &&
-          !(github.event_name == 'workflow_dispatch' && inputs.refresh_scope == 'positions') &&
-          !(github.event_name == 'push' && contains(github.event.head_commit.message, '[positions-only]') && github.event.after == steps.checkout.outputs.commit)
+        if: steps.refresh-mode.outputs.mode == 'full'
         # At most 600 weight/minute; only real source samples are retained.
         run: node scripts/collect_trader_portfolios.cjs
 
       - name: Separate shared API rate windows
-        if: >-
-          (github.event_name != 'push' || !contains(github.event.head_commit.message, '[ui-only]') || github.event.after != steps.checkout.outputs.commit) &&
-          !(github.event_name == 'workflow_dispatch' && inputs.refresh_scope == 'positions') &&
-          !(github.event_name == 'push' && contains(github.event.head_commit.message, '[positions-only]') && github.event.after == steps.checkout.outputs.commit)
+        if: steps.refresh-mode.outputs.mode == 'full'
         # The next worker has its own rolling budget. Let this source's prior window expire.
         run: sleep 60
 
       - name: Precompute closing-fill win rates with persistent last-good cache
-        if: >-
-          (github.event_name != 'push' || !contains(github.event.head_commit.message, '[ui-only]') || github.event.after != steps.checkout.outputs.commit) &&
-          !(github.event_name == 'workflow_dispatch' && inputs.refresh_scope == 'positions') &&
-          !(github.event_name == 'push' && contains(github.event.head_commit.message, '[positions-only]') && github.event.after == steps.checkout.outputs.commit)
+        if: steps.refresh-mode.outputs.mode == 'full'
         # At most 900 weight/minute; a 403/429 stops the batch. No raw fills are published.
         # A cold batch may take up to 22 minutes; missing/old accounts go first next time.
         run: node scripts/collect_trader_analytics.cjs --portfolio-status trader/portfolios.json
 
       - name: Reverify holdings after the long analytics batch
-        if: >-
-          (github.event_name != 'push' || !contains(github.event.head_commit.message, '[ui-only]') || github.event.after != steps.checkout.outputs.commit) &&
-          !(github.event_name == 'workflow_dispatch' && inputs.refresh_scope == 'positions') &&
-          !(github.event_name == 'push' && contains(github.event.head_commit.message, '[positions-only]') && github.event.after == steps.checkout.outputs.commit)
+        if: steps.refresh-mode.outputs.mode == 'full'
         # Do not publish holdings that aged while win rates were calculated.
         # Any same-run 403/429 stops this final check; the wrapper validates all three source statuses.
         shell: bash

@@ -7,6 +7,12 @@ on:
     paths:
       - 'scripts/collect_binance.cjs'
       - 'scripts/binance_run_guard.cjs'
+      - 'scripts/resolve_trader_refresh_mode.cjs'
+      - 'scripts/collect_trader_analytics.cjs'
+      - 'scripts/collect_trader_portfolios.cjs'
+      - 'audit/trader-refresh-mode-unit.cjs'
+      - 'audit/trader-analytics-collector-unit.cjs'
+      - 'audit/trader-portfolio-collector-unit.cjs'
       - '.github/workflows/refresh-traders.yml'
       - 'audit/binance-*.cjs'
       - 'trader/binance/**'
@@ -27,6 +33,12 @@ jobs:
           node-version: '22'
       - name: Check collector, display, and existing trader page
         run: |
+          node --check scripts/resolve_trader_refresh_mode.cjs
+          node audit/trader-refresh-mode-unit.cjs
+          node --check scripts/collect_trader_analytics.cjs
+          node audit/trader-analytics-collector-unit.cjs
+          node --check scripts/collect_trader_portfolios.cjs
+          node audit/trader-portfolio-collector-unit.cjs
           node --check scripts/collect_binance.cjs
           node --check trader/binance/monitor.js
           node audit/binance-collector-unit.cjs
