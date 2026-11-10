@@ -287,3 +287,14 @@ th{color:#728098;font-weight:500;background:#fbfcfe}
 @media(min-width:1280px){.books-shell.trader-page .cards{grid-template-columns:repeat(4,minmax(0,1fr))}}
 
 .binance-curve-unavailable .curve-unavailable{font-size:11px;line-height:1.7}
+/* A public watch identity is independent of ranked holding-qualified cards. */
+.public-focus-section{margin:20px 0 28px}
+.public-focus-card{padding:22px;border:1px solid #ecd6bd;border-radius:18px;background:#fffaf4}
+.public-focus-head{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.public-focus-head h3{margin:0 0 4px}
+.public-focus-head .actions{margin-left:auto;flex-wrap:wrap}
+.public-focus-address{font:13px/1.6 ui-monospace,monospace;overflow-wrap:anywhere;color:#657185;margin:16px 0}
+.public-focus-status{font-size:13px;line-height:1.6;color:#657185}
+.public-focus-figures{display:flex;flex-wrap:wrap;gap:10px 28px;font-size:14px}
+.public-focus-figures p{margin:4px 0}
+@media(max-width:600px){.public-focus-card{padding:16px}.public-focus-head .actions{width:100%;margin-left:0}.public-focus-figures{display:block}}

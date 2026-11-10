@@ -10,6 +10,55 @@ const publicCacheKeys={feed:'books.trader.public.feed.v1',win:'books.trader.publ
 const state = {status:'unavailable', publicRows:[], binanceRows:[], binanceCollection:null, binanceReadFailed:false, binanceCheckedAt:null, binanceText:null, localRows:[], rows:[], page:1, detail:null, window:'30D', tab:'analysis', loading:false, explicitPeriod:false, editor:null, storageReadError:false, revealId:null, source:null, lastReadFailed:false, feedText:null, liveClient:null, liveUser:null, liveData:null, liveView:null, liveVersion:0, positionExclusions:Object.create(null), analytics:Object.create(null), analyticsClient:null, analyticsViews:[], cardControls:[], analyticsTargets:[], winCache:Object.create(null), winCacheLoading:false, winCacheReadFailed:false, winCacheGeneratedAt:null, portfolioCache:Object.create(null), portfolioCacheLoading:false, portfolioCacheAttempted:false, portfolioCacheReadFailed:false, portfolioCacheGeneratedAt:null, performanceOrderPending:false, chartSeq:0};
 const fail = () => { throw Error('数据格式未通过校验，未展示此批记录。'); };
 let linkedAccount=null;
+const publicFocus={record:typeof BooksPublicFocus==='undefined'?null:BooksPublicFocus.identity(),snapshot:null,readFailed:false,renderKey:null};
+function isPublicFocus(r) {return !!r&&r===publicFocus.record;}
+function focusStatus(now=Date.now()) {
+  const s=publicFocus.snapshot;
+  if(!s)return '尚无有效持仓快照 · 可打开实时交易读取官方数据';
+  const stale=publicFocus.readFailed||now-Date.parse(s.fetchedAt)>3600000||now-Date.parse(s.sourceTime)>3600000;
+  return (publicFocus.readFailed?'快照读取失败 · ':stale?'快照已过期 · ':'')+
+    (stale?'上次快照':'最近快照')+(s.positions.length?'持仓 '+s.positions.length+' 项':'为空仓')+
+    (stale?' · 当前仓位未知':'')+' · 来源 '+timeLabel(s.sourceTime)+' · 读取 '+timeLabel(s.fetchedAt);
+}
+function appendFocusSnapshot(target) {
+  const s=publicFocus.snapshot;
+  target.append(node('p',focusStatus(),'public-focus-status'));
+  if(!s)return;
+  const figures=node('div',undefined,'public-focus-figures');
+  if(s.accountValue!==null)figures.append(node('p','永续账户权益（快照） '+value(s.accountValue)+' USDC'));
+  for(const p of s.positions)figures.append(node('p',`${p.coin} · ${p.side==='short'?'空头':'多头'} ${value(p.quantity)} · 均价 ${value(p.entryPrice)} · ${value(p.leverage.value)}× ${p.leverage.type==='cross'?'全仓':'逐仓'}`));
+  target.append(figures);
+}
+function openFocusLive() {
+  if(!publicFocus.record)return;
+  openDetail(publicFocus.record,$('period').value);activateDetailTab('live');
+}
+function renderPublicFocus() {
+  const section=$('public-focus-section'),target=$('public-focus-card'),r=publicFocus.record;
+  section.hidden=!r;if(!r)return;
+  const key=JSON.stringify(publicFocus.snapshot)+publicFocus.readFailed+focusStatus();if(key===publicFocus.renderKey)return false;
+  const card=node('article',undefined,'public-focus-card'),head=node('div',undefined,'public-focus-head'),identity=node('div'),actions=node('div',undefined,'actions');
+  identity.append(node('h3',r.name),node('p','Hyperliquid · 公开账户','meta'));
+  actions.append(button('实时交易',openFocusLive,'detail-button'),button('详情',()=>openDetail(r,$('period').value)),sourceLink(r));
+  head.append(avatar(r),identity,actions);card.append(head,node('p',r.accountId,'public-focus-address'));
+  appendFocusSnapshot(card);
+  card.append(node('p','独立关注记录；空仓时仍保留，不代表认证带单员。实时交易面板打开后读取公开持仓、挂单和最近成交。','hint'));
+  target.replaceChildren(card);publicFocus.renderKey=key;return true;
+}
+function refreshPublicFocus() {return sharedRequest('focusRequest',async()=>{
+  if(!publicFocus.record)return;
+  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),10000);
+  try {
+    const response=await fetch('public-focus.json',{cache:'no-store',credentials:'omit',redirect:'error',signal:controller.signal});
+    if(!response.ok||Number(response.headers.get('content-length'))>BooksPublicFocus.maxBytes)throw Error('focus_unavailable');
+    const reader=response.body.getReader(),chunks=[];let bytes=0;
+    while(true){const {done,value}=await reader.read();if(done)break;bytes+=value.byteLength;if(bytes>BooksPublicFocus.maxBytes){await reader.cancel();throw Error('focus_oversized');}chunks.push(value);}
+    const snapshot=BooksPublicFocus.validate(JSON.parse(await new Blob(chunks).text())),previous=publicFocus.snapshot;
+    if(previous&&(Date.parse(snapshot.fetchedAt)<Date.parse(previous.fetchedAt)||Date.parse(snapshot.sourceTime)<Date.parse(previous.sourceTime)))throw Error('focus_older');
+    publicFocus.snapshot=snapshot;publicFocus.readFailed=false;
+  }catch(_){publicFocus.readFailed=true;}
+  finally{clearTimeout(timer);const changed=renderPublicFocus();if(changed&&isPublicFocus(state.detail)&&$('detail').open&&state.tab!=='live')renderDetail();}
+});}
 // Only validated same-origin public snapshots enter these keys. Original source
 // timestamps, failures and position exclusions survive a reload; cache age never
 // renews the 60-minute holdings qualification.
@@ -773,7 +822,7 @@ function card(r,period) {
 }
 function readURL() {
   const p=new URL(location.href).searchParams, defaults={period:'30D',exchange:'all',source:'all',sort:'mixed',currency:'all'};
-  const account=p.get('account');linkedAccount=/^0x[0-9a-f]{40}$/.test(account||'')?account:null;
+  const account=(p.get('account')||'').toLowerCase();linkedAccount=/^0x[0-9a-f]{40}$/.test(account)?account:null;
   state.explicitPeriod=periods.includes(p.get('period'));
   for(const id of controls) { const el=$(id); el.value=[...el.options].some(o=>o.value===p.get(id))?p.get(id):defaults[id]; }
   $('search').value=(p.get('q')||'').slice(0,100); const page=Number(p.get('page')); state.page=Number.isSafeInteger(page)&&page>0?page:1;
@@ -782,7 +831,7 @@ function openLinkedAccount(finalRead=false) {
   if(!linkedAccount)return false;
   // The URL can select only an already validated public account. It cannot
   // supply a profile, external destination or a new account to fetch.
-  const row=state.rows.find(r=>isPublicAccount(r)&&r.accountId===linkedAccount);
+  const row=publicFocus.record?.accountId===linkedAccount?publicFocus.record:state.rows.find(r=>isPublicAccount(r)&&r.accountId===linkedAccount);
   if(!row){if(finalRead)linkedAccount=null;return false;}
   linkedAccount=null;
   openDetail(row,$('period').value);
@@ -800,6 +849,7 @@ function choosePeriod() {
   if(available.length && !available.includes($('period').value))$('period').value=available.includes('90D')?'90D':available[0];
 }
 function render() {
+  renderPublicFocus();
   const q=$('search').value.trim().toLocaleLowerCase(),p=$('period').value,source=$('source').value,currency=$('currency').value;
   const available=state.rows.filter(r=>(source==='local')?r._local:!r._local);
   let rows=available.filter(r=>(r.name+' '+r.id+' '+r.accountId+' '+r.exchange+' '+r.note).toLocaleLowerCase().includes(q) && ($('exchange').value==='all'||r.exchange===$('exchange').value) && (source==='all'||source==='local'&&r._local||source==='paid'&&r.paid||source==='public'&&!r._local&&!r.paid) && (currency==='all'||r.currency===currency));
@@ -855,6 +905,7 @@ function statusText(summary=positionSummary()) {
 function updateView(message) { mergeRows();choosePeriod();render();renderSource();if(message)feedback(message); }
 function renderDetailStatus() {
   const r=state.detail;let message='';
+  if(isPublicFocus(r)){$('detail-data-status').textContent=state.tab==='live'?'公开重点关注 · 下方明细独立读取，不计入持仓排行榜':focusStatus();$('detail-data-status').hidden=false;return;}
   if(isBinanceTrader(r)){const view=binanceView(r);message=binanceStatus(view,r)+' · '+binanceTiming(view,r);$('detail-data-status').textContent=message;$('detail-data-status').hidden=false;return;}
   if(r&&isPublicAccount(r)) {
     if((state.positionExclusions[r.accountId]??-Infinity)>=Date.parse(r.positionCheck?.checkedAt||'1970-01-01T00:00:00Z'))message=Date.now()-state.positionExclusions[r.accountId]>3600000?'上次空仓核验已过期，当前仓位未知；保留历史资料，等待新一轮核验。':'最近读取确认空仓；保留历史资料。';
@@ -865,7 +916,7 @@ function renderDetailStatus() {
   if(message&&state.tab==='live'&&qualifiedPosition(r))message='排行快照待更新；下方账户明细独立读取。';
   $('detail-data-status').textContent=message;$('detail-data-status').hidden=!message;
 }
-function canReadLive(r) {return !!r&&isPublicAccount(r)&&r.exchange==='Hyperliquid'&&/^0x[0-9a-f]{40}$/.test(r.accountId);}
+function canReadLive(r) {return !!r&&(isPublicAccount(r)||isPublicFocus(r))&&r.exchange==='Hyperliquid'&&/^0x[0-9a-f]{40}$/.test(r.accountId);}
 function stopLive() {
   state.liveVersion++;const client=state.liveClient;state.liveClient=null;state.liveUser=null;state.liveData=null;state.liveView=null;
   if(client)client.stop();
@@ -946,6 +997,11 @@ function renderDetail() {
   document.querySelectorAll('[data-tab]').forEach(x=>{x.textContent=({analysis:'交易分析',live:'实时交易',positions:'仓位历史',points:'交易点位',orders:'订单流水'})[x.dataset.tab]||x.textContent;});
   if(state.tab==='live'&&canReadLive(r)){state.analyticsViews=state.analyticsViews.filter(v=>v.kind!=='detail');if(!state.liveView||state.liveUser!==r.accountId){stopLive();b.replaceChildren();buildLivePanel(r,b);}return;}
   b.replaceChildren();state.analyticsViews=state.analyticsViews.filter(v=>v.kind!=='detail');
+  if(isPublicFocus(r)) {
+    b.append(node('h3','公开重点关注'),node('p',r.accountId,'public-focus-address'));
+    appendFocusSnapshot(b);
+    b.append(node('p','该记录独立于排行榜与持仓资格。最近一次快照不代表开仓事件，也不推断开仓时间；未接入的收益率和胜率不填值。','detail-method'),button('打开实时交易',()=>activateDetailTab('live'),'detail-button'),sourceLink(r));return;
+  }
   if(state.tab==='analysis') {
     const w=performanceWindow(r,state.window);b.append(node('h3',`${periodName(state.window,w)} 表现`));
     if(isPublicAccount(r)) {
@@ -1046,7 +1102,7 @@ function rejectOlderFeed(source,rows) {
 }
 function refresh(background=false) {return sharedRequest('refreshRequest',()=>revalidate(background));}
 async function revalidate(background=false) {
-  const winRequest=refreshWinCache(),portfolioRequest=refreshPortfolioCache(),binanceRequest=refreshBinance();const restoreFocus=!background&&document.activeElement===$('refresh');
+  const winRequest=refreshWinCache(),portfolioRequest=refreshPortfolioCache(),binanceRequest=refreshBinance(),focusRequest=refreshPublicFocus();const restoreFocus=!background&&document.activeElement===$('refresh');
   state.loading=true;$('refresh').disabled=true;$('leaders').setAttribute('aria-busy','true');if(!background&&!state.publicRows.length)$('status').textContent='正在检查最新快照…';
   const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),10000);let changed=false;
   try {
@@ -1068,7 +1124,7 @@ async function revalidate(background=false) {
     if(changed&&state.detail&&!state.detail._local&&$('detail').open)renderDetail();
     saveURL(true);openLinkedAccount(true);if(restoreFocus&&document.activeElement===document.body)$('refresh').focus();
   }
-  await Promise.all([winRequest,portfolioRequest,binanceRequest]);
+  await Promise.all([winRequest,portfolioRequest,binanceRequest,focusRequest]);
 }
 for(const id of controls)$(id).addEventListener('change',()=>{if(id==='period')state.explicitPeriod=true;state.page=1;render();saveURL();});
 for(const [id,exchange]of [['platform-all','all'],['platform-hl','Hyperliquid'],['platform-binance','Binance']])$(id).onclick=()=>selectPlatform(exchange);

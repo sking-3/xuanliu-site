@@ -1,5 +1,7 @@
 // Unit fixtures are synthetic; the published feed is validated separately.
 // This DOM model verifies logic, not browser layout.
+require('./public-focus-unit.cjs');
+require('./public-focus-ui-unit.cjs');
 const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict'),path=require('node:path');
 class Element {
   constructor(){this.children=[];this.attrs={};this.value='';this.options=[];this.textContent='';this.open=false;this.dataset={};this.checked=false;this.hidden=false;this.events={};}
