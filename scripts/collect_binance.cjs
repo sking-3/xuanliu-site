@@ -15,6 +15,9 @@ const BASE='https://www.binance.com/bapi/futures/v1/friendly/future/copy-trade/'
 const PERFORMANCE_BASE='https://www.binance.com/bapi/futures/v1/public/future/copy-trade/';
 const PERFORMANCE_PERIOD='30D';
 const PERFORMANCE_PATH='lead-portfolio/performance?portfolioId='+ID+'&timeRange='+PERFORMANCE_PERIOD;
+const CHART_PERIOD='30D';
+const CHART_MAX_POINTS=1000;
+const CHART_PATH='lead-portfolio/chart-data?portfolioId='+ID+'&timeRange='+CHART_PERIOD+'&dataType=PNL';
 const PROFILE_URL='https://www.binance.com/en/copy-trading/lead-details/'+ID;
 const AVATAR_HOSTS=new Set(['public.bnbstatic.com','public-1306379396.file.myqcloud.com']);
 // Only the existing detail.avatarUrl field; never synthesize an account image.
@@ -60,16 +63,45 @@ function validPerformance(value){
   return iso(w.lastSuccessAt)&&(w.status!=='ready'||w.errorCode===null)&&record(e)&&typeof e.sha256==='string'&&/^[a-f0-9]{64}$/.test(e.sha256)&&Number.isSafeInteger(e.bytes)&&e.bytes>0&&e.bytes<=2*1024*1024&&e.httpStatus===200&&e.code==='000000'&&iso(e.receivedAt)&&e.receivedAt===w.lastSuccessAt;
  });
 }
+function emptyChart(){return {schemaVersion:1,byPeriod:{}};}
+function emptyChartPeriod(){return {status:'unavailable',lastAttemptAt:null,lastSuccessAt:null,sourceAsOf:null,sourcePeriod:CHART_PERIOD,dataType:'PNL',currency:'USDT',points:[],errorCode:null,evidence:null};}
+// gendan@7e8dd5bd copy_trade_api/futures.py requests PNL; image_report.py
+// plots each dateTime/value directly as USDT. No rebasing or invented points.
+function chart(data,receivedAt){
+ const received=Date.parse(receivedAt);
+ if(!Number.isFinite(received)||!Array.isArray(data)||data.length>CHART_MAX_POINTS)throw Error('schema_changed');
+ const points=data.map(p=>{
+  if(!p||typeof p!=='object'||Array.isArray(p)||Object.hasOwn(p,'dataType')&&p.dataType!=='PNL'||Object.hasOwn(p,'timeRange')&&p.timeRange!==CHART_PERIOD)throw Error('schema_changed');
+  const ms=stamp(p.dateTime),value=performanceNumber(p.value);
+  if(ms<=0||ms>received+5*60000||value===null)throw Error('schema_changed');
+  return {time:new Date(ms).toISOString(),value};
+ }).sort((a,b)=>Date.parse(a.time)-Date.parse(b.time));
+ for(let i=1;i<points.length;i++)if(points[i].time===points[i-1].time)throw Error('schema_changed');
+ return points;
+}
+function validChart(value){
+ const record=x=>x!==null&&typeof x==='object'&&!Array.isArray(x);
+ const iso=x=>typeof x==='string'&&Number.isFinite(Date.parse(x))&&new Date(x).toISOString()===x;
+ if(!record(value)||value.schemaVersion!==1||!record(value.byPeriod)||Object.keys(value.byPeriod).some(key=>key!==CHART_PERIOD))return false;
+ return Object.values(value.byPeriod).every(w=>{
+  if(!record(w)||!['ready','stale','unavailable'].includes(w.status)||!iso(w.lastAttemptAt)||!(w.lastSuccessAt===null||iso(w.lastSuccessAt))||w.sourceAsOf!==null||w.sourcePeriod!==CHART_PERIOD||w.dataType!=='PNL'||w.currency!=='USDT'||!Array.isArray(w.points)||w.points.length>CHART_MAX_POINTS||!(w.errorCode===null||typeof w.errorCode==='string'&&/^[a-zA-Z0-9_]{1,80}$/.test(w.errorCode)))return false;
+  let prior=0;
+  if(!w.points.every(p=>{if(!record(p)||!iso(p.time)||typeof p.value!=='number'||!Number.isFinite(p.value))return false;const ms=Date.parse(p.time);if(ms<=prior||ms>Date.parse(w.lastSuccessAt)+5*60000)return false;prior=ms;return true;}))return false;
+  if(w.status==='unavailable')return w.lastSuccessAt===null&&w.evidence===null&&w.points.length===0;
+  const e=w.evidence;
+  return iso(w.lastSuccessAt)&&(w.status!=='ready'||w.errorCode===null)&&record(e)&&typeof e.sha256==='string'&&/^[a-f0-9]{64}$/.test(e.sha256)&&Number.isSafeInteger(e.bytes)&&e.bytes>0&&e.bytes<=2*1024*1024&&e.httpStatus===200&&e.code==='000000'&&iso(e.receivedAt)&&e.receivedAt===w.lastSuccessAt;
+ });
+}
 function emptyHistory(){return {status:'unavailable',fetchedAt:null,errorCode:null,complete:false,rows:[]};}
 function initial(){return {schemaVersion:1,sourceType:'copy_trade',portfolioId:ID,profile:{id:ID,name:spec.name,status:'UNKNOWN',visibility:'unknown',sourceUrl:PROFILE_URL,avatarUrl:null},generatedAt:null,
  source:{status:'unavailable',lastAttemptAt:null,lastSuccessAt:null,errorCode:null,refreshStopped:false},
- snapshot:null,observations:[],pendingAbsent:{},snapshots:[],evidence:{},performance:emptyPerformance(),history:{orders:emptyHistory(),closedPositions:emptyHistory()}};}
+ snapshot:null,observations:[],pendingAbsent:{},snapshots:[],evidence:{},performance:emptyPerformance(),chart:emptyChart(),history:{orders:emptyHistory(),closedPositions:emptyHistory()}};}
 function checkPrevious(p){if(p===null||p===undefined)return initial();
  if(p.schemaVersion!==1||p.sourceType!=='copy_trade'||p.portfolioId!==ID||p.profile?.id!==ID||!p.source||!p.history||!Array.isArray(p.observations)||p.observations.length>200)throw Error('invalid_previous_state');
  if(p.snapshot&&(!p.snapshot.complete||!Array.isArray(p.snapshot.positions)||p.snapshot.positions.length>300||!Number.isFinite(Date.parse(p.snapshot.observedAt))))throw Error('invalid_previous_state');
  const visible=p.profile.visibility==='public'&&p.source.status!=='restricted'&&p.source.errorCode!=='restricted';
- if(visible&&p.performance!==undefined&&!validPerformance(p.performance))throw Error('invalid_previous_state');
- const out=JSON.parse(JSON.stringify(p));out.profile.avatarUrl=avatarUrl(out.profile.avatarUrl);out.performance=visible?(out.performance||emptyPerformance()):emptyPerformance();return out;}
+ if(visible&&p.performance!==undefined&&!validPerformance(p.performance)||visible&&p.chart!==undefined&&!validChart(p.chart))throw Error('invalid_previous_state');
+ const out=JSON.parse(JSON.stringify(p));out.profile.avatarUrl=avatarUrl(out.profile.avatarUrl);out.performance=visible?(out.performance||emptyPerformance()):emptyPerformance();out.chart=visible?(out.chart||emptyChart()):emptyChart();return out;}
 function profile(d){if(!d||typeof d!=='object')throw Error('schema_changed');
  if(String(d.leadPortfolioId)!==ID)throw Error('identity_mismatch');
  return {id:ID,name:str(d.nickname,200),status:str(d.status,30),visibility:d.positionShow===true?'public':d.positionShow===false?'restricted':'unknown',sourceUrl:PROFILE_URL,avatarUrl:avatarUrl(d.avatarUrl)};}
@@ -103,7 +135,7 @@ function changes(previous,current,priorPending={},baseline=false){
 }
 async function request(relative,{body,fetchImpl=fetch,timeoutMs=15000}={}){
  const ctl=new AbortController(),timer=setTimeout(()=>ctl.abort(),timeoutMs);
- try{const r=await fetchImpl((relative===PERFORMANCE_PATH?PERFORMANCE_BASE:BASE)+relative,{method:body?'POST':'GET',redirect:'manual',credentials:'omit',signal:ctl.signal,headers:body?{'accept':'application/json','content-type':'application/json'}:{accept:'application/json'},...(body?{body:JSON.stringify(body)}:{})});
+ try{const r=await fetchImpl((relative===PERFORMANCE_PATH||relative===CHART_PATH?PERFORMANCE_BASE:BASE)+relative,{method:body?'POST':'GET',redirect:'manual',credentials:'omit',signal:ctl.signal,headers:body?{'accept':'application/json','content-type':'application/json'}:{accept:'application/json'},...(body?{body:JSON.stringify(body)}:{})});
  if(r.status!==200)throw Error('http_'+r.status);
  if(!r.headers.get('content-type')?.includes('application/json'))throw Error('schema_changed');
  const reader=r.body?.getReader();if(!reader)throw Error('schema_changed');
@@ -120,7 +152,7 @@ async function collect(previous=null,{fetchImpl=fetch,now=()=>Date.now(),sleep=m
  const out=checkPrevious(previous),old=checkPrevious(previous),at=()=>new Date(now()).toISOString();
  out.generatedAt=at();
  if(out.source.refreshStopped)return out;
- if(stopBeforeRequest){out.profile.visibility='unknown';out.source.status='unavailable';out.source.errorCode='previous_run_unverified';out.source.refreshStopped=true;out.snapshot=null;out.snapshots=[];out.observations=[];out.pendingAbsent={};out.history={orders:emptyHistory(),closedPositions:emptyHistory()};out.performance=emptyPerformance();return out;}
+ if(stopBeforeRequest){out.profile.visibility='unknown';out.source.status='unavailable';out.source.errorCode='previous_run_unverified';out.source.refreshStopped=true;out.snapshot=null;out.snapshots=[];out.observations=[];out.pendingAbsent={};out.history={orders:emptyHistory(),closedPositions:emptyHistory()};out.performance=emptyPerformance();out.chart=emptyChart();return out;}
  out.source.lastAttemptAt=at();
  const get=async(relative,body)=>{const r=await request(relative,{body,fetchImpl});out.evidence[relative.split('?')[0]]={...r.evidence,receivedAt:at()};return r.data;};
  try{
@@ -136,7 +168,7 @@ async function collect(previous=null,{fetchImpl=fetch,now=()=>Date.now(),sleep=m
  out.pendingAbsent=diff.pending;out.snapshot=snap;
  out.snapshots=[...(old.snapshots||[]),snap].slice(-24);
  out.source={status:'ready',lastAttemptAt:out.source.lastAttemptAt,lastSuccessAt:snap.observedAt,errorCode:null,refreshStopped:false};
- }catch(e){const c=code(e);out.source.status=c==='restricted'?'restricted':out.snapshot?'stale':'unavailable';out.source.errorCode=c;out.source.refreshStopped=(HALT.has(c)||c.startsWith('source_error_'));out.pendingAbsent={};if(c==='restricted'||out.profile.visibility!=='public'){out.source.status=c==='restricted'?'restricted':'unavailable';out.snapshot=null;out.snapshots=[];out.observations=[];out.history={orders:emptyHistory(),closedPositions:emptyHistory()};out.performance=emptyPerformance();}return out;}
+ }catch(e){const c=code(e);out.source.status=c==='restricted'?'restricted':out.snapshot?'stale':'unavailable';out.source.errorCode=c;out.source.refreshStopped=(HALT.has(c)||c.startsWith('source_error_'));out.pendingAbsent={};if(c==='restricted'||out.profile.visibility!=='public'){out.source.status=c==='restricted'?'restricted':'unavailable';out.snapshot=null;out.snapshots=[];out.observations=[];out.history={orders:emptyHistory(),closedPositions:emptyHistory()};out.performance=emptyPerformance();out.chart=emptyChart();}return out;}
  const to=now(),from=to-7*86400000;
  const tasks=[['orders','lead-portfolio/order-history',{portfolioId:ID,startTime:from,endTime:to,pageSize:20},orders],
  ['closedPositions','lead-portfolio/position-history',{portfolioId:ID,pageNumber:1,pageSize:20,sort:'OPENING'},closed]];
@@ -161,10 +193,22 @@ async function collect(previous=null,{fetchImpl=fetch,now=()=>Date.now(),sleep=m
    if(HALT.has(c)||c.startsWith('source_error_')){out.source.refreshStopped=true;out.source.errorCode=c;}
   }
  }
+ if(!out.source.refreshStopped){
+  await sleep(2000);
+  const last=out.chart.byPeriod[CHART_PERIOD]||emptyChartPeriod(),attempt=at();
+  try{
+   const response=await request(CHART_PATH,{fetchImpl});
+   const receivedAt=at(),points=chart(response.data,receivedAt);
+   out.chart.byPeriod[CHART_PERIOD]={status:'ready',lastAttemptAt:attempt,lastSuccessAt:receivedAt,sourceAsOf:null,sourcePeriod:CHART_PERIOD,dataType:'PNL',currency:'USDT',points,errorCode:null,evidence:{...response.evidence,receivedAt}};
+  }catch(e){
+   const c=code(e);out.chart.byPeriod[CHART_PERIOD]={...last,status:last.lastSuccessAt?'stale':'unavailable',lastAttemptAt:attempt,errorCode:c};
+   if(HALT.has(c)||c.startsWith('source_error_')){out.source.refreshStopped=true;out.source.errorCode=c;}
+  }
+ }
  out.generatedAt=at();return out;
 }
 
-return {ID,BASE,PERFORMANCE_BASE,PERFORMANCE_PERIOD,PERFORMANCE_PATH,HALT,initial,profile,positions,orders,closed,performance,validPerformance,changes,compare,request,collect,validateState:checkPrevious};
+return {ID,BASE,PERFORMANCE_BASE,PERFORMANCE_PERIOD,PERFORMANCE_PATH,CHART_PERIOD,CHART_MAX_POINTS,CHART_PATH,HALT,initial,profile,positions,orders,closed,performance,validPerformance,chart,validChart,changes,compare,request,collect,validateState:checkPrevious};
 }
 const DEFAULT_ID='5156287639231681792';
 const defaultCollector=createCollector(DEFAULT_ID);
@@ -221,25 +265,37 @@ function reconcileLegacy(previous,legacy){
  const index=out.portfolios.findIndex(p=>p.portfolioId===DEFAULT_ID),current=out.portfolios[index];
  const stamp=p=>Math.max(Date.parse(p.generatedAt)||0,Date.parse(p.source.lastAttemptAt)||0,Date.parse(p.source.lastSuccessAt)||0);
  const restricted=p=>p.profile.visibility==='restricted'||p.source.status==='restricted'||p.source.errorCode==='restricted';
+ const stoppedUnknown=p=>p.profile.visibility==='unknown'&&p.source.refreshStopped;
  if(restricted(current)||restricted(value)){
   const hidden=clone(restricted(current)?current:value);
   hidden.profile.visibility='restricted';hidden.source={...hidden.source,status:'restricted',errorCode:'restricted',refreshStopped:true};
   hidden.snapshot=null;hidden.snapshots=[];hidden.observations=[];hidden.pendingAbsent={};
   hidden.history={orders:{status:'unavailable',fetchedAt:null,errorCode:null,complete:false,rows:[]},closedPositions:{status:'unavailable',fetchedAt:null,errorCode:null,complete:false,rows:[]}};
-  hidden.performance={schemaVersion:1,byPeriod:{}};
+  hidden.performance={schemaVersion:1,byPeriod:{}};hidden.chart={schemaVersion:1,byPeriod:{}};
+  out.portfolios[index]=hidden;
+ }else if(stoppedUnknown(current)||stoppedUnknown(value)&&stamp(value)>stamp(current)){
+  // A newer explicit unknown state must clear an older stopped public cache.
+  // Once saved, that boundary cannot be reversed by a legacy public snapshot.
+  const hidden=clone(stoppedUnknown(current)?current:value);
+  hidden.profile.visibility='unknown';hidden.source={...hidden.source,status:'unavailable',refreshStopped:true};
+  hidden.snapshot=null;hidden.snapshots=[];hidden.observations=[];hidden.pendingAbsent={};
+  hidden.history={orders:{status:'unavailable',fetchedAt:null,errorCode:null,complete:false,rows:[]},closedPositions:{status:'unavailable',fetchedAt:null,errorCode:null,complete:false,rows:[]}};
+  hidden.performance={schemaVersion:1,byPeriod:{}};hidden.chart={schemaVersion:1,byPeriod:{}};
   out.portfolios[index]=hidden;
  }else if((value.source.refreshStopped&&!current.source.refreshStopped)||(!current.source.refreshStopped&&stamp(value)>stamp(current)))out.portfolios[index]=value;
- // Legacy writers may omit performance; retain its own latest successful result
+ // Legacy writers may omit independent data; retain its latest successful result
  // without using it to resume source collection or renew a position timestamp.
  const chosen=out.portfolios[index];
  if(chosen.profile.visibility==='public'&&current.profile.visibility==='public'&&value.profile.visibility==='public'&&!restricted(chosen)){
-  const a=current.performance?.byPeriod?.['30D'],b=value.performance?.byPeriod?.['30D'];
+  for(const field of ['performance','chart']){
+  const a=current[field]?.byPeriod?.['30D'],b=value[field]?.byPeriod?.['30D'];
   if(a||b){
    const ms=w=>Date.parse(w?.lastAttemptAt)||0,successMs=w=>Date.parse(w?.lastSuccessAt)||0;
    const attempt=ms(a)>=ms(b)?a:b,success=successMs(a)>=successMs(b)?a:b;
    const latest=success?.lastSuccessAt?{...success,lastAttemptAt:attempt.lastAttemptAt,errorCode:attempt.errorCode,status:attempt.status==='ready'&&attempt.lastSuccessAt===success.lastSuccessAt?'ready':'stale'}:{...attempt};
    if(chosen.source.refreshStopped&&latest.lastSuccessAt)latest.status='stale';
-   chosen.performance={schemaVersion:1,byPeriod:{'30D':latest}};
+   chosen[field]={schemaVersion:1,byPeriod:{'30D':latest}};
+  }
   }
  }
  const refusal=[current,value].find(p=>p.source.refreshStopped&&globalRefusal(p.source.errorCode));

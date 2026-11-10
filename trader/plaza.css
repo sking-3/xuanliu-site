@@ -285,3 +285,5 @@ th{color:#728098;font-weight:500;background:#fbfcfe}
   .books-shell.trader-page .card[data-layout=aligned]>.card-footer{padding-top:8px}
 }
 @media(min-width:1280px){.books-shell.trader-page .cards{grid-template-columns:repeat(4,minmax(0,1fr))}}
+
+.binance-curve-unavailable .curve-unavailable{font-size:11px;line-height:1.7}

@@ -344,4 +344,37 @@ test('win rate includes zero and 100 but does not cap ROI or source drawdown',()
 test('real profile avatar URLs are normalized without replacing identity or source times',()=>{for(const url of ['https://public.bnbstatic.com/image/pgc/source.png','https://public-1306379396.file.myqcloud.com/image/avatar/source.jpg']){const data=sampleCollection();data.portfolios[0].profile.avatarUrl=url;const row=api.toTraders(data,{now:NOW})[0];assert.equal(row.avatarUrl,url);assert.equal(row.accountId,IDS[0]);assert.equal(row.observedAt,stamp);}assert.equal(api.toTraders(sampleCollection())[0].avatarUrl,null);});
 test('unknown or unsafe avatar URLs fall back without invalidating trading snapshots',()=>{for(const value of [null,0,'data:image/svg+xml,x','javascript:alert(1)','//public.bnbstatic.com/image/a.png','http://public.bnbstatic.com/image/a.png','https://public.bnbstatic.com.evil/image/a.png','https://public.bnbstatic.com:444/image/a.png','https://x:y@public.bnbstatic.com/image/a.png','https://public.bnbstatic.com/other/a.png','https://public.bnbstatic.com/image/a.png#x','https://static.okx.com/cdn/okex/users/headimages/a.png','https://public.bnbstatic.com/image/a'+String.fromCharCode(0)+'.png']){const data=sampleCollection();data.portfolios[0].profile.avatarUrl=value;assert.equal(api.toTraders(api.parseCollection(data),{now:NOW})[0].avatarUrl,null);}});
 test('Aoying public identity avatar never supplies a source feed or a trading timestamp',()=>{const row=api.toTraders(sampleCollection(),{now:NOW}).find(r=>r.referenceOnly);assert.equal(row.avatarUrl,'https://public.bnbstatic.com/image/pgc/202412/e891a1e22f14b5223e15f43c4b195abc.png');assert.equal(row.avatarSourceUrl,'https://www.binance.com/zh-CN/square/profile/god_of_trader_tony');assert.equal(row.binance,null);assert.equal(row.observedAt,null);assert.equal(api.performance(row.binance,'30D').roi,null);assert.equal(Object.hasOwn(api.PORTFOLIOS,row.accountId),false);});
+function chartPart(at=stamp,points=[{time:new Date(Date.parse(at)-120000).toISOString(),value:125},{time:new Date(Date.parse(at)-110000).toISOString(),value:145.25},{time:new Date(Date.parse(at)-1000).toISOString(),value:-30}]){return {status:'ready',lastAttemptAt:at,lastSuccessAt:at,sourceAsOf:null,sourcePeriod:'30D',dataType:'PNL',currency:'USDT',points,errorCode:null,evidence:{sha256:'b'.repeat(64),bytes:180,httpStatus:200,code:'000000',receivedAt:at}};}
+function withChart(feed=sampleFeed(),part=chartPart()){feed.chart={schemaVersion:1,byPeriod:{'30D':part}};return feed;}
+test('chart retains exact raw PNL USDT values and irregular source times without rebasing',()=>{
+ const feed=withChart(),result=api.chart(feed,'30D',{now:NOW});assert.equal(result.status,'ready');assert.equal(result.dataType,'PNL');assert.equal(result.currency,'USDT');assert.deepEqual(result.points,feed.chart.byPeriod['30D'].points);assert.equal(result.points[0].value,125);assert.equal(result.pointCount,3);assert.equal(result.startAt,result.points[0].time);assert.equal(result.endAt,result.points[2].time);assert.equal(result.sourceAsOf,null);
+});
+test('chart only supports exact 30D and never uses reference identity or another period',()=>{
+ const feed=withChart();for(const period of ['7D','90D','180D','365D','ALL']){const result=api.chart(feed,period,{now:NOW});assert.equal(result.periodSupported,false);assert.equal(result.pointCount,null);assert.deepEqual(result.points,[]);}
+ const missing=api.chart(sampleFeed(),'30D'),reference=api.chart(null,'30D');for(const result of [missing,reference])for(const key of ['pointCount','lastAttemptAt','lastSuccessAt','startAt','endAt'])assert.equal(result[key],null);
+});
+test('chart success with zero or one point is distinct from unavailable',()=>{
+ for(const count of [0,1]){const feed=withChart(sampleFeed(),chartPart(stamp,chartPart().points.slice(0,count))),result=api.chart(feed,'30D',{now:NOW});assert.equal(result.status,'ready');assert.equal(result.pointCount,count);assert.equal(result.points.length,count);assert.equal(result.lastSuccessAt,stamp);}
+});
+test('chart has an independent exact 60-minute expiry that cannot renew a position snapshot',()=>{
+ const feed=withChart();for(const [offset,status]of [[3599999,'ready'],[3600000,'ready'],[3600001,'stale']]){assert.equal(api.chart(feed,'30D',{now:NOW+offset}).status,status);assert.equal(api.chart(feed,'30D',{now:NOW+offset}).lastSuccessAt,stamp);assert.equal(api.detail(feed,{now:NOW+offset}).currentPositionCount,null);}
+ feed.source.lastSuccessAt=new Date(NOW+7200000).toISOString();assert.equal(api.chart(feed,'30D',{now:NOW+7200000}).status,'stale');
+});
+test('malformed PNL chart schema, duplicate or unordered points, unsafe time and mixed units reject public aggregate',()=>{
+ for(const mutate of [p=>p.points[0].value='125',p=>p.points[0].value=NaN,p=>p.points[0].time='bad',p=>p.points.push({...p.points[0]}),p=>p.points.reverse(),p=>p.points[2].time=new Date(NOW+300001).toISOString(),p=>p.points=Array.from({length:1001},(_,i)=>({time:new Date(NOW-100000+i).toISOString(),value:i})),p=>p.dataType='ROI',p=>p.currency='USD',p=>p.sourcePeriod='7D',p=>p.sourceAsOf=stamp,p=>p.evidence.receivedAt=new Date(NOW-1).toISOString(),p=>p.status='unavailable']){
+ const feed=withChart();mutate(feed.chart.byPeriod['30D']);const collection=sampleCollection();collection.portfolios=[feed];assert.throws(()=>api.parseCollection(collection),/BINANCE_CHART_SCHEMA/);assert.equal(api.chart(feed,'30D',{now:NOW}).pointCount,null);}
+});
+test('point future bound is tied to source receipt rather than later browser viewing time',()=>{
+ const feed=withChart();feed.chart.byPeriod['30D'].points[2].time=new Date(NOW+300001).toISOString();assert.equal(api.chart(feed,'30D',{now:NOW+86400000}).errorCode,'chart_schema');
+ feed.chart.byPeriod['30D'].points[2].time=new Date(NOW+300000).toISOString();assert.equal(api.chart(feed,'30D',{now:NOW+86400000}).pointCount,3);
+});
+test('unknown and restricted chart payload stays hidden even when malformed',()=>{
+ for(const visibility of ['unknown','restricted']){const feed=withChart();feed.profile.visibility=visibility;feed.chart.byPeriod['30D'].points[0].value='private';const collection=sampleCollection();collection.portfolios=[feed];assert.doesNotThrow(()=>api.parseCollection(collection));const result=api.chart(feed,'30D',{now:NOW});assert.equal(result.pointCount,null);assert.equal(result.lastSuccessAt,null);assert.deepEqual(result.points,[]);}
+});
+test('stop and read failure retain chart only as stale with original timestamps',()=>{
+ const feed=withChart();for(const options of [{requestFailed:true},{batchStopped:true,batchErrorCode:'http_429'}]){const result=api.chart(feed,'30D',{now:NOW,...options});assert.equal(result.status,'stale');assert.equal(result.lastSuccessAt,stamp);assert.equal(result.points[0].value,125);}feed.source.refreshStopped=true;assert.equal(api.chart(feed,'30D',{now:NOW}).status,'stale');
+});
+test('chart outputs are copies and do not mutate frozen source points or evidence',()=>{
+ const feed=freeze(withChart()),result=api.chart(feed,'30D',{now:NOW});result.points[0].value=999;result.evidence.bytes=1;assert.equal(feed.chart.byPeriod['30D'].points[0].value,125);assert.equal(feed.chart.byPeriod['30D'].evidence.bytes,180);
+});
 console.log('Binance plaza adapter: ' + passed + ' tests passed');
