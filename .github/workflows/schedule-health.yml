@@ -1,0 +1,29 @@
+name: Diagnose scheduled workflow delivery
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '26,56 * * * *'
+
+# Diagnostic only: no checkout, API requests, repository writes, or deployment.
+permissions: {}
+
+jobs:
+  heartbeat:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Record scheduler delivery evidence
+        env:
+          SCHEDULE_EXPRESSION: ${{ github.event.schedule }}
+        shell: bash
+        run: |
+          {
+            printf 'Event: %s\n' "$GITHUB_EVENT_NAME"
+            printf 'Schedule: %s\n' "$SCHEDULE_EXPRESSION"
+            printf 'Actor: %s\n' "$GITHUB_ACTOR"
+            printf 'Commit: %s\n' "$GITHUB_SHA"
+            printf 'Run: %s (attempt %s)\n' "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT"
+            printf 'Started UTC: '
+            date -u +%Y-%m-%dT%H:%M:%SZ
+          } | tee -a "$GITHUB_STEP_SUMMARY"
