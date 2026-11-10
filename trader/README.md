@@ -2,6 +2,14 @@
 
 本站在 GitHub Pages 的同一个带单员广场展示 Hyperliquid 公开账户和 Binance 跟单组合。来源说明、批次核验统计和汇总提示收纳在底部默认折叠的“资料与统计说明”；卡片和详情中的过期、空仓、不可见与未取得状态仍直接展示。Hyperliquid 名单和表现快照位于 `trader/feed.json`，后台预计算的平仓成交胜率位于 `trader/analytics.json`；Binance 已保存的公开仓位、变化与历史样本位于 `trader/binance/portfolios.json`。个人手工记录仍仅保存在当前浏览器；页面没有文件导入或导出入口。
 
+## 原始身份与卡片布局
+
+卡片和详情保留平台原始标识：Binance 显示组合 ID，OKX 显示带单代码，Hyperliquid 显示钱包地址，不将本站内部记录 ID 误称为平台用户 UID。头像仅来自已确认的来源字段或有公开证据的身份资料；缺失或加载失败时保留文字占位，不合成头像。Binance 从现有详情响应的 `avatarUrl` 保存到 `profile.avatarUrl`，不为头像新增采集请求；旧快照兼容为空。OKX 离线归一化模块保留官方 `portLink` 和 `uniqueCode`，不代表来源已重新接通。
+
+图片使用已核实的 HTTPS CDN 主机并禁止凭据等异常 URL，网页不发送 referrer。熬鹰的公开身份头像来自[币安广场本人主页](https://www.binance.com/zh-CN/square/profile/god_of_trader_tony)，[Kopyon 文档](https://kopyon.com/binance-copy-trading-api/)中的相同组合 ID、昵称和图片路径用于交叉核对；这不产生交易采集时间或解除任何采集停止状态。
+
+混合名单统一身份、周期、状态与收益区域的顺序，同排卡片拉齐；币安的完整样本数量和较长说明保留在详情中。缺失、过期和统计口径仍在卡片可见，不以虚构曲线填充空白。
+
 ## 已接入来源与范围
 
 Hyperliquid 官方网页使用 `https://stats-data.hyperliquid.xyz/Mainnet/leaderboard` 获取公开账户列表。首次验证收到 48,229 个账户的有效 JSON；每次采集先选取来源月度盈亏最高的最多 200 个候选，再逐一核验默认永续 DEX 的持仓。每轮 Hyperliquid 成功采集的名单只选入核验到非零持仓的账户；空仓、请求失败及未核验账户不新加入该轮名单，也不向更低排名补足 200 个。前台会保留已保存名单中的历史卡片，不因核验到期或本页读到空仓而隐藏；它不是无限期历史档案，新一轮有效名单仍以本次筛选范围为准。筛选、排序只作用于本次核验后保留的账户，不代表完整交易所名单、认证带单员或投资推荐。名单可能包括普通钱包、金库及其他账户；展示名由账户自行设置，不是实名或身份认证。

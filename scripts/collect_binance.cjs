@@ -16,6 +16,16 @@ const PERFORMANCE_BASE='https://www.binance.com/bapi/futures/v1/public/future/co
 const PERFORMANCE_PERIOD='30D';
 const PERFORMANCE_PATH='lead-portfolio/performance?portfolioId='+ID+'&timeRange='+PERFORMANCE_PERIOD;
 const PROFILE_URL='https://www.binance.com/en/copy-trading/lead-details/'+ID;
+const AVATAR_HOSTS=new Set(['public.bnbstatic.com','public-1306379396.file.myqcloud.com']);
+// Only the existing detail.avatarUrl field; never synthesize an account image.
+// Source field: eyupilis/tracker_all_trader@e0813ab/scripts/full-data-map.mjs.
+// CDN evidence: its example_output.json and Binance's public Square avatar links.
+function avatarUrl(value){
+ if(typeof value!=='string'||value.length>2048||/[\u0000-\u0020\u007f\s\\]/.test(value))return null;
+ try{const u=new URL(value);
+  return u.protocol==='https:'&&AVATAR_HOSTS.has(u.hostname)&&!u.username&&!u.password&&!u.port&&!u.hash&&u.pathname.startsWith('/image/')?value:null;
+ }catch{return null;}
+}
 const HALT=new Set(['http_202','http_401','http_403','http_418','http_429','http_451','restricted','inactive','identity_mismatch','schema_changed']);
 const decimal=x=>{const s=String(x);if(!/^-?\d+(?:\.\d+)?$/.test(s)||s.length>100||!Number.isFinite(Number(s)))throw Error('schema_changed');return s;};
 const abs=x=>decimal(x).replace(/^-/,'');
@@ -51,7 +61,7 @@ function validPerformance(value){
  });
 }
 function emptyHistory(){return {status:'unavailable',fetchedAt:null,errorCode:null,complete:false,rows:[]};}
-function initial(){return {schemaVersion:1,sourceType:'copy_trade',portfolioId:ID,profile:{id:ID,name:spec.name,status:'UNKNOWN',visibility:'unknown',sourceUrl:PROFILE_URL},generatedAt:null,
+function initial(){return {schemaVersion:1,sourceType:'copy_trade',portfolioId:ID,profile:{id:ID,name:spec.name,status:'UNKNOWN',visibility:'unknown',sourceUrl:PROFILE_URL,avatarUrl:null},generatedAt:null,
  source:{status:'unavailable',lastAttemptAt:null,lastSuccessAt:null,errorCode:null,refreshStopped:false},
  snapshot:null,observations:[],pendingAbsent:{},snapshots:[],evidence:{},performance:emptyPerformance(),history:{orders:emptyHistory(),closedPositions:emptyHistory()}};}
 function checkPrevious(p){if(p===null||p===undefined)return initial();
@@ -59,10 +69,10 @@ function checkPrevious(p){if(p===null||p===undefined)return initial();
  if(p.snapshot&&(!p.snapshot.complete||!Array.isArray(p.snapshot.positions)||p.snapshot.positions.length>300||!Number.isFinite(Date.parse(p.snapshot.observedAt))))throw Error('invalid_previous_state');
  const visible=p.profile.visibility==='public'&&p.source.status!=='restricted'&&p.source.errorCode!=='restricted';
  if(visible&&p.performance!==undefined&&!validPerformance(p.performance))throw Error('invalid_previous_state');
- const out=JSON.parse(JSON.stringify(p));out.performance=visible?(out.performance||emptyPerformance()):emptyPerformance();return out;}
+ const out=JSON.parse(JSON.stringify(p));out.profile.avatarUrl=avatarUrl(out.profile.avatarUrl);out.performance=visible?(out.performance||emptyPerformance()):emptyPerformance();return out;}
 function profile(d){if(!d||typeof d!=='object')throw Error('schema_changed');
  if(String(d.leadPortfolioId)!==ID)throw Error('identity_mismatch');
- return {id:ID,name:str(d.nickname,200),status:str(d.status,30),visibility:d.positionShow===true?'public':d.positionShow===false?'restricted':'unknown',sourceUrl:PROFILE_URL};}
+ return {id:ID,name:str(d.nickname,200),status:str(d.status,30),visibility:d.positionShow===true?'public':d.positionShow===false?'restricted':'unknown',sourceUrl:PROFILE_URL,avatarUrl:avatarUrl(d.avatarUrl)};}
 function positions(data,at){if(!Array.isArray(data)||data.length>10000)throw Error('schema_changed');
  const rows=[],keys=new Set();
  for(const p of data){if(!p||typeof p!=='object')throw Error('schema_changed');const quantity=abs(p.positionAmount);if(compare(quantity,'0')===0)continue;

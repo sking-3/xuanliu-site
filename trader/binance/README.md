@@ -14,6 +14,12 @@
 
 身份卡与公开数据卡共用 `/trader/index.html` 的列表、筛选和详情窗口。旧 `/trader/binance/?portfolioId=ID` 只兼容跳转到广场对应搜索，不再提供独立监控页面。
 
+## 原始头像与组合 ID
+
+卡片和详情显示原组合 ID，ID 始终作为字符串保存。三个采集账号的头像仅采用现有 detail 响应中的 `avatarUrl`，由精确 HTTPS CDN 校验后保存到 `profile.avatarUrl`；缺失或非法值为空，不令交易采集失败，不增加请求。
+
+熬鹰身份卡另保留[币安广场公开主页](https://www.binance.com/zh-CN/square/profile/god_of_trader_tony)的原头像。同一图片路径在[Kopyon 公开文档](https://kopyon.com/binance-copy-trading-api/)中与 `5075281354358777856` 和昵称对应。头像是身份资料，不代表当前仓位或订单可读；不填充交易成功时间，不加入采集白名单。
+
 ## 数据范围
 
 scripts/collect_binance.cjs 独立编写，只使用匿名公开网页数据接口，不使用 Apify、币安密钥、Cookie 或登录。每个账号先核对精确组合 ID、ACTIVE 状态与 positionShow，再请求仓位、最近七天订单第一页和历史仓位第一页。每种历史最多20条，始终标记 complete:false；近七天查询窗口可能返回较早下单但近期更新的订单，页面保留这些真实返回记录并显示两种时间。订单样本不是逐笔成交或完整交割单，也不能补出手续费、资金费或完整账户收益。
