@@ -26,7 +26,7 @@ function env(handler=()=>response(),options={}) {
 let count=0;async function test(name,fn){await fn();count++;console.log('ok '+name);}
 (async()=>{
 await test('portfolio endpoint returns validated native windows without raw source histories',async()=>{
-  const e=env(),r=await e.run({feed:feed(2)});assert.equal(r.schemaVersion,1);assert.equal(r.methodVersion,'portfolio-periods-v2');assert.equal(r.source.succeeded,2);
+  const e=env(),r=await e.run({feed:feed(2)});assert.equal(r.schemaVersion,1);assert.equal(r.methodVersion,'portfolio-periods-v2');assert.equal(r.source.succeeded,2);assert.equal(r.source.refreshIntervalMinutes,360);assert.equal(r.source.staleAfterMinutes,60);assert.equal(API.LIMITS.freshMs,30*60000);
   assert.deepEqual(r.accounts[address(1)].portfolio,API.compactPortfolio(normalizer.normalize.portfolio(sample(),T)));
   for(const call of e.calls){assert.equal(call.url,'https://api.hyperliquid.xyz/info');assert.deepEqual(call.body,{type:'portfolio',user:call.body.user});assert.equal(call.settings.redirect,'error');assert.equal(call.settings.credentials,'omit');}
   const json=JSON.stringify(r);assert(!json.includes('accountValueHistory'));assert(!json.includes('pnlHistory'));assert(e.maximum()<=2);assert.equal(e.timers.size,0);

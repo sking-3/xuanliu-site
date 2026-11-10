@@ -32,7 +32,7 @@ let count=0;async function test(name,fn){await fn();count++;console.log('ok '+na
 (async()=>{
 await test('successful aggregate reuses exact normalizer and never persists raw fills',async()=>{
   const e=env(),r=await e.run({feed:feed(2)});
-  assert.equal(r.schemaVersion,1);assert.equal(r.methodVersion,'closing-fill-v1');assert.equal(r.source.succeeded,2);assert.equal(r.source.status,'ready');
+  assert.equal(r.schemaVersion,1);assert.equal(r.methodVersion,'closing-fill-v1');assert.equal(r.source.succeeded,2);assert.equal(r.source.status,'ready');assert.equal(r.source.refreshIntervalMinutes,360);assert.equal(r.source.staleAfterMinutes,60);assert.equal(API.LIMITS.freshMs,20*60000);
   assert.deepEqual(r.accounts[address(1)].win,normalize.winRate([fill()],T));assert.equal(r.accounts[address(1)].status,'ready');
   const raw=JSON.stringify(r);for(const key of ['"closedPnl"','"oid"','"tid"','"hash"','"startPosition"','"sz"'])assert(!raw.includes(key));
   for(const call of e.calls){assert.equal(call.url,'https://api.hyperliquid.xyz/info');assert.deepEqual(call.body,{type:'userFills',user:call.body.user,aggregateByTime:false});assert.equal(call.settings.redirect,'error');assert.equal(call.settings.credentials,'omit');}
