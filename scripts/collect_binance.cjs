@@ -166,7 +166,14 @@ function reconcileLegacy(previous,legacy){
  if(typeof value.source.refreshStopped!=='boolean')throw Error('invalid_legacy_state');
  const index=out.portfolios.findIndex(p=>p.portfolioId===DEFAULT_ID),current=out.portfolios[index];
  const stamp=p=>Math.max(Date.parse(p.generatedAt)||0,Date.parse(p.source.lastAttemptAt)||0,Date.parse(p.source.lastSuccessAt)||0);
- if((value.source.refreshStopped&&!current.source.refreshStopped)||(!current.source.refreshStopped&&stamp(value)>stamp(current)))out.portfolios[index]=value;
+ const restricted=p=>p.profile.visibility==='restricted'||p.source.status==='restricted'||p.source.errorCode==='restricted';
+ if(restricted(current)||restricted(value)){
+  const hidden=clone(restricted(current)?current:value);
+  hidden.profile.visibility='restricted';hidden.source={...hidden.source,status:'restricted',errorCode:'restricted',refreshStopped:true};
+  hidden.snapshot=null;hidden.snapshots=[];hidden.observations=[];hidden.pendingAbsent={};
+  hidden.history={orders:{status:'unavailable',fetchedAt:null,errorCode:null,complete:false,rows:[]},closedPositions:{status:'unavailable',fetchedAt:null,errorCode:null,complete:false,rows:[]}};
+  out.portfolios[index]=hidden;
+ }else if((value.source.refreshStopped&&!current.source.refreshStopped)||(!current.source.refreshStopped&&stamp(value)>stamp(current)))out.portfolios[index]=value;
  if(value.source.refreshStopped&&globalRefusal(value.source.errorCode))out.source={refreshStopped:true,errorCode:value.source.errorCode};
  return out;
 }

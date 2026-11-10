@@ -72,5 +72,20 @@ const run=(p,f,extra={})=>collectAll(p,{fetchImpl:f.fetchImpl,sleep:async()=>{},
   const blocked=reconcileLegacy(old,legacy);assert.equal(blocked.source.refreshStopped,true);
   const f=fake();await run(blocked,f);assert.equal(f.calls.length,0);
  });
+ await test('privacy withdrawal wins when both states are halted and never resurrects cached rows',async()=>{
+  const current=await run(null,fake());
+  current.portfolios[0].source.refreshStopped=true;current.portfolios[0].source.errorCode='schema_changed';
+  const hidden=JSON.parse(JSON.stringify(current.portfolios[0]));
+  hidden.generatedAt=new Date(TIME+10000).toISOString();hidden.profile.visibility='restricted';
+  hidden.source.status='restricted';hidden.source.errorCode='restricted';hidden.snapshot=null;hidden.snapshots=[];hidden.observations=[];
+  hidden.history.orders.rows=[];hidden.history.closedPositions.rows=[];
+  const merged=reconcileLegacy(current,hidden);
+  assert.equal(merged.portfolios[0].profile.visibility,'restricted');assert.equal(merged.portfolios[0].snapshot,null);
+  assert.equal(merged.portfolios[0].source.refreshStopped,true);
+  const f=fake(),out=await run(merged,f);
+  assert.equal(f.calls.some(c=>c.id===PORTFOLIOS[0].id),false);assert.equal(out.portfolios[0].snapshot,null);
+  const reverse=reconcileLegacy(merged,current.portfolios[0]);
+  assert.equal(reverse.portfolios[0].source.status,'restricted');assert.equal(reverse.portfolios[0].snapshot,null);
+ });
  console.log('PASS '+passed+' Binance multi-portfolio checks');
 })().catch(e=>{console.error(e);process.exitCode=1;});
