@@ -10,19 +10,31 @@
     "sourceUrl": "https://www.binance.com/en/copy-trading/lead-details/5156287639231681792",
     "avatarUrl": "https://public.bnbstatic.com/image/avatar/202608/2da5ad4f66f54ace20a51b3ca33d2a2e.jpg"
   },
-  "generatedAt": "2026-11-10T12:32:45.767Z",
+  "generatedAt": "2026-11-10T16:02:24.561Z",
   "source": {
     "status": "ready",
-    "lastAttemptAt": "2026-11-10T12:32:33.989Z",
-    "lastSuccessAt": "2026-11-10T12:32:36.735Z",
+    "lastAttemptAt": "2026-11-10T16:02:13.009Z",
+    "lastSuccessAt": "2026-11-10T16:02:15.799Z",
     "errorCode": null,
     "refreshStopped": false
   },
   "snapshot": {
-    "observedAt": "2026-11-10T12:32:36.735Z",
+    "observedAt": "2026-11-10T16:02:15.799Z",
     "complete": true,
     "rawCount": 1938,
-    "positions": []
+    "positions": [
+      {
+        "key": "ETHUSDT:SHORT:USDT",
+        "symbol": "ETHUSDT",
+        "side": "SHORT",
+        "quantity": "32.689",
+        "entryPrice": "2082.847079444",
+        "markPrice": "2025.04000000",
+        "leverage": 40,
+        "unrealizedPnl": "1889.65561981",
+        "collateral": "USDT"
+      }
+    ]
   },
   "observations": [
     {
@@ -64,6 +76,16 @@
       "to": "2026-11-10T11:36:39.650Z",
       "before": "217.56",
       "after": "0"
+    },
+    {
+      "id": "766cd13ce9cab2f6aef1c7fc",
+      "kind": "baseline",
+      "symbol": "ETHUSDT",
+      "side": "SHORT",
+      "from": null,
+      "to": "2026-11-10T16:02:15.799Z",
+      "before": null,
+      "after": "32.689"
     }
   ],
   "pendingAbsent": {},
@@ -319,45 +341,140 @@
       "complete": true,
       "rawCount": 1938,
       "positions": []
+    },
+    {
+      "observedAt": "2026-11-10T16:02:15.799Z",
+      "complete": true,
+      "rawCount": 1938,
+      "positions": [
+        {
+          "key": "ETHUSDT:SHORT:USDT",
+          "symbol": "ETHUSDT",
+          "side": "SHORT",
+          "quantity": "32.689",
+          "entryPrice": "2082.847079444",
+          "markPrice": "2025.04000000",
+          "leverage": 40,
+          "unrealizedPnl": "1889.65561981",
+          "collateral": "USDT"
+        }
+      ]
     }
   ],
   "evidence": {
     "lead-portfolio/detail": {
-      "sha256": "7d0c1ce2231f13e0494ce103b66233aed20d28bd3d7b372d52cdf0ba8a175174",
+      "sha256": "f6112633abb7ad27c23c99978256ada77c921510a75a2d4bb31dd474b758aa4e",
       "bytes": 2669,
       "httpStatus": 200,
       "code": "000000",
-      "receivedAt": "2026-11-10T12:32:34.400Z"
+      "receivedAt": "2026-11-10T16:02:13.531Z"
     },
     "lead-data/positions": {
-      "sha256": "5e391d2a93531eae9ae4db49e67805c3eaedb2fce5b8856477b08d09416977b4",
-      "bytes": 663594,
+      "sha256": "203318bc81386c48e53f796720d7e536cbd04c676badec35430021741f356379",
+      "bytes": 663639,
       "httpStatus": 200,
       "code": "000000",
-      "receivedAt": "2026-11-10T12:32:36.735Z"
+      "receivedAt": "2026-11-10T16:02:15.799Z"
     },
     "lead-portfolio/order-history": {
-      "sha256": "b830294220a2c7148a608c97de600a2817d4c7bdb4aa4478f824da611370e2b0",
-      "bytes": 4988,
+      "sha256": "237fbdea4a21186a1ef95a6d9bbdd91bad2974dea94dfaa0ffe6545988973bd7",
+      "bytes": 4964,
       "httpStatus": 200,
       "code": "000000",
-      "receivedAt": "2026-11-10T12:32:38.925Z"
+      "receivedAt": "2026-11-10T16:02:17.943Z"
     },
     "lead-portfolio/position-history": {
       "sha256": "4bea9fc5b8243af2743012f403275a671de0cac49d8ab9a5059b8d98d7f97b14",
       "bytes": 8112,
       "httpStatus": 200,
       "code": "000000",
-      "receivedAt": "2026-11-10T12:32:41.107Z"
+      "receivedAt": "2026-11-10T16:02:20.085Z"
     }
   },
   "history": {
     "orders": {
       "status": "ready",
-      "fetchedAt": "2026-11-10T12:32:38.925Z",
+      "fetchedAt": "2026-11-10T16:02:17.943Z",
       "errorCode": null,
       "complete": false,
       "rows": [
+        {
+          "symbol": "ETHUSDT",
+          "side": "SELL",
+          "positionSide": "SHORT",
+          "type": "LIMIT",
+          "executedQty": "2.608",
+          "avgPrice": "2088.26",
+          "totalPnl": "0",
+          "orderTime": 1794323005274,
+          "orderUpdateTime": 1794323042208
+        },
+        {
+          "symbol": "ETHUSDT",
+          "side": "SELL",
+          "positionSide": "SHORT",
+          "type": "LIMIT",
+          "executedQty": "2.609",
+          "avgPrice": "2086.18",
+          "totalPnl": "0",
+          "orderTime": 1794323005274,
+          "orderUpdateTime": 1794323026809
+        },
+        {
+          "symbol": "ETHUSDT",
+          "side": "SELL",
+          "positionSide": "SHORT",
+          "type": "MARKET",
+          "executedQty": "8.084",
+          "avgPrice": "2086.50378",
+          "totalPnl": "0",
+          "orderTime": 1794322972276,
+          "orderUpdateTime": 1794322972276
+        },
+        {
+          "symbol": "ETHUSDT",
+          "side": "SELL",
+          "positionSide": "SHORT",
+          "type": "MARKET",
+          "executedQty": "2.53",
+          "avgPrice": "2090.17",
+          "totalPnl": "0",
+          "orderTime": 1794322943383,
+          "orderUpdateTime": 1794322943383
+        },
+        {
+          "symbol": "ETHUSDT",
+          "side": "SELL",
+          "positionSide": "SHORT",
+          "type": "LIMIT",
+          "executedQty": "2.552",
+          "avgPrice": "2083.3",
+          "totalPnl": "0",
+          "orderTime": 1794321570466,
+          "orderUpdateTime": 1794321590580
+        },
+        {
+          "symbol": "ETHUSDT",
+          "side": "SELL",
+          "positionSide": "SHORT",
+          "type": "LIMIT",
+          "executedQty": "2.552",
+          "avgPrice": "2081.22",
+          "totalPnl": "0",
+          "orderTime": 1794321570466,
+          "orderUpdateTime": 1794321581889
+        },
+        {
+          "symbol": "ETHUSDT",
+          "side": "SELL",
+          "positionSide": "SHORT",
+          "type": "MARKET",
+          "executedQty": "11.754",
+          "avgPrice": "2077.07",
+          "totalPnl": "0",
+          "orderTime": 1794321534448,
+          "orderUpdateTime": 1794321534448
+        },
         {
           "symbol": "NVDAUSDT",
           "side": "SELL",
@@ -500,99 +617,22 @@
           "totalPnl": "0",
           "orderTime": 1794233884616,
           "orderUpdateTime": 1794233884616
-        },
-        {
-          "symbol": "NVDAUSDT",
-          "side": "BUY",
-          "positionSide": "LONG",
-          "type": "LIMIT",
-          "executedQty": "2.53",
-          "avgPrice": "175.43",
-          "totalPnl": "0",
-          "orderTime": 1794233884616,
-          "orderUpdateTime": 1794233884616
-        },
-        {
-          "symbol": "NVDAUSDT",
-          "side": "BUY",
-          "positionSide": "LONG",
-          "type": "MARKET",
-          "executedQty": "12.61",
-          "avgPrice": "175.6722918",
-          "totalPnl": "0",
-          "orderTime": 1794233853398,
-          "orderUpdateTime": 1794233853398
-        },
-        {
-          "symbol": "NVDAUSDT",
-          "side": "BUY",
-          "positionSide": "LONG",
-          "type": "MARKET",
-          "executedQty": "17.56",
-          "avgPrice": "176.91",
-          "totalPnl": "0",
-          "orderTime": 1794230586942,
-          "orderUpdateTime": 1794230586942
-        },
-        {
-          "symbol": "SKHYNIXUSDT",
-          "side": "SELL",
-          "positionSide": "LONG",
-          "type": "MARKET",
-          "executedQty": "14.8",
-          "avgPrice": "865.6451959",
-          "totalPnl": "316.03149975",
-          "orderTime": 1794197508056,
-          "orderUpdateTime": 1794197508056
-        },
-        {
-          "symbol": "SKHYNIXUSDT",
-          "side": "BUY",
-          "positionSide": "LONG",
-          "type": "LIMIT",
-          "executedQty": "2.15",
-          "avgPrice": "842.1867906",
-          "totalPnl": "0",
-          "orderTime": 1794183307786,
-          "orderUpdateTime": 1794183307786
-        },
-        {
-          "symbol": "SKHYNIXUSDT",
-          "side": "BUY",
-          "positionSide": "LONG",
-          "type": "LIMIT",
-          "executedQty": "2.15",
-          "avgPrice": "842.18",
-          "totalPnl": "0",
-          "orderTime": 1794183307786,
-          "orderUpdateTime": 1794183307786
-        },
-        {
-          "symbol": "SKHYNIXUSDT",
-          "side": "BUY",
-          "positionSide": "LONG",
-          "type": "MARKET",
-          "executedQty": "10.5",
-          "avgPrice": "845.1551238",
-          "totalPnl": "0",
-          "orderTime": 1794183275318,
-          "orderUpdateTime": 1794183275318
         }
       ],
       "coverage": {
         "page": 1,
         "pageSize": 20,
-        "requestedFrom": "2026-11-03T12:32:36.738Z",
-        "requestedTo": "2026-11-10T12:32:36.738Z",
-        "sourceTotal": 53,
-        "indexValue": "1794183275318",
+        "requestedFrom": "2026-11-03T16:02:15.802Z",
+        "requestedTo": "2026-11-10T16:02:15.802Z",
+        "sourceTotal": 60,
+        "indexValue": "1794233884616",
         "truncated": true,
         "identity": "source_page_sample_no_cross_run_deduplication"
       }
     },
     "closedPositions": {
       "status": "ready",
-      "fetchedAt": "2026-11-10T12:32:41.107Z",
+      "fetchedAt": "2026-11-10T16:02:20.085Z",
       "errorCode": null,
       "complete": false,
       "rows": [
@@ -853,23 +893,23 @@
     "schemaVersion": 1,
     "byPeriod": {
       "30D": {
-        "roi": 193.22567928,
-        "pnl": 7588.70254991,
+        "roi": 246.11494238,
+        "pnl": 9665.86375991,
         "mdd": 55.076538,
-        "winRate": 80,
+        "winRate": 75,
         "status": "ready",
-        "lastAttemptAt": "2026-11-10T12:32:43.107Z",
-        "lastSuccessAt": "2026-11-10T12:32:43.292Z",
+        "lastAttemptAt": "2026-11-10T16:02:22.085Z",
+        "lastSuccessAt": "2026-11-10T16:02:22.211Z",
         "sourceAsOf": null,
         "sourcePeriod": "30D",
         "currency": "USDT",
         "errorCode": null,
         "evidence": {
-          "sha256": "65883228240d3ff4e32b4d4e882ec9419a350f48b5bbed167c544f63bde8f79d",
+          "sha256": "88778e82019a668478adcd540a3cf5b6cb6edbb97ea801c23981d2b059353b69",
           "bytes": 258,
           "httpStatus": 200,
           "code": "000000",
-          "receivedAt": "2026-11-10T12:32:43.292Z"
+          "receivedAt": "2026-11-10T16:02:22.211Z"
         }
       }
     }
@@ -879,8 +919,8 @@
     "byPeriod": {
       "30D": {
         "status": "ready",
-        "lastAttemptAt": "2026-11-10T12:32:45.292Z",
-        "lastSuccessAt": "2026-11-10T12:32:45.767Z",
+        "lastAttemptAt": "2026-11-10T16:02:24.210Z",
+        "lastSuccessAt": "2026-11-10T16:02:24.561Z",
         "sourceAsOf": null,
         "sourcePeriod": "30D",
         "dataType": "PNL",
@@ -1003,17 +1043,17 @@
             "value": 7715.735483
           },
           {
-            "time": "2026-11-10T11:00:00.000Z",
-            "value": 7588.70254991
+            "time": "2026-11-10T15:00:00.000Z",
+            "value": 7627.70387654
           }
         ],
         "errorCode": null,
         "evidence": {
-          "sha256": "6be2228bb4f5605a1b6ed2ba5d8570bb4684f27cc0519219b7bb8d2db8a953f1",
+          "sha256": "a8f3707731a86d540fbc26fcba5e45d7bfcb844012d7441feb62d72828642392",
           "bytes": 1989,
           "httpStatus": 200,
           "code": "000000",
-          "receivedAt": "2026-11-10T12:32:45.767Z"
+          "receivedAt": "2026-11-10T16:02:24.561Z"
         }
       }
     }
