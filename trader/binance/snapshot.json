@@ -9,16 +9,16 @@
     "visibility": "public",
     "sourceUrl": "https://www.binance.com/en/copy-trading/lead-details/5156287639231681792"
   },
-  "generatedAt": "2026-11-10T01:39:25.034Z",
+  "generatedAt": "2026-11-10T02:23:11.567Z",
   "source": {
     "status": "ready",
-    "lastAttemptAt": "2026-11-10T01:39:18.100Z",
-    "lastSuccessAt": "2026-11-10T01:39:20.772Z",
+    "lastAttemptAt": "2026-11-10T02:23:04.136Z",
+    "lastSuccessAt": "2026-11-10T02:23:07.256Z",
     "errorCode": null,
     "refreshStopped": false
   },
   "snapshot": {
-    "observedAt": "2026-11-10T01:39:20.772Z",
+    "observedAt": "2026-11-10T02:23:07.256Z",
     "complete": true,
     "rawCount": 1938,
     "positions": [
@@ -28,9 +28,9 @@
         "side": "LONG",
         "quantity": "217.56",
         "entryPrice": "175.5530391615",
-        "markPrice": "180.62318809",
+        "markPrice": "181.66073582",
         "leverage": 40,
-        "unrealizedPnl": "1103.06160121",
+        "unrealizedPnl": "1328.79048534",
         "collateral": "USDT"
       }
     ]
@@ -156,42 +156,60 @@
           "collateral": "USDT"
         }
       ]
+    },
+    {
+      "observedAt": "2026-11-10T02:23:07.256Z",
+      "complete": true,
+      "rawCount": 1938,
+      "positions": [
+        {
+          "key": "NVDAUSDT:LONG:USDT",
+          "symbol": "NVDAUSDT",
+          "side": "LONG",
+          "quantity": "217.56",
+          "entryPrice": "175.5530391615",
+          "markPrice": "181.66073582",
+          "leverage": 40,
+          "unrealizedPnl": "1328.79048534",
+          "collateral": "USDT"
+        }
+      ]
     }
   ],
   "evidence": {
     "lead-portfolio/detail": {
-      "sha256": "7887cda3c119f477a05838a39b175d839d39340c8ea314eb8fa1b2680cfea305",
+      "sha256": "f738c8308e83ba4d1d3563f434079bb92fb1b6da0818ecd94da52a6fcf324720",
       "bytes": 2669,
       "httpStatus": 200,
       "code": "000000",
-      "receivedAt": "2026-11-10T01:39:18.446Z"
+      "receivedAt": "2026-11-10T02:23:05.093Z"
     },
     "lead-data/positions": {
-      "sha256": "a03f36e7116f66668fe30f8eb8a564b6e7527aed6fc328aeb5b1e3d7906ac5cd",
+      "sha256": "2a356fb01956bc7584fa3e36ea9ef83d6ed2af3e8d1bad49f49a128e54d4d34e",
       "bytes": 663626,
       "httpStatus": 200,
       "code": "000000",
-      "receivedAt": "2026-11-10T01:39:20.771Z"
+      "receivedAt": "2026-11-10T02:23:07.256Z"
     },
     "lead-portfolio/order-history": {
       "sha256": "cf5997d42d5b4b7daee2fdd5d1bdff08a90bd8eab261a79bc9bb761ccae02092",
       "bytes": 4981,
       "httpStatus": 200,
       "code": "000000",
-      "receivedAt": "2026-11-10T01:39:22.906Z"
+      "receivedAt": "2026-11-10T02:23:09.416Z"
     },
     "lead-portfolio/position-history": {
       "sha256": "dfa83d6bff0b5d84fc2181a28656e1ce63a948fd495690b7f28e2d47ed78498b",
       "bytes": 8112,
       "httpStatus": 200,
       "code": "000000",
-      "receivedAt": "2026-11-10T01:39:25.033Z"
+      "receivedAt": "2026-11-10T02:23:11.567Z"
     }
   },
   "history": {
     "orders": {
       "status": "ready",
-      "fetchedAt": "2026-11-10T01:39:22.906Z",
+      "fetchedAt": "2026-11-10T02:23:09.416Z",
       "errorCode": null,
       "complete": false,
       "rows": [
@@ -419,8 +437,8 @@
       "coverage": {
         "page": 1,
         "pageSize": 20,
-        "requestedFrom": "2026-11-03T01:39:20.776Z",
-        "requestedTo": "2026-11-10T01:39:20.776Z",
+        "requestedFrom": "2026-11-03T02:23:07.259Z",
+        "requestedTo": "2026-11-10T02:23:07.259Z",
         "sourceTotal": 50,
         "indexValue": "1794174958281",
         "truncated": true,
@@ -429,7 +447,7 @@
     },
     "closedPositions": {
       "status": "ready",
-      "fetchedAt": "2026-11-10T01:39:25.033Z",
+      "fetchedAt": "2026-11-10T02:23:11.567Z",
       "errorCode": null,
       "complete": false,
       "rows": [
