@@ -480,5 +480,8 @@ await test('a newer failed performance attempt cannot erase retained successful 
  unifiedSetup();const original=installPerformance(),old=original.portfolios[0].performance.byPeriod['30D'];remoteBinance=performanceCollection(Date.parse(original.generatedAt)+1);const part=remoteBinance.portfolios[0].performance.byPeriod['30D'];part.status='stale';part.errorCode='request_failed';part.lastSuccessAt=old.lastSuccessAt;part.evidence=structuredClone(old.evidence);for(const key of ['roi','pnl','mdd','winRate'])part[key]=null;
  await a.refreshBinance();assert.equal(a.state.binanceReadFailed,true);assert.equal(a.binancePerformance(a.state.binanceRows[0],'30D').roi,old.roi);assert.equal(a.binancePerformance(a.state.binanceRows[0],'30D').lastSuccessAt,old.lastSuccessAt);assert.equal(a.binancePerformance(a.state.binanceRows[0],'30D').status,'stale');
 });
+await test('out-of-range Binance win rate cannot enter the cards or replace last-good performance',async()=>{
+ unifiedSetup();const original=installPerformance();for(const winRate of [-0.01,100.01]){remoteBinance=performanceCollection(Date.parse(original.generatedAt)+1);remoteBinance.portfolios[0].performance.byPeriod['30D'].winRate=winRate;await a.refreshBinance();assert.equal(a.state.binanceReadFailed,true);assert.equal(a.binancePerformance(a.state.binanceRows[0],'30D').winRate,65.43);assert.match(content(a.card(a.state.binanceRows[0],'30D')),/65.43%/);}
+});
 console.log(`${passed} logic and DOM-model tests passed. Synthetic fixtures stay local; the published feed is checked separately.`);
 })().catch(e=>{console.error(e);process.exitCode=1;});

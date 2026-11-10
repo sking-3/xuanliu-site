@@ -70,6 +70,7 @@
       for (const key of ['roi','pnl','mdd','winRate']) {
         const metric=part[key];
         if (metric !== undefined && metric !== null && (typeof metric !== 'number' || !Number.isFinite(metric))) throw new Error('BINANCE_PERFORMANCE_SCHEMA');
+        if (key==='winRate' && metric!==undefined && metric!==null && (metric<0 || metric>100)) throw new Error('BINANCE_PERFORMANCE_SCHEMA');
         metrics[key]=metric ?? null;
       }
       const evidence=part.evidence;

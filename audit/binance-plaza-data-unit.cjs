@@ -326,7 +326,7 @@ test('performance missing metric fields and explicit null remain null, never zer
  const feed=withPerformance(sampleFeed(),performancePart(stamp,{roi:null,pnl:null}));const result=api.performance(feed,'30D',{now:NOW});for(const key of ['roi','pnl','mdd','winRate'])assert.equal(result[key],null);
 });
 test('invalid public performance types, evidence, period and currency reject the aggregate',()=>{
- for(const mutate of [p=>p.roi='12.3',p=>p.pnl=Infinity,p=>p.mdd={},p=>p.winRate=false,p=>p.sourcePeriod='7D',p=>p.currency='USD',p=>p.evidence.sha256='bad',p=>p.evidence.bytes=0,p=>p.lastSuccessAt=null,p=>p.sourceAsOf='not-a-time',p=>p.evidence.receivedAt=new Date(NOW-1).toISOString(),p=>p.status='unavailable']){
+ for(const mutate of [p=>p.roi='12.3',p=>p.pnl=Infinity,p=>p.mdd={},p=>p.winRate=false,p=>p.winRate=-0.01,p=>p.winRate=100.01,p=>p.sourcePeriod='7D',p=>p.currency='USD',p=>p.evidence.sha256='bad',p=>p.evidence.bytes=0,p=>p.lastSuccessAt=null,p=>p.sourceAsOf='not-a-time',p=>p.evidence.receivedAt=new Date(NOW-1).toISOString(),p=>p.status='unavailable']){
  const feed=withPerformance();mutate(feed.performance.byPeriod['30D']);const data=sampleCollection();data.portfolios=[feed];assert.throws(()=>api.parseCollection(data),/BINANCE_PERFORMANCE_SCHEMA/);assert.equal(api.performance(feed,'30D',{now:NOW}).roi,null);}
  const feed=withPerformance();feed.performance.byPeriod['7D']=performancePart();const data=sampleCollection();data.portfolios=[feed];assert.throws(()=>api.parseCollection(data),/BINANCE_PERFORMANCE_SCHEMA/);
 });
@@ -340,4 +340,5 @@ test('read failure, per-account stop and batch stop retain performance only as s
 test('positions refresh cannot refresh older performance or replace its success time',()=>{
  const feed=withPerformance(sampleFeed(),performancePart(new Date(NOW-3600001).toISOString()));const result=api.performance(feed,'30D',{now:NOW});assert.equal(result.status,'stale');assert.equal(result.lastSuccessAt,new Date(NOW-3600001).toISOString());assert.equal(api.detail(feed,{now:NOW}).status,'ready');
 });
+test('win rate includes zero and 100 but does not cap ROI or source drawdown',()=>{for(const winRate of [0,100]){const feed=withPerformance(sampleFeed(),performancePart(stamp,{roi:1250,pnl:-10000,mdd:-150,winRate}));const result=api.performance(feed,'30D',{now:NOW});assert.equal(result.winRate,winRate);assert.equal(result.roi,1250);assert.equal(result.mdd,-150);}});
 console.log('Binance plaza adapter: ' + passed + ' tests passed');
