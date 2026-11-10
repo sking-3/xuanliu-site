@@ -17,6 +17,7 @@
   const SOURCE_BASE = 'https://www.binance.com/en/copy-trading/lead-details/';
   const MAX_AGE = 30 * 60 * 1000;
   const LIMIT = 5000;
+  const PERFORMANCE_MAX_AGE = 60 * 60 * 1000;
   const STATES = ['ready', 'stale', 'unavailable', 'restricted'];
   const KINDS = ['baseline', 'appeared', 'increased', 'decreased', 'absent'];
   const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -57,6 +58,43 @@
     }
     return data;
   }
+  function parsePerformance(value) {
+    if (value === undefined) return {schemaVersion:1,byPeriod:{}};
+    if (!record(value) || value.schemaVersion !== 1 || !record(value.byPeriod) || Object.keys(value.byPeriod).some(period => period !== '30D')) throw new Error('BINANCE_PERFORMANCE_SCHEMA');
+    const output={schemaVersion:1,byPeriod:{}};
+    for (const [period,part] of Object.entries(value.byPeriod)) {
+      if (!record(part) || !['ready','stale','unavailable'].includes(part.status) ||
+          !iso(part.lastAttemptAt) || !nullableTime(part.lastSuccessAt) || !nullableTime(part.sourceAsOf) ||
+          part.sourcePeriod !== period || part.currency !== 'USDT' || !code(part.errorCode)) throw new Error('BINANCE_PERFORMANCE_SCHEMA');
+      const metrics={};
+      for (const key of ['roi','pnl','mdd','winRate']) {
+        const metric=part[key];
+        if (metric !== undefined && metric !== null && (typeof metric !== 'number' || !Number.isFinite(metric))) throw new Error('BINANCE_PERFORMANCE_SCHEMA');
+        metrics[key]=metric ?? null;
+      }
+      const evidence=part.evidence;
+      if (evidence !== null && (!record(evidence) || !/^[a-f0-9]{64}$/.test(evidence.sha256) ||
+          !Number.isSafeInteger(evidence.bytes) || evidence.bytes <= 0 || evidence.bytes > 2097152 ||
+          evidence.httpStatus !== 200 || evidence.code !== '000000' || !iso(evidence.receivedAt))) throw new Error('BINANCE_PERFORMANCE_SCHEMA');
+      if (part.status==='unavailable' ? part.lastSuccessAt!==null||evidence!==null||Object.values(metrics).some(metric=>metric!==null) : !iso(part.lastSuccessAt)||!evidence||evidence.receivedAt!==part.lastSuccessAt) throw new Error('BINANCE_PERFORMANCE_SCHEMA');
+      output.byPeriod[period]={status:part.status,lastAttemptAt:part.lastAttemptAt,lastSuccessAt:part.lastSuccessAt,sourceAsOf:part.sourceAsOf,sourcePeriod:period,currency:'USDT',...metrics,errorCode:part.errorCode,evidence:evidence?{sha256:evidence.sha256,bytes:evidence.bytes,httpStatus:200,code:'000000',receivedAt:evidence.receivedAt}:null};
+    }
+    return output;
+  }
+  function performance(feed,period,options) {
+    const opt=optionsView(options),base={status:'unavailable',periodSupported:period==='30D',sourcePeriod:period,currency:'USDT',lastAttemptAt:null,lastSuccessAt:null,sourceAsOf:null,roi:null,pnl:null,mdd:null,winRate:null,errorCode:null,evidence:null};
+    if (!feed || period !== '30D') return base;
+    const data=parseFeed(feed);
+    if (data.profile.visibility==='restricted'||data.source.status==='restricted'||data.source.errorCode==='restricted') return {...base,status:'restricted'};
+    if (data.profile.visibility!=='public') return base;
+    let part;
+    try {part=parsePerformance(data.performance).byPeriod[period];} catch (_) {return {...base,errorCode:'performance_schema'};}
+    if (!part) return base;
+    const stopped=data.source.refreshStopped||opt.batchStopped;
+    const success=Date.parse(part.lastSuccessAt),fresh=Number.isFinite(success)&&opt.now-success<=PERFORMANCE_MAX_AGE&&success<=opt.now+300000;
+    const status=part.status==='unavailable'||!part.lastSuccessAt?'unavailable':part.status==='ready'&&fresh&&!stopped&&!opt.requestFailed?'ready':'stale';
+    return {...base,...part,status,...(status==='unavailable'?{roi:null,pnl:null,mdd:null,winRate:null}:{}),errorCode:part.errorCode||(stopped?(opt.batchErrorCode||data.source.errorCode):null)||(opt.requestFailed?'snapshot_read_failed':null)};
+  }
   function parseCollection(data) {
     if (!record(data) || data.schemaVersion !== 1 || !iso(data.generatedAt) ||
         !record(data.source) || typeof data.source.refreshStopped !== 'boolean' || !code(data.source.errorCode) ||
@@ -66,6 +104,7 @@
     const seen = new Set();
     data.portfolios.forEach(feed => {
       parseFeed(feed);
+      if (feed.profile.visibility==='public'&&feed.source.status!=='restricted'&&feed.source.errorCode!=='restricted'&&!feed.source.refreshStopped&&!data.source.refreshStopped) parsePerformance(feed.performance);
       if (seen.has(feed.portfolioId)) throw new Error('BINANCE_COLLECTION_SCHEMA');
       seen.add(feed.portfolioId);
     });
@@ -192,5 +231,5 @@
     });
     return rows;
   }
-  return Object.freeze({ PORTFOLIOS, REFERENCE_PORTFOLIOS, MAX_AGE, parseCollection, toTraders, detail });
+  return Object.freeze({ PORTFOLIOS, REFERENCE_PORTFOLIOS, MAX_AGE, PERFORMANCE_MAX_AGE, parseCollection, toTraders, detail, performance });
 });

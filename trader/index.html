@@ -7,11 +7,11 @@
   <meta name="referrer" content="no-referrer">
   <meta name="robots" content="noindex,nofollow">
   <title>Books · 带单员广场</title>
-  <link rel="stylesheet" href="plaza.css?v=10d18379">
+  <link rel="stylesheet" href="plaza.css?v=12c95d3f">
   <script defer src="account-live.js?v=f6bc762c"></script>
   <script defer src="account-analytics.js?v=47bc4409"></script>
-  <script defer src="binance-data.js?v=6bfa220a"></script>
-  <script defer src="plaza.js?v=fa6333a8"></script>
+  <script defer src="binance-data.js?v=b578ccc2"></script>
+  <script defer src="plaza.js?v=a7c4b72f"></script>
   <link rel="stylesheet" href="../books-ui.css?v=78760a2a">
   <link rel="stylesheet" href="../index-ticker.css?v=d6459a25">
   <script defer src="../index-ticker.js?v=c49031ee"></script>
@@ -61,7 +61,7 @@
         <label for="period">统计周期<select id="period"><option value="7D">周度 / 7D</option><option value="30D" selected>月度 / 30D</option><option value="90D">季度 / 90D</option><option value="180D">半年 / 180D</option><option value="365D">年度 / 365D</option><option value="ALL">来源累计</option></select></label>
         <label for="exchange">交易所<select id="exchange"><option value="all">全部交易所</option><option>Binance</option><option>OKX</option><option>Hyperliquid</option><option>Gate</option><option>Bitget</option><option>Bybit</option><option>Polymarket</option></select></label>
         <label for="source">来源类型<select id="source"><option value="all">全部公开账户</option><option value="public">公开来源</option><option value="paid">付费来源</option><option value="local">我的资料</option></select></label>
-        <label for="sort">排序<select id="sort"><option value="mixed" selected>平台混合</option><option value="roi">收益率 ↓</option><option value="pnl">盈亏 ↓</option><option value="mdd">采样盈亏回撤 ↑</option><option value="winRate">平仓片段胜率 ↓</option></select></label>
+        <label for="sort">排序<select id="sort"><option value="mixed" selected>平台混合</option><option value="roi">收益率 ↓</option><option value="pnl">盈亏 ↓</option><option value="mdd">来源回撤 ↑</option><option value="winRate">胜率 ↓</option></select></label>
         <label for="currency">计价币种<select id="currency"><option value="all" selected>全部币种</option><option>USDT</option><option>USD</option><option>USDC</option><option>BTC</option><option>ETH</option></select></label>
       </div>
       <p id="sort-hint" class="hint">按永续持仓筛选 · 收益率沿用来源榜单</p>
@@ -78,7 +78,7 @@
     <p id="status" role="status" aria-live="polite">正在读取资料…</p>
       <p>Hyperliquid 按来源月度盈亏选取最多 200 个候选账户，逐一核验永续主市场持仓，首次收录经核验持有仓位的账户。核验过期后保留上次资料与历史表现，明确当前仓位未知；只有最近 60 分钟内有效且非零的持仓才计入当前持仓账户数。切换排序只影响已收录范围。周度、月度及来源累计的收益率与盈亏来自官方公开榜单；90/180/365天的区间盈亏按实际首末历史采样计算，并显示真实覆盖范围，资金基准未能核验时收益率留空。收录不代表认证带单员或 Books 推荐。</p>
       <p>曲线与近期永续平仓片段胜率读取后台计算的公开快照。历史缓存缺失或过期时，只为当前页仍具有效持仓资格的最多 12 个 Hyperliquid 账户补读曲线；胜率直接显示已保存的统计及其样本范围。采样盈亏回撤采用永续账户历史，按累计盈亏峰值下跌额除以峰值时权益计算，仅使用有效正权益峰值，可以超过 100%，不是资金流调整净值的最大回撤；近期永续平仓片段胜率范围为最近最多 2000 笔成交中的永续平仓片段，不能视为完整订单或所选周期胜率。缺少有效数据时留空。账户详情可读取持仓、挂单与最近成交。来源快照文件的更新时间与采集时间分别展示，均不等同于逐笔成交时间。</p>
-      <p>币安已收录四个带单员身份，其中三个接入本站公开样本；熬鹰资本目前仅展示身份，此前记录未公开持仓，交易数据未取得。空仓账户仍保留。持仓须在 30 分钟有效期内；过期、读取失败、停止或不可见状态不计入当前持仓。订单与历史仓位是有限样本，不是完整交割单，不据此推算收益率、回撤或胜率。隐藏资料不展示缓存中的仓位和历史。</p>
+      <p>币安已收录四个带单员身份，其中三个接入本站公开样本；熬鹰资本目前仅展示身份，此前记录未公开持仓，交易数据未取得。空仓账户仍保留。持仓须在 30 分钟有效期内；过期、读取失败、停止或不可见状态不计入当前持仓。订单与历史仓位是有限样本，不是完整交割单，不据此推算收益率、回撤或胜率。月度（30D）收益率、盈亏、回撤和胜率直接采用币安来源字段，表现有效期独立为 60 分钟，不延长仓位有效期。其他周期未接入，缺数留空；回撤保留来源符号，已平仓仓位胜率不同于 Hyperliquid 平仓片段胜率。来源曲线未接入。隐藏资料不展示缓存中的仓位、历史与表现。</p>
       <p>我的资料仅保存在当前浏览器，不会自动同步到其他设备或发布给其他访客。表现按实际来源时间展示。</p>
     </details>
     <footer>Books · 研究资料，不提供跟单或交易功能。过往表现不代表未来收益。</footer>
