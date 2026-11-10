@@ -1,0 +1,599 @@
+{
+  "schemaVersion": 1,
+  "sourceType": "copy_trade",
+  "portfolioId": "5156287639231681792",
+  "profile": {
+    "id": "5156287639231681792",
+    "name": "爱喝快乐肥宅水",
+    "status": "ACTIVE",
+    "visibility": "public",
+    "sourceUrl": "https://www.binance.com/en/copy-trading/lead-details/5156287639231681792"
+  },
+  "generatedAt": "2026-11-10T00:32:25.243Z",
+  "source": {
+    "status": "ready",
+    "lastAttemptAt": "2026-11-10T00:32:09.879Z",
+    "lastSuccessAt": "2026-11-10T00:32:20.394Z",
+    "errorCode": null,
+    "refreshStopped": false
+  },
+  "snapshot": {
+    "observedAt": "2026-11-10T00:32:20.394Z",
+    "complete": true,
+    "rawCount": 1938,
+    "positions": [
+      {
+        "key": "NVDAUSDT:LONG:USDT",
+        "symbol": "NVDAUSDT",
+        "side": "LONG",
+        "quantity": "217.56",
+        "entryPrice": "175.5530391615",
+        "markPrice": "181.21000000",
+        "leverage": 40,
+        "unrealizedPnl": "1230.72840035",
+        "collateral": "USDT"
+      }
+    ]
+  },
+  "observations": [
+    {
+      "id": "ba0345aa146f0014c141ae1f",
+      "kind": "baseline",
+      "symbol": "NVDAUSDT",
+      "side": "LONG",
+      "from": null,
+      "to": "2026-11-10T00:32:20.394Z",
+      "before": null,
+      "after": "217.56"
+    }
+  ],
+  "pendingAbsent": {},
+  "snapshots": [
+    {
+      "observedAt": "2026-11-10T00:32:20.394Z",
+      "complete": true,
+      "rawCount": 1938,
+      "positions": [
+        {
+          "key": "NVDAUSDT:LONG:USDT",
+          "symbol": "NVDAUSDT",
+          "side": "LONG",
+          "quantity": "217.56",
+          "entryPrice": "175.5530391615",
+          "markPrice": "181.21000000",
+          "leverage": 40,
+          "unrealizedPnl": "1230.72840035",
+          "collateral": "USDT"
+        }
+      ]
+    }
+  ],
+  "evidence": {
+    "lead-portfolio/detail": {
+      "sha256": "c45ac8b7e116a99515ae13f098ee4e54fe29720804cd1239a84e2c1e4f8e5ad4",
+      "bytes": 2669,
+      "httpStatus": 200,
+      "code": "000000",
+      "receivedAt": "2026-11-10T00:32:18.089Z"
+    },
+    "lead-data/positions": {
+      "sha256": "c9b1399cd5e6d101195714652eaf238fd7d32004bb5770f29e796d9e1618c805",
+      "bytes": 663626,
+      "httpStatus": 200,
+      "code": "000000",
+      "receivedAt": "2026-11-10T00:32:20.394Z"
+    },
+    "lead-portfolio/order-history": {
+      "sha256": "cf5997d42d5b4b7daee2fdd5d1bdff08a90bd8eab261a79bc9bb761ccae02092",
+      "bytes": 4981,
+      "httpStatus": 200,
+      "code": "000000",
+      "receivedAt": "2026-11-10T00:32:22.828Z"
+    },
+    "lead-portfolio/position-history": {
+      "sha256": "dfa83d6bff0b5d84fc2181a28656e1ce63a948fd495690b7f28e2d47ed78498b",
+      "bytes": 8112,
+      "httpStatus": 200,
+      "code": "000000",
+      "receivedAt": "2026-11-10T00:32:25.243Z"
+    }
+  },
+  "history": {
+    "orders": {
+      "status": "ready",
+      "fetchedAt": "2026-11-10T00:32:22.829Z",
+      "errorCode": null,
+      "complete": false,
+      "rows": [
+        {
+          "symbol": "NVDAUSDT",
+          "side": "BUY",
+          "positionSide": "LONG",
+          "type": "LIMIT",
+          "executedQty": "27.15",
+          "avgPrice": "176.76",
+          "totalPnl": "0",
+          "orderTime": 1794243339358,
+          "orderUpdateTime": 1794243475629
+        },
+        {
+          "symbol": "NVDAUSDT",
+          "side": "BUY",
+          "positionSide": "LONG",
+          "type": "MARKET",
+          "executedQty": "0.4",
+          "avgPrice": "177.31",
+          "totalPnl": "0",
+          "orderTime": 1794243371247,
+          "orderUpdateTime": 1794243371247
+        },
+        {
+          "symbol": "NVDAUSDT",
+          "side": "BUY",
+          "positionSide": "LONG",
+          "type": "LIMIT",
+          "executedQty": "27.15",
+          "avgPrice": "176.58",
+          "totalPnl": "0",
+          "orderTime": 1794243339357,
+          "orderUpdateTime": 1794243645971
+        },
+        {
+          "symbol": "NVDAUSDT",
+          "side": "BUY",
+          "positionSide": "LONG",
+          "type": "MARKET",
+          "executedQty": "3.06",
+          "avgPrice": "177.12",
+          "totalPnl": "0",
+          "orderTime": 1794243309242,
+          "orderUpdateTime": 1794243309242
+        },
+        {
+          "symbol": "NVDAUSDT",
+          "side": "BUY",
+          "positionSide": "LONG",
+          "type": "MARKET",
+          "executedQty": "10.27",
+          "avgPrice": "177.12",
+          "totalPnl": "0",
+          "orderTime": 1794243309037,
+          "orderUpdateTime": 1794243309037
+        },
+        {
+          "symbol": "NVDAUSDT",
+          "side": "BUY",
+          "positionSide": "LONG",
+          "type": "MARKET",
+          "executedQty": "78.99",
+          "avgPrice": "174.8731396",
+          "totalPnl": "0",
+          "orderTime": 1794235031643,
+          "orderUpdateTime": 1794235031643
+        },
+        {
+          "symbol": "NVDAUSDT",
+          "side": "BUY",
+          "positionSide": "LONG",
+          "type": "LIMIT",
+          "executedQty": "11.3",
+          "avgPrice": "173.93",
+          "totalPnl": "0",
+          "orderTime": 1794234427662,
+          "orderUpdateTime": 1794234427662
+        },
+        {
+          "symbol": "NVDAUSDT",
+          "side": "BUY",
+          "positionSide": "LONG",
+          "type": "LIMIT",
+          "executedQty": "11.31",
+          "avgPrice": "173.93",
+          "totalPnl": "0",
+          "orderTime": 1794234427662,
+          "orderUpdateTime": 1794234427662
+        },
+        {
+          "symbol": "NVDAUSDT",
+          "side": "BUY",
+          "positionSide": "LONG",
+          "type": "MARKET",
+          "executedQty": "12.7",
+          "avgPrice": "174.25",
+          "totalPnl": "0",
+          "orderTime": 1794234394038,
+          "orderUpdateTime": 1794234394038
+        },
+        {
+          "symbol": "NVDAUSDT",
+          "side": "BUY",
+          "positionSide": "LONG",
+          "type": "LIMIT",
+          "executedQty": "2.53",
+          "avgPrice": "175.43",
+          "totalPnl": "0",
+          "orderTime": 1794233884616,
+          "orderUpdateTime": 1794233884616
+        },
+        {
+          "symbol": "NVDAUSDT",
+          "side": "BUY",
+          "positionSide": "LONG",
+          "type": "LIMIT",
+          "executedQty": "2.53",
+          "avgPrice": "175.43",
+          "totalPnl": "0",
+          "orderTime": 1794233884616,
+          "orderUpdateTime": 1794233884616
+        },
+        {
+          "symbol": "NVDAUSDT",
+          "side": "BUY",
+          "positionSide": "LONG",
+          "type": "MARKET",
+          "executedQty": "12.61",
+          "avgPrice": "175.6722918",
+          "totalPnl": "0",
+          "orderTime": 1794233853398,
+          "orderUpdateTime": 1794233853398
+        },
+        {
+          "symbol": "NVDAUSDT",
+          "side": "BUY",
+          "positionSide": "LONG",
+          "type": "MARKET",
+          "executedQty": "17.56",
+          "avgPrice": "176.91",
+          "totalPnl": "0",
+          "orderTime": 1794230586942,
+          "orderUpdateTime": 1794230586942
+        },
+        {
+          "symbol": "SKHYNIXUSDT",
+          "side": "SELL",
+          "positionSide": "LONG",
+          "type": "MARKET",
+          "executedQty": "14.8",
+          "avgPrice": "865.6451959",
+          "totalPnl": "316.03149975",
+          "orderTime": 1794197508056,
+          "orderUpdateTime": 1794197508056
+        },
+        {
+          "symbol": "SKHYNIXUSDT",
+          "side": "BUY",
+          "positionSide": "LONG",
+          "type": "LIMIT",
+          "executedQty": "2.15",
+          "avgPrice": "842.1867906",
+          "totalPnl": "0",
+          "orderTime": 1794183307786,
+          "orderUpdateTime": 1794183307786
+        },
+        {
+          "symbol": "SKHYNIXUSDT",
+          "side": "BUY",
+          "positionSide": "LONG",
+          "type": "LIMIT",
+          "executedQty": "2.15",
+          "avgPrice": "842.18",
+          "totalPnl": "0",
+          "orderTime": 1794183307786,
+          "orderUpdateTime": 1794183307786
+        },
+        {
+          "symbol": "SKHYNIXUSDT",
+          "side": "BUY",
+          "positionSide": "LONG",
+          "type": "MARKET",
+          "executedQty": "10.5",
+          "avgPrice": "845.1551238",
+          "totalPnl": "0",
+          "orderTime": 1794183275318,
+          "orderUpdateTime": 1794183275318
+        },
+        {
+          "symbol": "ETHUSDT",
+          "side": "SELL",
+          "positionSide": "LONG",
+          "type": "MARKET",
+          "executedQty": "9.762",
+          "avgPrice": "2151.78",
+          "totalPnl": "346.25814",
+          "orderTime": 1794179654125,
+          "orderUpdateTime": 1794179654125
+        },
+        {
+          "symbol": "ETHUSDT",
+          "side": "BUY",
+          "positionSide": "LONG",
+          "type": "MARKET",
+          "executedQty": "9.762",
+          "avgPrice": "2116.31",
+          "totalPnl": "0",
+          "orderTime": 1794175663253,
+          "orderUpdateTime": 1794175663253
+        },
+        {
+          "symbol": "ETHUSDT",
+          "side": "BUY",
+          "positionSide": "SHORT",
+          "type": "MARKET",
+          "executedQty": "20.704",
+          "avgPrice": "2127.67605",
+          "totalPnl": "2218.0094599",
+          "orderTime": 1794174958281,
+          "orderUpdateTime": 1794174958281
+        }
+      ],
+      "coverage": {
+        "page": 1,
+        "pageSize": 20,
+        "requestedFrom": "2026-11-03T00:32:20.404Z",
+        "requestedTo": "2026-11-10T00:32:20.404Z",
+        "sourceTotal": 50,
+        "indexValue": "1794174958281",
+        "truncated": true,
+        "identity": "source_page_sample_no_cross_run_deduplication"
+      }
+    },
+    "closedPositions": {
+      "status": "ready",
+      "fetchedAt": "2026-11-10T00:32:25.243Z",
+      "errorCode": null,
+      "complete": false,
+      "rows": [
+        {
+          "symbol": "SKHYNIXUSDT",
+          "side": "Long",
+          "opened": 1794183275319,
+          "closed": 1794197508057,
+          "avgCost": "844.29171622",
+          "avgClosePrice": "865.64519595",
+          "closingPnl": "285.30722126",
+          "closedVolume": "14.8",
+          "status": "All Closed",
+          "leverage": "40"
+        },
+        {
+          "symbol": "ETHUSDT",
+          "side": "Long",
+          "opened": 1794175663253,
+          "closed": 1794179654125,
+          "avgCost": "2116.31",
+          "avgClosePrice": "2151.78",
+          "closingPnl": "325.42559271",
+          "closedVolume": "9.762",
+          "status": "All Closed",
+          "leverage": "40"
+        },
+        {
+          "symbol": "ETHUSDT",
+          "side": "Short",
+          "opened": 1794068988294,
+          "closed": 1794174958281,
+          "avgCost": "2234.80556946",
+          "avgClosePrice": "2127.67605535",
+          "closingPnl": "2186.65612283",
+          "closedVolume": "20.704",
+          "status": "All Closed",
+          "leverage": "40"
+        },
+        {
+          "symbol": "BTCUSDT",
+          "side": "Long",
+          "opened": 1793956017080,
+          "closed": 1793969407081,
+          "avgCost": "75940.2",
+          "avgClosePrice": "76006.8",
+          "closingPnl": "-4.79923196",
+          "closedVolume": "0.512",
+          "status": "All Closed",
+          "leverage": "40"
+        },
+        {
+          "symbol": "ETHUSDT",
+          "side": "Short",
+          "opened": 1793819024292,
+          "closed": 1793906093203,
+          "avgCost": "2415.63273372",
+          "avgClosePrice": "2257.08680554",
+          "closingPnl": "4437.99239238",
+          "closedVolume": "28.324",
+          "status": "All Closed",
+          "leverage": "40"
+        },
+        {
+          "symbol": "MUUSDT",
+          "side": "Long",
+          "opened": 1793773773592,
+          "closed": 1793819177514,
+          "avgCost": "857.8255995",
+          "avgClosePrice": "807.63000942",
+          "closingPnl": "-1645.9698141",
+          "closedVolume": "31.86",
+          "status": "All Closed",
+          "leverage": "20"
+        },
+        {
+          "symbol": "ETHUSDT",
+          "side": "Short",
+          "opened": 1793348809441,
+          "closed": 1793771507402,
+          "avgCost": "2240.39150226",
+          "avgClosePrice": "2300.16826392",
+          "closingPnl": "-2087.88948757",
+          "closedVolume": "33.829",
+          "status": "All Closed",
+          "leverage": "20"
+        },
+        {
+          "symbol": "SNDKUSDT",
+          "side": "Long",
+          "opened": 1793327900764,
+          "closed": 1793346286002,
+          "avgCost": "1288.57524355",
+          "avgClosePrice": "1290.28014327",
+          "closingPnl": "2.98297103",
+          "closedVolume": "3.49",
+          "status": "All Closed",
+          "leverage": "20"
+        },
+        {
+          "symbol": "ETHUSDT",
+          "side": "Short",
+          "opened": 1793307630025,
+          "closed": 1793326716376,
+          "avgCost": "2267.67925256",
+          "avgClosePrice": "2211.48957517",
+          "closingPnl": "1448.92510972",
+          "closedVolume": "26.905",
+          "status": "All Closed",
+          "leverage": "20"
+        },
+        {
+          "symbol": "HYPEUSDT",
+          "side": "Short",
+          "opened": 1793300452133,
+          "closed": 1793306948462,
+          "avgCost": "93.87462726",
+          "avgClosePrice": "92.58804664",
+          "closingPnl": "209.63544145",
+          "closedVolume": "174.09",
+          "status": "All Closed",
+          "leverage": "20"
+        },
+        {
+          "symbol": "ETHUSDT",
+          "side": "Long",
+          "opened": 1793209829810,
+          "closed": 1793299124761,
+          "avgCost": "2349.65544472",
+          "avgClosePrice": "2326.85020335",
+          "closingPnl": "-814.32598647",
+          "closedVolume": "32.211",
+          "status": "All Closed",
+          "leverage": "20"
+        },
+        {
+          "symbol": "ETHUSDT",
+          "side": "Short",
+          "opened": 1792796167933,
+          "closed": 1792866622747,
+          "avgCost": "2355.30215583",
+          "avgClosePrice": "2335.24",
+          "closingPnl": "205.60000283",
+          "closedVolume": "11.397",
+          "status": "All Closed",
+          "leverage": "20"
+        },
+        {
+          "symbol": "SNDKUSDT",
+          "side": "Long",
+          "opened": 1792727499487,
+          "closed": 1793204743427,
+          "avgCost": "1296.36416468",
+          "avgClosePrice": "1350.36545943",
+          "closingPnl": "873.23893359",
+          "closedVolume": "16.76",
+          "status": "All Closed",
+          "leverage": "20"
+        },
+        {
+          "symbol": "BTCUSDT",
+          "side": "Short",
+          "opened": 1791566572674,
+          "closed": 1792727452150,
+          "avgCost": "82593.47165698",
+          "avgClosePrice": "81962.7",
+          "closingPnl": "468.96039073",
+          "closedVolume": "0.688",
+          "status": "All Closed",
+          "leverage": "20"
+        },
+        {
+          "symbol": "ZECUSDT",
+          "side": "Long",
+          "opened": 1791475823495,
+          "closed": 1791566053508,
+          "avgCost": "1139.07860375",
+          "avgClosePrice": "1208.79108538",
+          "closingPnl": "1285.76269883",
+          "closedVolume": "18.786",
+          "status": "All Closed",
+          "leverage": "20"
+        },
+        {
+          "symbol": "CRCLUSDT",
+          "side": "Short",
+          "opened": 1791373513748,
+          "closed": 1791458666718,
+          "avgCost": "80.55608997",
+          "avgClosePrice": "80.34485066",
+          "closingPnl": "13.69506043",
+          "closedVolume": "80.69",
+          "status": "All Closed",
+          "leverage": "20"
+        },
+        {
+          "symbol": "ZECUSDT",
+          "side": "Long",
+          "opened": 1790915251187,
+          "closed": 1791212902374,
+          "avgCost": "1378.61253907",
+          "avgClosePrice": "1300.80508744",
+          "closingPnl": "-1897.74211774",
+          "closedVolume": "23.674",
+          "status": "All Closed",
+          "leverage": "20"
+        },
+        {
+          "symbol": "BTCUSDT",
+          "side": "Short",
+          "opened": 1790862399386,
+          "closed": 1790914794066,
+          "avgCost": "83865.26323957",
+          "avgClosePrice": "85844.9",
+          "closingPnl": "-2112.26574515",
+          "closedVolume": "1.031",
+          "status": "All Closed",
+          "leverage": "20"
+        },
+        {
+          "symbol": "CLUSDT",
+          "side": "Short",
+          "opened": 1790613136804,
+          "closed": 1790839527294,
+          "avgCost": "92.84693622",
+          "avgClosePrice": "92.19106817",
+          "closingPnl": "264.35259518",
+          "closedVolume": "473.99",
+          "status": "All Closed",
+          "leverage": "20"
+        },
+        {
+          "symbol": "BTCUSDT",
+          "side": "Short",
+          "opened": 1790535631540,
+          "closed": 1790613009274,
+          "avgCost": "84553.16945455",
+          "avgClosePrice": "84065.7",
+          "closingPnl": "338.65583092",
+          "closedVolume": "0.825",
+          "status": "All Closed",
+          "leverage": "20"
+        }
+      ],
+      "coverage": {
+        "page": 1,
+        "pageSize": 20,
+        "requestedFrom": null,
+        "requestedTo": null,
+        "sourceTotal": 105,
+        "indexValue": null,
+        "truncated": true,
+        "identity": "source_page_sample_no_cross_run_deduplication"
+      }
+    }
+  }
+}

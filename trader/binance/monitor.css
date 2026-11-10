@@ -1,0 +1,57 @@
+/* Books: quiet, readable public-account research. */
+.binance-page main{max-width:1540px}
+.binance-page a{color:#95501d;text-underline-offset:3px}
+.back-link{display:inline-block;margin-bottom:22px;font-size:13px;text-decoration:none}
+.page-header,.header-actions,.section-heading,.status-heading{display:flex;align-items:center;justify-content:space-between;gap:16px}
+.page-header{align-items:flex-start}
+h1,h2,p{margin-top:0}
+h1{font-size:clamp(26px,3.6vw,36px);line-height:1.25;letter-spacing:-.7px;margin-bottom:10px}
+h2{font-size:18px;line-height:1.4;margin:0}
+.eyebrow{font-size:10px;font-weight:700;letter-spacing:1.7px;color:#8a715d;margin-bottom:8px}
+.intro,.identity,.hint,footer{color:#6c7179}
+.intro{font-size:15px;margin-bottom:0}
+.identity{font-size:12px;overflow-wrap:anywhere;margin:14px 0 22px}
+.header-actions{flex-wrap:wrap;justify-content:flex-end;font-size:13px}
+button{font:inherit;border:1px solid #ded9d3;background:#fff;color:#58432f;padding:10px 14px;min-height:42px;cursor:pointer}
+button:hover{background:#fff6ed}
+button:disabled{opacity:.6}
+.status-panel,.panel{background:#fff;border:1px solid #e7e7eb;border-radius:10px;padding:23px 24px;margin-bottom:20px}
+.status-panel{border-top:3px solid #d39565}
+.status-heading{justify-content:flex-start;margin-bottom:12px}
+.status-heading h2{font-size:15px}
+.badge,.sample-label,.section-count{font-size:11px;white-space:nowrap}
+.badge{display:inline-block;border-radius:99px;padding:3px 10px;background:#f0f1f3;color:#515660;font-weight:650}
+.badge[data-state=ready]{background:#eaf3ed;color:#28633d}
+.badge[data-state=stale]{background:#fff2df;color:#86541c}
+.badge[data-state=restricted]{background:#f2ebf5;color:#725087}
+#status-message{margin-bottom:18px}
+.metadata{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px;margin:0;padding-top:18px;border-top:1px solid #efedf0}
+.metadata dt{font-size:12px;color:#777b83;margin-bottom:5px}
+.metadata dd{margin:0;font-size:13px;overflow-wrap:anywhere}
+.hint{font-size:12px;line-height:1.8;margin:10px 0 0}
+#refresh-status:empty{display:none}
+.section-heading{margin-bottom:10px}
+.section-count{color:#6c7179}
+.sample-label{border:1px solid #e4d5c7;border-radius:5px;color:#816043;padding:4px 8px}
+.table-scroll{overflow:auto;max-width:100%;margin-top:17px}
+table{border-collapse:collapse;width:100%;font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap;text-align:right}
+th{font-size:11px;color:#737981;font-weight:500;background:#faf9f7;border-top:1px solid #eeece9}
+th,td{padding:12px 13px;border-bottom:1px solid #eeece9}
+th:first-child,td:first-child{text-align:left;padding-left:10px}
+tbody tr:hover{background:#fcfbf9}
+td.empty-cell{text-align:left!important;color:#7b7f86;padding:24px 10px;white-space:normal}
+td[data-sign=positive]{color:#28633d}
+td[data-sign=negative]{color:#ad4545}
+.timeline{list-style:none;padding:0;margin:16px 0 0}
+.timeline li{padding:0 0 18px 20px;border-left:1px solid #e5ddd5;position:relative;margin-left:4px}
+.timeline li:last-child{padding-bottom:0}
+.timeline li::before{content:"";position:absolute;width:7px;height:7px;border-radius:50%;background:#bc8b66;left:-4px;top:7px}
+.timeline strong{display:block;font-size:13px;font-weight:600;overflow-wrap:anywhere}
+.timeline p{margin:4px 0 0;color:#747981;font-size:12px;overflow-wrap:anywhere}
+.method summary{cursor:pointer;font-size:13px;font-weight:600;color:#615344}
+.method p{font-size:12px;color:#717780;margin:15px 0 0;line-height:1.9}
+footer{font-size:11px;padding-top:6px}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+@media(max-width:1000px){.metadata{grid-template-columns:repeat(2,minmax(0,1fr))}.page-header{flex-direction:column}.header-actions{justify-content:flex-start}}
+@media(max-width:760px){.status-panel,.panel{padding:18px 15px;margin-bottom:15px}.metadata{gap:16px 10px}.section-heading{align-items:flex-start;flex-wrap:wrap}.back-link{margin-bottom:18px}.table-scroll{margin-top:13px}h2{font-size:16px}.header-actions{width:100%;justify-content:space-between}.hint{font-size:12px}}
+@media print{.header-actions,.back-link{display:none}.panel,.status-panel{break-inside:avoid}.table-scroll{overflow:visible}table{white-space:normal;font-size:10px}}
