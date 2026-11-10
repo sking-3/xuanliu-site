@@ -14,7 +14,7 @@ on:
   schedule:
     # Position checks are frequent; long analytics batches are scheduled separately.
     # GitHub may delay scheduled runs. These schedules do not guarantee delivery.
-    - cron: '27,57 * * * *'
+    - cron: '11,26,41,56 * * * *'
     - cron: '12 */6 * * *'
 
 permissions:

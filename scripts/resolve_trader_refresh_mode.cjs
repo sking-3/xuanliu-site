@@ -3,7 +3,8 @@
 /* Resolve refresh scope. UI-only publications skip every source; other modes retain independent Binance guards. */
 const fs=require('node:fs');
 const MAX_EVENT_BYTES=2*1024*1024;
-const SCHEDULES=Object.freeze({'27,57 * * * *':'positions','12 */6 * * *':'full'});
+// Keep the old expression for scheduled events already waiting in the queue.
+const SCHEDULES=Object.freeze({'11,26,41,56 * * * *':'positions','27,57 * * * *':'positions','12 */6 * * *':'full'});
 const SHA=/^[0-9a-f]{40}$/;
 const plain=x=>!!x&&typeof x==='object'&&!Array.isArray(x);
 const fail=()=>{throw Error('invalid_refresh_event');};
@@ -24,9 +25,10 @@ function resolveMode({eventName,event,checkoutSha}={}) {
       if(event.after!==checkoutSha)fail();
       return 'skip';
     }
+    // A delayed positions-only event retains its scope on the latest checkout.
+    if(event.head_commit.message.includes('[positions-only]'))return 'positions';
     // Other delayed events retain their existing full-refresh behavior.
     if(event.after!==checkoutSha)return 'full';
-    if(event.head_commit.message.includes('[positions-only]'))return 'positions';
     return 'full';
   }
   fail();
