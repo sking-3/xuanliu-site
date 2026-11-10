@@ -174,7 +174,8 @@ function reconcileLegacy(previous,legacy){
   hidden.history={orders:{status:'unavailable',fetchedAt:null,errorCode:null,complete:false,rows:[]},closedPositions:{status:'unavailable',fetchedAt:null,errorCode:null,complete:false,rows:[]}};
   out.portfolios[index]=hidden;
  }else if((value.source.refreshStopped&&!current.source.refreshStopped)||(!current.source.refreshStopped&&stamp(value)>stamp(current)))out.portfolios[index]=value;
- if(value.source.refreshStopped&&globalRefusal(value.source.errorCode))out.source={refreshStopped:true,errorCode:value.source.errorCode};
+ const refusal=[current,value].find(p=>p.source.refreshStopped&&globalRefusal(p.source.errorCode));
+ if(refusal&&!out.source.refreshStopped)out.source={refreshStopped:true,errorCode:refusal.source.errorCode};
  return out;
 }
 async function main(){

@@ -87,5 +87,16 @@ const run=(p,f,extra={})=>collectAll(p,{fetchImpl:f.fetchImpl,sleep:async()=>{},
   const reverse=reconcileLegacy(merged,current.portfolios[0]);
   assert.equal(reverse.portfolios[0].source.status,'restricted');assert.equal(reverse.portfolios[0].snapshot,null);
  });
+ await test('privacy merge retains a preexisting account-level refusal as a batch stop',async()=>{
+  const current=await run(null,fake());
+  current.portfolios[0].source.refreshStopped=true;current.portfolios[0].source.errorCode='http_429';
+  const hidden=JSON.parse(JSON.stringify(current.portfolios[0]));
+  hidden.profile.visibility='restricted';hidden.source.status='restricted';hidden.source.errorCode='restricted';
+  hidden.snapshot=null;hidden.snapshots=[];hidden.observations=[];
+  const merged=reconcileLegacy(current,hidden);
+  assert.equal(merged.source.refreshStopped,true);assert.equal(merged.source.errorCode,'http_429');
+  assert.equal(merged.portfolios[0].source.status,'restricted');
+  const f=fake();await run(merged,f);assert.equal(f.calls.length,0);
+ });
  console.log('PASS '+passed+' Binance multi-portfolio checks');
 })().catch(e=>{console.error(e);process.exitCode=1;});
