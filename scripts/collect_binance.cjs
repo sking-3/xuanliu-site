@@ -67,10 +67,11 @@ async function request(relative,{body,fetchImpl=fetch,timeoutMs=15000}={}){
  }catch(e){if(e.name==='AbortError')throw Error('timeout');throw e;}finally{clearTimeout(timer);}
 }
 function code(e){return /^[a-zA-Z0-9_]{1,80}$/.test(e.message)?e.message:'network_error';}
-async function collect(previous=null,{fetchImpl=fetch,now=()=>Date.now(),sleep=ms=>new Promise(r=>setTimeout(r,ms))}={}){
+async function collect(previous=null,{fetchImpl=fetch,now=()=>Date.now(),sleep=ms=>new Promise(r=>setTimeout(r,ms)),stopBeforeRequest=false}={}){
  const out=checkPrevious(previous),old=checkPrevious(previous),at=()=>new Date(now()).toISOString();
  out.generatedAt=at();
  if(out.source.refreshStopped)return out;
+ if(stopBeforeRequest){out.profile.visibility='unknown';out.source.status='unavailable';out.source.errorCode='previous_run_unverified';out.source.refreshStopped=true;out.snapshot=null;out.snapshots=[];out.observations=[];out.pendingAbsent={};out.history={orders:emptyHistory(),closedPositions:emptyHistory()};return out;}
  out.source.lastAttemptAt=at();
  const get=async(relative,body)=>{const r=await request(relative,{body,fetchImpl});out.evidence[relative.split('?')[0]]={...r.evidence,receivedAt:at()};return r.data;};
  try{
@@ -105,7 +106,7 @@ async function main(){
  const args=process.argv.slice(2);if(args.length>1)throw Error('usage: collect_binance.cjs [output.json]');
  const file=path.resolve(args[0]||'trader/binance/snapshot.json');
  let prev=null;try{const stat=await fs.stat(file);if(stat.size>2*1024*1024)throw Error('state_too_large');prev=JSON.parse(await fs.readFile(file,'utf8'));}catch(e){if(e.code!=='ENOENT')throw e;}
- const out=await collect(prev);await fs.mkdir(path.dirname(file),{recursive:true});
+ const out=await collect(prev,{stopBeforeRequest:process.env.BINANCE_PREVIOUS_RUN_UNVERIFIED==='1'});await fs.mkdir(path.dirname(file),{recursive:true});
  const temp=file+'.tmp';await fs.writeFile(temp,JSON.stringify(out,null,2)+'\n');await fs.rename(temp,file);
  console.log(JSON.stringify({status:out.source.status,refreshStopped:out.source.refreshStopped,errorCode:out.source.errorCode,lastSuccessAt:out.source.lastSuccessAt,positions:out.snapshot?.positions.length??null,orders:out.history.orders.rows.length,closedPositions:out.history.closedPositions.rows.length}));
 }

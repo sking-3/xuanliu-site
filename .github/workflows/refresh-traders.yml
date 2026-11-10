@@ -30,6 +30,7 @@ jobs:
     permissions:
       contents: write
       pages: read
+      actions: read
     outputs:
       published_sha: ${{ steps.snapshot.outputs.sha }}
     steps:
@@ -59,6 +60,7 @@ jobs:
           node --check scripts/collect_binance.cjs
           node --check trader/binance/monitor.js
           node audit/binance-collector-unit.cjs
+          node audit/binance-run-guard-unit.cjs
           node audit/binance-ui-unit.cjs
 
       - name: Test snapshot validation and last-good handling
@@ -113,6 +115,20 @@ jobs:
         run: |
           sleep 60
           node scripts/refresh_trader_positions.cjs --not-before "$BOOKS_COLLECTION_STARTED_AT"
+
+      - name: Verify the preceding Binance run was safely committed
+        id: binance-guard
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          guard=$(node scripts/binance_run_guard.cjs)
+          if [ "$guard" = "halt" ]; then
+            echo 'BINANCE_PREVIOUS_RUN_UNVERIFIED=1' >> "$GITHUB_ENV"
+          elif [ "$guard" != "ok" ]; then
+            exit 1
+          fi
 
       - name: Collect the public Binance lead sample
         # Anonymous read-only sample. Access refusal is persisted; halted sources are not retried.

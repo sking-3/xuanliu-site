@@ -6,6 +6,8 @@ on:
   pull_request:
     paths:
       - 'scripts/collect_binance.cjs'
+      - 'scripts/binance_run_guard.cjs'
+      - '.github/workflows/refresh-traders.yml'
       - 'audit/binance-*.cjs'
       - 'trader/binance/**'
       - 'trader/index.html'
@@ -28,6 +30,7 @@ jobs:
           node --check scripts/collect_binance.cjs
           node --check trader/binance/monitor.js
           node audit/binance-collector-unit.cjs
+          node audit/binance-run-guard-unit.cjs
           node audit/binance-ui-unit.cjs
           node audit/shell-unit.cjs
           node audit/trader-unit.cjs

@@ -1,0 +1,14 @@
+'use strict';
+const assert=require('node:assert/strict');
+const {decision,STEP}=require('../scripts/binance_run_guard.cjs');
+const r=(id,conclusion,step='success')=>({id,status:'completed',conclusion,jobs:[{steps:[{name:STEP,conclusion:step}]}]});
+assert.equal(decision([]).halt,false);
+assert.equal(decision([r(1,'success')]).halt,false);
+for(const c of ['failure','cancelled','timed_out'])assert.equal(decision([r(2,c),r(1,'success')]).halt,true);
+assert.equal(decision([r(3,'failure','skipped'),r(2,'failure')]).halt,true);
+assert.equal(decision([r(3,'failure','skipped'),r(2,'success')]).halt,false);
+assert.equal(decision([r(3,'failure','skipped')]).halt,true);
+assert.equal(decision([],{truncated:true}).halt,true);
+assert.equal(decision([r(3,'success')],{attempt:2}).halt,true);
+assert.equal(decision([{id:4,status:'in_progress',conclusion:null,jobs:[{steps:[{name:STEP,conclusion:null}]}]}]).halt,true);
+console.log('PASS Binance prior-run guard: first run, committed state, failure, cancelled, skipped, truncation and retry');
