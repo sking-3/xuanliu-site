@@ -309,4 +309,36 @@ test('reference identity always carries no trading feed or synthetic evidence ti
  const result=api.detail(row.binance);for(const key of ['checkedAt','observedAt','lastAttemptAt','lastSuccessAt','currentPositionCount','lastPositionCount'])assert.equal(result[key],null);
  assert.equal(result.visibility,'unknown');assert.deepEqual(result.positions,[]);assert.deepEqual(result.orders.rows,[]);assert.equal(result.orders.status,'unavailable');
 });
+function performancePart(at=stamp,metrics={roi:12.34,pnl:1234.56,mdd:-7.89,winRate:65.43}) {return {status:'ready',lastAttemptAt:at,lastSuccessAt:at,sourceAsOf:null,sourcePeriod:'30D',currency:'USDT',...metrics,errorCode:null,evidence:{sha256:'a'.repeat(64),bytes:120,httpStatus:200,code:'000000',receivedAt:at}};}
+function withPerformance(feed=sampleFeed(),part=performancePart()) {feed.performance={schemaVersion:1,byPeriod:{'30D':part}};return feed;}
+test('source performance preserves percent units, decimal PnL, drawdown sign and its evidence',()=>{
+ const feed=withPerformance(),result=api.performance(feed,'30D',{now:NOW});assert.equal(result.status,'ready');assert.equal(result.roi,12.34);assert.equal(result.pnl,1234.56);assert.equal(result.mdd,-7.89);assert.equal(result.winRate,65.43);assert.equal(result.sourceAsOf,null);assert.equal(result.currency,'USDT');assert.deepEqual(result.evidence,feed.performance.byPeriod['30D'].evidence);
+});
+test('performance supports exactly 30D and never borrows values for another period or reference',()=>{
+ const feed=withPerformance();for(const period of ['7D','90D','180D','365D','ALL']){const result=api.performance(feed,period,{now:NOW});assert.equal(result.periodSupported,false);for(const key of ['roi','pnl','mdd','winRate'])assert.equal(result[key],null);}
+ assert.equal(api.performance(null,'30D').roi,null);assert.equal(api.performance(sampleFeed(),'30D').roi,null);
+});
+test('performance expires independently at the 60-minute boundary without refreshing positions',()=>{
+ const feed=withPerformance();for(const [offset,status]of [[3599999,'ready'],[3600000,'ready'],[3600001,'stale']]){assert.equal(api.performance(feed,'30D',{now:NOW+offset}).status,status);assert.equal(api.performance(feed,'30D',{now:NOW+offset}).roi,12.34);assert.equal(api.detail(feed,{now:NOW+offset}).currentPositionCount,null);}
+ feed.snapshot.observedAt=new Date(NOW-api.MAX_AGE-1).toISOString();assert.equal(api.performance(feed,'30D',{now:NOW}).status,'ready');assert.equal(api.detail(feed,{now:NOW}).currentPositionCount,null);
+});
+test('performance missing metric fields and explicit null remain null, never zero',()=>{
+ const feed=withPerformance(sampleFeed(),performancePart(stamp,{roi:null,pnl:null}));const result=api.performance(feed,'30D',{now:NOW});for(const key of ['roi','pnl','mdd','winRate'])assert.equal(result[key],null);
+});
+test('invalid public performance types, evidence, period and currency reject the aggregate',()=>{
+ for(const mutate of [p=>p.roi='12.3',p=>p.pnl=Infinity,p=>p.mdd={},p=>p.winRate=false,p=>p.winRate=-0.01,p=>p.winRate=100.01,p=>p.sourcePeriod='7D',p=>p.currency='USD',p=>p.evidence.sha256='bad',p=>p.evidence.bytes=0,p=>p.lastSuccessAt=null,p=>p.sourceAsOf='not-a-time',p=>p.evidence.receivedAt=new Date(NOW-1).toISOString(),p=>p.status='unavailable']){
+ const feed=withPerformance();mutate(feed.performance.byPeriod['30D']);const data=sampleCollection();data.portfolios=[feed];assert.throws(()=>api.parseCollection(data),/BINANCE_PERFORMANCE_SCHEMA/);assert.equal(api.performance(feed,'30D',{now:NOW}).roi,null);}
+ const feed=withPerformance();feed.performance.byPeriod['7D']=performancePart();const data=sampleCollection();data.portfolios=[feed];assert.throws(()=>api.parseCollection(data),/BINANCE_PERFORMANCE_SCHEMA/);
+});
+test('privacy hides all performance and permits safety downgrade despite malformed metric payload',()=>{
+ for(const visibility of ['restricted','unknown']){const feed=withPerformance();feed.profile.visibility=visibility;feed.performance.byPeriod['30D'].roi='unsafe';const data=sampleCollection();data.portfolios=[feed];assert.doesNotThrow(()=>api.parseCollection(data));const result=api.performance(feed,'30D',{now:NOW});for(const key of ['roi','pnl','mdd','winRate','lastSuccessAt','evidence'])assert.equal(result[key],null);}
+});
+test('read failure, per-account stop and batch stop retain performance only as stale',()=>{
+ const feed=withPerformance();for(const options of [{requestFailed:true},{batchStopped:true,batchErrorCode:'http_429'}]){const result=api.performance(feed,'30D',{now:NOW,...options});assert.equal(result.status,'stale');assert.equal(result.roi,12.34);assert.equal(result.lastSuccessAt,stamp);}
+ feed.source.refreshStopped=true;assert.equal(api.performance(feed,'30D',{now:NOW}).status,'stale');
+});
+test('positions refresh cannot refresh older performance or replace its success time',()=>{
+ const feed=withPerformance(sampleFeed(),performancePart(new Date(NOW-3600001).toISOString()));const result=api.performance(feed,'30D',{now:NOW});assert.equal(result.status,'stale');assert.equal(result.lastSuccessAt,new Date(NOW-3600001).toISOString());assert.equal(api.detail(feed,{now:NOW}).status,'ready');
+});
+test('win rate includes zero and 100 but does not cap ROI or source drawdown',()=>{for(const winRate of [0,100]){const feed=withPerformance(sampleFeed(),performancePart(stamp,{roi:1250,pnl:-10000,mdd:-150,winRate}));const result=api.performance(feed,'30D',{now:NOW});assert.equal(result.winRate,winRate);assert.equal(result.roi,1250);assert.equal(result.mdd,-150);}});
 console.log('Binance plaza adapter: ' + passed + ' tests passed');
