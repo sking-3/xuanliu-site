@@ -304,6 +304,25 @@ function qualifiedPosition(r,now=Date.now()) {
   return Number.isFinite(checked)&&Number.isFinite(source)&&now-checked<=3600000&&checked-now<=5000&&checked-source<=120000&&source-checked<=5000&&checked>(state.positionExclusions[r.accountId]??-Infinity);
 }
 function eligiblePublicRows() {return state.publicRows.filter(r=>qualifiedPosition(r));}
+function positionSummary(now=Date.now()) {
+  const summary={eligible:0,expired:0,excluded:0,pending:0,batchExpired:false};
+  for(const r of state.publicRows) {
+    if(qualifiedPosition(r,now)){summary.eligible++;continue;}
+    const checked=Date.parse(r.positionCheck?.checkedAt||'');
+    const excludedAt=state.positionExclusions[r.accountId]??-Infinity;
+    if(checked<=excludedAt){if(now-excludedAt>3600000)summary.expired++;else summary.excluded++;}
+    else if(Number.isFinite(checked)&&now-checked>3600000)summary.expired++;
+    else summary.pending++;
+  }
+  const v=state.source?.positionVerification;
+  summary.batchExpired=!!v&&!state.publicRows.length&&now-Date.parse(v.completedAt)>3600000;
+  return summary;
+}
+function positionStatus(summary=positionSummary()) {
+  const v=state.source?.positionVerification;
+  if(sourceIsStale()||summary.expired||summary.batchExpired||summary.pending||(!summary.eligible&&(v?.failedAccounts||v?.unattemptedAccounts)))return 'stale';
+  return summary.eligible?'ready':'empty';
+}
 function reevaluatePositions() {mergeRows();render();renderSource();}
 function observeEmptyPositions(r,part) {
   if(!isPublicAccount(r)||part?.status!=='ready'||!Array.isArray(part.rows)||part.rows.length!==0)return;
@@ -318,16 +337,18 @@ function compactAccount(r) {return isPublicAccount(r)?r.accountId.slice(0,8)+'�
 function displayPeriod(p,w) {return w?.derived?parseInt(p,10)+'天':({week:'周度',month:'月度',allTime:'来源累计',perpWeek:'周度',perpMonth:'月度',perpAllTime:'来源累计'})[w?.sourcePeriod]||periodLabel(p);}
 function timeLabel(iso) {return new Date(iso).toLocaleString('zh-CN',{hour12:false});}
 function renderSource() {
-  const s=state.source,stale=sourceIsStale();
+  const s=state.source,summary=positionSummary();
   $('source-summary').hidden=!s;
   if(s) {
     $('source-name').textContent=s.label;
-    const v=s.positionVerification,eligible=eligiblePublicRows().length;
-    $('source-selection').textContent=v?`${eligible} 个可看持仓 · ${v.candidateAccounts} 个候选 · ${v.emptyAccounts} 个空仓${v.failedAccounts?' · '+v.failedAccounts+' 个读取失败':''}${v.unattemptedAccounts?' · '+v.unattemptedAccounts+' 个待核验':''}`:`${s.selection} · 持仓待核验`;
+    const v=s.positionVerification;
+    $('source-selection').textContent=v?`当前有效：${summary.eligible} 个可看持仓${summary.expired?' · '+summary.expired+' 个持仓核验已过期':''}${summary.excluded?' · '+summary.excluded+' 个已确认空仓并移出名单':''}`:`${s.selection} · 持仓待核验`;
+    $('source-verification').hidden=!v;
+    $('source-verification').textContent=v?`上次核验：${v.candidateAccounts} 个候选 · ${v.holdingAccounts} 个持仓 · ${v.emptyAccounts} 个空仓 · ${v.failedAccounts} 个读取失败 · ${v.unattemptedAccounts} 个待核验 · 完成于 ${timeLabel(v.completedAt)}`:'';
     $('source-timing').textContent=`${s.snapshotAt?'快照文件更新 '+timeLabel(s.snapshotAt):'快照文件时间未提供'} · 采集于 ${timeLabel(s.fetchedAt)}`;
     $('source-cadence').textContent='持仓核验有效期 60 分钟';
   }
-  $('status').textContent=statusText();$('status').setAttribute('data-state',stale?'stale':eligiblePublicRows().length?'ready':'empty');
+  $('status').textContent=statusText(summary);$('status').setAttribute('data-state',positionStatus(summary));
   $('source-universe').textContent=s?.positionVerification?s.positionVerification.candidateAccounts.toLocaleString('zh-CN'):'—';
   if(state.detail&&$('detail').open)renderDetailStatus();
 }
@@ -504,7 +525,7 @@ function render() {
   $('leaders').replaceChildren();for(const r of visibleRows)$('leaders').append(card(r,p));
   if(!rows.length) {
     if(source==='local')empty($('leaders'),available.length?'没有符合条件的资料':'暂无本机资料',available.length?'调整筛选条件，查看其他记录。':'已保存的个人资料仅在这里显示。');
-    else if(!available.length&&state.source)empty($('leaders'),'暂无有效持仓账户',state.source.positionVerification?'当前没有仍在 60 分钟核验有效期内的持仓账户；新一轮核验后自动更新。':'现有快照尚未核验持仓，核验完成后显示账户。');
+    else if(!available.length&&state.source)empty($('leaders'),'暂无有效持仓账户',statusText());
     else empty($('leaders'),available.length?'没有符合条件的账户':'暂无持仓账户',available.length?'调整筛选条件，查看其他账户。':'取得有效持仓数据后显示账户。');
   }
   $('featured').replaceChildren();const featured=available.filter(r=>r.featured);$('featured-section').hidden=!featured.length;
@@ -514,10 +535,21 @@ function render() {
   $('page').textContent=rows.length?`${state.page} / ${pages}`:'0 / 0';$('prev').disabled=state.loading||!rows.length||state.page===1;$('next').disabled=state.loading||!rows.length||state.page>=pages;
   startVisibleAnalytics(visibleRows);
 }
-function statusText() {
-  if(state.source&&state.publicRows.some(isPublicAccount)&&!eligiblePublicRows().length)return state.source.positionVerification?'持仓核验已过期或账户已空仓，等待新一轮核验。':'持仓尚未核验，公开账户暂不显示。';
-  if(state.source?.positionVerification&&!state.publicRows.length)return '本次核验没有可展示的持仓账户。';
-  if(state.publicRows.length&&sourceIsStale())return state.lastReadFailed?'更新失败 · 仍显示上次验证的快照':'快照待更新 · 以下为最近一次成功采集的数据';
+function statusText(summary=positionSummary()) {
+  const v=state.source?.positionVerification,expired=summary.expired||summary.batchExpired;
+  const retained=expired&&!summary.eligible?'上次持仓核验已过期，当前仓位未知。':summary.eligible?'仍显示有效期内的上次核验结果。':'当前仓位未知。';
+  if(state.lastReadFailed)return '快照读取失败 · '+retained;
+  if(state.source&&state.source.status!=='ok')return '采集更新失败 · '+retained;
+  if(expired&&!summary.eligible)return '上次持仓核验已过期，当前仓位未知。';
+  if(summary.expired)return `部分持仓核验已过期，当前可看 ${summary.eligible} 个持仓账户。`;
+  if(state.source&&!summary.eligible) {
+    if(!v||summary.pending)return '持仓尚未核验，公开账户暂不显示。';
+    if(v.failedAccounts)return `上次持仓核验有 ${v.failedAccounts} 个账户读取失败；当前没有可展示的持仓账户。`;
+    if(v.unattemptedAccounts)return `还有 ${v.unattemptedAccounts} 个账户待核验；当前没有可展示的持仓账户。`;
+    if(summary.excluded)return '最近读取确认空仓的账户已移出名单，等待新一轮核验。';
+    return `本次核验没有可展示的持仓账户（已核验 ${v.emptyAccounts} 个空仓）。`;
+  }
+  if(state.publicRows.length&&sourceIsStale())return '快照待更新 · 以下为最近一次成功采集的数据';
   if(state.status==='error')return state.localRows.length?'公开资料暂不可用；我的资料仍可查看。':'公开资料暂不可用。';
   if(state.publicRows.length)return state.source?'已接入真实公开数据':`公开资料 ${state.publicRows.length} 个`;
   return state.localRows.length?'我的资料保存在当前浏览器。':'公开资料 0 个';
@@ -526,7 +558,7 @@ function updateView(message) { mergeRows();choosePeriod();render();renderSource(
 function renderDetailStatus() {
   const r=state.detail;let message='';
   if(r&&isPublicAccount(r)) {
-    if((state.positionExclusions[r.accountId]??-Infinity)>=Date.parse(r.positionCheck?.checkedAt||'1970-01-01T00:00:00Z'))message='当前已空仓，已从名单移除。';
+    if((state.positionExclusions[r.accountId]??-Infinity)>=Date.parse(r.positionCheck?.checkedAt||'1970-01-01T00:00:00Z'))message=Date.now()-state.positionExclusions[r.accountId]>3600000?'上次空仓核验已过期，当前仓位未知；仍从名单移除，等待新一轮核验。':'当前已空仓，已从名单移除。';
     else if(!qualifiedPosition(r))message='持仓核验已过期或尚未完成，已从名单移除；历史表现仍可查看。';
     else if(!state.publicRows.some(item=>item.id===r.id))message='该账户已不在本次收录范围，详情保留上次验证的记录。';
     else if(sourceIsStale())message='此处显示上次验证的快照，最新数据暂未取得。';
