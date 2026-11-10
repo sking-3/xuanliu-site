@@ -79,15 +79,23 @@ async function run(source, html) {
     assert.match(api.changeText({ ...item, kind: 'absent', before: '1', after: '0' }), /观察到归零/);
     assert.doesNotMatch(api.changeText({ ...item, kind: 'absent' }), /已平仓|确认成交/);
   });
-  check('history ages independently and order sample retains only seven-day window', () => {
+  check('history ages independently and preserves earlier orders updated inside the source query window', () => {
     const data = base(); const order = data.history.orders.rows[0];
     data.history.orders.rows.push({ ...order, orderTime: now - 8 * 86400000 });
     let view = api.viewModel(data, now, false);
-    assert.equal(view.orders.rows.length, 1);
+    assert.equal(view.orders.rows.length, 2);
     view = api.viewModel(data, now + api.MAX_AGE, false);
     assert.equal(view.orders.state, 'stale'); assert.equal(view.closed.state, 'stale');
     data.history.orders.rows[0].executedQty = '';
     assert.equal(api.viewModel(data, now, false).orders.state, 'unavailable');
+  });
+  check('real Fariba sample retains all three source rows including the older limit order', () => {
+    const data=base();data.history.orders.rows=[{"symbol":"FILUSDT","side":"BUY","positionSide":"LONG","type":"LIMIT","executedQty":"200","avgPrice":"0.75","totalPnl":"0","orderTime":1793307239021,"orderUpdateTime":1794174665389},{"symbol":"BTCUSDT","side":"BUY","positionSide":"SHORT","type":"MARKET","executedQty":"0.015","avgPrice":"74956.3","totalPnl":"1.6439","orderTime":1793977518887,"orderUpdateTime":1793977518887},{"symbol":"FILUSDT","side":"BUY","positionSide":"LONG","type":"LIMIT","executedQty":"93.5","avgPrice":"0.8013","totalPnl":"0","orderTime":1793893748115,"orderUpdateTime":1793893775588}];
+    data.history.orders.fetchedAt="2026-11-10T01:07:37.773Z";
+    const view=api.viewModel(data,Date.parse("2026-11-10T01:07:37.773Z"),false);
+    assert.equal(view.orders.rows.length,3);
+    assert.equal(view.orders.rows[0].orderTime,1793307239021);
+    assert.equal(view.orders.rows[0].orderUpdateTime,1794174665389);
   });
   check('external or executable source links are not accepted', () => {
     for (const link of ['javascript:alert(1)', 'https://evil.example/', 'https://www.binance.com.evil.example/en/copy-trading/lead-details/' + firstId, 'https://u:p@www.binance.com/en/copy-trading/lead-details/' + firstId]) {

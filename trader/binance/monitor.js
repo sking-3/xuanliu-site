@@ -91,8 +91,7 @@
     }
     if (part.status === 'unavailable') return { state: 'unavailable', rows: [], fetchedAt: part.fetchedAt, count: 0 };
     const state = part.status === 'stale' || requestFailed || old(part.fetchedAt, now) ? 'stale' : 'ready';
-    const rows = orders ? part.rows.filter(r => r.orderTime >= Date.parse(part.fetchedAt) - 7 * DAY &&
-      r.orderTime <= Date.parse(part.fetchedAt) + 300000).slice().sort((a, b) => b.orderTime - a.orderTime) :
+    const rows = orders ? part.rows.slice().sort((a, b) => b.orderUpdateTime - a.orderUpdateTime || b.orderTime - a.orderTime) :
       part.rows.slice().sort((a, b) => (b.closed || b.opened) - (a.closed || a.opened));
     return { state, fetchedAt: part.fetchedAt, rows: rows.slice(0, LIMIT), count: rows.length };
   }
@@ -187,7 +186,7 @@
     function sampleNote(part, orders) {
       if (part.state === 'unavailable') return '样本不可用或未核验；不能据此判断没有交易。';
       return (part.state === 'stale' ? '样本过期 · ' : '样本采集于 ') + time(part.fetchedAt) + ' · ' +
-        (orders ? '窗口截至采样时刻，向前 7 天 · ' : '') + '展示 ' + part.rows.length + ' / ' + part.count +
+        (orders ? '按近 7 天窗口查询，含较早下单但近期更新的记录 · ' : '') + '展示 ' + part.rows.length + ' / ' + part.count +
         ' 条本地样本。来源历史未核实完整，不是完整交割单。';
     }
     set('orders-note', sampleNote(view.orders, true));
