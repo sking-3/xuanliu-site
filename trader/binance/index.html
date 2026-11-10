@@ -6,91 +6,16 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'">
   <meta name="referrer" content="no-referrer">
   <meta name="robots" content="noindex,nofollow">
-  <title>Books · 币安带单员监控</title>
-  <link rel="stylesheet" href="../../books-ui.css">
-  <link rel="stylesheet" href="./monitor.css?v=multi-20261110-2">
-  <script defer src="./monitor.js?v=multi-20261110-2"></script>
+  <title>Books · 带单员广场</title>
+  <link rel="stylesheet" href="../../books-ui.css?v=78760a2a">
+  <script defer src="./redirect.js?v=unified-20261110-1"></script>
 </head>
-<body class="books-shell binance-page">
-  <a class="skip" href="#main">跳至内容</a>
-  <aside class="books-sidebar" aria-label="研究导航">
-    <a class="books-brand" href="../../index.html">Books<span>RESEARCH STUDIO</span></a>
-    <nav class="books-nav" aria-label="工作区">
-      <a href="../../index.html">市场总览</a>
-      <a href="../index.html" aria-current="location">带单员广场</a>
-      <a href="../../research.html">公司研究</a>
-      <a href="../../tools.html">研究工具</a>
-    </nav>
-  </aside>
-  <main id="main">
-    <a class="back-link" href="../index.html">← 返回带单员广场</a>
-    <header class="page-header">
-      <div>
-        <p class="eyebrow">BINANCE · PUBLIC PORTFOLIO</p>
-        <h1>币安带单员监控</h1>
-        <p class="intro">公开仓位与交易记录观察</p>
-      </div>
-      <div class="header-actions">
-        <button id="refresh" type="button">刷新本站快照</button>
-      </div>
-    </header>
-    <section class="portfolio-picker" aria-labelledby="picker-title">
-      <h2 id="picker-title">选择账号</h2>
-      <p id="selection-note" class="hint" role="status" aria-live="polite">正在读取监控名单…</p>
-      <nav id="portfolio-nav" aria-label="监控账号"></nav>
-    </section>
-    <div class="selected-heading">
-      <div><p class="eyebrow">SELECTED PORTFOLIO</p><h2 id="trader-name">请选择账号</h2></div>
-      <a id="source-link" target="_blank" rel="noopener noreferrer" hidden>币安来源 ↗</a>
-    </div>
-    <p class="identity">币安合约带单组合 · <span id="portfolio-id">—</span></p>
-    <section class="status-panel" aria-labelledby="status-title">
-      <div class="status-heading"><h2 id="status-title">数据状态</h2><span id="status-badge" class="badge" data-state="unavailable">等待读取</span></div>
-      <p id="status-message" role="status" aria-live="polite">正在读取本站快照…</p>
-      <dl class="metadata">
-        <div><dt>仓位可见性</dt><dd id="visibility">待核验</dd></div>
-        <div><dt>组合状态</dt><dd id="profile-status">—</dd></div>
-        <div><dt>最近成功采集</dt><dd id="last-success">—</dd></div>
-        <div><dt>最近尝试采集</dt><dd id="last-attempt">—</dd></div>
-      </dl>
-      <p id="refresh-status" class="hint" role="status" aria-live="polite"></p>
-      <p class="hint">页面可见时每 5 分钟检查本站快照；来源数据超过 30 分钟自动标旧。时间按浏览器本地时区显示。</p>
-    </section>
-    <section class="panel" aria-labelledby="positions-title">
-      <div class="section-heading"><div><p class="eyebrow">POSITION SNAPSHOT</p><h2 id="positions-title">仓位快照</h2></div><span id="positions-count" class="section-count">—</span></div>
-      <p id="positions-note" class="hint">尚无已核验快照，不能判断是否空仓。</p>
-      <div class="table-scroll" tabindex="0" role="region" aria-label="仓位快照表，可横向滚动">
-        <table><caption class="sr-only">公开仓位快照</caption><thead><tr><th scope="col">合约</th><th scope="col">方向</th><th scope="col">数量</th><th scope="col">开仓均价</th><th scope="col">标记价格</th><th scope="col">杠杆</th><th scope="col">未实现盈亏</th><th scope="col">抵押币种</th></tr></thead><tbody id="positions-body"></tbody></table>
-      </div>
-    </section>
-    <section class="panel" aria-labelledby="observations-title">
-      <div class="section-heading"><div><p class="eyebrow">OBSERVED CHANGES</p><h2 id="observations-title">仓位变化观察</h2></div></div>
-      <p class="hint">比较两次快照的数量变化。首次记录仅作基线；“观察到归零”不等于已核实平仓成交。</p>
-      <p id="observations-note" class="hint">尚无观察记录。</p>
-      <ol id="observations" class="timeline"></ol>
-    </section>
-    <section class="panel" aria-labelledby="orders-title">
-      <div class="section-heading"><div><p class="eyebrow">ORDER SAMPLES</p><h2 id="orders-title">近 7 天查询返回的订单样本</h2></div><span class="sample-label">非完整交割单</span></div>
-      <p id="orders-note" class="hint">尚无可用样本。</p>
-      <div class="table-scroll" tabindex="0" role="region" aria-label="订单样本表，可横向滚动">
-        <table><caption class="sr-only">近七天查询窗口返回的订单样本</caption><thead><tr><th scope="col">订单时间</th><th scope="col">合约</th><th scope="col">买卖 / 仓位</th><th scope="col">类型</th><th scope="col">成交数量</th><th scope="col">成交均价</th><th scope="col">来源盈亏</th><th scope="col">更新时间</th></tr></thead><tbody id="orders-body"></tbody></table>
-      </div>
-    </section>
-    <section class="panel" aria-labelledby="history-title">
-      <div class="section-heading"><div><p class="eyebrow">POSITION HISTORY</p><h2 id="history-title">历史仓位样本</h2></div><span class="sample-label">非完整交割单</span></div>
-      <p id="history-note" class="hint">尚无可用样本。</p>
-      <div class="table-scroll" tabindex="0" role="region" aria-label="历史仓位样本表，可横向滚动">
-        <table><caption class="sr-only">来源返回的历史仓位样本</caption><thead><tr><th scope="col">合约 / 方向</th><th scope="col">开仓时间</th><th scope="col">结束时间</th><th scope="col">开仓均价</th><th scope="col">平仓均价</th><th scope="col">平仓数量</th><th scope="col">来源盈亏</th><th scope="col">状态 / 杠杆</th></tr></thead><tbody id="history-body"></tbody></table>
-      </div>
-    </section>
-    <details class="panel method">
-      <summary>数据范围与阅读说明</summary>
-      <p>页面按组合 ID 展示币安公开资料。仓位是采集时刻的状态，不保证此刻仍然持有；隐藏、读取失败和缺失数据都不代表空仓。</p>
-      <p>订单与历史仓位仅为来源返回的样本，分页、保留窗口和公开范围可能限制完整性。查询窗口可能包含较早下单、近期更新的订单；订单记录不等同于逐笔成交，无法仅靠时间戳确认唯一订单；此处不推断手续费、资金费或完整账户收益。</p>
-      <p>页面只读取本站快照，不向币安发送请求。没有可用数据时保留缺失状态，不使用示例记录。上次成功快照即使保留，也会显示其原始时间与过期状态。</p>
-    </details>
-    <noscript><p class="panel">启用 JavaScript 后可读取本站快照；当前页面不能判断仓位状态。</p></noscript>
-    <footer>Books · 独立研究 · 仅作资料展示，不提供跟单或交易功能。</footer>
+<body>
+  <main>
+    <h1>币安交易员已并入带单员广场</h1>
+    <p id="redirect-note">正在打开统一的账户列表…</p>
+    <p><a href="../?exchange=Binance">打开带单员广场中的币安账户</a></p>
+    <noscript><p>点击上方链接查看已接入的币安交易员。</p></noscript>
   </main>
 </body>
 </html>
