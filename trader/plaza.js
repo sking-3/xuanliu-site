@@ -6,8 +6,8 @@ const exchanges = ['Binance','OKX','Hyperliquid','Gate','Bitget','Bybit','Polyma
 const currencies = ['USDT','USD','USDC','BTC','ETH'];
 const controls = ['period','exchange','source','sort','currency'];
 const storageKey = 'books.trader.records.v1', maxBytes = 2097152;
-const publicCacheKeys={feed:'books.trader.public.feed.v1',win:'books.trader.public.analytics.v1'},publicSnapshots={feed:null,win:null};
-const state = {status:'unavailable', publicRows:[], localRows:[], rows:[], page:1, detail:null, window:'30D', tab:'analysis', loading:false, explicitPeriod:false, editor:null, storageReadError:false, revealId:null, source:null, lastReadFailed:false, feedText:null, liveClient:null, liveUser:null, liveData:null, liveView:null, liveVersion:0, positionExclusions:Object.create(null), analytics:Object.create(null), analyticsClient:null, analyticsViews:[], analyticsTargets:[], winCache:Object.create(null), winCacheLoading:false, winCacheReadFailed:false, winCacheGeneratedAt:null, portfolioCache:Object.create(null), portfolioCacheLoading:false, portfolioCacheAttempted:false, portfolioCacheReadFailed:false, portfolioCacheGeneratedAt:null, performanceOrderPending:false, chartSeq:0};
+const publicCacheKeys={feed:'books.trader.public.feed.v1',win:'books.trader.public.analytics.v1',binance:'books.trader.public.binance.v1'},publicSnapshots={feed:null,win:null,binance:null};
+const state = {status:'unavailable', publicRows:[], binanceRows:[], binanceCollection:null, binanceReadFailed:false, binanceCheckedAt:null, binanceText:null, localRows:[], rows:[], page:1, detail:null, window:'30D', tab:'analysis', loading:false, explicitPeriod:false, editor:null, storageReadError:false, revealId:null, source:null, lastReadFailed:false, feedText:null, liveClient:null, liveUser:null, liveData:null, liveView:null, liveVersion:0, positionExclusions:Object.create(null), analytics:Object.create(null), analyticsClient:null, analyticsViews:[], cardControls:[], analyticsTargets:[], winCache:Object.create(null), winCacheLoading:false, winCacheReadFailed:false, winCacheGeneratedAt:null, portfolioCache:Object.create(null), portfolioCacheLoading:false, portfolioCacheAttempted:false, portfolioCacheReadFailed:false, portfolioCacheGeneratedAt:null, performanceOrderPending:false, chartSeq:0};
 const fail = () => { throw Error('数据格式未通过校验，未展示此批记录。'); };
 // Only validated same-origin public snapshots enter these keys. Original source
 // timestamps, failures and position exclusions survive a reload; cache age never
@@ -21,6 +21,7 @@ function savePublicSnapshot(kind,payload=publicSnapshots[kind],readFailed=false)
       const addresses=new Set(payload.traders.map(r=>r.accountId));
       envelope.positionExclusions=Object.fromEntries(Object.entries(state.positionExclusions).filter(([address])=>addresses.has(address)));
     }
+    if(kind==='binance')envelope.checkedAt=state.binanceCheckedAt;
     const serialized=JSON.stringify(envelope);
     if(new Blob([serialized]).size>maxBytes)return;
     localStorage.setItem(publicCacheKeys[kind],serialized);
@@ -51,7 +52,8 @@ function hydratePublicSnapshots() {
     const p=validateWinCache(win.payload);
     state.winCache=p.accounts;state.winCacheGeneratedAt=p.generatedAt;state.winCacheReadFailed=win.readFailed;publicSnapshots.win=win.payload;
   }catch(_){}
-  mergeRows();return hydrated;
+  if(typeof BinanceData!=='undefined'){const cached=readPublicSnapshot('binance');if(cached)try{const collection=BinanceData.parseCollection(cached.payload);installBinance(collection,cached.readFailed,cached.checkedAt||null);publicSnapshots.binance=collection;hydrated=true;}catch(_){}}
+  ensureBinanceIdentities();mergeRows();return hydrated;
 }
 function sharedRequest(key,operation) {
   if(state[key])return state[key];
@@ -241,8 +243,8 @@ function sortValue(r,period,sort) {
   return sort==='winRate'?win(w):w?.[sort];
 }
 function renderPreservingCardFocus() {
-  const focused=state.analyticsViews.find(v=>v.kind==='card'&&(v.detailButton===document.activeElement||v.sourceLink===document.activeElement)),kind=focused?.detailButton===document.activeElement?'detailButton':'sourceLink';
-  render();if(focused){const replacement=state.analyticsViews.find(v=>v.kind==='card'&&v.r.id===focused.r.id);(replacement?.[kind]||$('sort')).focus();}
+  const focused=state.cardControls.find(v=>v.detailButton===document.activeElement||v.sourceLink===document.activeElement),kind=focused?.detailButton===document.activeElement?'detailButton':'sourceLink';
+  render();if(focused){const replacement=state.cardControls.find(v=>v.r.id===focused.r.id);(replacement?.[kind]||$('sort')).focus();}
 }
 function isPortfolioSort() {return $('sort').value==='mdd'||$('sort').value==='pnl'&&derivedPeriods.includes($('period').value);}
 function schedulePerformanceOrder() {
@@ -335,10 +337,10 @@ async function readWinCache() {
     // When the feed wins the network race, apply the selected order as soon as
     // aggregate values arrive. Metadata-only refreshes preserve card nodes/focus.
     if(orderChanged&&!state.loading&&$('sort').value==='winRate'&&$('source').value!=='local') {
-      const focused=state.analyticsViews.find(v=>v.kind==='card'&&(v.detailButton===document.activeElement||v.sourceLink===document.activeElement));
+      const focused=state.cardControls.find(v=>v.detailButton===document.activeElement||v.sourceLink===document.activeElement);
       const focusKind=focused?.detailButton===document.activeElement?'detailButton':'sourceLink';
       render();
-      if(focused){const replacement=state.analyticsViews.find(v=>v.kind==='card'&&v.r.id===focused.r.id);(replacement?.[focusKind]||$('sort')).focus();}
+      if(focused){const replacement=state.cardControls.find(v=>v.r.id===focused.r.id);(replacement?.[focusKind]||$('sort')).focus();}
     }
     for(const address of new Set(state.analyticsViews.map(v=>v.r.accountId)))refreshAnalyticsViews(address);
   }
@@ -357,10 +359,106 @@ function qualifiedPosition(r,now=Date.now()) {
   return Number.isFinite(checked)&&Number.isFinite(source)&&now-checked<=3600000&&checked-now<=5000&&checked-source<=120000&&source-checked<=5000&&checked>(state.positionExclusions[r.accountId]??-Infinity);
 }
 function eligiblePublicRows() {return state.publicRows.filter(r=>qualifiedPosition(r));}
+function retainedPublicRows() {return state.publicRows.filter(r=>!isPublicAccount(r)||state.source?.positionVerification&&r.positionCheck);}
+function isBinanceTrader(r) {return r?.sourceKind==='copy_trade'&&!r._local;}
+function binanceView(r) {return BinanceData.detail(r.binance,{requestFailed:state.binanceReadFailed,checkedAt:state.binanceCheckedAt,batchStopped:r.binanceBatchSource?.refreshStopped===true,batchErrorCode:r.binanceBatchSource?.errorCode||null});}
+function currentHolding(r,now=Date.now()) {
+  if(r._local)return false;
+  if(isBinanceTrader(r))return binanceView(r).currentPositionCount>0;
+  return isPublicAccount(r)&&!state.lastReadFailed&&state.source?.status==='ok'&&qualifiedPosition(r,now);
+}
+function retainedStatus(r) {
+  const at=r.positionCheck?.checkedAt,excluded=state.positionExclusions[r.accountId]??-Infinity;
+  if(excluded>=Date.parse(at||''))return Date.now()-excluded<=3600000?`最近读取确认空仓 · ${timeLabel(new Date(excluded).toISOString())} · 保留历史资料`:`上次空仓核验 ${timeLabel(new Date(excluded).toISOString())} · 当前仓位未知`;
+  if(!at)return '持仓尚未核验 · 当前仓位未知';
+  return `上次持仓核验 ${timeLabel(at)} · ${state.lastReadFailed?'快照读取失败，当前仓位未知':state.source?.status!=='ok'?'采集更新失败，当前仓位未知':qualifiedPosition(r)?'核验仍在有效期内':'核验已过期，当前仓位未知'}`;
+}
+function selectPlatform(exchange) {
+  if(!['all','Hyperliquid','Binance'].includes(exchange))return;
+  $('exchange').value=exchange;$('source').value='all';$('currency').value='all';$('search').value='';state.page=1;render();saveURL();
+}
+function mixPlatforms(rows) {
+  const binance=rows.filter(isBinanceTrader),others=rows.filter(r=>!isBinanceTrader(r)),mixed=[];
+  while(binance.length)mixed.push(binance.shift(),...others.splice(0,3));
+  return [...mixed,...others];
+}
+function ensureBinanceIdentities() {
+  if(typeof BinanceData==='undefined'||state.binanceRows.length)return;
+  // Local identity wrapper only: its creation time is never saved or shown as source data.
+  state.binanceRows=BinanceData.toTraders({schemaVersion:1,generatedAt:new Date().toISOString(),source:{refreshStopped:false,errorCode:null},portfolios:[]},{requestFailed:true});
+}
+function installBinance(collection,requestFailed=false,checkedAt=null) {
+  state.binanceCollection=collection;state.binanceReadFailed=requestFailed;state.binanceCheckedAt=checkedAt;
+  state.binanceRows=BinanceData.toTraders(collection,{requestFailed,checkedAt});state.binanceText=JSON.stringify(collection);
+}
+function refreshBinance() {
+  if(typeof BinanceData==='undefined')return Promise.resolve();
+  return sharedRequest('binanceRequest',async()=>{
+    const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),10000);let changed=false;
+    try {
+      const response=await fetch('binance/portfolios.json',{cache:'no-store',credentials:'omit',redirect:'error',signal:controller.signal});
+      if(!response.ok||Number(response.headers.get('content-length'))>maxBytes)fail();
+      const reader=response.body.getReader(),chunks=[];let bytes=0;
+      while(true){const {done,value}=await reader.read();if(done)break;bytes+=value.byteLength;if(bytes>maxBytes){await reader.cancel();fail();}chunks.push(value);}
+      const collection=BinanceData.parseCollection(JSON.parse(await new Blob(chunks).text()));
+      if(Date.parse(collection.generatedAt)>Date.now()+5000)fail();
+      if(state.binanceCollection&&Date.parse(collection.generatedAt)<Date.parse(state.binanceCollection.generatedAt))fail();
+      for(const incoming of collection.portfolios){const old=state.binanceCollection?.portfolios.find(p=>p.portfolioId===incoming.portfolioId);if(!collection.source.refreshStopped&&incoming.profile.visibility==='public'&&!incoming.source.refreshStopped&&incoming.source.status==='ready'&&old?.source.lastAttemptAt&&incoming.source.lastAttemptAt&&Date.parse(incoming.source.lastAttemptAt)<Date.parse(old.source.lastAttemptAt))fail();}
+      changed=state.binanceText!==JSON.stringify(collection)||state.binanceReadFailed;
+      installBinance(collection,false,new Date().toISOString());savePublicSnapshot('binance',collection,false);
+    }catch(_){state.binanceReadFailed=true;state.binanceCheckedAt=new Date().toISOString();ensureBinanceIdentities();savePublicSnapshot('binance',undefined,true);changed=true;}
+    finally{
+      clearTimeout(timeout);mergeRows();renderPreservingCardFocus();renderSource();
+      if(isBinanceTrader(state.detail)){const latest=state.binanceRows.find(r=>r.id===state.detail.id);if(latest)state.detail=latest;if($('detail').open)renderDetail();}
+    }
+  });
+}
+function binanceStatus(view) {
+  if(view.status==='restricted')return '资料不可见 · 当前仓位未知';
+  if(state.binanceReadFailed)return '本站快照读取失败 · 当前仓位未知';
+  if(view.refreshStopped)return '来源已停止刷新 · 当前仓位未知';
+  if(view.status==='unavailable')return '尚无可用持仓快照 · 当前仓位未知';
+  if(view.status==='stale')return (view.errorCode?'采集未成功':'快照已过期')+' · 当前仓位未知';
+  return view.currentPositionCount===0?'最近核验空仓':'持仓核验有效';
+}
+function binanceTiming(view) {return view.observedAt?'仓位采集 '+timeLabel(view.observedAt):'尚无成功仓位采集';}
+function renderBinanceCard(r,c) {
+  const view=binanceView(r),status=node('p',binanceStatus(view)+' · '+binanceTiming(view),'card-data-status');status.setAttribute('data-state',view.status);c.append(status);
+  const figures=node('div',undefined,'binance-card-summary');
+  for(const [label,count]of [[view.status==='ready'?'核验时持仓':'上次持仓',view.currentPositionCount??view.lastPositionCount],['订单样本',view.orders.status==='unavailable'?null:view.orders.rows.length],['历史仓位样本',view.closedPositions.status==='unavailable'?null:view.closedPositions.rows.length]]){const item=node('div');item.append(node('strong',count===null?'—':String(count)),node('small',label));figures.append(item);}
+  c.append(figures,node('p','有限公开样本 · 非完整交割单 · 未提供可核验的周期收益率','binance-sample-note'));
+}
+function binanceTable(parent,title,columns,rows,note) {
+  const section=node('section',undefined,'binance-data-section');section.append(node('h3',title));if(note)section.append(node('p',note));
+  if(!rows.length){section.append(node('p','没有可展示的样本。'));parent.append(section);return;}
+  const wrap=node('div',undefined,'table-wrap'),table=node('table'),head=node('thead'),header=node('tr');
+  for(const column of columns)header.append(node('th',column));head.append(header);const body=node('tbody');
+  for(const values of rows){const tr=node('tr');for(const value of values)tr.append(node('td',value===null||value===undefined?'—':String(value)));body.append(tr);}
+  table.append(head,body);wrap.append(table);section.append(wrap);parent.append(section);
+}
+function sourceTime(value) {return value===null||value===undefined||value===0?'—':timeLabel(value);}
+function renderBinanceDetail(r,b) {
+  const view=binanceView(r);b.replaceChildren();
+  b.append(node('p',binanceTiming(view)+(view.lastAttemptAt?' · 来源最近尝试 '+timeLabel(view.lastAttemptAt):''),'detail-method'));
+  if(state.tab==='analysis'){
+    b.append(node('h3','公开带单组合'),node('p','持仓、变化和历史均来自本站已保存样本。缺少可核验的周期收益率、回撤和胜率，保持空缺；订单与历史仓位不是完整交割单。','detail-method'));
+    renderBinanceCard(r,b);b.append(sourceLink(r));return;
+  }
+  if(state.tab==='positions'){
+    binanceTable(b,view.status==='ready'?'最近核验持仓':'上次持仓快照（非当前）',['品种','方向','数量','开仓均价','标记价','杠杆','未实现盈亏'],view.positions.map(p=>[p.symbol,liveSide(p.side.toLowerCase()),p.quantity,p.entryPrice,p.markPrice,p.leverage+'×',p.unrealizedPnl+' '+p.collateral]),view.currentPositionCount===0?'最近一次有效核验为空仓。':binanceStatus(view));return;
+  }
+  if(state.tab==='points'){
+    const kinds={baseline:'首次观察（非开仓）',appeared:'观察到持仓出现',increased:'观察到增仓',decreased:'观察到减仓',absent:'观察到归零（非确认成交）'};
+    binanceTable(b,'持仓变化观察',['观察时间','品种','方向','观察结果','之前数量','之后数量'],view.observations.map(o=>[sourceTime(o.to),o.symbol,liveSide(o.side.toLowerCase()),kinds[o.kind]||o.kind,o.before,o.after]),'变化由快照比较得出；首次观察不是开仓，归零不代表已确认成交。');return;
+  }
+  const orderNote='有限订单样本，非完整流水；不按广场表现周期裁剪。'+(view.orders.fetchedAt?' 采集 '+timeLabel(view.orders.fetchedAt):'')+(view.orders.status==='stale'?' · 上次成功样本，待更新':'');
+  binanceTable(b,'近 7 天订单样本',['订单时间','更新时间','品种','买卖','持仓方向','类型','成交数量','成交均价','已实现盈亏'],view.orders.rows.map(o=>[sourceTime(o.orderTime),sourceTime(o.orderUpdateTime),o.symbol,liveSide(o.side.toLowerCase()),liveSide(o.positionSide.toLowerCase()),o.type,o.executedQty,o.avgPrice,o.totalPnl]),orderNote);
+  binanceTable(b,'历史仓位样本',['开仓时间','结束时间','品种','方向','开仓均价','平仓均价','平仓数量','已实现盈亏'],view.closedPositions.rows.map(p=>[sourceTime(p.opened),sourceTime(p.closed),p.symbol,liveSide(p.side.toLowerCase()),p.avgCost,p.avgClosePrice,p.closedVolume,p.closingPnl]),'有限历史样本，非完整交割单。'+(view.closedPositions.fetchedAt?' 采集 '+timeLabel(view.closedPositions.fetchedAt):'')+(view.closedPositions.status==='stale'?' · 上次成功样本，待更新':''));
+}
 function positionSummary(now=Date.now()) {
   const summary={eligible:0,expired:0,excluded:0,pending:0,batchExpired:false};
   for(const r of state.publicRows) {
-    if(qualifiedPosition(r,now)){summary.eligible++;continue;}
+    if(qualifiedPosition(r,now)&&(!isPublicAccount(r)||currentHolding(r,now))){summary.eligible++;continue;}
     const checked=Date.parse(r.positionCheck?.checkedAt||'');
     const excludedAt=state.positionExclusions[r.accountId]??-Infinity;
     if(checked<=excludedAt){if(now-excludedAt>3600000)summary.expired++;else summary.excluded++;}
@@ -376,7 +474,7 @@ function positionStatus(summary=positionSummary()) {
   if(sourceIsStale()||summary.expired||summary.batchExpired||summary.pending||(!summary.eligible&&(v?.failedAccounts||v?.unattemptedAccounts)))return 'stale';
   return summary.eligible?'ready':'empty';
 }
-function reevaluatePositions() {mergeRows();renderPreservingCardFocus();renderSource();}
+function reevaluatePositions() {mergeRows();renderPreservingCardFocus();renderSource();if(isBinanceTrader(state.detail)&&$('detail').open)renderDetail();}
 function observeEmptyPositions(r,part) {
   if(!isPublicAccount(r)||part?.status!=='ready'||!Array.isArray(part.rows)||part.rows.length!==0)return;
   const checked=Number(part.fetchedAt),source=Number(part.sourceTime),now=Date.now();
@@ -391,22 +489,31 @@ function displayPeriod(p,w) {return w?.derived?parseInt(p,10)+'天':({week:'周�
 function timeLabel(iso) {return new Date(iso).toLocaleString('zh-CN',{hour12:false});}
 function renderSource() {
   const s=state.source,summary=positionSummary();
-  $('source-summary').hidden=!s;
+  $('source-summary').hidden=!s&&!state.lastReadFailed;
   if(s) {
     $('source-name').textContent=s.label;
     const v=s.positionVerification;
-    $('source-selection').textContent=v?`当前有效：${summary.eligible} 个可看持仓${summary.expired?' · '+summary.expired+' 个持仓核验已过期':''}${summary.excluded?' · '+summary.excluded+' 个已确认空仓并移出名单':''}`:`${s.selection} · 持仓待核验`;
+    $('source-selection').textContent=v?`当前有效：${summary.eligible} 个可看持仓${summary.expired?' · '+summary.expired+' 个持仓核验已过期':''}${summary.excluded?' · '+summary.excluded+' 个已确认空仓（保留历史）':''}`:`${s.selection} · 持仓待核验`;
     $('source-verification').hidden=!v;
     $('source-verification').textContent=v?`上次核验：${v.candidateAccounts} 个候选 · ${v.holdingAccounts} 个持仓 · ${v.emptyAccounts} 个空仓 · ${v.failedAccounts} 个读取失败 · ${v.unattemptedAccounts} 个待核验 · 完成于 ${timeLabel(v.completedAt)}`:'';
     $('source-timing').textContent=`${s.snapshotAt?'快照文件更新 '+timeLabel(s.snapshotAt):'快照文件时间未提供'} · 采集于 ${timeLabel(s.fetchedAt)}`;
     $('source-cadence').textContent='持仓核验有效期 60 分钟';
   }
+  $('source-state').textContent=statusText(summary);
+  if(!s&&state.lastReadFailed)$('source-name').textContent='Hyperliquid 公开账户';
   $('status').textContent=statusText(summary);$('status').setAttribute('data-state',positionStatus(summary));
   $('source-universe').textContent=s?.positionVerification?s.positionVerification.candidateAccounts.toLocaleString('zh-CN'):'—';
+  $('binance-source-summary').hidden=typeof BinanceData==='undefined';
+  if(typeof BinanceData!=='undefined'){
+    const views=state.binanceRows.map(binanceView),current=views.filter(v=>v.currentPositionCount>0).length,empty=views.filter(v=>v.currentPositionCount===0).length;
+    $('binance-source-state').textContent=state.binanceRows.length?`已接入 ${views.length} 个组合 · 有效持仓 ${current} 个 · 有效空仓 ${empty} 个 · 当前未知 ${views.length-current-empty} 个`:(state.binanceReadFailed?'币安快照读取失败，尚无可用资料。':'正在读取本站币安快照…');
+    $('binance-source-timing').textContent=state.binanceRows.map((r,i)=>`${r.name}：${binanceTiming(views[i])} · ${binanceStatus(views[i])}`).join('；');
+    if(state.binanceRows.length){$('status').textContent=`已收录 ${state.rows.filter(r=>!r._local).length} 个公开账户 · 当前有效持仓 ${state.rows.filter(r=>currentHolding(r)).length} 个。历史资料按原时间保留，过期不代表空仓。`;$('status').setAttribute('data-state',positionStatus(summary)==='stale'||views.some(v=>v.status!=='ready')?'stale':'ready');}
+  }
   if(state.detail&&$('detail').open)renderDetailStatus();
 }
 function feed(rows) { return {schemaVersion:1,status:'ready',traders:rows}; }
-function mergeRows() { state.rows = [...eligiblePublicRows().map(r=>({...r,_local:false})),...state.localRows.map(r=>({...r,_local:true}))]; }
+function mergeRows() { state.rows = [...retainedPublicRows().map(r=>({...r,_local:false})),...state.binanceRows,...state.localRows.map(r=>({...r,_local:true}))]; }
 function node(tag,content,cls) { const n=document.createElement(tag); if(content!==undefined)n.textContent=content; if(cls)n.className=cls; return n; }
 function button(label, action, cls) { const b=node('button',label,cls); b.type='button'; b.addEventListener('click',action); return b; }
 function sourceLink(r) { const a=node('a','查看来源 ↗','source-link'); a.href=r.sourceUrl; a.target='_blank'; a.rel='noopener noreferrer'; return a; }
@@ -513,7 +620,7 @@ function refreshAnalyticsViews(address) {
   }
 }
 function startVisibleAnalytics(rows,onlyChanged=false) {
-  const visible=rows.filter(r=>canReadLive(r)&&qualifiedPosition(r)),waiting=!state.portfolioCacheAttempted;
+  const visible=rows.filter(r=>canReadLive(r)&&currentHolding(r)),waiting=!state.portfolioCacheAttempted;
   const accounts=[...new Set((waiting?[]:visible.filter(r=>{const entry=state.portfolioCache[r.accountId];return !entry?.portfolio||Date.now()-Date.parse(entry.fetchedAt)>3600000;})).map(r=>r.accountId))].slice(0,12),client=accounts.length?ensureAnalyticsClient():state.analyticsClient;
   if(onlyChanged&&accounts.length===state.analyticsTargets.length&&accounts.every((address,i)=>address===state.analyticsTargets[i]))return;
   state.analyticsTargets=accounts;client?.setPortfolioTargets(accounts);
@@ -523,12 +630,14 @@ function card(r,period) {
   const name=node('h3',r.name);name.setAttribute('title',r.name);
   const identityMeta=node('div',`${r.exchange}${r.paid?' · 付费来源':''}${r._local?' · 我的资料':''}`,'meta');identityMeta.setAttribute('title',r.accountId||r.id);identity.append(name,identityMeta);
   const detail=button('详情',()=>openDetail(r,period),'detail-button'),source=sourceLink(r);detail.setAttribute('aria-label',`查看 ${r.name} 的研究详情`);source.textContent='来源 ↗';source.setAttribute('title',`打开 ${r.exchange} 来源账户`);links.append(detail,source);
-  top.append(node('div',r.exchange.slice(0,2),'avatar'),identity,links);c.append(top);
+  top.append(node('div',r.exchange.slice(0,2),'avatar'),identity,links);c.append(top);state.cardControls.push({r,detailButton:detail,sourceLink:source});
+  if(isBinanceTrader(r)){renderBinanceCard(r,c);return c;}
   const context=node('div',undefined,'card-context');context.append(node('span',periodName(period,w)));
   let timing=w?.derived?performanceRange(r,period):stampLabel(w);
-  if(isPublicAccount(r)&&r.positionCheck){const check=node('span',`持仓 ${r.positionCheck.count} · 核验 ${new Date(r.positionCheck.checkedAt).toLocaleTimeString('zh-CN',{hour12:false,hour:'2-digit',minute:'2-digit'})}`,'position-check');context.append(check);timing+=` · 永续主市场持仓核验 ${timeLabel(r.positionCheck.checkedAt)} · 持仓来源时间 ${timeLabel(r.positionCheck.sourceTime)}`;}
+  if(isPublicAccount(r)&&r.positionCheck){const check=node('span',`${currentHolding(r)?'核验时持仓':'上次持仓'} ${r.positionCheck.count}`,'position-check');context.append(check);timing+=` · 永续主市场持仓核验 ${timeLabel(r.positionCheck.checkedAt)} · 持仓来源时间 ${timeLabel(r.positionCheck.sourceTime)}`;}
   else context.append(node('span',r.currency));
   context.setAttribute('title',timing);c.append(context);
+  if(isPublicAccount(r)){const status=node('p',retainedStatus(r),'card-data-status');status.setAttribute('data-state',currentHolding(r)?'ready':'stale');c.append(status);}
   if(hasMetrics(w)||isPublicAccount(r)) {
     const performance=node('div',undefined,'performance-body'),stats=node('div',undefined,'performance-stats'),graph=node('div',undefined,'performance-chart'),roiText=signedValue(w?.roi,pct(w?.roi));
     const roi=node('div',roiText,'roi '+directionClass(w?.roi)+(roiText.length>8?' long-roi':''));roi.setAttribute('title',`${displayPeriod(period,w)} 收益率 ${roiText}`);
@@ -542,7 +651,7 @@ function card(r,period) {
   return c;
 }
 function readURL() {
-  const p=new URL(location.href).searchParams, defaults={period:'30D',exchange:'all',source:'all',sort:'pnl',currency:'all'};
+  const p=new URL(location.href).searchParams, defaults={period:'30D',exchange:'all',source:'all',sort:'mixed',currency:'all'};
   state.explicitPeriod=periods.includes(p.get('period'));
   for(const id of controls) { const el=$(id); el.value=[...el.options].some(o=>o.value===p.get(id))?p.get(id):defaults[id]; }
   $('search').value=(p.get('q')||'').slice(0,100); const page=Number(p.get('page')); state.page=Number.isSafeInteger(page)&&page>0?page:1;
@@ -560,22 +669,24 @@ function choosePeriod() {
 }
 function render() {
   const q=$('search').value.trim().toLocaleLowerCase(),p=$('period').value,source=$('source').value,currency=$('currency').value;
-  const available=state.rows.filter(r=>qualifiedPosition(r)&&((source==='local')?r._local:!r._local));
+  const available=state.rows.filter(r=>(source==='local')?r._local:!r._local);
   let rows=available.filter(r=>(r.name+' '+r.id+' '+r.accountId+' '+r.exchange+' '+r.note).toLocaleLowerCase().includes(q) && ($('exchange').value==='all'||r.exchange===$('exchange').value) && (source==='all'||source==='local'&&r._local||source==='paid'&&r.paid||source==='public'&&!r._local&&!r.paid) && (currency==='all'||r.currency===currency));
   const winSortOption=[...$('sort').options].find(option=>option.value==='winRate');if(winSortOption)winSortOption.textContent=source==='local'?'逐笔胜率 ↓':'平仓片段胜率 ↓';
   const mddSortOption=[...$('sort').options].find(option=>option.value==='mdd');if(mddSortOption)mddSortOption.textContent=source==='local'?'最大回撤 ↑':'采样盈亏回撤 ↑';
-  $('sort-hint').textContent=$('sort').value==='winRate'?(source==='local'?'按已记录逐笔胜率排序 · 缺数账户排在后面':'按近期永续平仓片段胜率排序 · 缺数账户排在后面'):$('sort').value==='mdd'?($('source').value==='local'?'按已记录最大回撤排序 · 缺数账户排在后面':'按采样盈亏回撤排序 · 缺数账户排在后面'):'按永续持仓筛选 · 收益率沿用来源榜单';
+  $('sort-hint').textContent=$('sort').value==='winRate'?(source==='local'?'按已记录逐笔胜率排序 · 缺数账户排在后面':'按近期永续平仓片段胜率排序 · 缺数账户排在后面'):$('sort').value==='mdd'?($('source').value==='local'?'按已记录最大回撤排序 · 缺数账户排在后面':'按采样盈亏回撤排序 · 缺数账户排在后面'):'历史资料按原时间展示 · 当前持仓须在核验有效期内';
   const sort=$('sort').value,grouped=sort==='pnl'&&currency==='all'&&new Set(rows.map(r=>r.currency)).size>1;
   rows.sort((a,b)=>{
+    if(sort==='mixed')return 0;
     if(grouped&&a.currency!==b.currency)return currencies.indexOf(a.currency)-currencies.indexOf(b.currency);
     const va=sortValue(a,p,sort),vb=sortValue(b,p,sort);
     if(va==null&&vb==null)return a.id.localeCompare(b.id);if(va==null)return 1;if(vb==null)return -1;
     return (sort==='mdd'?va-vb:vb-va)||a.id.localeCompare(b.id);
   });
+  if(sort==='mixed')rows=mixPlatforms(rows);
   const pages=Math.max(1,Math.ceil(rows.length/12));if(state.revealId){const at=rows.findIndex(r=>r.id===state.revealId);if(at>=0)state.page=Math.floor(at/12)+1;state.revealId=null;}if(!state.loading)state.page=Math.max(1,Math.min(state.page,pages));
   state.analyticsViews=state.analyticsViews.filter(v=>v.kind!=='card');
   const visibleRows=rows.slice((state.page-1)*12,state.page*12);
-  $('leaders').replaceChildren();for(const r of visibleRows)$('leaders').append(card(r,p));
+  state.cardControls=[];$('leaders').replaceChildren();for(const r of visibleRows)$('leaders').append(card(r,p));
   if(!rows.length) {
     if(source==='local')empty($('leaders'),available.length?'没有符合条件的资料':'暂无本机资料',available.length?'调整筛选条件，查看其他记录。':'已保存的个人资料仅在这里显示。');
     else if(!available.length&&state.source)empty($('leaders'),'暂无有效持仓账户',statusText());
@@ -583,7 +694,8 @@ function render() {
   }
   $('featured').replaceChildren();const featured=available.filter(r=>r.featured);$('featured-section').hidden=!featured.length;
   for(const r of featured) { const best=hasMetrics(r.windows.ALL)?'ALL':hasMetrics(r.windows[p])?p:periods.find(k=>hasMetrics(r.windows[k]))||p; $('featured').append(card(r,best)); }
-  $('total-count').textContent=state.rows.filter(r=>!r._local&&qualifiedPosition(r)).length;$('coverage-count').textContent=state.rows.filter(r=>!r._local&&qualifiedPosition(r)&&Object.values(r.windows).some(hasMetrics)).length;$('local-count').textContent=state.localRows.length;
+  $('total-count').textContent=state.rows.filter(r=>!r._local).length;$('current-count').textContent=state.rows.filter(r=>currentHolding(r)).length;$('coverage-count').textContent=state.rows.filter(r=>!r._local&&Object.values(r.windows).some(hasMetrics)).length;$('local-count').textContent=state.localRows.length;
+  for(const [id,exchange,label]of [['platform-all','all','全部平台'],['platform-hl','Hyperliquid','Hyperliquid'],['platform-binance','Binance','币安']]){const n=state.rows.filter(r=>!r._local&&(exchange==='all'||r.exchange===exchange)).length;$(id).textContent=label+' '+n;$(id).setAttribute('aria-pressed',String($('exchange').value===exchange));}
   $('count').textContent=`${rows.length} 个研究账户${available.length!==rows.length?' · 共 '+available.length+' 个':''}${grouped?' · 按币种分组':''}`;
   $('page').textContent=rows.length?`${state.page} / ${pages}`:'0 / 0';$('prev').disabled=state.loading||!rows.length||state.page===1;$('next').disabled=state.loading||!rows.length||state.page>=pages;
   startVisibleAnalytics(visibleRows);
@@ -599,7 +711,7 @@ function statusText(summary=positionSummary()) {
     if(!v||summary.pending)return '持仓尚未核验，公开账户暂不显示。';
     if(v.failedAccounts)return `上次持仓核验有 ${v.failedAccounts} 个账户读取失败；当前没有可展示的持仓账户。`;
     if(v.unattemptedAccounts)return `还有 ${v.unattemptedAccounts} 个账户待核验；当前没有可展示的持仓账户。`;
-    if(summary.excluded)return '最近读取确认空仓的账户已移出名单，等待新一轮核验。';
+    if(summary.excluded)return '最近读取确认空仓的账户保留历史资料，等待新一轮核验。';
     return `本次核验没有可展示的持仓账户（已核验 ${v.emptyAccounts} 个空仓）。`;
   }
   if(state.publicRows.length&&sourceIsStale())return '快照待更新 · 以下为最近一次成功采集的数据';
@@ -610,9 +722,10 @@ function statusText(summary=positionSummary()) {
 function updateView(message) { mergeRows();choosePeriod();render();renderSource();if(message)feedback(message); }
 function renderDetailStatus() {
   const r=state.detail;let message='';
+  if(isBinanceTrader(r)){const view=binanceView(r);message=binanceStatus(view)+' · '+binanceTiming(view);$('detail-data-status').textContent=message;$('detail-data-status').hidden=false;return;}
   if(r&&isPublicAccount(r)) {
-    if((state.positionExclusions[r.accountId]??-Infinity)>=Date.parse(r.positionCheck?.checkedAt||'1970-01-01T00:00:00Z'))message=Date.now()-state.positionExclusions[r.accountId]>3600000?'上次空仓核验已过期，当前仓位未知；仍从名单移除，等待新一轮核验。':'当前已空仓，已从名单移除。';
-    else if(!qualifiedPosition(r))message='持仓核验已过期或尚未完成，已从名单移除；历史表现仍可查看。';
+    if((state.positionExclusions[r.accountId]??-Infinity)>=Date.parse(r.positionCheck?.checkedAt||'1970-01-01T00:00:00Z'))message=Date.now()-state.positionExclusions[r.accountId]>3600000?'上次空仓核验已过期，当前仓位未知；保留历史资料，等待新一轮核验。':'最近读取确认空仓；保留历史资料。';
+    else if(!qualifiedPosition(r))message='持仓核验已过期或尚未完成，当前仓位未知；历史表现仍可查看。';
     else if(!state.publicRows.some(item=>item.id===r.id))message='该账户已不在本次收录范围，详情保留上次验证的记录。';
     else if(sourceIsStale())message='此处显示上次验证的快照，最新数据暂未取得。';
   }
@@ -630,7 +743,7 @@ function liveOrderStatus(status) {return ({open:'挂单中',filled:'已成交',c
 function liveCoin(coin,data) {const symbol=data.symbols?.spot?.[coin];return symbol?`${symbol.label} (${coin})`:coin;}
 function liveAmount(amount,coin,data) {const quote=data.symbols?.spot?.[coin]?.quote;return value(amount)+(quote?' '+quote:'');}
 function livePnl(amount,coin,data) {const quote=data.symbols?.spot?.[coin]?.quote;if(quote)return value(amount)+' '+quote;if(!coin.includes(':')&&!coin.startsWith('@')&&!coin.includes('/'))return value(amount)+' USDC';return value(amount);}
-function liveSide(side) {return ({buy:'买',sell:'卖',long:'多',short:'空'})[side]||'—';}
+function liveSide(side) {return ({buy:'买',sell:'卖',long:'多',short:'空',both:'净持仓'})[side]||'—';}
 function liveSection(title,columns) {
   const section=node('section',undefined,'live-section'),heading=node('div',undefined,'live-section-head'),status=node('p',undefined,'live-section-status'),count=node('span',undefined,'live-count'),wrap=node('div',undefined,'table-wrap live-table-wrap'),table=node('table'),thead=node('thead'),tr=node('tr'),tbody=node('tbody'),emptyMessage=node('p',undefined,'live-empty');
   heading.append(node('h3',title),count);for(const label of columns){const th=node('th',label);th.setAttribute('scope','col');tr.append(th);}thead.append(tr);table.append(thead,tbody);wrap.append(table);section.append(heading,status,emptyMessage,wrap);return {section,status,count,wrap,tbody,emptyMessage};
@@ -697,6 +810,8 @@ function renderDetail() {
   $('detail-title').textContent=r.name;$('detail-meta').textContent=`${r.exchange} · ${r.accountId||r.id} · ${r.currency}${r._local?' · 我的资料':''}`;
   renderDetailStatus();
   document.querySelectorAll('[data-tab]').forEach(x=>{x.hidden=canReadLive(r)?!['analysis','live'].includes(x.dataset.tab):x.dataset.tab==='live';x.setAttribute('aria-pressed',String(x.dataset.tab===state.tab));});
+  if(isBinanceTrader(r)){document.querySelectorAll('[data-tab]').forEach(x=>{x.hidden=x.dataset.tab==='live';x.textContent=({analysis:'组合概览',positions:'持仓快照',points:'持仓变化',orders:'历史样本'})[x.dataset.tab]||x.textContent;});state.analyticsViews=state.analyticsViews.filter(v=>v.kind!=='detail');renderBinanceDetail(r,b);return;}
+  document.querySelectorAll('[data-tab]').forEach(x=>{x.textContent=({analysis:'交易分析',live:'实时交易',positions:'仓位历史',points:'交易点位',orders:'订单流水'})[x.dataset.tab]||x.textContent;});
   if(state.tab==='live'&&canReadLive(r)){state.analyticsViews=state.analyticsViews.filter(v=>v.kind!=='detail');if(!state.liveView||state.liveUser!==r.accountId){stopLive();b.replaceChildren();buildLivePanel(r,b);}return;}
   b.replaceChildren();state.analyticsViews=state.analyticsViews.filter(v=>v.kind!=='detail');
   if(state.tab==='analysis') {
@@ -799,7 +914,7 @@ function rejectOlderFeed(source,rows) {
 }
 function refresh(background=false) {return sharedRequest('refreshRequest',()=>revalidate(background));}
 async function revalidate(background=false) {
-  const winRequest=refreshWinCache(),portfolioRequest=refreshPortfolioCache();const restoreFocus=!background&&document.activeElement===$('refresh');
+  const winRequest=refreshWinCache(),portfolioRequest=refreshPortfolioCache(),binanceRequest=refreshBinance();const restoreFocus=!background&&document.activeElement===$('refresh');
   state.loading=true;$('refresh').disabled=true;$('leaders').setAttribute('aria-busy','true');if(!background&&!state.publicRows.length)$('status').textContent='正在检查最新快照…';
   const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),10000);let changed=false;
   try {
@@ -821,11 +936,12 @@ async function revalidate(background=false) {
     if(changed&&state.detail&&!state.detail._local&&$('detail').open)renderDetail();
     saveURL(true);if(restoreFocus&&document.activeElement===document.body)$('refresh').focus();
   }
-  await Promise.all([winRequest,portfolioRequest]);
+  await Promise.all([winRequest,portfolioRequest,binanceRequest]);
 }
 for(const id of controls)$(id).addEventListener('change',()=>{if(id==='period')state.explicitPeriod=true;state.page=1;render();saveURL();});
+for(const [id,exchange]of [['platform-all','all'],['platform-hl','Hyperliquid'],['platform-binance','Binance']])$(id).onclick=()=>selectPlatform(exchange);
 $('search').addEventListener('input',()=>{state.page=1;render();saveURL(true);});
-$('reset').onclick=()=>{$('search').value='';$('period').value='30D';$('exchange').value='all';$('source').value='all';$('sort').value='pnl';$('currency').value='all';state.explicitPeriod=false;state.page=1;choosePeriod();render();saveURL();};
+$('reset').onclick=()=>{$('search').value='';$('period').value='30D';$('exchange').value='all';$('source').value='all';$('sort').value='mixed';$('currency').value='all';state.explicitPeriod=false;state.page=1;choosePeriod();render();saveURL();};
 $('prev').onclick=()=>{state.page--;render();saveURL();};$('next').onclick=()=>{state.page++;render();saveURL();};$('refresh').onclick=()=>refresh();
 $('add-trader').onclick=()=>openEditor();
 $('record-form').addEventListener('invalid',e=>{const details=e.target.closest('details');if(details)details.open=true;},true);
