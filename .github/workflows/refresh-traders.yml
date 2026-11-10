@@ -57,6 +57,10 @@ jobs:
 
       - name: Test navigation and account page logic
         run: |
+          node --check home-trader-data.js
+          node --check home-ranking.js
+          node audit/home-trader-data-unit.cjs
+          node audit/home-ranking-ui-unit.cjs
           node --check books-shell.js
           node audit/shell-unit.cjs
           node --check trader/account-live.js
