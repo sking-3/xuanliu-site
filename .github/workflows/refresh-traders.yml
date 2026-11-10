@@ -57,6 +57,8 @@ jobs:
 
       - name: Test navigation and account page logic
         run: |
+          node --check trader/period-roi.js
+          node audit/period-roi-unit.cjs
           node --check home-trader-data.js
           node --check home-ranking.js
           node audit/home-trader-data-unit.cjs

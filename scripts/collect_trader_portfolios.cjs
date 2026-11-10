@@ -7,10 +7,11 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const {performance} = require('node:perf_hooks');
 const analytics = require('../trader/account-analytics.js');
+const periodROI = require('../trader/period-roi.js');
 const shared = require('./collect_trader_analytics.cjs');
 const INFO = 'https://api.hyperliquid.xyz/info';
 const METHOD_VERSION = 'portfolio-periods-v2';
-const LIMITS = Object.freeze({maxAccounts:200,weightPerMinute:600,requestWeight:20,intervalMs:60000,
+const LIMITS = Object.freeze({maxAccounts:200,weightPerMinute:600,requestWeight:20,ledgerRequestWeight:120,ledgerPages:10,ledgerRows:20000,intervalMs:60000,
   concurrency:2,timeoutMs:10000,batchMs:7*60000,freshMs:30*60000,staleMs:60*60000,
   maxBytes:5*1024*1024,maxFileBytes:12*1024*1024,maxPoints:120});
 const PERIODS={"7D":'perpWeek',"30D":'perpMonth',"90D":'perpAllTime',"180D":'perpAllTime',"365D":'perpAllTime',ALL:'perpAllTime'};
@@ -35,7 +36,7 @@ function failureReport(error) {
 }
 const blockedByFeed=shared.blockedByFeed;
 const selectAccounts=shared.selectAccounts;
-function validPortfolio(raw, fetchedAt) {
+function validPortfolio(raw, fetchedAt, accountId) {
   if(!plain(raw)||!plain(raw.windows)||Object.keys(raw.windows).length===0||Object.keys(raw.windows).length>6)return null;
   const windows={};
   const finite=value=>typeof value==='number'&&Number.isFinite(value)&&Math.abs(value)<1e20;
@@ -70,8 +71,9 @@ function validPortfolio(raw, fetchedAt) {
     if(w.sampleCount&&(points[0].time!==w.startAt||points.at(-1).time!==w.endAt||points[0].value!==0))return null;
     if(w.sampleCount>=2&&!close(points.at(-1).value,w.pnl))return null;
     if(w.sampleCount>=2&&points.length===w.sampleCount){let gap=0;for(let i=1;i<points.length;i++)gap=Math.max(gap,time(points[i].time)-time(points[i-1].time));if(w.maxSampleGapMs!==gap)return null;}
+    let roiFields={};
     if(derived) {
-      if(w.roi!==null||w.roiUnavailableReason!=='cash_flow_adjusted_return_unavailable')return null;
+      try{roiFields=periodROI.validateWindow(w,accountId,fetchedAt);}catch(_){return null;}
       if(w.sourceSampleCount) {
         if(w.requestedEndAt!==w.sourceHistoryEndAt||time(w.requestedStartAt)!==time(w.requestedEndAt)-days*86400000||!w.sampleCount||time(w.startAt)<time(w.requestedStartAt))return null;
         const expected=time(w.sourceHistoryStartAt)>time(w.requestedStartAt)?'insufficient_history':w.startAt===w.requestedStartAt?'full':'sampled_boundary';
@@ -84,7 +86,7 @@ function validPortfolio(raw, fetchedAt) {
       derived,requestedDays:days,requestedStartAt:w.requestedStartAt,requestedEndAt:w.requestedEndAt,
       coverageDays:w.coverageDays,coverageStatus:w.coverageStatus,sourceHistoryStartAt:w.sourceHistoryStartAt,
       sourceHistoryEndAt:w.sourceHistoryEndAt,sourceSampleCount:w.sourceSampleCount,maxSampleGapMs:w.maxSampleGapMs,
-      ...(derived?{roi:null,roiUnavailableReason:'cash_flow_adjusted_return_unavailable'}:{})};
+      ...roiFields};
   }
   return {windows};
 }
@@ -98,12 +100,18 @@ function validatedCache(previous, addresses, now=Date.now()) {
     Object.keys(previous.accounts).length>LIMITS.maxAccounts||!Number.isFinite(time(previous.generatedAt))||time(previous.generatedAt)>now+5000)return result;
   for(const address of addresses) {
     const raw=Object.hasOwn(previous.accounts,address)?previous.accounts[address]:null;
-    if(!plain(raw)||!['ready','stale'].includes(raw.status))continue;
+    if(!plain(raw)||!['ready','stale','unavailable'].includes(raw.status))continue;
     const cachedError=raw.errorCode??null;
     if(cachedError!==null&&(typeof cachedError!=='string'||safeError({message:cachedError})!==cachedError))continue;
+    if(raw.status==='unavailable') {
+      const attempt=time(raw.lastAttemptAt);
+      if(raw.portfolio!==null||raw.fetchedAt!==null||raw.lastAttemptAt!==null&&(!Number.isFinite(attempt)||attempt>time(previous.generatedAt)+5000||attempt>now+5000))continue;
+      result[address]={status:'unavailable',fetchedAt:null,lastAttemptAt:raw.lastAttemptAt===null?null:iso(attempt),errorCode:cachedError,portfolio:null};
+      continue;
+    }
     const fetched=time(raw.fetchedAt);
     if(!Number.isFinite(fetched)||fetched>time(previous.generatedAt)+5000||fetched>now+5000)continue;
-    const portfolio=validPortfolio(raw.portfolio,fetched);if(!portfolio)continue;
+    const portfolio=validPortfolio(raw.portfolio,fetched,address);if(!portfolio)continue;
     const attempt=time(raw.lastAttemptAt);
     result[address]={status:raw.status==='stale'||cachedError||now-fetched>LIMITS.staleMs?'stale':'ready',fetchedAt:iso(fetched),
       lastAttemptAt:Number.isFinite(attempt)&&attempt<=time(previous.generatedAt)+5000?iso(attempt):iso(fetched),
@@ -113,6 +121,39 @@ function validatedCache(previous, addresses, now=Date.now()) {
 }
 const readJsonResponse=shared.readJsonResponse;
 function blank(){return {status:'unavailable',fetchedAt:null,lastAttemptAt:null,errorCode:null,portfolio:null};}
+function ledgerRanges(portfolio) {
+  const windows=Object.entries(portfolio.windows).filter(([key,w])=>Object.hasOwn(DAYS,key)&&w.sampleCount>=2&&w.coverageStatus!=='insufficient_history').map(([,w])=>w);
+  if(!windows.length)return [];
+  const starts=[...new Set(windows.map(w=>time(w.startAt)))].sort((a,b)=>b-a);
+  return starts.map((start,i)=>({start,end:i?starts[i-1]:Math.max(...windows.map(w=>time(w.endAt)))}));
+}
+function stableJSON(value) {
+  if(Array.isArray(value))return '['+value.map(stableJSON).join(',')+']';
+  if(plain(value))return '{'+Object.keys(value).sort().map(key=>JSON.stringify(key)+':'+stableJSON(value[key])).join(',')+'}';
+  return JSON.stringify(value);
+}
+async function readLedger(request,address,range,now,budget) {
+  const rows=[],seen=new Set();let cursor=range.start;
+  while(budget.pageCount<LIMITS.ledgerPages) {
+    budget.pageCount++;
+    const batch=await request({type:'userNonFundingLedgerUpdates',user:address,startTime:cursor,endTime:range.end},LIMITS.ledgerRequestWeight);
+    if(!Array.isArray(batch)||batch.length>2000)fail('invalid_response');
+    let previous=cursor,added=0;
+    for(const row of batch) {
+      if(!plain(row)||!plain(row.delta)||typeof row.delta.type!=='string'||typeof row.hash!=='string'||!Number.isSafeInteger(row.time)||row.time<cursor||row.time>range.end||row.time<previous)fail('invalid_response');
+      previous=row.time;const key=stableJSON(row);
+      if(!seen.has(key)){seen.add(key);rows.push(row);added++;budget.keys.add(key);if(budget.keys.size>LIMITS.ledgerRows)fail('invalid_response');}
+    }
+    // A short first page is not proof of complete history. Verify its inclusive
+    // tail with a second request; bounded API traversal is not full-history proof.
+    if(!batch.length||!added&&batch.length<500&&previous===cursor)
+      return {rows,queryStartAt:range.start,queryEndAt:range.end,fetchedAt:iso(now()),pageCount:budget.pageCount,exhausted:true};
+    if(previous===cursor&&batch.length>=500)fail('invalid_response');
+    if(!added&&previous===cursor)fail('invalid_response');
+    cursor=previous;
+  }
+  fail('invalid_response');
+}
 async function collect({feed,previous=null,fetch:fetcher=globalThis.fetch,now=Date.now,clock=()=>performance.now(),
   sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms)),setTimer=setTimeout,clearTimer=clearTimeout,limits={}}={}) {
   const config={...LIMITS,...limits};
@@ -125,55 +166,114 @@ async function collect({feed,previous=null,fetch:fetcher=globalThis.fetch,now=Da
   const accounts=validatedCache(previous,addresses,now());
   for(const address of addresses)if(!accounts[address])accounts[address]=blank();
   const queue=addresses.filter(address=>accounts[address].status!=='ready'||!accounts[address].fetchedAt||now()-time(accounts[address].fetchedAt)>config.freshMs)
-    .sort((a,b)=>(time(accounts[a].fetchedAt)||0)-(time(accounts[b].fetchedAt)||0));
-  const cached=addresses.length-queue.length,active=new Map(),ledger=[];
-  let attempted=0,succeeded=0,failed=0,stopCode=blockedByFeed(feed),batchTimer=null;
+    // Failed or slow ledgers must rotate behind accounts that have not received
+    // an attempt. Keep genuine source freshness independent of attempt order.
+    .sort((a,b)=>Math.max(time(accounts[a].fetchedAt)||0,time(accounts[a].lastAttemptAt)||0)-Math.max(time(accounts[b].fetchedAt)||0,time(accounts[b].lastAttemptAt)||0));
+  const cached=addresses.length-queue.length,active=new Map(),ledger=[],requests=[],inflight=new Set();
+  let attempted=0,succeeded=0,failed=0,ledgerRequests=0,requestCount=0,stopCode=blockedByFeed(feed),batchTimer=null,wakeResolve=null;
+  const wake=()=>{const resolve=wakeResolve;wakeResolve=null;if(resolve)resolve();};
   const stop=code=>{
     if(!stopCode)stopCode=code;
     for(const task of active.values())task.cancel(stopCode);
+    wake();
   };
   const markFailure=(address,code,attemptedAt)=>{
     const record=accounts[address];record.status=record.portfolio?'stale':'unavailable';
     if(attemptedAt)record.lastAttemptAt=attemptedAt;record.errorCode=code;
   };
   function launch(address) {
-    const attemptedAt=iso(now()),controller=new AbortController();let timer=null,rejectCancel,settled=false;
+    const attemptedAt=iso(now()),controller=new AbortController();let rejectCancel,settled=false;
+    let basePortfolio=null,baseFetchedAt=null,verifiedAt=null;const verifiedWindows=new Set();
     const cancelled=new Promise((_,reject)=>{rejectCancel=reject;});
-    const task={cancel:code=>{if(settled)return;controller.abort();rejectCancel(Error(code));},promise:null};
-    accounts[address].lastAttemptAt=attemptedAt;attempted++;ledger.push(clock());active.set(address,task);
-    timer=setTimer(()=>task.cancel('request_timeout'),Math.min(config.timeoutMs,Math.max(1,config.batchMs-(clock()-start))));
+    const task={controller,cancelled,cancel:code=>{if(settled||controller.signal.aborted)return;controller.abort();rejectCancel(Error(code));wake();},promise:null};
+    accounts[address].lastAttemptAt=attemptedAt;attempted++;active.set(address,task);
+    const request=(body,weight)=>{
+      if(stopCode||controller.signal.aborted)return Promise.reject(Error(stopCode||'cancelled'));
+      if(weight>config.weightPerMinute)return Promise.reject(Error('invalid_response'));
+      return new Promise((resolve,reject)=>{requests.push({body,weight,task,resolve,reject});wake();});
+    };
     const operation=(async()=>{
-      let response;
-      try{response=await fetcher(INFO,{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},
-        body:JSON.stringify({type:'portfolio',user:address}),credentials:'omit',redirect:'error',cache:'no-store',signal:controller.signal});}
-      catch(error){if(controller.signal.aborted)throw error;throw Error('network_error');}
-      if(controller.signal.aborted)throw Error(stopCode||'cancelled');
-      if(response?.status===403||response?.status===429){const code='http_'+response.status;stop(code);throw Error(code);}
-      if(!response||!Number.isInteger(response.status))fail('invalid_response');
-      if(response.status!==200)throw Error('http_'+response.status);
-      return analytics.normalize.portfolio(await readJsonResponse(response,config.maxBytes),now());
+      const raw=await request({type:'portfolio',user:address},config.requestWeight),portfolio=analytics.normalize.portfolio(raw,now());
+      baseFetchedAt=iso(now());verifiedAt=baseFetchedAt;basePortfolio=portfolio;
+      const missing=periodROI.calculate(raw,null,address,now());
+      for(const key of Object.keys(DAYS))if(portfolio.windows[key]&&missing[key])Object.assign(portfolio.windows[key],missing[key]);
+      const ranges=ledgerRanges(portfolio),budget={pageCount:0,keys:new Set()},merged=new Map();
+      for(const range of ranges){
+        const segment=await readLedger(request,address,range,now,budget);
+        for(const row of segment.rows)merged.set(stableJSON(row),row);
+        const events={...segment,rows:[...merged.values()].sort((a,b)=>a.time-b.time),queryEndAt:ranges[0].end};
+        const values=periodROI.calculate(raw,events,address,now());
+        // Earlier extensions cannot invalidate a separately verified shorter
+        // window. Each published value retains its own ledger evidence/time.
+        for(const key of Object.keys(DAYS))if(portfolio.windows[key]&&!verifiedWindows.has(key)&&time(portfolio.windows[key].startAt)>=range.start&&values[key]){
+          Object.assign(portfolio.windows[key],values[key]);verifiedWindows.add(key);
+        }
+        verifiedAt=iso(now());
+      }
+      return portfolio;
     })();
     task.promise=Promise.race([operation,cancelled]).then(portfolio=>{
       if(stopCode||controller.signal.aborted)throw Error(stopCode||'cancelled');
-      const fetched=now(),validated=validPortfolio(compactPortfolio(portfolio),fetched);if(!validated)fail('invalid_response');
+      const fetched=now(),validated=validPortfolio(compactPortfolio(portfolio),fetched,address);if(!validated)fail('invalid_response');
       accounts[address]={status:'ready',fetchedAt:iso(fetched),lastAttemptAt:attemptedAt,errorCode:null,portfolio:validated};succeeded++;
-    }).catch(error=>{failed++;markFailure(address,safeError(error),attemptedAt);}).finally(()=>{
-      settled=true;clearTimer(timer);active.delete(address);
+    }).catch(error=>{
+      const code=safeError(error),prior=accounts[address];failed++;
+      // A bounded ledger failure must not discard a verified base curve on a
+      // cold account. Retain a whole old record when it has a proven ROI, and
+      // never publish new data after a source rejection. Collection time is
+      // the last successful portfolio/ledger proof, never the later failure.
+      if(basePortfolio&&!['http_403','http_429'].includes(stopCode||code)&&!Object.values(prior.portfolio?.windows||{}).some(w=>Number.isFinite(w.roi))) {
+        for(const key of Object.keys(DAYS))if(basePortfolio.windows[key]&&!verifiedWindows.has(key))Object.assign(basePortfolio.windows[key],{roi:null,roiUnavailableReason:basePortfolio.windows[key].coverageStatus==='insufficient_history'?'insufficient_history':'ledger_unavailable',roiEvidence:null});
+        const valid=validPortfolio(compactPortfolio(basePortfolio),time(verifiedAt),address);
+        if(valid)accounts[address]={status:'stale',fetchedAt:verifiedAt,lastAttemptAt:attemptedAt,errorCode:code,portfolio:valid};
+      }
+      markFailure(address,code,attemptedAt);
+    }).finally(()=>{
+      settled=true;active.delete(address);wake();
     });
   }
+  function begin(request) {
+    const {task,body,weight}=request;
+    ledger.push({at:clock(),weight});requestCount++;if(body.type==='userNonFundingLedgerUpdates')ledgerRequests++;
+    inflight.add(request);
+    const timer=setTimer(()=>task.cancel('request_timeout'),config.timeoutMs);
+    const operation=(async()=>{
+      let response;
+      try{response=await fetcher(INFO,{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify(body),credentials:'omit',redirect:'error',cache:'no-store',signal:task.controller.signal});}
+      catch(error){if(task.controller.signal.aborted)throw error;throw Error('network_error');}
+      if(task.controller.signal.aborted)throw Error(stopCode||'cancelled');
+      if(response?.status===403||response?.status===429){const code='http_'+response.status;stop(code);throw Error(code);}
+      if(!response||!Number.isInteger(response.status))fail('invalid_response');
+      if(response.status!==200)throw Error('http_'+response.status);
+      return readJsonResponse(response,config.maxBytes);
+    })();
+    Promise.race([operation,task.cancelled]).then(request.resolve,request.reject).finally(()=>{clearTimer(timer);inflight.delete(request);wake();});
+  }
+  const usedWeight=()=>ledger.reduce((sum,r)=>sum+r.weight,0);
   if(!stopCode&&queue.length)batchTimer=setTimer(()=>stop('batch_timeout'),config.batchMs);
   try {
     while(queue.length||active.size) {
       if(!stopCode&&clock()-start>=config.batchMs)stop('batch_timeout');
       if(stopCode){if(active.size)await Promise.all([...active.values()].map(task=>task.promise));break;}
-      while(ledger.length&&ledger[0]<=clock()-config.intervalMs)ledger.shift();
-      while(queue.length&&active.size<config.concurrency&&(ledger.length+1)*config.requestWeight<=config.weightPerMinute&&!stopCode&&config.batchMs-(clock()-start)>=config.timeoutMs)launch(queue.shift());
-      if(active.size){await Promise.race([...active.values()].map(task=>task.promise));continue;}
+      while(ledger.length&&ledger[0].at<=clock()-config.intervalMs)ledger.shift();
+      for(let i=requests.length-1;i>=0;i--)if(requests[i].task.controller.signal.aborted){requests[i].reject(Error(stopCode||'cancelled'));requests.splice(i,1);}
+      while(queue.length&&active.size<config.concurrency&&usedWeight()+requests.reduce((sum,r)=>sum+r.weight,0)+config.requestWeight<=config.weightPerMinute&&!stopCode&&config.batchMs-(clock()-start)>=config.timeoutMs)launch(queue.shift());
+      while(requests.length&&!stopCode&&inflight.size<config.concurrency&&usedWeight()+requests[0].weight<=config.weightPerMinute&&config.batchMs-(clock()-start)>=config.timeoutMs)begin(requests.shift());
+      if(active.size){
+        if(requests.length&&config.batchMs-(clock()-start)<config.timeoutMs){stop('batch_timeout');continue;}
+        let budgetTimer=null;const notified=new Promise(resolve=>{wakeResolve=resolve;});
+        if(requests.length&&usedWeight()+requests[0].weight>config.weightPerMinute){
+          const wait=ledger.length?Math.max(1,ledger[0].at+config.intervalMs-clock()):config.batchMs;
+          budgetTimer=setTimer(wake,Math.min(wait,Math.max(1,config.batchMs-(clock()-start))));
+        }
+        await Promise.race([...active.values()].map(task=>task.promise).concat(notified));
+        if(budgetTimer!==null)clearTimer(budgetTimer);wakeResolve=null;continue;
+      }
       if(queue.length){const remaining=config.batchMs-(clock()-start);if(remaining<config.timeoutMs){stop('batch_timeout');continue;}
-        const wait=ledger.length?Math.max(1,ledger[0]+config.intervalMs-clock()):1;
+        const wait=ledger.length?Math.max(1,ledger[0].at+config.intervalMs-clock()):1;
         await sleep(Math.min(wait,remaining));}
     }
-  }finally{if(batchTimer!==null)clearTimer(batchTimer);if(active.size){stop(stopCode||'cancelled');await Promise.all([...active.values()].map(task=>task.promise));}}
+  }finally{if(batchTimer!==null)clearTimer(batchTimer);if(active.size){stop(stopCode||'cancelled');await Promise.all([...active.values()].map(task=>task.promise));}for(const request of requests.splice(0))request.reject(Error(stopCode||'cancelled'));}
   for(const address of queue)markFailure(address,stopCode||'not_attempted',null);
   if(stopCode&&attempted===0)for(const address of addresses)markFailure(address,stopCode,null);
   const generatedAt=iso(now());
@@ -183,7 +283,9 @@ async function collect({feed,previous=null,fetch:fetcher=globalThis.fetch,now=Da
     status:!addresses.length?'ready':failed||queue.length||stopCode?(available?'partial':'unavailable'):'ready',
     startedAt,completedAt:generatedAt,accounts:addresses.length,cached,attempted,succeeded,failed,unattempted:queue.length,
     available,stopCode,refreshIntervalMinutes:360,staleAfterMinutes:config.staleMs/60000,sourceSampleLimit:20000,maxChartPoints:LIMITS.maxPoints,
-    weightPerMinute:config.weightPerMinute,requestWeight:config.requestWeight,maxConcurrency:config.concurrency,maxBatchMinutes:config.batchMs/60000},accounts};
+    weightPerMinute:config.weightPerMinute,requestWeight:config.requestWeight,ledgerRequestWeight:LIMITS.ledgerRequestWeight,requestCount,ledgerRequests,
+    roiAccounts:Object.values(accounts).filter(r=>Object.values(r.portfolio?.windows||{}).some(w=>Number.isFinite(w.roi))).length,
+    maxConcurrency:config.concurrency,maxBatchMinutes:config.batchMs/60000},accounts};
 }
 async function readFileJson(file, io=fs) {
   const stat=await io.stat(file);if(stat.size>LIMITS.maxFileBytes)fail('cache_file_too_large');
