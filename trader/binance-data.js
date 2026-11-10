@@ -18,6 +18,7 @@
   const MAX_AGE = 30 * 60 * 1000;
   const LIMIT = 5000;
   const PERFORMANCE_MAX_AGE = 60 * 60 * 1000;
+  const CHART_MAX_AGE = 60 * 60 * 1000;
   const STATES = ['ready', 'stale', 'unavailable', 'restricted'];
   const KINDS = ['baseline', 'appeared', 'increased', 'decreased', 'absent'];
   const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -100,6 +101,34 @@
     const status=part.status==='unavailable'||!part.lastSuccessAt?'unavailable':part.status==='ready'&&fresh&&!stopped&&!opt.requestFailed?'ready':'stale';
     return {...base,...part,status,...(status==='unavailable'?{roi:null,pnl:null,mdd:null,winRate:null}:{}),errorCode:part.errorCode||(stopped?(opt.batchErrorCode||data.source.errorCode):null)||(opt.requestFailed?'snapshot_read_failed':null)};
   }
+  function parseChart(value) {
+    if(value===undefined)return {schemaVersion:1,byPeriod:{}};
+    if(!record(value)||value.schemaVersion!==1||!record(value.byPeriod)||Object.keys(value.byPeriod).some(period=>period!=='30D'))throw new Error('BINANCE_CHART_SCHEMA');
+    const output={schemaVersion:1,byPeriod:{}};
+    for(const [period,part]of Object.entries(value.byPeriod)){
+      if(!record(part)||!['ready','stale','unavailable'].includes(part.status)||!iso(part.lastAttemptAt)||!nullableTime(part.lastSuccessAt)||part.sourceAsOf!==null||part.sourcePeriod!==period||part.dataType!=='PNL'||part.currency!=='USDT'||!code(part.errorCode)||!Array.isArray(part.points)||part.points.length>1000)throw new Error('BINANCE_CHART_SCHEMA');
+      const evidence=part.evidence;
+      if(evidence!==null&&(!record(evidence)||!/^[a-f0-9]{64}$/.test(evidence.sha256)||!Number.isSafeInteger(evidence.bytes)||evidence.bytes<=0||evidence.bytes>2097152||evidence.httpStatus!==200||evidence.code!=='000000'||!iso(evidence.receivedAt)))throw new Error('BINANCE_CHART_SCHEMA');
+      if(part.status==='unavailable'?part.lastSuccessAt!==null||evidence!==null||part.points.length!==0:!iso(part.lastSuccessAt)||!evidence||evidence.receivedAt!==part.lastSuccessAt)throw new Error('BINANCE_CHART_SCHEMA');
+      let previous=-Infinity;const points=part.points.map(point=>{
+        const time=Date.parse(point?.time);if(!record(point)||!iso(point.time)||time<=0||time<=previous||time>Date.parse(part.lastSuccessAt)+300000||typeof point.value!=='number'||!Number.isFinite(point.value))throw new Error('BINANCE_CHART_SCHEMA');
+        previous=time;return {time:point.time,value:point.value};
+      });
+      output.byPeriod[period]={status:part.status,lastAttemptAt:part.lastAttemptAt,lastSuccessAt:part.lastSuccessAt,sourceAsOf:null,sourcePeriod:period,dataType:'PNL',currency:'USDT',points,errorCode:part.errorCode,evidence:evidence?{sha256:evidence.sha256,bytes:evidence.bytes,httpStatus:200,code:'000000',receivedAt:evidence.receivedAt}:null};
+    }
+    return output;
+  }
+  function chart(feed,period,options){
+    const opt=optionsView(options),base={status:'unavailable',periodSupported:period==='30D',sourcePeriod:period,dataType:'PNL',currency:'USDT',lastAttemptAt:null,lastSuccessAt:null,sourceAsOf:null,points:[],pointCount:null,startAt:null,endAt:null,errorCode:null,evidence:null};
+    if(!feed||period!=='30D')return base;
+    const data=parseFeed(feed);if(data.profile.visibility==='restricted'||data.source.status==='restricted'||data.source.errorCode==='restricted')return {...base,status:'restricted'};
+    if(data.profile.visibility!=='public')return base;
+    let part;try{part=parseChart(data.chart).byPeriod[period];}catch(_){return {...base,errorCode:'chart_schema'};}if(!part)return base;
+    const stopped=data.source.refreshStopped||opt.batchStopped,success=Date.parse(part.lastSuccessAt),fresh=Number.isFinite(success)&&opt.now-success<=CHART_MAX_AGE&&success<=opt.now+300000;
+    const status=part.status==='unavailable'||!part.lastSuccessAt?'unavailable':part.status==='ready'&&fresh&&!stopped&&!opt.requestFailed?'ready':'stale';
+    const points=status==='unavailable'?[]:part.points;
+    return {...base,...part,status,points,pointCount:status==='unavailable'?null:points.length,startAt:points[0]?.time||null,endAt:points.at(-1)?.time||null,errorCode:part.errorCode||(stopped?(opt.batchErrorCode||data.source.errorCode):null)||(opt.requestFailed?'snapshot_read_failed':null)};
+  }
   function parseCollection(data) {
     if (!record(data) || data.schemaVersion !== 1 || !iso(data.generatedAt) ||
         !record(data.source) || typeof data.source.refreshStopped !== 'boolean' || !code(data.source.errorCode) ||
@@ -109,7 +138,7 @@
     const seen = new Set();
     data.portfolios.forEach(feed => {
       parseFeed(feed);
-      if (feed.profile.visibility==='public'&&feed.source.status!=='restricted'&&feed.source.errorCode!=='restricted'&&!feed.source.refreshStopped&&!data.source.refreshStopped) parsePerformance(feed.performance);
+      if (feed.profile.visibility==='public'&&feed.source.status!=='restricted'&&feed.source.errorCode!=='restricted'&&!feed.source.refreshStopped&&!data.source.refreshStopped) {parsePerformance(feed.performance);parseChart(feed.chart);}
       if (seen.has(feed.portfolioId)) throw new Error('BINANCE_COLLECTION_SCHEMA');
       seen.add(feed.portfolioId);
     });
@@ -236,5 +265,5 @@
     });
     return rows;
   }
-  return Object.freeze({ PORTFOLIOS, REFERENCE_PORTFOLIOS, MAX_AGE, PERFORMANCE_MAX_AGE, parseCollection, toTraders, detail, performance });
+  return Object.freeze({ PORTFOLIOS, REFERENCE_PORTFOLIOS, MAX_AGE, PERFORMANCE_MAX_AGE, CHART_MAX_AGE, parseCollection, toTraders, detail, performance, chart });
 });
