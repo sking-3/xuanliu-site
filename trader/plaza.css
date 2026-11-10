@@ -240,3 +240,6 @@ th{color:#728098;font-weight:500;background:#fbfcfe}
 .books-shell.trader-page .card.compact-history .performance-chart{display:none}
 .books-shell.trader-page .card.compact-history .roi{font-size:24px}
 .books-shell.trader-page .card.compact-history .roi-label{margin-bottom:10px}
+
+/* Keep long, honest percentage values clear of charts on small screens. */
+@media(max-width:420px){.books-shell.trader-page .card .performance-body .metrics>div{flex-wrap:wrap;row-gap:2px}.books-shell.trader-page .card .performance-body .metrics strong{margin-left:auto}}
