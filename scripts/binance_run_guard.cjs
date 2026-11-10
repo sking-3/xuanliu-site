@@ -13,13 +13,17 @@ function decision(records,{attempt=1,truncated=false}={}){
  }
  return {halt:skipped||truncated,reason:skipped||truncated?'previous_run_unknown':'first_collection'};
 }
+function historyTruncated(response,introduced){
+ return !response.workflow_runs.some(r=>Date.parse(r.created_at)<introduced)&&
+  (response.total_count>response.workflow_runs.length||response.workflow_runs.length>=20);
+}
 function main(){
  const repo=process.env.GITHUB_REPOSITORY,id=process.env.GITHUB_RUN_ID,attempt=Number(process.env.GITHUB_RUN_ATTEMPT||'1');
  if(repo!=='sking-3/xuanliu-site'||!/^\d+$/.test(id||''))throw Error('invalid_workflow_context');
  if(attempt>1){console.log('halt');return;}
  const api=route=>JSON.parse(execFileSync('gh',['api',route],{encoding:'utf8',timeout:20000,maxBuffer:5*1024*1024}));
  const response=api('repos/'+repo+'/actions/workflows/refresh-traders.yml/runs?branch=main&per_page=20');
- if(!Array.isArray(response.workflow_runs))throw Error('invalid_run_metadata');
+ if(!Array.isArray(response.workflow_runs)||!response.workflow_runs.every(r=>Number.isFinite(Date.parse(r.created_at))))throw Error('invalid_run_metadata');
  // This collector did not exist before its first source commit.
  const introduced=Date.parse('2026-11-10T00:34:21Z');
  const prior=response.workflow_runs.filter(r=>String(r.id)!==id&&Date.parse(r.created_at)>=introduced).sort((a,b)=>Date.parse(b.created_at)-Date.parse(a.created_at));
@@ -31,8 +35,8 @@ function main(){
   const result=decision(records);
   if(result.reason==='previous_run_committed'||result.reason==='previous_run_unverified'){console.log(result.halt?'halt':'ok');return;}
  }
- const result=decision(records,{truncated:prior.length>=20});
+ const result=decision(records,{truncated:historyTruncated(response,introduced)});
  console.log(result.halt?'halt':'ok');
 }
-module.exports={decision,STEP};
+module.exports={decision,STEP,historyTruncated};
 if(require.main===module){try{main();}catch(e){console.error('Cannot verify prior Binance run; no source request will be made.');process.exitCode=1;}}
