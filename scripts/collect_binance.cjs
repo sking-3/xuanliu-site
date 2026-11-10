@@ -12,6 +12,9 @@ function createCollector(id){
 const spec=PORTFOLIOS.find(p=>p.id===id);if(!spec)throw Error('unsupported_portfolio');
 const ID=spec.id;
 const BASE='https://www.binance.com/bapi/futures/v1/friendly/future/copy-trade/';
+const PERFORMANCE_BASE='https://www.binance.com/bapi/futures/v1/public/future/copy-trade/';
+const PERFORMANCE_PERIOD='30D';
+const PERFORMANCE_PATH='lead-portfolio/performance?portfolioId='+ID+'&timeRange='+PERFORMANCE_PERIOD;
 const PROFILE_URL='https://www.binance.com/en/copy-trading/lead-details/'+ID;
 const HALT=new Set(['http_202','http_401','http_403','http_418','http_429','http_451','restricted','inactive','identity_mismatch','schema_changed']);
 const decimal=x=>{const s=String(x);if(!/^-?\d+(?:\.\d+)?$/.test(s)||s.length>100||!Number.isFinite(Number(s)))throw Error('schema_changed');return s;};
@@ -21,14 +24,42 @@ const str=(x,max=150)=>{if(typeof x!=='string'||!x.length||x.length>max)throw Er
 const hash=x=>crypto.createHash('sha256').update(typeof x==='string'?x:JSON.stringify(x)).digest('hex');
 function compare(a,b){const p=abs(a).split('.'),q=abs(b).split('.'),n=Math.max((p[1]||'').length,(q[1]||'').length);
  const x=BigInt(p[0]+(p[1]||'').padEnd(n,'0')),y=BigInt(q[0]+(q[1]||'').padEnd(n,'0'));return x<y?-1:x>y?1:0;}
+function emptyPerformance(){return {schemaVersion:1,byPeriod:{}};}
+function performanceNumber(value){
+ if(value===undefined||value===null)return null;
+ if(typeof value==='number'){if(Number.isFinite(value))return value;throw Error('schema_changed');}
+ if(typeof value!=='string'||value.length>100||!/^[+-]?\d+(?:\.\d+)?$/.test(value)||!Number.isFinite(Number(value)))throw Error('schema_changed');
+ return Number(value);
+}
+function performance(data){
+ if(!data||typeof data!=='object'||Array.isArray(data)||Object.hasOwn(data,'timeRange')&&data.timeRange!==PERFORMANCE_PERIOD)throw Error('schema_changed');
+ const values=Object.fromEntries(['roi','pnl','mdd','winRate'].map(key=>[key,performanceNumber(data[key])]));
+ if(values.winRate!==null&&(values.winRate<0||values.winRate>100))throw Error('schema_changed');
+ return values;
+}
+function emptyPerformancePeriod(){return {status:'unavailable',lastAttemptAt:null,lastSuccessAt:null,sourceAsOf:null,sourcePeriod:PERFORMANCE_PERIOD,currency:'USDT',roi:null,pnl:null,mdd:null,winRate:null,errorCode:null,evidence:null};}
+function validPerformance(value){
+ const record=x=>x!==null&&typeof x==='object'&&!Array.isArray(x);
+ const iso=x=>typeof x==='string'&&/^\d{4}-\d{2}-\d{2}T/.test(x)&&Number.isFinite(Date.parse(x));
+ if(!record(value)||value.schemaVersion!==1||!record(value.byPeriod)||Object.keys(value.byPeriod).some(key=>key!==PERFORMANCE_PERIOD))return false;
+ return Object.values(value.byPeriod).every(w=>{
+  if(!record(w)||!['ready','stale','unavailable'].includes(w.status)||!iso(w.lastAttemptAt)||!(w.lastSuccessAt===null||iso(w.lastSuccessAt))||w.sourceAsOf!==null||w.sourcePeriod!==PERFORMANCE_PERIOD||w.currency!=='USDT'||!['roi','pnl','mdd','winRate'].every(key=>w[key]===null||typeof w[key]==='number'&&Number.isFinite(w[key]))||!(w.errorCode===null||typeof w.errorCode==='string'&&/^[a-zA-Z0-9_]{1,80}$/.test(w.errorCode)))return false;
+  if(w.winRate!==null&&(w.winRate<0||w.winRate>100))return false;
+  if(w.status==='unavailable')return w.lastSuccessAt===null&&w.evidence===null&&['roi','pnl','mdd','winRate'].every(key=>w[key]===null);
+  const e=w.evidence;
+  return iso(w.lastSuccessAt)&&(w.status!=='ready'||w.errorCode===null)&&record(e)&&typeof e.sha256==='string'&&/^[a-f0-9]{64}$/.test(e.sha256)&&Number.isSafeInteger(e.bytes)&&e.bytes>0&&e.bytes<=2*1024*1024&&e.httpStatus===200&&e.code==='000000'&&iso(e.receivedAt)&&e.receivedAt===w.lastSuccessAt;
+ });
+}
 function emptyHistory(){return {status:'unavailable',fetchedAt:null,errorCode:null,complete:false,rows:[]};}
 function initial(){return {schemaVersion:1,sourceType:'copy_trade',portfolioId:ID,profile:{id:ID,name:spec.name,status:'UNKNOWN',visibility:'unknown',sourceUrl:PROFILE_URL},generatedAt:null,
  source:{status:'unavailable',lastAttemptAt:null,lastSuccessAt:null,errorCode:null,refreshStopped:false},
- snapshot:null,observations:[],pendingAbsent:{},snapshots:[],evidence:{},history:{orders:emptyHistory(),closedPositions:emptyHistory()}};}
+ snapshot:null,observations:[],pendingAbsent:{},snapshots:[],evidence:{},performance:emptyPerformance(),history:{orders:emptyHistory(),closedPositions:emptyHistory()}};}
 function checkPrevious(p){if(p===null||p===undefined)return initial();
  if(p.schemaVersion!==1||p.sourceType!=='copy_trade'||p.portfolioId!==ID||p.profile?.id!==ID||!p.source||!p.history||!Array.isArray(p.observations)||p.observations.length>200)throw Error('invalid_previous_state');
  if(p.snapshot&&(!p.snapshot.complete||!Array.isArray(p.snapshot.positions)||p.snapshot.positions.length>300||!Number.isFinite(Date.parse(p.snapshot.observedAt))))throw Error('invalid_previous_state');
- return JSON.parse(JSON.stringify(p));}
+ const visible=p.profile.visibility==='public'&&p.source.status!=='restricted'&&p.source.errorCode!=='restricted';
+ if(visible&&p.performance!==undefined&&!validPerformance(p.performance))throw Error('invalid_previous_state');
+ const out=JSON.parse(JSON.stringify(p));out.performance=visible?(out.performance||emptyPerformance()):emptyPerformance();return out;}
 function profile(d){if(!d||typeof d!=='object')throw Error('schema_changed');
  if(String(d.leadPortfolioId)!==ID)throw Error('identity_mismatch');
  return {id:ID,name:str(d.nickname,200),status:str(d.status,30),visibility:d.positionShow===true?'public':d.positionShow===false?'restricted':'unknown',sourceUrl:PROFILE_URL};}
@@ -62,13 +93,14 @@ function changes(previous,current,priorPending={},baseline=false){
 }
 async function request(relative,{body,fetchImpl=fetch,timeoutMs=15000}={}){
  const ctl=new AbortController(),timer=setTimeout(()=>ctl.abort(),timeoutMs);
- try{const r=await fetchImpl(BASE+relative,{method:body?'POST':'GET',redirect:'manual',credentials:'omit',signal:ctl.signal,headers:body?{'accept':'application/json','content-type':'application/json'}:{accept:'application/json'},...(body?{body:JSON.stringify(body)}:{})});
+ try{const r=await fetchImpl((relative===PERFORMANCE_PATH?PERFORMANCE_BASE:BASE)+relative,{method:body?'POST':'GET',redirect:'manual',credentials:'omit',signal:ctl.signal,headers:body?{'accept':'application/json','content-type':'application/json'}:{accept:'application/json'},...(body?{body:JSON.stringify(body)}:{})});
  if(r.status!==200)throw Error('http_'+r.status);
  if(!r.headers.get('content-type')?.includes('application/json'))throw Error('schema_changed');
  const reader=r.body?.getReader();if(!reader)throw Error('schema_changed');
  const chunks=[];let bytes=0;
  try{for(;;){const {done,value}=await reader.read();if(done)break;bytes+=value.byteLength;if(bytes>2*1024*1024)throw Error('response_too_large');chunks.push(Buffer.from(value));}}finally{await reader.cancel().catch(()=>{});}
  const raw=Buffer.concat(chunks).toString('utf8');let j;try{j=JSON.parse(raw);}catch{throw Error('schema_changed');}
+ if(!j||typeof j!=='object'||Array.isArray(j))throw Error('schema_changed');
  if(j.code!=='000000'||j.success!==true)throw Error('source_error_'+String(j.code||'unknown').replace(/[^a-zA-Z0-9_]/g,'').slice(0,30));
  return {data:j.data,evidence:{sha256:hash(raw),bytes,httpStatus:200,code:j.code}};
  }catch(e){if(e.name==='AbortError')throw Error('timeout');throw e;}finally{clearTimeout(timer);}
@@ -78,7 +110,7 @@ async function collect(previous=null,{fetchImpl=fetch,now=()=>Date.now(),sleep=m
  const out=checkPrevious(previous),old=checkPrevious(previous),at=()=>new Date(now()).toISOString();
  out.generatedAt=at();
  if(out.source.refreshStopped)return out;
- if(stopBeforeRequest){out.profile.visibility='unknown';out.source.status='unavailable';out.source.errorCode='previous_run_unverified';out.source.refreshStopped=true;out.snapshot=null;out.snapshots=[];out.observations=[];out.pendingAbsent={};out.history={orders:emptyHistory(),closedPositions:emptyHistory()};return out;}
+ if(stopBeforeRequest){out.profile.visibility='unknown';out.source.status='unavailable';out.source.errorCode='previous_run_unverified';out.source.refreshStopped=true;out.snapshot=null;out.snapshots=[];out.observations=[];out.pendingAbsent={};out.history={orders:emptyHistory(),closedPositions:emptyHistory()};out.performance=emptyPerformance();return out;}
  out.source.lastAttemptAt=at();
  const get=async(relative,body)=>{const r=await request(relative,{body,fetchImpl});out.evidence[relative.split('?')[0]]={...r.evidence,receivedAt:at()};return r.data;};
  try{
@@ -94,7 +126,7 @@ async function collect(previous=null,{fetchImpl=fetch,now=()=>Date.now(),sleep=m
  out.pendingAbsent=diff.pending;out.snapshot=snap;
  out.snapshots=[...(old.snapshots||[]),snap].slice(-24);
  out.source={status:'ready',lastAttemptAt:out.source.lastAttemptAt,lastSuccessAt:snap.observedAt,errorCode:null,refreshStopped:false};
- }catch(e){const c=code(e);out.source.status=c==='restricted'?'restricted':out.snapshot?'stale':'unavailable';out.source.errorCode=c;out.source.refreshStopped=(HALT.has(c)||c.startsWith('source_error_'));out.pendingAbsent={};if(c==='restricted'){out.snapshot=null;out.snapshots=[];out.observations=[];out.history={orders:emptyHistory(),closedPositions:emptyHistory()};}return out;}
+ }catch(e){const c=code(e);out.source.status=c==='restricted'?'restricted':out.snapshot?'stale':'unavailable';out.source.errorCode=c;out.source.refreshStopped=(HALT.has(c)||c.startsWith('source_error_'));out.pendingAbsent={};if(c==='restricted'||out.profile.visibility!=='public'){out.source.status=c==='restricted'?'restricted':'unavailable';out.snapshot=null;out.snapshots=[];out.observations=[];out.history={orders:emptyHistory(),closedPositions:emptyHistory()};out.performance=emptyPerformance();}return out;}
  const to=now(),from=to-7*86400000;
  const tasks=[['orders','lead-portfolio/order-history',{portfolioId:ID,startTime:from,endTime:to,pageSize:20},orders],
  ['closedPositions','lead-portfolio/position-history',{portfolioId:ID,pageNumber:1,pageSize:20,sort:'OPENING'},closed]];
@@ -107,10 +139,22 @@ async function collect(previous=null,{fetchImpl=fetch,now=()=>Date.now(),sleep=m
  catch(e){const c=code(e),h=out.history[kind]||emptyHistory();out.history[kind]={...h,status:h.fetchedAt?'stale':'unavailable',errorCode:c,complete:false};
  if((HALT.has(c)||c.startsWith('source_error_'))){out.source.refreshStopped=true;out.source.errorCode=c;}}
  }
+ if(!out.source.refreshStopped){
+  await sleep(2000);
+  const last=out.performance.byPeriod[PERFORMANCE_PERIOD]||emptyPerformancePeriod(),attempt=at();
+  try{
+   const response=await request(PERFORMANCE_PATH,{fetchImpl});
+   const values=performance(response.data),receivedAt=at();
+   out.performance.byPeriod[PERFORMANCE_PERIOD]={...values,status:'ready',lastAttemptAt:attempt,lastSuccessAt:receivedAt,sourceAsOf:null,sourcePeriod:PERFORMANCE_PERIOD,currency:'USDT',errorCode:null,evidence:{...response.evidence,receivedAt}};
+  }catch(e){
+   const c=code(e);out.performance.byPeriod[PERFORMANCE_PERIOD]={...last,status:last.lastSuccessAt?'stale':'unavailable',lastAttemptAt:attempt,errorCode:c};
+   if(HALT.has(c)||c.startsWith('source_error_')){out.source.refreshStopped=true;out.source.errorCode=c;}
+  }
+ }
  out.generatedAt=at();return out;
 }
 
-return {ID,BASE,HALT,initial,profile,positions,orders,closed,changes,compare,request,collect,validateState:checkPrevious};
+return {ID,BASE,PERFORMANCE_BASE,PERFORMANCE_PERIOD,PERFORMANCE_PATH,HALT,initial,profile,positions,orders,closed,performance,validPerformance,changes,compare,request,collect,validateState:checkPrevious};
 }
 const DEFAULT_ID='5156287639231681792';
 const defaultCollector=createCollector(DEFAULT_ID);
@@ -124,7 +168,7 @@ function validateCollection(previous){
   createCollector(p.portfolioId).validateState(p);
   seen.add(p.portfolioId);
  }
- return clone(previous);
+ const out=clone(previous);out.portfolios=out.portfolios.map(p=>createCollector(p.portfolioId).validateState(p));return out;
 }
 function paused(feed,error,at){
  const out=clone(feed);
@@ -172,8 +216,22 @@ function reconcileLegacy(previous,legacy){
   hidden.profile.visibility='restricted';hidden.source={...hidden.source,status:'restricted',errorCode:'restricted',refreshStopped:true};
   hidden.snapshot=null;hidden.snapshots=[];hidden.observations=[];hidden.pendingAbsent={};
   hidden.history={orders:{status:'unavailable',fetchedAt:null,errorCode:null,complete:false,rows:[]},closedPositions:{status:'unavailable',fetchedAt:null,errorCode:null,complete:false,rows:[]}};
+  hidden.performance={schemaVersion:1,byPeriod:{}};
   out.portfolios[index]=hidden;
  }else if((value.source.refreshStopped&&!current.source.refreshStopped)||(!current.source.refreshStopped&&stamp(value)>stamp(current)))out.portfolios[index]=value;
+ // Legacy writers may omit performance; retain its own latest successful result
+ // without using it to resume source collection or renew a position timestamp.
+ const chosen=out.portfolios[index];
+ if(chosen.profile.visibility==='public'&&current.profile.visibility==='public'&&value.profile.visibility==='public'&&!restricted(chosen)){
+  const a=current.performance?.byPeriod?.['30D'],b=value.performance?.byPeriod?.['30D'];
+  if(a||b){
+   const ms=w=>Date.parse(w?.lastAttemptAt)||0,successMs=w=>Date.parse(w?.lastSuccessAt)||0;
+   const attempt=ms(a)>=ms(b)?a:b,success=successMs(a)>=successMs(b)?a:b;
+   const latest=success?.lastSuccessAt?{...success,lastAttemptAt:attempt.lastAttemptAt,errorCode:attempt.errorCode,status:attempt.status==='ready'&&attempt.lastSuccessAt===success.lastSuccessAt?'ready':'stale'}:{...attempt};
+   if(chosen.source.refreshStopped&&latest.lastSuccessAt)latest.status='stale';
+   chosen.performance={schemaVersion:1,byPeriod:{'30D':latest}};
+  }
+ }
  const refusal=[current,value].find(p=>p.source.refreshStopped&&globalRefusal(p.source.errorCode));
  if(refusal&&!out.source.refreshStopped)out.source={refreshStopped:true,errorCode:refusal.source.errorCode};
  return out;

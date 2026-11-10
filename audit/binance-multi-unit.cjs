@@ -12,7 +12,7 @@ function fake({hidden=[],blocked=null,badIdentity=null}={}){
   calls.push({id,url,options});
   if(blocked===id)return new Response('Forbidden',{status:403});
   const data=url.includes('/detail?')?{leadPortfolioId:id===badIdentity?PORTFOLIOS[0].id:id,nickname:PORTFOLIOS.find(p=>p.id===id).name,status:'ACTIVE',positionShow:!hidden.includes(id)}:
-   url.includes('/positions?')?[raw(id)]:{list:[],total:0,indexValue:'0'};
+   url.includes('/positions?')?[raw(id)]:url.includes('/performance?')?{timeRange:'30D',roi:id===PORTFOLIOS[0].id?'1.2':2.3,pnl:'100',mdd:'-3',winRate:50}:{list:[],total:0,indexValue:'0'};
   return new Response(JSON.stringify({code:'000000',success:true,data}),{status:200,headers:{'content-type':'application/json'}});
  };
  return {calls,fetchImpl};
@@ -21,8 +21,8 @@ const run=(p,f,extra={})=>collectAll(p,{fetchImpl:f.fetchImpl,sleep:async()=>{},
 (async()=>{
  await test('three allowlisted identities get separate requests, histories and source URLs',async()=>{
   const f=fake(),out=await run(null,f);
-  assert.equal(out.portfolios.length,3);assert.equal(f.calls.length,12);
-  for(const p of out.portfolios){assert.equal(p.profile.id,p.portfolioId);assert(p.profile.sourceUrl.endsWith('/'+p.portfolioId));assert.equal(p.source.status,'ready');assert.equal(f.calls.filter(c=>c.id===p.portfolioId).length,4);}
+  assert.equal(out.portfolios.length,3);assert.equal(f.calls.length,15);
+  for(const p of out.portfolios){assert.equal(p.profile.id,p.portfolioId);assert(p.profile.sourceUrl.endsWith('/'+p.portfolioId));assert.equal(p.source.status,'ready');assert.equal(f.calls.filter(c=>c.id===p.portfolioId).length,5);}
   assert.equal(out.portfolios[0].snapshot.positions[0].symbol,'BTCUSDT');
   assert.equal(out.portfolios[1].snapshot.positions[0].symbol,'ETHUSDT');
  });
@@ -41,11 +41,11 @@ const run=(p,f,extra={})=>collectAll(p,{fetchImpl:f.fetchImpl,sleep:async()=>{},
  await test('an account already stopped is never requested while other identities refresh',async()=>{
   const previous=initial(),id=PORTFOLIOS[1].id;
   previous.portfolios[1].source={...previous.portfolios[1].source,refreshStopped:true,errorCode:'schema_changed'};
-  const f=fake(),out=await run(previous,f);assert.equal(f.calls.some(c=>c.id===id),false);assert.equal(out.portfolios[1].source.errorCode,'schema_changed');assert.equal(f.calls.length,8);
+  const f=fake(),out=await run(previous,f);assert.equal(f.calls.some(c=>c.id===id),false);assert.equal(out.portfolios[1].source.errorCode,'schema_changed');assert.equal(f.calls.length,10);
  });
  await test('HTTP refusal halts the batch before remaining identities and stays stopped next run',async()=>{
   const id=PORTFOLIOS[1].id,f=fake({blocked:id}),out=await run(null,f);
-  assert.equal(f.calls.length,5);assert.equal(out.source.refreshStopped,true);
+  assert.equal(f.calls.length,6);assert.equal(out.source.refreshStopped,true);
   assert(out.portfolios.every(p=>p.source.refreshStopped));
   assert.equal(out.portfolios[0].source.status,'stale');assert.equal(out.portfolios[0].source.lastSuccessAt,new Date(TIME).toISOString());
   const again=fake();await run(out,again);assert.equal(again.calls.length,0);
@@ -97,6 +97,30 @@ const run=(p,f,extra={})=>collectAll(p,{fetchImpl:f.fetchImpl,sleep:async()=>{},
   assert.equal(merged.source.refreshStopped,true);assert.equal(merged.source.errorCode,'http_429');
   assert.equal(merged.portfolios[0].source.status,'restricted');
   const f=fake();await run(merged,f);assert.equal(f.calls.length,0);
+ });
+ await test('performance remains scoped to each of the same three identities',async()=>{
+  const f=fake(),out=await run(null,f);assert.equal(out.portfolios[0].performance.byPeriod['30D'].roi,1.2);assert.equal(out.portfolios[1].performance.byPeriod['30D'].roi,2.3);
+  assert.equal(f.calls.filter(c=>c.url.includes('/performance?')).length,3);assert.equal(f.calls.some(c=>c.id==='5075281354358777856'),false);
+  for(const p of out.portfolios)assert.deepEqual(Object.keys(p.performance.byPeriod),['30D']);
+ });
+ await test('performance refusal halts remaining identities and survives the next batch',async()=>{
+  const f=fake(),fetchImpl=async(url,options)=>url.includes('/performance?')?new Response('blocked',{status:429}):f.fetchImpl(url,options);
+  let calls=0;const out=await run(null,{fetchImpl:async(...args)=>{calls++;return fetchImpl(...args);}});assert.equal(calls,5);assert.equal(out.source.refreshStopped,true);assert.equal(out.source.errorCode,'http_429');assert(out.portfolios.every(p=>p.source.refreshStopped));assert.equal(out.portfolios[0].performance.byPeriod['30D'].status,'unavailable');assert.deepEqual(out.portfolios[1].performance.byPeriod,{});
+  const again=fake();await run(out,again);assert.equal(again.calls.length,0);
+ });
+ await test('hidden legacy data clears performance in both merge directions',async()=>{
+  const current=await run(null,fake()),hidden=structuredClone(current.portfolios[0]);hidden.profile.visibility='restricted';hidden.source.status='restricted';hidden.source.errorCode='restricted';hidden.source.refreshStopped=true;
+  const merged=reconcileLegacy(current,hidden);assert.deepEqual(merged.portfolios[0].performance,{schemaVersion:1,byPeriod:{}});
+  const reverse=reconcileLegacy(merged,current.portfolios[0]);assert.deepEqual(reverse.portfolios[0].performance,{schemaVersion:1,byPeriod:{}});assert.equal(reverse.portfolios[0].source.refreshStopped,true);
+ });
+ await test('legacy updates retain newer performance independently without clearing source stop',async()=>{
+  const current=await run(null,fake()),legacy=structuredClone(current.portfolios[0]);legacy.generatedAt=new Date(TIME+10000).toISOString();delete legacy.performance;
+  const merged=reconcileLegacy(current,legacy);assert.deepEqual(merged.portfolios[0].performance,current.portfolios[0].performance);assert.equal(merged.portfolios[0].source.lastSuccessAt,current.portfolios[0].source.lastSuccessAt);
+  const halted=structuredClone(legacy);halted.source.refreshStopped=true;halted.source.errorCode='schema_changed';const blocked=reconcileLegacy(current,halted);assert.equal(blocked.portfolios[0].source.refreshStopped,true);assert.equal(blocked.portfolios[0].performance.byPeriod['30D'].status,'stale');assert.equal(blocked.portfolios[0].performance.byPeriod['30D'].lastSuccessAt,current.portfolios[0].performance.byPeriod['30D'].lastSuccessAt);
+ });
+ await test('newer performance failure preserves its error and the latest success during legacy merge',async()=>{
+  const current=await run(null,fake()),legacy=structuredClone(current.portfolios[0]),w=legacy.performance.byPeriod['30D'];w.status='stale';w.lastAttemptAt=new Date(TIME+10000).toISOString();w.errorCode='http_503';
+  const merged=reconcileLegacy(current,legacy),result=merged.portfolios[0].performance.byPeriod['30D'];assert.equal(result.status,'stale');assert.equal(result.errorCode,'http_503');assert.equal(result.lastAttemptAt,w.lastAttemptAt);assert.equal(result.lastSuccessAt,current.portfolios[0].performance.byPeriod['30D'].lastSuccessAt);
  });
  console.log('PASS '+passed+' Binance multi-portfolio checks');
 })().catch(e=>{console.error(e);process.exitCode=1;});

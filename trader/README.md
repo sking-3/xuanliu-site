@@ -22,6 +22,16 @@ Hyperliquid 官方网页使用 `https://stats-data.hyperliquid.xyz/Mainnet/leade
 
 旧 `/trader/binance/` 页面只做兼容跳转，进入广场的 Binance 筛选；已注册的组合 ID 会转换成同页搜索。未知、空值或重复 ID 不自动跳转到另一个账号。
 
+### Binance 30D 来源业绩
+
+独立保存 `performance.byPeriod["30D"]`，四项为来源直接返回的 ROI、PnL、MDD 和胜率，不由最多 20 条历史样本推算。精确请求为公开网页接口 `GET /bapi/futures/v1/public/future/copy-trade/lead-portfolio/performance?portfolioId=…&timeRange=30D`；仅在原三账号的身份、公开状态、ACTIVE 状态与既有停止守卫通过后请求。熬鹰资本身份卡不参与采集。
+
+ROI、MDD、胜率按来源百分数保存，不再乘 100；PnL 计价为 USDT。数据为独立的 30D 请求周期，缺少其他周期时显示未取得，不拿 30D 代替 7D、90D、180D、365D 或累计。未取得收益曲线时不生成模拟走势。单项缺失保留 null，来源明确返回 0 才显示 0。
+
+依据[币安业绩说明](https://www.binance.com/en/support/faq/detail/54aa6d3b43bc4f6eb4a3a6e3aea40acd)，PnL 包括已实现和未实现部分，组合层面的已实现部分扣除相关费用；现行 ROI 使用最大资金基数。胜率按来源仓位口径，部分平仓不作为完整平仓计数，与 Hyperliquid 的平仓成交片段胜率不同。页面保留各平台指标名称与口径，不暗示两者统计方式相同。
+
+绩效有独立的最近尝试、成功采集时间和证据摘要；来源未提供更新时间时 `sourceAsOf` 保持 null。成功采集绩效不会刷新仓位核验时间；页面超过 60 分钟将旧绩效标旧。失败保留原成功值与原时间，隐藏状态清除交易和绩效内容，停止规则保持有效。新集合或新仓位不能掩盖同周期绩效时间回退。
+
 ## 更新与失败处理
 
 `.github/workflows/refresh-traders.yml` 保留每小时第 27、57 分钟的持仓核验计划，另在 UTC 每日 00:12、06:12、12:12、18:12 计划执行完整分析（`12 */6 * * *`）。两种模式共用同一 `pages` 并发锁，避免采集预算和提交竞争；持仓模式跳过耗时分析，保留分析文件及其原采集时间，完整模式在分析完成后再次核验持仓。该拆分用于降低长分析批次对常规持仓更新的阻塞，不能保证任务按时执行。并发组使用 `queue: max` 保留最多 100 个等待任务，避免排队的完整分析被后到持仓任务替换；队列满时新增任务仍可能取消，六小时完整分析是计划而非完成承诺（[GitHub 并发说明](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency)）。主分支推送和手动触发仍可使用；`[ui-only]` 在事件提交与实际检出的 main 一致时跳过全部 Hyperliquid 与 Binance 采集，仅测试并部署现有快照；若 main 已变化，则在来源请求前停止，不转为完整采集。`[positions-only]` 仍只在提交匹配时选择持仓模式，其他延迟推送保留原有完整模式。所有采集模式继续执行原有来源停止检查，不因仅界面发布清除停止状态。
