@@ -588,7 +588,7 @@ function sourceIdentity(r) {const label=r.exchange==='Binance'&&isBinanceTrader(
 function avatar(r) {
   const wrapper=node('div',undefined,'avatar'),fallback=node('span',r.exchange.slice(0,2));wrapper.append(fallback);
   const url=safeAvatarUrl(r.avatarUrl,r.exchange);if(!url)return wrapper;
-  const image=node('img');image.alt='';image.loading='lazy';image.decoding='async';image.referrerPolicy='no-referrer';image.hidden=true;image.width=40;image.height=40;
+  const image=node('img');image.alt='';image.loading='eager';image.decoding='async';image.referrerPolicy='no-referrer';image.hidden=true;image.width=40;image.height=40;
   let failed=false;image.addEventListener('load',()=>{if(!failed){fallback.hidden=true;image.hidden=false;}},{once:true});image.addEventListener('error',()=>{failed=true;wrapper.replaceChildren(fallback);fallback.hidden=false;},{once:true});image.src=url;wrapper.append(image);return wrapper;
 }
 function renderDetailIdentity(r) {$('detail-avatar').replaceChildren(avatar(r));$('detail-title').textContent=r.name;$('detail-meta').textContent=r.exchange+' · '+sourceIdentity(r)+' · '+r.currency+(r._local?' · 我的资料':'');}
