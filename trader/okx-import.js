@@ -46,6 +46,11 @@
     return normalized;
   }
 
+  function avatarUrl(value) {
+    if(typeof value!=='string'||value.length>2048||/[\s\u0000-\u001f\u007f\\]/.test(value))return null;
+    try{const url=new URL(value);return url.protocol==='https:'&&!url.username&&!url.password&&!url.port&&!url.hash&&url.hostname==='static.okx.com'&&url.pathname.startsWith('/cdn/okex/users/headimages/')?url.href:null;}catch(_){return null;}
+  }
+
   function normalize(input, importedAtISO) {
     let serialized;
     try { serialized = JSON.stringify(input); } catch (_) { fail('输入不是JSON对象'); }
@@ -75,6 +80,7 @@
       return {
         id: 'okx-' + row.uniqueCode,
         accountId: row.uniqueCode,
+        avatarUrl:avatarUrl(row.portLink),
         name: row.nickName,
         exchange: 'OKX', currency: 'USDT', featured: false, paid: false,
         sourceUrl: SOURCE_URL, observedAt: observedAt.value, note,

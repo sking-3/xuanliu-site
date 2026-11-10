@@ -109,7 +109,7 @@ function validate(p) {
       }
       windows[k] = clean;
     }
-    const clean = {id,name,exchange:r.exchange,currency:r.currency,featured:r.featured,paid:r.paid,observedAt,sourceUrl:url.href,windows,accountId:optionalText(r.accountId,100),note:optionalText(r.note,500)};
+    const clean = {id,name,exchange:r.exchange,currency:r.currency,featured:r.featured,paid:r.paid,observedAt,sourceUrl:url.href,windows,accountId:optionalText(r.accountId,100),avatarUrl:safeAvatarUrl(r.avatarUrl,r.exchange),note:optionalText(r.note,500)};
     if(r.sourceKind !== undefined) { if(r.sourceKind !== 'public_account')fail();clean.sourceKind=r.sourceKind; }
     if(r.accountValue !== undefined)clean.accountValue=num(r.accountValue);
     if(r.positionCheck !== undefined) {
@@ -468,8 +468,8 @@ function binanceStatus(view,r) {
   return view.currentPositionCount===0?'最近核验空仓':'持仓核验有效';
 }
 function binanceTiming(view,r) {if(r?.referenceOnly)return '当前公开状态未核验';return view.observedAt?'仓位采集 '+timeLabel(view.observedAt):'尚无成功仓位采集';}
-function renderBinancePerformance(r,parent,period) {
-  const value=binancePerformance(r,period),context=node('div',undefined,'card-context');context.append(node('span',periodLabel(period)),node('span','币安来源 · USDT'));parent.append(context);
+function renderBinancePerformance(r,parent,period,compact=false) {
+  const value=binancePerformance(r,period),context=node('div',undefined,'card-context');context.append(node('span',periodLabel(period)),node('span','币安来源 · USDT'));if(!compact)parent.append(context);
   const body=node('div',undefined,'performance-body binance-performance'),stats=node('div',undefined,'performance-stats'),roiText=signedValue(value.roi,pct(value.roi)),roi=node('div',roiText,'roi '+directionClass(value.roi)+(roiText.length>8?' long-roi':''));
   roi.setAttribute('title',periodLabel(period)+' 收益率 '+roiText);stats.append(roi,node('div','收益率','roi-label'));
   const figures=node('div',undefined,'metrics');
@@ -477,14 +477,16 @@ function renderBinancePerformance(r,parent,period) {
     const item=node('div'),amount=node('strong',display,key==='pnl'?directionClass(value.pnl):key==='mdd'&&value.mdd!==null?'negative':'');
     amount.setAttribute('title',key==='pnl'?(value.pnl===null?'—':signedValue(value.pnl,money(value.pnl,'USDT'))+' USDT'):label+' · '+display);item.append(node('small',label),amount);figures.append(item);
   }
-  stats.append(figures);body.append(stats);parent.append(body);
+  stats.append(figures);body.append(stats);if(compact)body.append(node('div','来源曲线未接入','performance-chart binance-curve-unavailable'));parent.append(body);
   let note=!value.periodSupported?'未接入该周期的币安表现':r.referenceOnly?'表现数据未取得':value.status==='restricted'?'表现资料不可见':value.lastSuccessAt?'表现采集 '+timeLabel(value.lastSuccessAt)+(value.status==='ready'?' · 有效期 60 分钟':' · 上次成功结果，待更新'):'尚未取得该周期的币安表现';
   if(value.lastSuccessAt&&!value.sourceAsOf)note+=' · 来源未提供统计截止时间';
-  const status=node('p',note+' · 来源曲线未接入','binance-performance-note');status.setAttribute('data-state',value.status);parent.append(status);
+  const summary=!value.periodSupported?'未接入该周期的币安表现':r.referenceOnly?'表现数据未取得':value.status==='restricted'?'表现资料不可见':value.lastSuccessAt?'表现采集 '+timeLabel(value.lastSuccessAt)+(value.status==='ready'?'':' · 上次成功结果，待更新'):'尚未取得该周期的币安表现';
+  const status=node('p',compact?summary:note+' · 来源曲线未接入','binance-performance-note');status.setAttribute('title',note+' · 来源曲线未接入');status.setAttribute('data-state',value.status);if(!compact)parent.append(status);return status;
 }
-function renderBinanceCard(r,c,period=$('period').value) {
-  const view=binanceView(r),status=node('p',binanceStatus(view,r)+' · '+binanceTiming(view,r),'card-data-status');status.setAttribute('data-state',view.status);c.append(status);
-  renderBinancePerformance(r,c,period);
+function renderBinanceCard(r,c,period=$('period').value,compact=false) {
+  const view=binanceView(r),status=node('p',binanceStatus(view,r)+' · '+binanceTiming(view,r),'card-data-status');status.setAttribute('data-state',view.status);
+  if(compact){const context=node('div',undefined,'card-context');context.append(node('span',periodLabel(period)),node('span',r.referenceOnly?'身份关注':view.currentPositionCount===null?'当前持仓未知':'核验时持仓 '+view.currentPositionCount));c.append(context,status);const footer=node('div',undefined,'card-footer');footer.append(renderBinancePerformance(r,c,period,true));c.append(footer);return;}
+  c.append(status);renderBinancePerformance(r,c,period);
   const figures=node('div',undefined,'binance-card-summary');
   for(const [label,count]of [[r.referenceOnly?'持仓样本':view.status==='ready'?'核验时持仓':'上次持仓',view.currentPositionCount??view.lastPositionCount],['订单样本',view.orders.status==='unavailable'?null:view.orders.rows.length],['历史仓位样本',view.closedPositions.status==='unavailable'?null:view.closedPositions.rows.length]]){const item=node('div');item.append(node('strong',count===null?'—':String(count)),node('small',label));figures.append(item);}
   c.append(figures,node('p',r.referenceOnly?'— 表示数据未取得，不代表空仓或零订单':'仓位与订单为有限样本 · 非完整交割单','binance-sample-note'));
@@ -578,6 +580,18 @@ function feed(rows) { return {schemaVersion:1,status:'ready',traders:rows}; }
 function mergeRows() { state.rows = [...retainedPublicRows().map(r=>({...r,_local:false})),...state.binanceRows,...state.localRows.map(r=>({...r,_local:true}))]; }
 function node(tag,content,cls) { const n=document.createElement(tag); if(content!==undefined)n.textContent=content; if(cls)n.className=cls; return n; }
 function button(label, action, cls) { const b=node('button',label,cls); b.type='button'; b.addEventListener('click',action); return b; }
+function safeAvatarUrl(value,exchange) {
+  if(typeof value!=='string'||value.length>2048||/[\s\u0000-\u001f\u007f\\]/.test(value))return null;
+  try{const url=new URL(value),trusted=exchange==='Binance'?['public.bnbstatic.com','public-1306379396.file.myqcloud.com'].includes(url.hostname)&&url.pathname.startsWith('/image/'):exchange==='OKX'&&url.hostname==='static.okx.com'&&url.pathname.startsWith('/cdn/okex/users/headimages/');return url.protocol==='https:'&&!url.username&&!url.password&&!url.port&&!url.hash&&trusted?url.href:null;}catch(_){return null;}
+}
+function sourceIdentity(r) {const label=r.exchange==='Binance'&&isBinanceTrader(r)?'组合 ID':r.exchange==='Hyperliquid'&&isPublicAccount(r)?'钱包地址':r.exchange==='OKX'?'带单代码':'来源账号';return r.accountId?label+' '+r.accountId:label+' 未提供';}
+function avatar(r) {
+  const wrapper=node('div',undefined,'avatar'),fallback=node('span',r.exchange.slice(0,2));wrapper.append(fallback);
+  const url=safeAvatarUrl(r.avatarUrl,r.exchange);if(!url)return wrapper;
+  const image=node('img');image.alt='';image.loading='lazy';image.decoding='async';image.referrerPolicy='no-referrer';image.hidden=true;image.width=40;image.height=40;
+  let failed=false;image.addEventListener('load',()=>{if(!failed){fallback.hidden=true;image.hidden=false;}},{once:true});image.addEventListener('error',()=>{failed=true;wrapper.replaceChildren(fallback);fallback.hidden=false;},{once:true});image.src=url;wrapper.append(image);return wrapper;
+}
+function renderDetailIdentity(r) {$('detail-avatar').replaceChildren(avatar(r));$('detail-title').textContent=r.name;$('detail-meta').textContent=r.exchange+' · '+sourceIdentity(r)+' · '+r.currency+(r._local?' · 我的资料':'');}
 function sourceLink(r) { const a=node('a','查看来源 ↗','source-link'); a.href=r.sourceUrl; a.target='_blank'; a.rel='noopener noreferrer'; return a; }
 function pct(x) { return x==null?'—':x.toFixed(2)+'%'; }
 function signedValue(x,formatted) {return x>0?'+'+formatted:formatted;}
@@ -690,27 +704,28 @@ function startVisibleAnalytics(rows,onlyChanged=false) {
 function card(r,period) {
   const w=performanceWindow(r,period),c=node('article',undefined,'card'),top=node('div',undefined,'card-top'),identity=node('div',undefined,'card-identity'),links=node('div',undefined,'card-links');
   const name=node('h3',r.name);name.setAttribute('title',r.name);
-  const identityMeta=node('div',`${r.exchange}${r.paid?' · 付费来源':''}${r._local?' · 我的资料':''}`,'meta');identityMeta.setAttribute('title',r.accountId||r.id);identity.append(name,identityMeta);
+  const identityMeta=node('div',`${r.exchange}${r.paid?' · 付费来源':''}${r._local?' · 我的资料':''}`,'meta');identityMeta.setAttribute('title',r.accountId||r.id);identity.append(name,identityMeta,node('div',sourceIdentity(r),'platform-id'));
   const detail=button('详情',()=>openDetail(r,period),'detail-button'),source=sourceLink(r);detail.setAttribute('aria-label',`查看 ${r.name} 的研究详情`);source.textContent='来源 ↗';source.setAttribute('title',`打开 ${r.exchange} 来源账户`);links.append(detail,source);
-  top.append(node('div',r.exchange.slice(0,2),'avatar'),identity,links);c.append(top);state.cardControls.push({r,detailButton:detail,sourceLink:source});
-  if(isBinanceTrader(r)){renderBinanceCard(r,c,period);return c;}
+  top.append(avatar(r),identity,links);c.setAttribute('data-layout','aligned');c.append(top);state.cardControls.push({r,detailButton:detail,sourceLink:source});
+  if(isBinanceTrader(r)){renderBinanceCard(r,c,period,true);return c;}
   const context=node('div',undefined,'card-context');context.append(node('span',periodName(period,w)));
   let timing=w?.derived?performanceRange(r,period):stampLabel(w);
   if(isPublicAccount(r)&&r.positionCheck){const check=node('span',`${currentHolding(r)?'核验时持仓':'上次持仓'} ${r.positionCheck.count}`,'position-check');context.append(check);timing+=` · 永续主市场持仓核验 ${timeLabel(r.positionCheck.checkedAt)} · 持仓来源时间 ${timeLabel(r.positionCheck.sourceTime)}`;}
   else context.append(node('span',r.currency));
   context.setAttribute('title',timing);c.append(context);
-  if(isPublicAccount(r)){const status=node('p',retainedStatus(r),'card-data-status');status.setAttribute('data-state',currentHolding(r)?'ready':'stale');c.append(status);}
+  const status=node('p',isPublicAccount(r)?retainedStatus(r):(r._local?'本机资料 · ':'来源记录 · ')+timeLabel(r.observedAt),'card-data-status');status.setAttribute('data-state',isPublicAccount(r)?currentHolding(r)?'ready':'stale':'unavailable');c.append(status);
+  const footer=node('div',undefined,'card-footer');
   if(hasMetrics(w)||isPublicAccount(r)) {
     const performance=node('div',undefined,'performance-body'),stats=node('div',undefined,'performance-stats'),graph=node('div',undefined,'performance-chart'),roiText=signedValue(w?.roi,pct(w?.roi));
     const roi=node('div',roiText,'roi '+directionClass(w?.roi)+(roiText.length>8?' long-roi':''));roi.setAttribute('title',`${displayPeriod(period,w)} 收益率 ${roiText}`);
     const roiLabel=node('div',undefined,'roi-label');stats.append(roi,roiLabel);
     const figures=metrics(w,r.currency,false,r,period);stats.append(figures);fillPerformanceGraph(r,period,graph);
     performance.append(stats,graph);c.append(performance);
-    if(isPublicAccount(r)){const rangeNote=node('p',undefined,'performance-range'),winNote=node('p',undefined,'win-cache-note'),view={kind:'card',r,period,metrics:figures,graph,winNote,rangeNote,roi,roiLabel,cardRoot:c,detailButton:detail,sourceLink:source};fillWinCacheNote(r,winNote);fillPerformanceSummary(r,period,view);c.append(rangeNote,winNote);state.analyticsViews.push(view);}else{roiLabel.textContent=`${displayPeriod(period,w)} 收益率`;}
-  } else c.append(node('p',Object.keys(r.windows).length?`${displayPeriod(period,w)} 表现 —`:'账号与来源已保存','meta'));
-  if(r.note)c.append(node('p',r.note,'profile-note'));
-  if(r._local){const actions=node('div',undefined,'card-actions');actions.append(button('编辑',()=>openEditor(r)),button('删除',()=>removeRecord(r)));c.append(actions);}
-  return c;
+    if(isPublicAccount(r)){const rangeNote=node('p',undefined,'performance-range'),winNote=node('p',undefined,'win-cache-note'),view={kind:'card',r,period,metrics:figures,graph,winNote,rangeNote,roi,roiLabel,cardRoot:c,detailButton:detail,sourceLink:source};fillWinCacheNote(r,winNote);fillPerformanceSummary(r,period,view);footer.append(rangeNote,winNote);state.analyticsViews.push(view);}else{roiLabel.textContent=`${displayPeriod(period,w)} 收益率`;}
+  } else c.append(node('p',Object.keys(r.windows).length?`${displayPeriod(period,w)} 表现 —`:'账号与来源已保存','performance-body meta'));
+  if(r.note)footer.append(node('p',r.note,'profile-note'));
+  if(r._local){const actions=node('div',undefined,'card-actions');actions.append(button('编辑',()=>openEditor(r)),button('删除',()=>removeRecord(r)));footer.append(actions);}
+  c.append(footer);return c;
 }
 function readURL() {
   const p=new URL(location.href).searchParams, defaults={period:'30D',exchange:'all',source:'all',sort:'mixed',currency:'all'};
@@ -875,13 +890,12 @@ function activateDetailTab(tab) {
   if(state.tab==='live')stopLive();state.tab=tab;renderDetail();
 }
 function openDetail(r,p) {
-  stopLive();state.detail=r;state.window=p;state.tab='analysis';$('detail-title').textContent=r.name;
-  $('detail-meta').textContent=`${r.exchange} · ${r.accountId||r.id} · ${r.currency}${r._local?' · 我的资料':''}`;
+  stopLive();state.detail=r;state.window=p;state.tab='analysis';renderDetailIdentity(r);
   renderDetail();$('detail').showModal();$('close').focus();
 }
 function renderDetail() {
   const r=state.detail,b=$('detail-body');if(!r)return;
-  $('detail-title').textContent=r.name;$('detail-meta').textContent=`${r.exchange} · ${r.accountId||r.id} · ${r.currency}${r._local?' · 我的资料':''}`;
+  renderDetailIdentity(r);
   renderDetailStatus();
   document.querySelectorAll('[data-tab]').forEach(x=>{x.hidden=canReadLive(r)?!['analysis','live'].includes(x.dataset.tab):x.dataset.tab==='live';x.setAttribute('aria-pressed',String(x.dataset.tab===state.tab));});
   if(isBinanceTrader(r)){document.querySelectorAll('[data-tab]').forEach(x=>{x.hidden=x.dataset.tab==='live';x.textContent=({analysis:'组合概览',positions:'持仓快照',points:'持仓变化',orders:'历史样本'})[x.dataset.tab]||x.textContent;});state.analyticsViews=state.analyticsViews.filter(v=>v.kind!=='detail');renderBinanceDetail(r,b);return;}
@@ -966,7 +980,7 @@ function saveRecord(event) {
   try {
     captureWindow();const original=state.editor.original;
     if(original&&original.currency!==$('record-currency').value&&(Object.keys(state.editor.windows).length||['positions','points','orders'].some(k=>original[k].length)))throw Error('已有表现或交易记录时不能直接更换计价币种，请为新币种添加另一份资料。');
-    const r={id:state.editor.id||'local-'+crypto.randomUUID(),name:$('record-name').value.trim(),accountId:$('record-account').value.trim(),exchange:$('record-exchange').value,currency:$('record-currency').value,sourceUrl:$('record-source').value.trim(),note:$('record-note').value.trim(),featured:$('record-featured').checked,paid:original?.paid||false,observedAt:new Date().toISOString(),windows:state.editor.windows,positions:original?.positions||[],points:original?.points||[],orders:original?.orders||[]};
+    const r={id:state.editor.id||'local-'+crypto.randomUUID(),name:$('record-name').value.trim(),accountId:$('record-account').value.trim(),exchange:$('record-exchange').value,currency:$('record-currency').value,sourceUrl:$('record-source').value.trim(),note:$('record-note').value.trim(),featured:$('record-featured').checked,paid:original?.paid||false,avatarUrl:original?.avatarUrl||null,observedAt:new Date().toISOString(),windows:state.editor.windows,positions:original?.positions||[],points:original?.points||[],orders:original?.orders||[]};
     let checked;try {checked=validate(feed([r]))[0];}catch {throw Error('请检查名称、账号和来源链接；来源须为不含账号密码的 HTTPS 地址。');}
     const rows=state.localRows.filter(item=>item.id!==checked.id);rows.push(checked);commitLocal(rows);
     $('search').value='';$('exchange').value='all';$('source').value='local';$('currency').value='all';$('period').value=state.editor.period;state.explicitPeriod=true;state.page=1;state.revealId=checked.id;
