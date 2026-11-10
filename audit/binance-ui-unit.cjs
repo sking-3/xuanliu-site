@@ -182,11 +182,11 @@ async function run(source, html) {
       'https://www.binance.com/en/copy-trading/lead-details/' + secondId);
     assert.equal(api.sourceUrl(base().profile.sourceUrl, 'bad'), null);
   });
-  check('initial HTML is a monitor page rather than a named account', () => {
-    assert.match(html, /<h1>币安带单员监控<\/h1>/);
-    assert.match(html, /id="portfolio-nav"/);
-    assert.match(html, /id="trader-name">请选择账号/);
-    assert.doesNotMatch(html, /5156287639231681792/);
+  check('legacy URL opens the unified plaza rather than another monitor', () => {
+    assert.match(html, /币安交易员已并入带单员广场/);
+    assert.match(html, /src="\.\/redirect\.js\?v=/);
+    assert.match(html, /href="\.\.\/\?exchange=Binance"/);
+    assert.doesNotMatch(html, /src="\.\/monitor\.js|id="portfolio-nav"|5156287639231681792/);
     assert.doesNotMatch(source, /fetch\('\.\/snapshot\.json'/);
   });
   const doc = fakeDoc(), requests = [], intervals = new Map(), timeouts = new Map();

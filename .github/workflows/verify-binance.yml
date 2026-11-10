@@ -19,6 +19,10 @@ on:
       - 'audit/binance-*.cjs'
       - 'trader/binance/**'
       - 'trader/index.html'
+      - 'trader/plaza.js'
+      - 'trader/plaza.css'
+      - 'trader/binance-data.js'
+      - 'audit/trader-unit.cjs'
       - '.github/workflows/verify-binance.yml'
 
 permissions:
@@ -44,6 +48,10 @@ jobs:
           node --check scripts/collect_trader_portfolios.cjs
           node audit/trader-portfolio-collector-unit.cjs
           node --check scripts/collect_binance.cjs
+          node --check trader/binance-data.js
+          node audit/binance-plaza-data-unit.cjs
+          node --check trader/binance/redirect.js
+          node audit/binance-redirect-unit.cjs
           node --check trader/binance/monitor.js
           node audit/binance-collector-unit.cjs
           node audit/binance-multi-unit.cjs

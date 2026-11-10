@@ -76,6 +76,10 @@ jobs:
           node audit/refresh-trader-positions-unit.cjs
           node audit/trader-unit.cjs
           node --check scripts/collect_binance.cjs
+          node --check trader/binance-data.js
+          node audit/binance-plaza-data-unit.cjs
+          node --check trader/binance/redirect.js
+          node audit/binance-redirect-unit.cjs
           node --check trader/binance/monitor.js
           node audit/binance-collector-unit.cjs
           node audit/binance-multi-unit.cjs

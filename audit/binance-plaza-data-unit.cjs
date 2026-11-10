@@ -1,0 +1,301 @@
+'use strict';
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
+const api = require('../trader/binance-data.js');
+
+const NOW = Date.parse('2026-11-10T08:00:00.000Z');
+const stamp = new Date(NOW).toISOString();
+const IDS = Object.keys(api.PORTFOLIOS);
+const clone = value => JSON.parse(JSON.stringify(value));
+let passed = 0;
+function test(name, run) { run(); passed += 1; console.log('ok ' + passed + ' - ' + name); }
+function freeze(value) {
+  if (value && typeof value === 'object') {
+    Object.values(value).forEach(freeze);
+    Object.freeze(value);
+  }
+  return value;
+}
+function sampleFeed(id = IDS[0]) {
+  return {
+    schemaVersion: 1, sourceType: 'copy_trade', portfolioId: id, generatedAt: stamp,
+    profile: { id, name: api.PORTFOLIOS[id], status: 'ACTIVE', visibility: 'public',
+      sourceUrl: 'https://www.binance.com/en/copy-trading/lead-details/' + id },
+    source: { status: 'ready', lastAttemptAt: stamp, lastSuccessAt: stamp, errorCode: null, refreshStopped: false },
+    snapshot: { observedAt: stamp, complete: true, rawCount: 10, positions: [{
+      key: 'BTCUSDT:LONG:USDT', symbol: 'BTCUSDT', side: 'LONG', quantity: '0.0100',
+      entryPrice: '65000.123456789', markPrice: '66000.0000', leverage: 10, unrealizedPnl: '9.99876543211', collateral: 'USDT'
+    }] },
+    observations: [{ id: 'baseline-1', kind: 'baseline', symbol: 'BTCUSDT', side: 'LONG',
+      from: null, to: stamp, before: null, after: '0.0100' }],
+    history: {
+      orders: { status: 'ready', fetchedAt: stamp, errorCode: null, complete: false,
+        coverage: { page: 1, pageSize: 20, requestedFrom: '2026-11-03T08:00:00.000Z',
+          requestedTo: stamp, sourceTotal: 50, indexValue: '123', truncated: true,
+          identity: 'source_page_sample_no_cross_run_deduplication' },
+        rows: [{ symbol: 'BTCUSDT', side: 'BUY', positionSide: 'LONG', type: 'LIMIT',
+          executedQty: '0.0100', avgPrice: '65000.123456789', totalPnl: '0.0000',
+          orderTime: NOW - 10 * 86400000, orderUpdateTime: NOW - 1000 }] },
+      closedPositions: { status: 'ready', fetchedAt: stamp, errorCode: null, complete: false,
+        coverage: { page: 1, pageSize: 20, requestedFrom: null, requestedTo: null,
+          sourceTotal: 30, indexValue: null, truncated: true,
+          identity: 'source_page_sample_no_cross_run_deduplication' },
+        rows: [{ symbol: 'ETHUSDT', side: 'Long', opened: NOW - 86400000, closed: NOW - 10000,
+          avgCost: '2000', avgClosePrice: '2010', closingPnl: '10', closedVolume: '1', status: 'All Closed', leverage: '5' }] }
+    }
+  };
+}
+function sampleCollection() {
+  return { schemaVersion: 1, generatedAt: stamp, source: { refreshStopped: false, errorCode: null },
+    portfolios: IDS.map(id => sampleFeed(id)) };
+}
+function view(feed, options = {}) { return api.detail(feed, { now: NOW, ...options }); }
+
+test('saved real collection is compatible and keeps all three fixed identities', () => {
+  const real = JSON.parse(fs.readFileSync(path.join(__dirname, '../trader/binance/portfolios.json'), 'utf8'));
+  const rows = api.toTraders(api.parseCollection(real), { now: Date.parse(real.generatedAt) });
+  assert.deepEqual(rows.map(row => row.accountId), IDS);
+  rows.forEach(row => {
+    assert.equal(row.name, api.PORTFOLIOS[row.accountId]);
+    assert.equal(row.id, 'binance-' + row.accountId);
+    assert.equal(row.sourceUrl, 'https://www.binance.com/en/copy-trading/lead-details/' + row.accountId);
+    assert.deepEqual(row.windows, {});
+    assert.deepEqual(row.positions, []);
+    assert.deepEqual(row.points, []);
+    assert.deepEqual(row.orders, []);
+  });
+});
+test('profile ID, source type, canonical URL and allowlist cannot be substituted', () => {
+  for (const mutate of [
+    f => { f.profile.id = IDS[1]; },
+    f => { f.profile.sourceUrl = 'https://www.binance.com/en/copy-trading/lead-details/' + IDS[1]; },
+    f => { f.sourceType = 'smart_money'; },
+    f => { f.portfolioId = '5184709519277757184'; }
+  ]) {
+    const data = sampleCollection(); mutate(data.portfolios[0]);
+    assert.throws(() => api.parseCollection(data), /BINANCE_FEED_SCHEMA/);
+  }
+});
+test('duplicate identities and malformed batch/source state fail closed', () => {
+  const duplicate = sampleCollection(); duplicate.portfolios[1] = clone(duplicate.portfolios[0]);
+  assert.throws(() => api.parseCollection(duplicate), /BINANCE_COLLECTION_SCHEMA/);
+  for (const source of [null, { refreshStopped: 'false', errorCode: null }, { refreshStopped: false, errorCode: {} }]) {
+    const data = sampleCollection(); data.source = source;
+    assert.throws(() => api.parseCollection(data), /BINANCE_COLLECTION_SCHEMA/);
+  }
+  const data = sampleCollection(); data.portfolios[0].source.lastSuccessAt = 'invalid';
+  assert.throws(() => api.parseCollection(data), /BINANCE_FEED_SCHEMA/);
+});
+test('fresh complete positions and valid empty snapshot have known current counts', () => {
+  const feed = sampleFeed();
+  assert.equal(view(feed).currentPositionCount, 1);
+  feed.snapshot.positions = [];
+  const result = view(feed);
+  assert.equal(result.status, 'ready');
+  assert.equal(result.currentPositionCount, 0);
+  assert.equal(result.lastPositionCount, 0);
+});
+test('30 minute boundary uses both observedAt and lastSuccessAt', () => {
+  const feed = sampleFeed();
+  assert.equal(view(feed, { now: NOW + api.MAX_AGE }).status, 'ready');
+  assert.equal(view(feed, { now: NOW + api.MAX_AGE + 1 }).status, 'stale');
+  feed.source.lastSuccessAt = new Date(NOW - api.MAX_AGE - 1).toISOString();
+  assert.equal(view(feed).currentPositionCount, null);
+  feed.source.lastSuccessAt = null;
+  assert.equal(view(feed).status, 'stale');
+});
+test('stale zero remains current unknown and last known zero', () => {
+  const feed = sampleFeed(); feed.snapshot.positions = [];
+  const result = view(feed, { now: NOW + api.MAX_AGE + 1 });
+  assert.equal(result.status, 'stale');
+  assert.equal(result.currentPositionCount, null);
+  assert.equal(result.lastPositionCount, 0);
+});
+test('local checkedAt and collection generatedAt never refresh source observation', () => {
+  const data = sampleCollection();
+  data.generatedAt = new Date(NOW + 86400000).toISOString();
+  const result = view(data.portfolios[0], { now: NOW + 86400000, checkedAt: NOW + 86400000 });
+  assert.equal(result.status, 'stale');
+  assert.equal(result.observedAt, stamp);
+  assert.equal(result.lastSuccessAt, stamp);
+  assert.equal(result.lastAttemptAt, stamp);
+  assert.equal(result.checkedAt, data.generatedAt);
+  assert.equal(api.toTraders(data, { now: NOW + 86400000 })[0].observedAt, stamp);
+});
+test('failed local read preserves public rows and original times but current count is null', () => {
+  const result = view(sampleFeed(), { requestFailed: true, checkedAt: NOW + 1000 });
+  assert.equal(result.status, 'stale');
+  assert.equal(result.currentPositionCount, null);
+  assert.equal(result.lastPositionCount, 1);
+  assert.equal(result.positions.length, 1);
+  assert.equal(result.orders.status, 'stale');
+  assert.equal(result.orders.fetchedAt, stamp);
+  assert.equal(result.errorCode, 'snapshot_read_failed');
+});
+test('per-account halt remains stopped regardless of mode or retry options', () => {
+  const feed = sampleFeed(); feed.source.refreshStopped = true; feed.source.errorCode = 'http_429';
+  for (const mode of ['positions', 'full', 'ui-only']) {
+    const result = view(feed, { mode, retry: true, checkedAt: NOW });
+    assert.equal(result.refreshStopped, true);
+    assert.equal(result.currentPositionCount, null);
+    assert.equal(result.errorCode, 'http_429');
+    assert.equal(result.orders.status, 'stale');
+  }
+});
+test('collection halt is carried by every row and makes details stale', () => {
+  const data = sampleCollection(); data.source = { refreshStopped: true, errorCode: 'http_403' };
+  api.toTraders(data, { now: NOW }).forEach(row => {
+    const result = view(row.binance, { batchStopped: row.binanceBatchSource.refreshStopped, batchErrorCode: row.binanceBatchSource.errorCode });
+    assert.equal(result.refreshStopped, true);
+    assert.equal(result.currentPositionCount, null);
+    assert.equal(result.lastPositionCount, 1);
+    assert.equal(result.orders.status, 'stale');
+    assert.equal(result.errorCode, 'http_403');
+  });
+});
+test('visibility, restricted status or restricted error hides all trading payload', () => {
+  for (const mutate of [
+    f => { f.profile.visibility = 'restricted'; },
+    f => { f.source.status = 'restricted'; },
+    f => { f.source.errorCode = 'restricted'; }
+  ]) {
+    const feed = sampleFeed(); mutate(feed);
+    const result = view(feed);
+    assert.equal(result.status, 'restricted');
+    assert.equal(result.observedAt, null);
+    assert.equal(result.currentPositionCount, null);
+    assert.equal(result.lastPositionCount, null);
+    assert.deepEqual(result.positions, []);
+    assert.deepEqual(result.observations, []);
+    assert.deepEqual(result.orders.rows, []);
+    assert.deepEqual(result.closedPositions.rows, []);
+  }
+});
+test('unknown visibility suppresses old payload without declaring empty', () => {
+  const feed = sampleFeed(); feed.profile.visibility = 'unknown';
+  const result = view(feed);
+  assert.equal(result.status, 'unavailable');
+  assert.equal(result.currentPositionCount, null);
+  assert.equal(result.lastPositionCount, null);
+  assert.equal(result.observedAt, null);
+  assert.deepEqual(result.positions, []);
+  assert.deepEqual(result.orders.rows, []);
+});
+test('missing registered accounts retain identity cards with unknown counts', () => {
+  const data = sampleCollection(); data.portfolios = [];
+  const rows = api.toTraders(data, { now: NOW });
+  assert.equal(rows.length, 3);
+  rows.forEach(row => {
+    const result = view(row.binance);
+    assert.equal(result.status, 'unavailable');
+    assert.equal(result.currentPositionCount, null);
+    assert.equal(row.observedAt, null);
+    assert.deepEqual(row.windows, {});
+  });
+  assert.equal(view(null).currentPositionCount, null);
+});
+test('incomplete, duplicate-key, invalid decimal and nonfinite snapshot rows are rejected', () => {
+  for (const mutate of [
+    f => { f.snapshot.complete = false; },
+    f => { f.snapshot.positions.push(clone(f.snapshot.positions[0])); },
+    f => { f.snapshot.positions[0].quantity = 'NaN'; },
+    f => { f.snapshot.positions[0].leverage = Infinity; }
+  ]) {
+    const feed = sampleFeed(); mutate(feed);
+    assert.throws(() => view(feed), /BINANCE_FEED_SCHEMA/);
+  }
+});
+test('decimal text is unchanged and zero rows do not inflate current count', () => {
+  const feed = sampleFeed();
+  feed.snapshot.positions.push({ ...feed.snapshot.positions[0], key: 'ETHUSDT:LONG:USDT', symbol: 'ETHUSDT', quantity: '-0.000' });
+  const result = view(feed);
+  assert.equal(result.currentPositionCount, 1);
+  assert.equal(result.positions[0].quantity, '0.0100');
+  assert.equal(result.positions[0].entryPrice, '65000.123456789');
+  assert.equal(result.positions[0].unrealizedPnl, '9.99876543211');
+});
+test('no-ID duplicate orders and earlier-created recently-updated orders are retained', () => {
+  const feed = sampleFeed();
+  feed.history.orders.rows.push(clone(feed.history.orders.rows[0]));
+  const result = view(feed);
+  assert.equal(result.orders.rows.length, 2);
+  assert.deepEqual(result.orders.rows[0], result.orders.rows[1]);
+  assert.equal(result.orders.rows[0].orderTime, NOW - 10 * 86400000);
+  assert.equal(Object.hasOwn(result.orders.rows[0], 'id'), false);
+});
+test('history coverage and distinct order timestamps remain exact and incomplete', () => {
+  const feed = sampleFeed(), result = view(feed);
+  assert.deepEqual(result.orders.coverage, feed.history.orders.coverage);
+  assert.deepEqual(result.closedPositions.coverage, feed.history.closedPositions.coverage);
+  assert.equal(result.orders.complete, false);
+  assert.equal(result.closedPositions.complete, false);
+  assert.notEqual(result.orders.rows[0].orderTime, result.orders.rows[0].orderUpdateTime);
+});
+test('malformed or falsely complete history is unavailable and does not erase valid positions', () => {
+  for (const mutate of [
+    f => { f.history.orders.complete = true; },
+    f => { f.history.orders.rows[0].avgPrice = {}; },
+    f => { f.history.orders.fetchedAt = null; }
+  ]) {
+    const feed = sampleFeed(); mutate(feed);
+    const result = view(feed);
+    assert.equal(result.currentPositionCount, 1);
+    assert.equal(result.orders.status, 'unavailable');
+    assert.deepEqual(result.orders.rows, []);
+    assert.equal(result.orders.complete, false);
+  }
+});
+test('history expiry is independent and never declares a complete account history', () => {
+  const feed = sampleFeed(); feed.history.orders.fetchedAt = new Date(NOW - api.MAX_AGE - 1).toISOString();
+  const result = view(feed);
+  assert.equal(result.status, 'ready');
+  assert.equal(result.orders.status, 'stale');
+  assert.equal(result.orders.complete, false);
+  feed.history.closedPositions.coverage = { complete: true };
+  assert.equal(view(feed).closedPositions.coverage, null);
+  assert.equal(view(feed).closedPositions.complete, false);
+});
+test('baseline and snapshot differences remain observations, never synthesized orders', () => {
+  const feed = sampleFeed();
+  feed.observations.push({ ...feed.observations[0], id: 'difference-1', kind: 'increased', from: stamp, before: '0.01', after: '0.02' });
+  const result = view(feed);
+  assert.equal(result.observations[0].kind, 'baseline');
+  assert.equal(result.observations[1].kind, 'increased');
+  assert.equal(result.orders.rows.length, 1);
+});
+test('source display nickname cannot rebind canonical identity', () => {
+  const data = sampleCollection();
+  data.portfolios[0].profile.name = 'FaribaFinance ';
+  const rows = api.toTraders(data, { now: NOW });
+  assert.equal(rows[0].name, '爱喝快乐肥宅水');
+  assert.equal(rows[0].sourceName, 'FaribaFinance');
+  assert.equal(rows[0].accountId, IDS[0]);
+});
+test('future timestamps beyond five minutes cannot be treated as current', () => {
+  const feed = sampleFeed(); feed.snapshot.observedAt = new Date(NOW + 300001).toISOString();
+  assert.equal(view(feed).currentPositionCount, null);
+});
+test('frozen inputs remain unchanged and output sorting does not mutate saved rows', () => {
+  const data = freeze(sampleCollection()), before = JSON.stringify(data);
+  const rows = api.toTraders(data, { now: NOW });
+  const result = view(rows[0].binance);
+  result.positions[0].quantity = '999';
+  result.orders.rows[0].avgPrice = '999';
+  result.orders.coverage.page = 2;
+  assert.equal(JSON.stringify(data), before);
+});
+test('browser export has no DOM, network, timer or storage side effects', () => {
+  const source = fs.readFileSync(path.join(__dirname, '../trader/binance-data.js'), 'utf8');
+  const context = { console };
+  for (const key of ['document', 'fetch', 'XMLHttpRequest', 'WebSocket', 'setTimeout', 'setInterval', 'localStorage', 'sessionStorage']) {
+    Object.defineProperty(context, key, { get() { throw Error('SIDE_EFFECT_' + key); } });
+  }
+  vm.runInNewContext(source, context, { timeout: 1000 });
+  assert.equal(typeof context.BinanceData.parseCollection, 'function');
+  assert.equal(typeof context.BinanceData.toTraders, 'function');
+  assert.equal(typeof context.BinanceData.detail, 'function');
+  assert.equal(context.BinanceData.MAX_AGE, 30 * 60 * 1000);
+});
+console.log('Binance plaza adapter: ' + passed + ' tests passed');
