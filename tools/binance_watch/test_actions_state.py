@@ -470,12 +470,28 @@ class CommandTests(unittest.TestCase):
         self.assertIn("if: ${{ false && github.event_name != 'pull_request'", text)
         self.assertNotIn("contents: write", text)
         self.assertNotIn("group: pages", text)
-        self.assertIn("${{ runner.temp }}/binance-watch", text)
+        self.assertIn("$RUNNER_TEMP/binance-watch", text)
         self.assertIn("run-id: ${{ steps.prior.outputs.restore_run_id }}", text)
         self.assertIn("group: binance-public-source", text)
         self.assertIn("node scripts/binance_run_guard.cjs", text)
         self.assertIn("steps.budget.outputs.duration_seconds", text)
         self.assertLess(text.index("Recheck remaining schedule budget"), text.index("- name: Poll public positions"))
+
+    def test_runner_context_is_not_used_in_job_environment(self):
+        workflow = Path(__file__).resolve().parents[2] / ".github/workflows/binance-python-watch.yml"
+        text = workflow.read_text()
+        in_job_env = False
+        for line in text.splitlines():
+            if line == "    env:":
+                in_job_env = True
+            elif line.strip() and not line.startswith("      "):
+                in_job_env = False
+            if in_job_env:
+                self.assertNotIn("runner.", line, "Runner context is unavailable in job-level env")
+        initialization = text.split("- name: Initialize runner state paths", 1)[1].split("\n      - ", 1)[0]
+        self.assertIn('"$RUNNER_TEMP/binance-watch" >> "$GITHUB_ENV"', initialization)
+        self.assertIn('"$RUNNER_TEMP/binance-watch-selection.json" >> "$GITHUB_ENV"', initialization)
+        self.assertLess(text.index("Initialize runner state paths"), text.index("Select exact prior checkpoint"))
 
     def test_old_collector_shares_lock_and_skips_binance_if_peer_not_allowed(self):
         workflow = Path(__file__).resolve().parents[2] / ".github/workflows/refresh-traders.yml"

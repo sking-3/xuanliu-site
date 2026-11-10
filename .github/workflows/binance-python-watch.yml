@@ -61,10 +61,12 @@ jobs:
       group: binance-public-source
       queue: max
       cancel-in-progress: false
-    env:
-      WATCH_STATE_DIR: ${{ runner.temp }}/binance-watch
-      WATCH_SELECTION: ${{ runner.temp }}/binance-watch-selection.json
     steps:
+      - name: Initialize runner state paths
+        shell: bash
+        run: |
+          printf 'WATCH_STATE_DIR=%s\n' "$RUNNER_TEMP/binance-watch" >> "$GITHUB_ENV"
+          printf 'WATCH_SELECTION=%s\n' "$RUNNER_TEMP/binance-watch-selection.json" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
         with:
           ref: main
