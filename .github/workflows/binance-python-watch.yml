@@ -2,7 +2,7 @@ name: Bounded Binance Python watch
 
 on:
   push:
-    branches: [main]
+    branches: [main, codex/public-order-observer-20261111]
     paths:
       - 'tools/binance_watch/**'
       - '.github/workflows/binance-python-watch.yml'

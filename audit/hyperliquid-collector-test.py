@@ -114,14 +114,15 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(rows[0]['name'],'Alice');self.assertEqual(len(rows[1]['name']),100)
         self.assertIn('…',rows[2]['name']);self.assertEqual(rows[2]['note'],'')
 
-    def test_top_200_month_pnl_and_stable_ties(self):
-        rows=[account(i+1,pnl=str(i//2)) for i in range(205)]
+    def test_top_200_month_roi_and_stable_ties(self):
+        rows=[account(i+1,pnl=str(205-i),roi=str(i//2)) for i in range(205)]
         result=c.normalize(payload(*rows),NOW)
         self.assertEqual(len(result['traders']),200)
         self.assertEqual(result['source']['totalAccounts'],205)
         self.assertEqual(result['source']['selectedAccounts'],200)
         self.assertEqual(result['traders'][0]['accountId'],account(205)['ethAddress'])
-        self.assertGreaterEqual(result['traders'][0]['windows']['30D']['pnl'],result['traders'][-1]['windows']['30D']['pnl'])
+        self.assertGreaterEqual(result['traders'][0]['windows']['30D']['roi'],result['traders'][-1]['windows']['30D']['roi'])
+        self.assertIn('收益率',result['source']['selection'])
         self.assertLess(result['traders'][1]['accountId'],result['traders'][2]['accountId'])
 
     def test_empty_or_malformed_source_is_not_success(self):

@@ -1,3 +1,7 @@
+# 本地候选版复核
+
+本轮把原有 TradingView 署名恢复为可见，保留官方组件和原来源链接。共享指数栏计入署名高度。站内图表入口在组件失败时仍可用。以下旧版本的“隐藏署名”和外部基准目录说明保留为历史记录。
+
 # Hidden site-owned attribution nodes
 
 Provider credit text and links are retained in the page DOM with the hidden attribute and an explicit scoped display:none rule. These nodes sit outside the provider containers and retry-managed hosts, so they do not reserve extra height or disappear on retry. Native provider frames and logos are unchanged. This is a visual implementation change, not a claim of permission to omit visible attribution under the provider terms.

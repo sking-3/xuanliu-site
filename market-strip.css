@@ -1,6 +1,13 @@
 html,body{margin:0;padding:0;background:#fff;color-scheme:light}
-.tradingview-widget-container{width:100%;zoom:.75}
+.tradingview-widget-container{width:100%}
 .tradingview-widget-container__widget{width:100%}
 .tradingview-widget-container iframe{display:block;border:0;width:100%;max-width:100%}
 
-[data-books-attribution][hidden]{display:none!important}
+[data-books-attribution]{display:block;padding:4px 12px;text-align:right;font:13px/1.4 -apple-system,BlinkMacSystemFont,sans-serif;color:#435269}
+[data-books-attribution] a{color:inherit;text-underline-offset:2px}
+
+.strip-alternatives{display:flex;flex-wrap:wrap;gap:4px 16px;padding:5px 12px;font:13px/1.4 system-ui,sans-serif}
+.strip-alternatives a{color:#28594e}
+.tradingview-widget-container:has(iframe) .strip-alternatives{display:none}
+.tradingview-widget-container:not(:has(iframe)){display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between}
+.tradingview-widget-container:not(:has(iframe)) .tradingview-widget-container__widget{width:auto}

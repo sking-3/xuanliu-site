@@ -55,10 +55,29 @@ function orders(payload, now = Date.now()) {
   const seen = new Set(); for (const r of rows) { const k=r.coin+':'+r.orderId; if(seen.has(k))invalid();seen.add(k); }
   rows.sort((a,b)=>b.time-a.time); return rows;
 }
+// Source perpetual fills include the position immediately before execution.
+function perpAction(raw) {
+  const dir=raw.dir;
+  if(!['Open Long','Open Short','Close Long','Close Short','Long > Short','Short > Long'].includes(dir))return null;
+  const before=raw.startPosition, size=raw.sz;
+  if(typeof before!=='string'||typeof size!=='string'||before.length>60||size.length>60||
+     !/^-?\d+(?:\.\d+)?$/.test(before)||!/^\d+(?:\.\d+)?$/.test(size))return null;
+  const scale=Math.max((before.split('.')[1]||'').length,(size.split('.')[1]||'').length);
+  const units=s=>{const [whole,frac='']=s.split('.');return BigInt(whole+frac.padEnd(scale,'0'));};
+  const prior=units(before),amount=units(size),next=prior+(raw.side==='B'?amount:-amount);
+  if(!amount)return null;
+  if(dir==='Open Long' && raw.side==='B' && prior>=0n)return prior===0n?'开多':'加多';
+  if(dir==='Open Short' && raw.side==='A' && prior<=0n)return prior===0n?'开空':'加空';
+  if(dir==='Close Long' && raw.side==='A' && prior>0n && next>=0n)return next===0n?'平多':'减多';
+  if(dir==='Close Short' && raw.side==='B' && prior<0n && next<=0n)return next===0n?'平空':'减空';
+  if(dir==='Long > Short' && prior>0n && next<0n)return '多转空';
+  if(dir==='Short > Long' && prior<0n && next>0n)return '空转多';
+  return null;
+}
 function fill(raw, address, now = Date.now()) {
   object(raw); const price = positive(raw.px), quantity = positive(raw.sz);
   if (!quantity) invalid();
-  const r = {coin:string(raw.coin,40), side:side(raw.side), direction:string(raw.dir,80), time:timestamp(raw.time,now),
+  const r = {coin:string(raw.coin,40), side:side(raw.side), direction:string(raw.dir,80), positionAction:perpAction(raw), time:timestamp(raw.time,now),
     price,quantity,notional:numeric(price * quantity), closedPnl:numeric(raw.closedPnl), fee:numeric(raw.fee),
     feeToken:string(raw.feeToken,40), tradeId:id(raw.tid),orderId:id(raw.oid),hash:string(raw.hash,140)};
   r.key=[address.toLowerCase(),r.coin,r.time,r.tradeId,r.orderId,r.hash].join(':'); return r;
@@ -70,8 +89,8 @@ function updates(payload, address, now=Date.now()) {
     r.key=[address.toLowerCase(),r.coin,r.orderId,r.status,r.statusTime].join(':'); return r;
   });
 }
-function merge(current, incoming, timeKey='time') {
-  const map=new Map(current.map(r=>[r.key,r]));for(const r of incoming)map.set(r.key,r);
+function merge(current, incoming, observedAt, timeKey='time') {
+  const map=new Map(current.map(r=>[r.key,r]));for(const r of incoming)map.set(r.key,{...r,firstSeenAt:map.get(r.key)?.firstSeenAt??observedAt});
   return [...map.values()].sort((a,b)=>b[timeKey]-a[timeKey]||a.key.localeCompare(b.key)).slice(0,LIMIT);
 }
 function symbols(payload) {
@@ -93,7 +112,19 @@ function create(options={}) {
   const setTimer=options.setTimer || setTimeout, clearTimer=options.clearTimer || clearTimeout;
   const notify=options.onChange || (()=>{});
   let generation=0,active=false,visible=options.visible!==false,socket=null,refreshTimer=null,pingTimer=null,reconnectTimer=null,openTimer=null;
-  let state,controllers=new Set(),busy=false,reconnects=0,accepted=false,lastInbound=0,restPaused=false,spotCache=null,spotAttempted=false;
+  const policy=options.policy || globalThis.BooksSourcePolicy;
+  let localStop=null,unsubscribe=null;
+  const blocked=()=>localStop || policy?.reason() || (!options.fetch&&!policy?'snapshot_unverified':null);
+  function halt(code) {
+    if(!active)return;
+    if(['http_403','http_429','stream_rejected'].includes(code))localStop=code;
+    dispose();restPaused=true;
+    for(const key of ['positions','orders','fills','events']){
+      state[key].status='error';state[key].error=code;
+    }
+    status('blocked',code);
+  }
+  let state,controllers=new Set(),busy=false,backfillPending=false,reconnects=0,accepted=false,lastInbound=0,restPaused=false,spotCache=null,spotAttempted=false;
   const reset=address=>({address,scope:'default_perp_dex',displayLimit:LIMIT,connection:{status:'idle',reason:null,lastMessageAt:null,gap:false},
     symbols:spotCache||{status:'idle',spot:{},fetchedAt:null,error:null},positions:section(),orders:section(),fills:{...section(),receivedCount:0,snapshot:false,limited:true},events:section()});
   state=reset(null);
@@ -102,7 +133,7 @@ function create(options={}) {
   function clear(name) {if(name!==null)clearTimer(name);}
   function dispose() {
     generation++;clear(refreshTimer);clear(pingTimer);clear(reconnectTimer);clear(openTimer);refreshTimer=pingTimer=reconnectTimer=openTimer=null;
-    for(const c of controllers)c.abort();controllers.clear();busy=false;
+    for(const c of controllers)c.abort();controllers.clear();busy=false;backfillPending=false;
     const old=socket;socket=null;if(old){old.onopen=old.onmessage=old.onerror=old.onclose=null;try{old.close(1000,'Account view closed');}catch{}}
   }
   function status(kind,reason=null) {state.connection.status=kind;state.connection.reason=reason;emit();}
@@ -112,6 +143,9 @@ function create(options={}) {
     try {
       const body=type==='spotMeta'?{type}:{type,user:state.address};if(type==='clearinghouseState'||type==='frontendOpenOrders')body.dex='';if(type==='userFills')body.aggregateByTime=false;
       const response=await fetcher(INFO,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),credentials:'omit',redirect:'error',cache:'no-store',signal:controller.signal});
+      if(response.status===403||response.status===429){
+        const code='http_'+response.status;policy?.stop(code);halt(code);throw Error(code);
+      }
       if(response.status!==200)throw Error('http_'+response.status);
       const contentType=response.headers.get('content-type') || '';if(!/application\/json/i.test(contentType))throw Error('unexpected_content_type');
       if(Number(response.headers.get('content-length'))>MAX_BYTES)throw Error('response_too_large');
@@ -129,7 +163,7 @@ function create(options={}) {
       const fetchedAt=now();
       if(name==='positions'){const parsed=positions(payload,fetchedAt);state.positions={status:'ready',...parsed,fetchedAt,error:null};}
       else if(name==='orders'){state.orders={status:'ready',rows:orders(payload,fetchedAt),fetchedAt,sourceTime:null,error:null};}
-      else {const parsed=fills(payload,state.address,fetchedAt);state.fills={...state.fills,status:'ready',rows:merge(state.fills.rows,parsed),receivedCount:parsed.length,fetchedAt,error:null};}
+      else {const parsed=fills(payload,state.address,fetchedAt);state.fills={...state.fills,status:'ready',rows:merge(state.fills.rows,parsed,now()),receivedCount:parsed.length,fetchedAt,error:null};}
     } catch(error) {
       if(!valid(token))return;restPaused=true;state[name].status='error';state[name].error=/^http_\d{3}$/.test(error.message)?error.message:error.message==='invalid_response'?'invalid_response':'unavailable';
     }
@@ -142,12 +176,12 @@ function create(options={}) {
     if(valid(token))emit();
   }
   async function refresh(includeFills=false) {
-    if(!active||!visible||busy)return;busy=true;const token=generation;clear(refreshTimer);refreshTimer=null;
+    if(!active||!visible)return;if(busy){backfillPending ||= includeFills;return;}if(blocked()){halt(blocked());return;}busy=true;const token=generation;clear(refreshTimer);refreshTimer=null;
     try {await Promise.all([readSymbols(token),readSection('positions','clearinghouseState',token),readSection('orders','frontendOpenOrders',token),...((includeFills||state.connection.status!=='live')?[readSection('fills','userFills',token)]:[])]);}
-    finally {if(valid(token)){busy=false;if(!restPaused)refreshTimer=setTimer(()=>refresh(false),60000);}}
+    finally {if(valid(token)){busy=false;if(!restPaused){const backfill=backfillPending;backfillPending=false;refreshTimer=setTimer(()=>refresh(backfill),backfill?0:60000);}}}
   }
   function connect(token) {
-    if(!valid(token)||socket)return;
+    if(!valid(token)||socket)return;if(blocked()){halt(blocked());return;}
     if(!WS){status('error','websocket_unavailable');return;}
     accepted=false;lastInbound=now();let seenOpen=false;const acknowledgments=new Set();
     try {socket=new WS(SOCKET);}catch{status('error','websocket_unavailable');return;}
@@ -176,14 +210,14 @@ function create(options={}) {
           if(response.method!=='subscribe'||!TYPES.includes(sub.type)||String(sub.user).toLowerCase()!==state.address)invalid();
           acknowledgments.add(sub.type);accepted=acknowledgments.size===TYPES.length;if(accepted){clear(openTimer);openTimer=null;}if(sub.type==='orderUpdates'){state.events.status='ready';state.events.fetchedAt=now();}state.connection.status=accepted?'live':'connecting';state.connection.reason=null;emit();return;
         }
-        if(message.channel==='error')throw Error('stream_rejected');
+        if(message.channel==='error'){policy?.stop('stream_rejected');halt('stream_rejected');return;}
         if(message.channel==='userFills'){
           const data=object(message.data);if(String(data.user).toLowerCase()!==state.address)invalid();
           if(data.isSnapshot!==undefined&&typeof data.isSnapshot!=='boolean')invalid();
           const parsed=fills(data.fills,state.address,now());
-          state.fills={...state.fills,status:'ready',rows:merge(state.fills.rows,parsed),fetchedAt:now(),error:null,snapshot:data.isSnapshot===true};
+          state.fills={...state.fills,status:'ready',rows:merge(state.fills.rows,parsed,now()),fetchedAt:now(),error:null,snapshot:data.isSnapshot===true};
         }else if(message.channel==='orderUpdates'){
-          const parsed=updates(message.data,state.address,now());state.events={...state.events,status:'ready',rows:merge(state.events.rows,parsed,'statusTime'),fetchedAt:now(),error:null};
+          const parsed=updates(message.data,state.address,now());state.events={...state.events,status:'ready',rows:merge(state.events.rows,parsed,now(),'statusTime'),fetchedAt:now(),error:null};
           // Events are an audit trail, not a complete open-order snapshot. Refresh REST separately.
         }else return;
         acknowledgments.add(message.channel);accepted=acknowledgments.size===TYPES.length;if(accepted){clear(openTimer);openTimer=null;}state.connection.status=accepted?'live':'connecting';state.connection.reason=null;emit();
@@ -195,6 +229,7 @@ function create(options={}) {
     thisSocket.onerror=()=>{if(alive()){state.connection.status='error';state.connection.reason='websocket_unavailable';emit();}};
     thisSocket.onclose=event=>{
       if(!alive())return;socket=null;clear(pingTimer);clear(openTimer);pingTimer=openTimer=null;state.connection.gap=true;
+      if(event.code===1008){policy?.stop('stream_rejected');halt('stream_rejected');return;}
       if(accepted&&seenOpen&&![1003,1008,1009].includes(event.code)&&reconnects<2){
         reconnects++;status('reconnecting','stream_gap');reconnectTimer=setTimer(()=>{reconnectTimer=null;if(valid(token)){refresh(true);connect(token);}},reconnects===1?5000:15000);
       }else status('error','stream_disconnected');
@@ -205,10 +240,12 @@ function create(options={}) {
     address=address.toLowerCase();if(active&&state.address===address)return;
     if(activeClient&&activeClient!==api)activeClient.stop();activeClient=api;
     dispose();active=true;reconnects=0;restPaused=false;state=reset(address);
+    unsubscribe?.();unsubscribe=policy?.subscribe(halt);
+    if(blocked()){halt(blocked());return;}
     if(!visible){status('paused');return;}
     emit();const token=generation;refresh(true);connect(token);
   }
-  function stop() {dispose();active=false;if(activeClient===api)activeClient=null;state.connection.status='closed';state.connection.reason=null;emit();}
+  function stop() {unsubscribe?.();unsubscribe=null;dispose();active=false;if(activeClient===api)activeClient=null;state.connection.status='closed';state.connection.reason=null;emit();}
   function setVisible(value) {
     value=!!value;if(value===visible)return;visible=value;if(!active)return;
     if(!visible){dispose();state.connection.gap=true;status('paused');return;}
@@ -216,8 +253,9 @@ function create(options={}) {
   }
   function manualRefresh() {
     if(!active||!visible)return;
+    if(blocked()){halt(blocked());return;}
     restPaused=false;
-    if(state.connection.status==='error'){
+    if(['error','blocked'].includes(state.connection.status)){
       clear(reconnectTimer);clear(pingTimer);clear(openTimer);reconnectTimer=pingTimer=openTimer=null;
       const old=socket;socket=null;if(old){old.onopen=old.onmessage=old.onerror=old.onclose=null;try{old.close(1000,'Manual reconnect');}catch{}}
       reconnects=0;state.connection.gap=true;connect(generation);

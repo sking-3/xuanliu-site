@@ -120,6 +120,45 @@ function positions(data,at){if(!Array.isArray(data)||data.length>10000)throw Err
 function orders(d){if(!d||!Array.isArray(d.list)||d.list.length>20)throw Error('schema_changed');
  return d.list.map(x=>({symbol:str(x.symbol,50),side:str(x.side,10),positionSide:str(x.positionSide,10),type:str(x.type,30),
  executedQty:decimal(x.executedQty),avgPrice:decimal(x.avgPrice),totalPnl:decimal(x.totalPnl),orderTime:stamp(x.orderTime),orderUpdateTime:stamp(x.orderUpdateTime)}));}
+// Only a stable, losslessly received source order ID can link two samples.
+// An order update carries cumulative executed quantity, never individual fills.
+function observeOrders(data, previous, readAt) {
+ const rows=orders(data);
+ const timestamp=Date.parse(readAt), priorTime=Date.parse(previous?.fetchedAt);
+ const continuous=previous?.status==='ready' && priorTime<timestamp && timestamp-priorTime<=3600000;
+ const previousById=new Map();
+ for(const row of continuous ? previous.rows : []) {
+  if(row.orderId)previousById.set(row.symbol+':'+row.orderId,row);
+ }
+ const signature=row=>JSON.stringify([row.symbol,row.side,row.positionSide,row.type,row.executedQty,row.avgPrice,row.totalPnl,row.orderTime,row.orderUpdateTime]);
+ const samples=new Map();
+ for(const row of continuous ? previous.rows : []){
+  const key=signature(row);
+  samples.set(key,samples.has(key)?null:row);
+ }
+ const counts=new Map();
+ for(const row of rows){const key=signature(row);counts.set(key,(counts.get(key)||0)+1);}
+ const seen=new Set();
+ for(const [i,row] of rows.entries()) {
+  // Identical visible fields can establish the age of a sample, not order identity.
+  const keyForSample=signature(row), priorSample=samples.get(keyForSample);
+  if(counts.get(keyForSample)===1){
+   const first=Date.parse(priorSample?.sampleFirstSeenAt);
+   row.sampleFirstSeenAt=priorSample && Number.isFinite(first) && first<=priorTime ? priorSample.sampleFirstSeenAt : priorSample ? previous.fetchedAt : readAt;
+  }
+  const id=data.list[i].orderId;
+  if(!(typeof id==='string' && /^\d{1,30}$/.test(id)) && !(Number.isSafeInteger(id) && id>=0))continue;
+  const key=row.symbol+':'+id;
+  if(seen.has(key))throw Error('schema_changed');
+  seen.add(key);
+  const prior=previousById.get(key);
+  row.orderId=String(id);
+  const first=Date.parse(prior?.firstSeenAt);
+  row.firstSeenAt=Number.isFinite(first) && first<=priorTime ? prior.firstSeenAt : readAt;
+  row.observation=prior?'seen':continuous && row.orderTime>priorTime && row.orderTime<=timestamp?'new_order':'baseline';
+ }
+ return rows;
+}
 function closed(d){if(!d||!Array.isArray(d.list)||d.list.length>20)throw Error('schema_changed');
  return d.list.map(x=>({symbol:str(x.symbol,50),side:str(x.side,15),opened:stamp(x.opened),closed:stamp(x.closed),avgCost:decimal(x.avgCost),avgClosePrice:decimal(x.avgClosePrice),closingPnl:decimal(x.closingPnl),closedVolume:decimal(x.closedVolume),status:str(x.status,40),leverage:decimal(x.leverage)}));}
 function changes(previous,current,priorPending={},baseline=false){
@@ -175,7 +214,9 @@ async function collect(previous=null,{fetchImpl=fetch,now=()=>Date.now(),sleep=m
  for(const [kind,endpoint,body,normalize] of tasks){
  if(out.source.refreshStopped)break;
  await sleep(2000);
- try{const d=await get(endpoint,body);out.history[kind]={status:'ready',fetchedAt:at(),errorCode:null,complete:false,rows:normalize(d),
+ try{const d=await get(endpoint,body),readAt=at();
+ const rows=kind==='orders'?observeOrders(d,old.history.orders,readAt):normalize(d);
+ out.history[kind]={status:'ready',fetchedAt:readAt,errorCode:null,complete:false,rows,
  coverage:{page:1,pageSize:20,requestedFrom:kind==='orders'?new Date(from).toISOString():null,requestedTo:kind==='orders'?new Date(to).toISOString():null,
  sourceTotal:Number.isSafeInteger(d.total)?d.total:null,indexValue:typeof d.indexValue==='string'?d.indexValue:null,truncated:true,identity:'source_page_sample_no_cross_run_deduplication'}};}
  catch(e){const c=code(e),h=out.history[kind]||emptyHistory();out.history[kind]={...h,status:h.fetchedAt?'stale':'unavailable',errorCode:c,complete:false};
@@ -208,7 +249,7 @@ async function collect(previous=null,{fetchImpl=fetch,now=()=>Date.now(),sleep=m
  out.generatedAt=at();return out;
 }
 
-return {ID,BASE,PERFORMANCE_BASE,PERFORMANCE_PERIOD,PERFORMANCE_PATH,CHART_PERIOD,CHART_MAX_POINTS,CHART_PATH,HALT,initial,profile,positions,orders,closed,performance,validPerformance,chart,validChart,changes,compare,request,collect,validateState:checkPrevious};
+return {ID,BASE,PERFORMANCE_BASE,PERFORMANCE_PERIOD,PERFORMANCE_PATH,CHART_PERIOD,CHART_MAX_POINTS,CHART_PATH,HALT,initial,profile,positions,orders,observeOrders,closed,performance,validPerformance,chart,validChart,changes,compare,request,collect,validateState:checkPrevious};
 }
 const DEFAULT_ID='5156287639231681792';
 const defaultCollector=createCollector(DEFAULT_ID);
@@ -303,6 +344,8 @@ function reconcileLegacy(previous,legacy){
  return out;
 }
 async function main(){
+ const hold=require('./source-holds.json').binancePublicCollector;
+ if(hold!=='approved')throw Error(hold||'source_policy_unverified');
  const args=process.argv.slice(2);if(args.length>1)throw Error('usage: collect_binance.cjs [portfolios.json]');
  const file=path.resolve(args[0]||'trader/binance/portfolios.json');
  let previous=null;

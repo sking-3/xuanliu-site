@@ -4,7 +4,7 @@
 const PERIODS=['30D','90D','365D'],ALL_PERIODS=['7D','30D','90D','180D','365D','ALL'];
 const LIMITS={feed:2097152,portfolios:4194304,analytics:2097152};
 const HOUR=3600000,DAY=86400000,ADDRESS=/^0x[0-9a-f]{40}$/;
-const SCOPE='Hyperliquid · 本站月度盈亏前200候选中的已核验记录，非全市场';
+
 function fail(){throw Error('Invalid home trader snapshot');}
 function periodROI(){return typeof module==='object'&&module.exports?require('./trader/period-roi.js'):globalThis.BooksPeriodROI;}
 function object(v){if(!v||typeof v!=='object'||Array.isArray(v))fail();return v;}
@@ -73,23 +73,31 @@ function cacheStale(cache,entry,failed,now){
  // source refusals and unavailable files still invalidate the whole source.
  return !!failed||!entry||entry.status!=='ready'||entry.errorCode!==null||!['ready','partial'].includes(source?.status)||![null,'batch_timeout'].includes(source?.stopCode)||aged(entry.fetchedAt,now,HOUR);
 }
-function rank(input,period,now=Date.now()){
+function observations(input,period,now=Date.now()){
  if(!PERIODS.includes(period)||!Number.isFinite(now))fail();const {feed,portfolios,analytics,failures={}}=input||{},rows=[];
- if(!feed)return {period,rows,eligibleCount:0,stale:true,asOf:null,scope:SCOPE,note:'暂无可核验的榜单快照'};
+ if(!feed)return rows;
  const source=feed.source,feedStale=!!failures.feed||source.status!=='ok'||aged(source.fetchedAt,now,2*HOUR)||aged(source.snapshotAt||source.fetchedAt,now,2*HOUR);
  for(const r of feed.traders){const pc=r.positionCheck;if(!source.positionVerification||!pc||pc.count<1)continue;
-  const pe=portfolios?.accounts?.[r.accountId],w=pe?.portfolio?.windows?.[period],long=period!=='30D',native=r.windows['30D'];
+  const pe=portfolios?.accounts?.[r.accountId],rawWindow=pe?.portfolio?.windows?.[period],w=rawWindow?periodROI().forDisplay(rawWindow):null,long=period!=='30D',native=r.windows['30D'];
   if(long&&(!w||!['full','sampled_boundary'].includes(w.coverageStatus)||w.sampleCount<2))continue;
-  const pnl=long?w.pnl:native?.pnl;if(typeof pnl!=='number'||!Number.isFinite(pnl)||pnl<=0)continue;
+  if(!long&&!native)continue;
+  const pnl=long?w.pnl:native.pnl;
   const currentHolding=!failures.feed&&source.status==='ok'&&!aged(pc.checkedAt,now,HOUR),performanceAsOf=long?w.endAt:native.asOf,performanceFetchedAt=long?pe.fetchedAt:source.fetchedAt;
   const performanceStale=long?cacheStale(portfolios,pe,failures.portfolios,now)||aged(w.endAt,now,HOUR):feedStale;
   const ae=analytics?.accounts?.[r.accountId],win=ae?.win,winRate=win&&win.eligibleCount>=20?win.value:null,winStale=cacheStale(analytics,ae,failures.analytics,now);
   const mdd=w&&w.mddUnavailableReason===null&&w.sampleCount>=2&&w.mddPairedSampleCount===w.sampleCount&&Number.isFinite(w.mdd)?w.mdd:null;
   rows.push({id:r.id,name:r.name,accountId:r.accountId,currency:'USD',pnl,roi:long?w.roi:native.roi,roiMethod:long?w.roiEvidence?.method||null:'source',roiEvidence:long?w.roiEvidence||null:null,roiUnavailableReason:long?w.roiUnavailableReason:null,mdd,mddFetchedAt:pe?.fetchedAt||null,mddAsOf:w?.endAt||null,mddStale:cacheStale(portfolios,pe,failures.portfolios,now)||aged(w?.endAt,now,HOUR),mddMethod:w?.mddMethod||null,winRate,winCount:win?.eligibleCount??0,winStart:win?.startAt||null,winEnd:win?.endAt||null,winFetchedAt:ae?.fetchedAt||null,winStale,winMethod:win?.method||null,winIncludesOpeningFees:false,winIncludesFunding:false,winHistoryComplete:false,performanceAsOf,performanceFetchedAt,performanceStale,coverageDays:w?.coverageDays??null,startAt:long?w.startAt:null,endAt:performanceAsOf,positionCheckedAt:pc.checkedAt,currentHolding,stale:performanceStale||!currentHolding});
  }
- rows.sort((a,b)=>b.pnl-a.pnl||a.id.localeCompare(b.id));const eligibleCount=rows.length,top=rows.slice(0,3),asOf=top.length?top.map(r=>r.performanceAsOf).sort((a,b)=>Date.parse(a)-Date.parse(b))[0]:null;
- return {period,rows:top,eligibleCount,stale:top.some(r=>r.stale)||!!failures.feed,asOf,scope:SCOPE,note:'按正盈亏 USD 排序；胜率为近期片段，非完整周期；采样回撤非净值回撤。'+(period==='30D'?'':' 自算收益率采用公开资金流水与权益逐段对账后的峰值投入资金口径，非 TWR 或官方直接值；数据不足留空。')};
+ return rows;
 }
-function accountHref(id,period){if(!PERIODS.includes(period))fail();const account=address(typeof id==='string'&&id.startsWith('hl-')?id.slice(3):id);const params=new URLSearchParams({account,period,exchange:'Hyperliquid',source:'public',sort:'pnl',currency:'USD',q:account});return 'trader/index.html?'+params.toString();}
-return {PERIODS,LIMITS,validateFeed,validatePortfolios,validateAnalytics,rank,accountHref};
+function rank(input,period,now=Date.now()){
+ const rows=observations(input,period,now).filter(row=>Number.isFinite(row.roi));
+ rows.sort((a,b)=>b.roi-a.roi||a.id.localeCompare(b.id));
+ const top=rows.slice(0,3);
+ return {period,rows:top,eligibleCount:rows.length,stale:!input?.feed||!!input.failures?.feed||top.some(r=>r.stale),
+   asOf:top.length?top.map(r=>r.performanceAsOf).sort((a,b)=>Date.parse(a)-Date.parse(b))[0]:null,
+   scope:'Hyperliquid · '+(input?.feed?.source?.selection||'本站已收录账户')+' · 非全市场',note:'按同期收益率降序。仅纳入有可核验收益率的账户。'};
+}
+function accountHref(id,period){if(!PERIODS.includes(period))fail();const account=address(typeof id==='string'&&id.startsWith('hl-')?id.slice(3):id);const params=new URLSearchParams({account,period,exchange:'Hyperliquid',source:'public',sort:'roi',currency:'USD',q:account});return 'trader/index.html?'+params.toString();}
+return {PERIODS,LIMITS,validateFeed,validatePortfolios,validateAnalytics,observations,rank,accountHref};
 });

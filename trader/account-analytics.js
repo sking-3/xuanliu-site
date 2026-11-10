@@ -226,6 +226,8 @@ function create(options={}) {
     try{return JSON.parse(text);}catch(_){throw Error('invalid_response');}
   }
   async function request(job) {
+    const policy=globalThis.BooksSourcePolicy;
+    if(!options.fetch && (!policy || policy.reason()))throw Error('source_stopped');
     if(!fetcher||!Controller)throw Error('unavailable');
     const controller=new Controller();let timeout=null,rejectCancel;
     const cancelled=new Promise((_,reject)=>{rejectCancel=reject;});
@@ -240,7 +242,7 @@ function create(options={}) {
       if(job.cancelled)throw Error('cancelled');
       if(!response || typeof response.status!=='number')invalid();
       if(response.status<200||response.status>=300) {
-        const code='http_'+response.status;
+        const code='http_'+response.status;policy?.stop(code);
         if(response.status===403||response.status===429)block(code,response.status===429?retryTime(response):0,job);
         throw Error(code);
       }

@@ -159,5 +159,10 @@ function validateWindow(w,accountId,now=Date.now()) {
     ledgerFetchedAt:iso(fetched),ledgerQueryStartAt:iso(queryStart),ledgerQueryEndAt:iso(queryEnd),pageCount,recordCount:records,relevantCount:relevant,pairedSampleCount:samples,maxReconciliationError:error,historyComplete:false,queryExhausted:true};
   return {roi:w.roi,roiUnavailableReason:null,roiEvidence:evidence};
 }
-return {calculate,validateWindow,REASONS,METHOD,TOLERANCE};
+function forDisplay(w) {
+  if(w?.roiEvidence && (!w.roiEvidence.historyComplete || w.coverageStatus!=='full'))
+    return {...w,...unavailable('history_unverified')};
+  return w;
+}
+return {calculate,validateWindow,forDisplay,REASONS,METHOD,TOLERANCE};
 });

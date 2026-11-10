@@ -2,7 +2,7 @@
 """Read-only Hyperliquid public leaderboard -> bounded Books research snapshot.
 
 No key, proxy, retries, or private endpoints. Run at most every 30 minutes.
-Select up to 200 monthly-PnL candidates, then retain verified nonzero positions.
+Select up to 200 monthly-ROI candidates, then retain verified nonzero positions.
 On source failure, publish a stale marker while retaining a validated good snapshot.
 HTTP Last-Modified describes the leaderboard file, not each account's update time.
 """
@@ -163,11 +163,11 @@ def normalize(payload, fetched_at, last_modified=None, raw_sha256=None, limit=LI
             'sourceUrl': ACCOUNT_URL + address, 'note': '', 'windows': windows,
             'positions': [], 'points': [], 'orders': [],
         })
-    rows.sort(key=lambda row: (-row['windows']['30D']['pnl'], row['accountId']))
+    rows.sort(key=lambda row: (-row['windows']['30D']['roi'], row['accountId']))
     selected = rows[:limit]
     source = {
         'id': 'hyperliquid', 'label': 'Hyperliquid 公开账户', 'url': PAGE_URL,
-        'selection': f'按来源月度盈亏选取前 {len(selected)} 个公开账户',
+        'selection': f'按来源月度收益率选取前 {len(selected)} 个公开账户',
         'totalAccounts': len(rows), 'selectedAccounts': len(selected),
         'fetchedAt': fetched_at, 'snapshotAt': snapshot_at,
         'refreshIntervalMinutes': 30, 'staleAfterMinutes': 120,
@@ -462,7 +462,7 @@ def qualify_positions(candidates, results, completed_at, stop_code=None):
     qualified['traders'] = rows
     source = qualified['source']
     source.update(selectedAccounts=len(rows), lastAttemptAt=completed_at,
-                  selection=f'月度盈亏前 {total} 个候选账户中，经核验持有永续主市场仓位的账户')
+                  selection=f'月度收益率前 {total} 个候选账户中，经核验持有永续主市场仓位的账户')
     source['positionVerification'] = {
         'candidateAccounts': total, 'checkedAccounts': successful,
         'holdingAccounts': len(rows), 'emptyAccounts': empty,
@@ -506,7 +506,7 @@ def failed_snapshot(previous, attempt_at, code):
     except (SourceError,TypeError,KeyError,ValueError):
         return {'schemaVersion':1,'status':'unavailable','reason':'公开账户数据暂不可用。','source':{
             'id':'hyperliquid','label':'Hyperliquid 公开账户','url':PAGE_URL,
-            'selection':'按来源月度盈亏选取前 200 个公开账户',
+            'selection':'按来源月度收益率选取前 200 个公开账户',
             'totalAccounts':0,'selectedAccounts':0,'fetchedAt':None,'snapshotAt':None,
             'refreshIntervalMinutes':30,'staleAfterMinutes':120,
             'lastAttemptAt':attempt_at,'status':'error','errorCode':code,
@@ -589,6 +589,14 @@ def fetch_source():
             signal.signal(signal.SIGALRM,old_handler)
 
 
+def verify_committed_stops():
+    import subprocess
+    guard = Path(__file__).resolve().with_name('hyperliquid_run_guard.cjs')
+    result = subprocess.run(['node', str(guard)], capture_output=True, text=True, timeout=15)
+    if result.returncode or result.stdout.strip() != 'allowed=true':
+        raise SystemExit(result.stderr.strip() or 'Hyperliquid source guard unavailable')
+
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output',type=Path,default=Path(__file__).resolve().parents[1]/'trader'/'feed.json')
@@ -598,6 +606,8 @@ def main():
     args=parser.parse_args()
     if bool(args.input) != bool(args.metadata) or bool(args.input) != bool(args.positions_dir):
         parser.error('--input, --metadata and --positions-dir must be supplied together')
+    if not args.input:
+        verify_committed_stops()
     previous=read_previous(args.output)
     try:
         if args.input:

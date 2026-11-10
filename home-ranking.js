@@ -10,15 +10,14 @@ function amount(value){if(!Number.isFinite(value))return '—';const prefix=valu
 function percent(value,signed=false){return Number.isFinite(value)?(signed&&value>0?'+':'')+decimal(value)+'%':'—';}
 function time(value,full=false){if(!value||!Number.isFinite(Date.parse(value)))return '—';return new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',...(full?{year:'numeric'}:{}),month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}).format(new Date(value));}
 function day(value,year=false){return new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',...(year?{year:'numeric'}:{}),month:'2-digit',day:'2-digit'}).format(new Date(value));}
-function moreHref(period){if(!PERIODS.includes(period))period='30D';return 'trader/index.html?'+new URLSearchParams({period,exchange:'Hyperliquid',source:'public',sort:'pnl',currency:'USD'}).toString();}
+function moreHref(period){if(!PERIODS.includes(period))period='30D';return 'trader/index.html?'+new URLSearchParams({period,exchange:'Hyperliquid',source:'public',sort:'roi',currency:'USD'}).toString();}
 function node(doc,tag,text,cls){const el=doc.createElement(tag);if(text!==undefined)el.textContent=text;if(cls)el.className=cls;return el;}
 function title(el,text){el.setAttribute('title',text);return el;}
-function metric(doc,label,value,description,cls=''){const box=node(doc,'div',undefined,'home-rank-metric');box.append(node(doc,'span',label),title(node(doc,'strong',value,cls),description));return box;}
 function roiDescription(row,period){
   if(period==='30D')return Number.isFinite(row.roi)?'来源公布的同期收益率。':'来源未提供同期收益率，不以收益额代替。';
   const e=row.roiEvidence;
   if(Number.isFinite(row.roi)&&e)return `自算收益率 = 区间盈亏 ÷ max(100 USD，期初权益 + 区间最大累计净入金) × 100%；公开资金流水与权益逐段对账，资金基准 ${decimal(e.capitalBase)} USD。实际区间 ${time(e.startAt,true)} 至 ${time(e.endAt,true)}；流水采集 ${time(e.ledgerFetchedAt,true)}。非 TWR、非官方直接值；仅核验返回的公开流水与采样，不承诺完整账户历史。`;
-  const reasons={cash_flow_adjusted_return_unavailable:'尚无可核验的资金流水和资金基准',insufficient_history:'实际历史不足所选周期',insufficient_samples:'有效权益采样不足',unpaired_samples:'权益与盈亏采样未对齐',ledger_unavailable:'公开资金流水暂不可用',ledger_incomplete:'公开资金流水尚未完整读取',unknown_ledger_event:'存在尚未支持的资金流水类型',invalid_ledger_event:'资金流水字段未通过校验',ambiguous_ledger_order:'同一时间的流水顺序无法确定',ledger_reconciliation_failed:'资金流水与权益变化未能对账',invalid_capital_basis:'资金基准无法可靠计算',invalid_portfolio:'来源历史未通过校验'};
+  const reasons={history_unverified:'完整资金流水和周期边界尚未证实',cash_flow_adjusted_return_unavailable:'尚无可核验的资金流水和资金基准',insufficient_history:'实际历史不足所选周期',insufficient_samples:'有效权益采样不足',unpaired_samples:'权益与盈亏采样未对齐',ledger_unavailable:'公开资金流水暂不可用',ledger_incomplete:'公开资金流水尚未完整读取',unknown_ledger_event:'存在尚未支持的资金流水类型',invalid_ledger_event:'资金流水字段未通过校验',ambiguous_ledger_order:'同一时间的流水顺序无法确定',ledger_reconciliation_failed:'资金流水与权益变化未能对账',invalid_capital_basis:'资金基准无法可靠计算',invalid_portfolio:'来源历史未通过校验'};
   return `自算收益率暂不可用：${reasons[row.roiUnavailableReason]||'计算证据不足或未通过校验'}；不以收益额代替。`;
 }
 function renderRow(doc,row,index,period,Data){
@@ -26,23 +25,11 @@ function renderRow(doc,row,index,period,Data){
   const top=node(doc,'div',undefined,'home-rank-top'),identity=node(doc,'a',undefined,'home-rank-identity');
   identity.href=Data.accountHref(row.accountId,period);identity.setAttribute('aria-label',`查看 ${row.name} 的${LABELS[period]}详情`);
   identity.append(node(doc,'span',String(index+1),'home-rank-number'),title(node(doc,'span',row.name,'home-rank-name'),row.name));
-  const profit=node(doc,'div',undefined,'home-rank-profit');profit.append(title(node(doc,'strong',amount(row.pnl),row.pnl>=0?'home-rank-positive':'home-rank-negative'),decimal(row.pnl)+' USD · 同期盈亏'),node(doc,'small','USD'));
-  top.append(identity,profit);
-  const metrics=node(doc,'div',undefined,'home-rank-metrics');
-  metrics.append(metric(doc,period==='30D'?'收益率':'自算收益率',percent(row.roi,true),roiDescription(row,period),Number.isFinite(row.roi)?row.roi>=0?'home-rank-positive':'home-rank-negative':''));
-  metrics.append(metric(doc,'采样盈亏回撤',percent(row.mdd),'基于来源盈亏及权益采样的回撤口径，可能超过100%；不是资金流调整净值最大回撤。采样截至 '+time(row.mddAsOf,true)+'；采集 '+time(row.mddFetchedAt,true)+'。'+(row.mddStale?' 历史采样，等待更新。':'')));
-  const winDescription=Number.isFinite(row.winRate)?`${row.winCount}个近期永续平仓片段；样本 ${time(row.winStart,true)} 至 ${time(row.winEnd,true)}；采集 ${time(row.winFetchedAt,true)}。已扣平仓手续费，未计开仓手续费及资金费；独立于所选周期，不参与排行。`:`有效平仓片段不足20笔或尚无可核验样本。近期片段胜率不代表所选周期完整胜率，不参与排行。`;
-  metrics.append(metric(doc,'近期片段胜率',percent(row.winRate),winDescription));
-  const notes=[];
-  if(row.performanceStale)notes.push('历史收益快照');
-  if(period!=='30D'&&row.startAt&&row.endAt)notes.push(day(row.startAt,period==='365D')+'—'+day(row.endAt,period==='365D')+(Number.isFinite(row.coverageDays)?' · '+decimal(row.coverageDays,1)+'天':''));
-  notes.push('收益截至 '+time(row.performanceAsOf));
-  if(Number.isFinite(row.mdd)&&row.mddStale)notes.push('回撤旧采样 '+time(row.mddFetchedAt));
-  if(Number.isFinite(row.winRate))notes.push('胜率 '+row.winCount+'片段 · 采集 '+time(row.winFetchedAt)+(row.winStale?' · 旧样本':''));
-  if(!row.currentHolding)notes.push('当前持仓待核验');
-  const timing=node(doc,'p',notes.join(' · '),'home-rank-timing');
-  title(timing,(row.startAt&&row.endAt?'实际采样区间 '+time(row.startAt,true)+' 至 '+time(row.endAt,true)+'；':'')+'收益采集 '+time(row.performanceFetchedAt,true)+'；持仓核验 '+time(row.positionCheckedAt,true)+'。各项更新时间独立，刷新页面不会刷新来源数据。');
-  el.append(top,metrics,timing);return el;
+  const headline=title(node(doc,'strong',percent(row.roi,true),row.roi<0?'home-rank-negative':'home-rank-positive'),roiDescription(row,period));
+  const value=node(doc,'div',undefined,'home-rank-profit');value.append(headline);
+  top.append(identity,value);el.append(top);
+  const meta=node(doc,'p','收益截至 '+time(row.performanceAsOf,true)+(row.performanceStale?' · 历史快照':''),'home-rank-timing');
+  el.append(meta);return el;
 }
 function render(doc,view,period,Data,pending=false){
   const root=doc.getElementById('home-trader-ranking'),list=doc.getElementById('home-ranking-list'),status=doc.getElementById('home-ranking-status'),note=doc.getElementById('home-ranking-note'),more=doc.getElementById('home-ranking-more');
@@ -50,11 +37,12 @@ function render(doc,view,period,Data,pending=false){
   root.setAttribute('aria-busy',String(pending));list.setAttribute('aria-busy',String(pending));root.setAttribute('data-stale',String(!!view?.stale));
   for(const button of root.querySelectorAll('[data-ranking-period]'))button.setAttribute('aria-pressed',String(button.getAttribute('data-ranking-period')===period));
   more.href=moreHref(period);more.textContent='查看'+LABELS[period]+'榜单 ↗';
+  status.hidden=!!view&&!view.rows.length;note.hidden=!view?.rows.length;
   list.replaceChildren();
   if(!view){list.append(node(doc,'p',pending?'正在读取榜单…':'暂未取得可用榜单','home-rank-empty'));status.textContent=pending?'正在读取广场快照…':'榜单暂不可用';note.textContent='与带单员广场共用公开数据快照。';return;}
   if(view.rows.length){view.rows.forEach((row,index)=>list.append(renderRow(doc,row,index,period,Data)));}
-  else list.append(node(doc,'p',pending?'正在读取当前周期数据…':'暂无符合条件的盈利账户','home-rank-empty'));
-  status.textContent=(view.stale?'历史快照 · ':'')+(view.rows.length?'近'+parseInt(period,10)+'天收益额前'+Math.min(3,view.rows.length)+'名':'当前周期暂无符合条件排名')+(view.eligibleCount?' · '+view.eligibleCount+'个符合条件账户':'');
+  else list.append(node(doc,'p',pending?'正在读取当前周期数据…':'该周期缺少可核验的收益率，暂无排名。','home-rank-empty'));
+  status.textContent=(view.stale?'历史快照 · ':'')+(view.rows.length?'近'+parseInt(period,10)+'天收益率前'+Math.min(3,view.rows.length)+'名':'当前周期暂无符合条件排名')+(view.eligibleCount?' · '+view.eligibleCount+'个符合条件账户':'');
   note.textContent=[view.scope,view.note].filter(Boolean).join(' · ');
   if(focusedHref){const replacement=[...list.querySelectorAll('a')].find(a=>a.href===focusedHref);replacement?.focus();}
 }
@@ -108,5 +96,13 @@ function mount(doc,options={}){
 }
 const api={PERIODS,FILES,amount,percent,time,moreHref,renderRow,render,rejectOlder,readJSON,mount};
 if(typeof module!=='undefined'&&module.exports)module.exports=api;
-if(global.document)mount(global.document);
+if(global.document){
+  const panel=global.document.getElementById('home-trader-ranking');
+  if(panel && global.IntersectionObserver){
+    const observer=new global.IntersectionObserver(entries=>{
+      if(entries.some(entry=>entry.isIntersecting)){observer.disconnect();mount(global.document);}
+    },{rootMargin:'160px 0px'});
+    observer.observe(panel);
+  }else mount(global.document);
+}
 })(typeof window!=='undefined'?window:globalThis);

@@ -298,3 +298,10 @@ th{color:#728098;font-weight:500;background:#fbfcfe}
 .public-focus-figures{display:flex;flex-wrap:wrap;gap:10px 28px;font-size:14px}
 .public-focus-figures p{margin:4px 0}
 @media(max-width:600px){.public-focus-card{padding:16px}.public-focus-head .actions{width:100%;margin-left:0}.public-focus-figures{display:block}}
+/* Let each compact identity card size to the evidence it has. */
+.books-shell.trader-page .card[data-layout=aligned]{display:flex;flex-direction:column;grid-row:auto;min-height:0}
+.books-shell.trader-page .card[data-layout=aligned]>.card-context{flex-wrap:wrap;align-items:baseline}
+.books-shell.trader-page .card[data-layout=aligned] .position-state{color:#6b5941}
+.books-shell.trader-page .card[data-layout=aligned]>.card-footer:empty{display:none}
+.books-shell.trader-page .card .platform-id{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.books-shell.trader-page #leaders{scroll-margin-top:calc(var(--books-ticker-height,45px) + 10px)}

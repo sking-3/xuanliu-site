@@ -313,4 +313,4 @@ async function main(args=process.argv.slice(2),dependencies={}) {
   (dependencies.log||console.log)(JSON.stringify(result.source));return result;
 }
 module.exports={collect,main,selectAccounts,validatedCache,validPortfolio,compactPortfolio,readJsonResponse,atomicWrite,readFileJson,blockedByFeed,failureReport,LIMITS,METHOD_VERSION};
-if(require.main===module)main().catch(error=>{console.error(JSON.stringify(failureReport(error)));process.exitCode=1;});
+if(require.main===module)require('./hyperliquid_run_guard.cjs').checkCommitted().then(()=>main()).catch(error=>{console.error(JSON.stringify(failureReport(error)));process.exitCode=1;});

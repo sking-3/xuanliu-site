@@ -6,7 +6,7 @@
     ['SSE:600519','贵州茅台'], ['SZSE:000001','平安银行'], ['SZSE:300750','宁德时代'],
     ['NASDAQ:AAPL','Apple'], ['NASDAQ:MSFT','Microsoft'], ['NASDAQ:NVDA','NVIDIA'],
     ['NASDAQ:AMZN','Amazon'], ['NASDAQ:GOOGL','Alphabet'], ['NASDAQ:META','Meta'], ['NASDAQ:TSLA','Tesla'],
-    ['COINBASE:BTCUSD','Bitcoin / USD'], ['COINBASE:ETHUSD','Ethereum / USD'], ['COINBASE:SOLUSD','Solana / USD']
+    ['COINBASE:USDTUSD','Tether / USD'], ['COINBASE:BTCUSD','Bitcoin / USD'], ['COINBASE:ETHUSD','Ethereum / USD'], ['COINBASE:SOLUSD','Solana / USD']
   ]);
   const requested = new URLSearchParams(location.search).get('tvwidgetsymbol');
   let symbol = requested && requested.toUpperCase();

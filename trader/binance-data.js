@@ -146,7 +146,9 @@
   }
   function validOrder(r) {
     return record(r) && ['symbol', 'side', 'positionSide', 'type'].every(key => text(r[key])) &&
-      ['executedQty', 'avgPrice', 'totalPnl'].every(key => decimal(r[key])) && ms(r.orderTime) && ms(r.orderUpdateTime);
+      ['executedQty', 'avgPrice', 'totalPnl'].every(key => decimal(r[key])) && ms(r.orderTime) && ms(r.orderUpdateTime) &&
+      (r.sampleFirstSeenAt===undefined || iso(r.sampleFirstSeenAt)) &&
+      (r.orderId===undefined || (typeof r.orderId==='string' && /^\d{1,30}$/.test(r.orderId) && iso(r.firstSeenAt) && ['seen','baseline','new_order'].includes(r.observation)));
   }
   function validClosed(r) {
     return record(r) && ['symbol', 'side', 'status'].every(key => text(r[key])) &&

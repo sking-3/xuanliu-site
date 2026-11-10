@@ -38,6 +38,13 @@ await test('REST403 preserves last-good and stops automatic REST retries',async(
 await test('HTTP200 HTML is failure, not an empty successful account',async()=>{const e=env(()=>response('<html>Unavailable</html>',200,'text/html'));e.client.start(A);await e.flush();const s=e.client.getState();assert.equal(s.fills.status,'error');assert.equal(s.positions.status,'error');assert.equal(s.symbols.status,'error');e.client.stop();});
 await test('valid empty orders are ready with zero rows',async()=>{const e=env(body=>response(body.type==='frontendOpenOrders'?[]:payload(body)));e.client.start(A);await e.flush();assert.equal(e.client.getState().orders.status,'ready');assert.equal(e.client.getState().orders.rows.length,0);e.client.stop();});
 await test('WS failure falls back to periodic recent fills if REST is available',async()=>{const e=env();e.client.start(A);await e.flush();await e.advance(60001);assert.equal(e.calls.filter(c=>c.body.type==='userFills').length,2);e.client.stop();});
+await test('a refused source stays stopped after refresh, hide/show and address switches',async()=>{
+ const e=env(()=>response('refused',429));e.client.start(A);await e.flush();
+ const count=e.calls.length,sockets=e.sockets.length;
+ assert.equal(e.client.getState().connection.status,'blocked');
+ await e.client.refresh();e.client.setVisible(false);e.client.setVisible(true);e.client.stop();e.client.start(B);
+ await e.advance(70000);assert.equal(e.calls.length,count);assert.equal(e.sockets.length,sockets);e.client.stop();
+});
 await test('manual refresh reconnects failed stream but does not duplicate live connection',async()=>{const e=env();e.client.start(A);await e.flush();await e.advance(12001);await e.client.refresh();assert.equal(e.sockets.length,2);assert.equal(e.sockets[0].readyState,3);e.sockets[1].open();e.sockets[1].ack();await e.client.refresh();assert.equal(e.sockets.length,2);e.client.stop();});
 await test('UI snapshots cannot mutate client records',async()=>{const e=env();e.client.start(A);await e.flush();const s=e.client.getState();s.fills.rows[0].price=999;assert.equal(e.client.getState().fills.rows[0].price,10);e.client.stop();});
 await test('newest200 display cap retains source sample count without claiming complete history',async()=>{const rows=Array.from({length:400},(_,i)=>({...fill,tid:100+i,time:T-i}));const e=env(body=>response(body.type==='userFills'?rows:payload(body)));e.client.start(A);await e.flush();const s=e.client.getState();assert.equal(s.fills.rows.length,200);assert.equal(s.fills.receivedCount,400);assert.equal(s.fills.rows[0].time,T);assert.equal(s.fills.limited,true);e.client.stop();});

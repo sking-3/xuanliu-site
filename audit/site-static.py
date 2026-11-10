@@ -15,7 +15,7 @@ def check(ok,msg):
 pages=list(root.rglob('*.html'))
 nav_destinations=[('市场总览','index.html'),('A股选股','screening/index.html'),('美股选股','us.html'),('带单员广场','trader/index.html'),('公司研究','research.html'),('历史研究','screening/history.html'),('研究工具','tools.html')]
 shared_versions={name:hashlib.sha256((root/name).read_bytes()).hexdigest()[:8] for name in ('books-shell.js','books-ui.css')}
-attribution_counts={'index.html':3,'a-shares.html':1,'us.html':1,'crypto.html':1,'chart.html':1,'market-strip.html':1}
+attribution_counts={'index.html':4,'a-shares.html':1,'us.html':1,'crypto.html':1,'chart.html':1,'market-strip.html':1}
 for p in pages:
  tree=html.fromstring(p.read_text())
  ids=tree.xpath('//@id')
@@ -31,11 +31,11 @@ for p in pages:
  attributions=tree.xpath('//*[@data-books-attribution or contains(concat(" ",normalize-space(@class)," ")," tradingview-widget-copyright ") or contains(concat(" ",normalize-space(@class)," ")," books-market-credit ")]')
  check(len(attributions)==attribution_counts.get(str(p.relative_to(root)),0),f'{p}: original attribution nodes retained')
  for node in attributions:
-  check('hidden' in node.attrib and 'data-books-attribution' in node.attrib,f'{p}: site attribution stays hidden')
-  check(not node.xpath('ancestor::*[@id="chart-widget" or contains(concat(" ",normalize-space(@class)," ")," feed-widget-area ") or contains(concat(" ",normalize-space(@class)," ")," tradingview-widget-container ")]'),f'{p}: attribution outside provider and retry hosts')
+  check('hidden' not in node.attrib and 'data-books-attribution' in node.attrib,f'{p}: site attribution is visible')
+  check(not node.xpath('ancestor::*[@id="chart-widget" or contains(concat(" ",normalize-space(@class)," ")," feed-widget-area ")]'),f'{p}: attribution outside provider and retry hosts')
   check(bool(node.xpath('.//a[@href]')) and bool(node.text_content().strip()),f'{p}: original attribution text and link retained')
  visible_text=' '.join(tree.xpath('//body//text()[not(ancestor::script) and not(ancestor::style) and not(ancestor::*[@hidden])]'))
- check('TradingView' not in visible_text,f'{p}: no visible site-controlled provider caption')
+ if attributions:check('TradingView' in visible_text,f'{p}: provider name visible')
  if not tree.xpath('//body[contains(@class,"books-shell")]'):continue
  check(len(tree.xpath('//main'))==1,f'{p}: one main landmark')
  check(len(tree.xpath('//h1'))==1,f'{p}: one page heading')
@@ -63,8 +63,8 @@ for p in pages:
    check(len(section.xpath('.//*[contains(concat(" ",@class," "),$cls)]',cls=' '+cls+' '))==1,f'{p}: feed {cls}')
   check(not section.xpath('.//*[contains(concat(" ",@class," ")," feed-toggle ")]'),f'{p}: removed persistent collapse control')
   check(bool(section.xpath('.//div[contains(@class,"feed-controls")][@hidden]')),f'{p}: recovery controls hidden before JS')
-  check(bool(section.xpath('.//details[contains(@class,"symbol-shortcuts")][@hidden]')),f'{p}: extra chart links hidden normally')
-  check(len(section.xpath('.//div[@data-books-attribution][@hidden]'))==1,f'{p}: hidden market attribution retained')
+  check(bool(section.xpath('.//details[contains(@class,"symbol-shortcuts")][not(@hidden)]')),f'{p}: direct chart choices accessible')
+  check(len(section.xpath('.//div[@data-books-attribution][not(@hidden)]'))==1,f'{p}: visible market attribution retained')
   check(not section.xpath('.//script[@src]'),f'{p}: provider mounted only by recovery code')
   check('largeChartUrl' in config,f'{p}: stays in site charts')
   check(bool(section.xpath('.//details[contains(@class,"symbol-shortcuts")]')),f'{p}: direct chart fallback')
@@ -130,9 +130,10 @@ raw_path=root.parent/'hl_live_20261110/leaderboard-source.json'
 if raw_path.is_file() and source.get('rawSha256')==hashlib.sha256(raw_path.read_bytes()).hexdigest():
  raw=json.loads(raw_path.read_text())['leaderboardRows']
  by_address={r['ethAddress'].lower():r for r in raw}
- ranked=sorted(raw,key=lambda r:(-float(dict(r['windowPerformances'])['month']['pnl']),r['ethAddress'].lower()))[:200]
+ metric='roi' if '月度收益率' in source['selection'] else 'pnl'
+ ranked=sorted(raw,key=lambda r:(-float(dict(r['windowPerformances'])['month'][metric]),r['ethAddress'].lower()))[:200]
  ranked_addresses={r['ethAddress'].lower() for r in ranked}
- check(set(seen)<=ranked_addresses if verification is not None else set(seen)==ranked_addresses, 'published accounts come from the actual monthly-PnL top candidates, reduced only by qualification')
+ check(set(seen)<=ranked_addresses if verification is not None else set(seen)==ranked_addresses, 'published accounts come from the actual declared monthly top candidates, reduced only by qualification')
  for row in rows:
   native=dict(by_address[row['accountId'].lower()]['windowPerformances'])
   for period,key in [('7D','week'),('30D','month'),('ALL','allTime')]:
@@ -159,7 +160,7 @@ plaza_source=(root/'trader/plaza.js').read_text()
 check("state.publicRows.filter(r=>qualifiedPosition(r))" in plaza_source and "!state.source?.positionVerification||!check" in plaza_source, 'legacy unqualified public snapshots are gated from visible rows')
 check('now-checked<=3600000' in plaza_source and 'setInterval(()=>{reevaluatePositions();' in plaza_source, 'qualification expires independently of the collection workflow')
 check("startVisibleAnalytics(visibleRows)" in plaza_source and 'client?.setPortfolioTargets(accounts)' in plaza_source and 'ensureWinRate(' not in plaza_source, 'browser account requests are limited to visible curves; win rates come from the public cache')
-check("'来源采样回撤'" in plaza_source and "'平仓成交胜率'" in plaza_source, 'calculated metrics distinguish sampled drawdown and closing-fill rate')
+check("'采样盈亏回撤'" in plaza_source and "'平仓片段胜率'" in plaza_source, 'calculated metrics distinguish sampled drawdown and closing-fill rate')
 check("cachedWin(r)" in plaza_source and "fetch('analytics.json'" in plaza_source and "button('计算'" not in plaza_source, 'closing-fill rate reads persistent aggregates without a calculate button')
 check("'performance-body'" in plaza_source and "'performance-stats'" in plaza_source and "'performance-chart'" in plaza_source and 'compactMoney(w?.pnl,currency)' in plaza_source, 'compact card separates its return and numeric metrics from the source curve')
 check("chart({curve:w.points},'pnl')" in plaza_source, 'public sparkline uses fetched portfolio points rather than a placeholder curve')
@@ -174,8 +175,8 @@ check('本页无外部请求' not in (root/'screening/history.html').read_text()
 check('"showChart":false' in (root/'index.html').read_text(),'Home compact market cards preserved')
 # The navigation is intentionally restyled; validate shared semantics and compact
 # sizing, while protecting the independent ticker behavior from incidental edits.
-base=root.parent/'attribution_base_20261110'
-check((root/'index-ticker.js').read_bytes()==(base/'index-ticker.js').read_bytes(),'index-ticker.js: existing ticker behavior unchanged')
+
+check(hashlib.sha256((root/'index-ticker.js').read_bytes()).hexdigest().startswith('c49031ee'),'ticker host sizing implementation preserved')
 shell_script=(root/'books-shell.js').read_text(); shell_style=re.sub(r'\s+','',(root/'books-ui.css').read_text())
 check('--books-side:92px' in shell_style and '.books-nav-icon' in shell_style and '.books-nav-label' in shell_style,'shared desktop rail uses compact 92px width with icons and text labels')
 check("link.setAttribute('aria-label', name)" in shell_script and "icon.setAttribute('aria-hidden', 'true')" in shell_script,'decorative navigation icons preserve accessible link names')
@@ -185,18 +186,16 @@ loader='https://s3.tradingview.com/external-embedding/embed-widget-ticker-tape.j
 scripts=strip.xpath('//script[@src=$src]',src=loader)
 check(len(scripts)==1,'one official scrolling ticker loader')
 ticker=json.loads(scripts[0].text)
-old_strip=html.fromstring((base/'market-strip.html').read_text()).xpath('//*[self::tv-tickers or self::tv-ticker-tape]')[0]
-old_symbols=old_strip.get('symbols').split(',')
-old_titles=json.loads(old_strip.get('symbol-titles'))
-check(ticker['symbols']==[{'proName':symbol,'title':old_titles[symbol]} for symbol in old_symbols],'ticker symbols and Chinese names preserved')
+symbols=['SSE:000001','SZSE:399001','SZSE:399006','SSE:000688','HSI:HSI','FRED:NDQCOM']
+titles=['上证指数','深证成指','创业板指','科创50','恒生指数','纳斯达克综合']
+check(ticker['symbols']==[{'proName':k,'title':v} for k,v in zip(symbols,titles)],'ticker symbols and Chinese names preserved')
 check(ticker.get('displayMode')=='regular','ticker uses regular height on all viewport sizes')
 check(ticker.get('largeChartUrl')=='https://sking-3.github.io/xuanliu-site/chart.html','ticker links remain in site')
 check(ticker.get('locale')=='zh_CN' and ticker.get('showSymbolLogo') is False,'ticker language and symbol-logo settings preserved')
 check('--books-ticker-height:45px' in re.sub(r'\s+','',(root/'index-ticker.css').read_text()),'compact header starts at 45px')
-check('zoom:.75' in re.sub(r'\s+','',(root/'market-strip.css').read_text()),'entire ticker scales uniformly')
-check(len(strip.xpath('//body/div[@data-books-attribution][@hidden]'))==1,'strip attribution stays hidden outside provider container')
+check(len(strip.xpath('//div[contains(@class,"tradingview-widget-container")]/div[@data-books-attribution][not(@hidden)]'))==1,'ticker measurement includes visible provider credit')
 for path in ['market-feed.css','chart.css','market-strip.css']:
- check('[data-books-attribution][hidden]{display:none!important}' in re.sub(r'\s+','',(root/path).read_text()),f'{path}: hidden attribution uses scoped no-layout rule')
+ check('[data-books-attribution]{display:block' in re.sub(r'\s+','',(root/path).read_text()),f'{path}: provider credit visible')
 for p in pages:
  tree=html.fromstring(p.read_text())
  for node in tree.xpath('//*[@href or @src]'):
@@ -204,4 +203,4 @@ for p in pages:
   if u.scheme or u.netloc or not re.fullmatch(r'[0-9a-f]{8}',version):continue
   target=(p.parent/unquote(u.path)).resolve()
   check(hashlib.sha256(target.read_bytes()).hexdigest()[:8]==version,f'{p}: content version matches {ref}')
-print(f'PASS {checks} static assertions across {len(pages)} HTML documents (11 full pages + shared strip).')
+print(f'PASS {checks} static assertions across {len(pages)} HTML documents.')

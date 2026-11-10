@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Read-only public position observations; never execution or freshness guarantees."""
 import argparse
+import source_holds
 from contextlib import closing
 import datetime as dt
 from decimal import Decimal
@@ -173,6 +174,76 @@ def validate_profile(data):
         raise Stop("inactive")
 
 
+def order_samples(page, previous, observed_at, baseline):
+    """Observe at most the first page. Missing IDs cannot yield identifiable order events."""
+    if not isinstance(page, dict) or not isinstance(page.get("list"), list) or len(page["list"]) > 20:
+        raise Stop("invalid_order_page")
+    seen, events = {}, []
+    observed_ms = round(timestamp(observed_at) * 1000)
+    prior_ms = round(timestamp(previous["observedAt"]) * 1000) if previous else None
+    prior_rows = previous["rows"] if previous and not baseline else {}
+    for raw in page["list"]:
+        if not isinstance(raw, dict):
+            raise Stop("invalid_order_row")
+        order_id = raw.get("orderId")
+        if order_id is None:
+            continue
+        if type(order_id) not in (int, str) or not re.fullmatch(r"[0-9]{1,30}", str(order_id)):
+            raise Stop("invalid_order_id")
+        symbol, created, updated = raw.get("symbol"), raw.get("orderTime"), raw.get("orderUpdateTime")
+        if not isinstance(symbol, str) or not re.fullmatch(r"[A-Z0-9_]{1,50}", symbol):
+            raise Stop("invalid_order_symbol")
+        if type(created) is not int or type(updated) is not int or not 0 < created <= updated <= observed_ms:
+            raise Stop("invalid_order_time")
+        side, leg = raw.get("side"), raw.get("positionSide")
+        if side not in ("BUY", "SELL") or leg not in ("LONG", "SHORT", "BOTH"):
+            raise Stop("invalid_order_direction")
+        quantity = numeric(raw.get("executedQty"))
+        if quantity < 0:
+            raise Stop("invalid_order_quantity")
+        key = symbol + ":" + str(order_id)
+        if key in seen:
+            raise Stop("duplicate_order_id")
+        old = prior_rows.get(key)
+        if old and (old["created"] != created or old["side"] != side or old["leg"] != leg or
+                    updated < old["updated"] or quantity < numeric(old["executedQty"])):
+            raise Stop("order_history_rollback")
+        seen[key] = {"created": created, "updated": updated, "side": side, "leg": leg,
+                     "executedQty": canonical(quantity), "firstSeenAt": old["firstSeenAt"] if old else observed_at}
+        kind = None
+        if not baseline and prior_ms is not None:
+            if old is None and created > prior_ms:
+                kind = "new_public_order"
+            elif old and quantity > numeric(old["executedQty"]):
+                kind = "executed_quantity_increased"
+        if kind:
+            event_id = hashlib.sha256(json.dumps([PORTFOLIO_ID, key, kind, updated, canonical(quantity)]).encode()).hexdigest()
+            events.append({"id": event_id, "kind": kind, "symbol": symbol, "orderId": str(order_id),
+                           "side": side, "positionSide": leg, "executedQty": canonical(quantity),
+                           "sourceCreatedAt": iso(created / 1000), "sourceUpdatedAt": iso(updated / 1000),
+                           "firstSeenAt": seen[key]["firstSeenAt"], "observedAt": observed_at})
+    return {"observedAt": observed_at, "rows": seen, "pageSize": 20, "received": len(page["list"]),
+            "withoutIdentity": len(page["list"]) - len(seen), "complete": False}, events
+
+
+def validate_order_checkpoint(sample):
+    if not isinstance(sample, dict) or not isinstance(sample.get("rows"), dict):
+        raise Stop("invalid_order_checkpoint")
+    rows = sample["rows"]
+    if sample.get("complete") is not False or sample.get("pageSize") != 20 or type(sample.get("received")) is not int or not 0 <= len(rows) <= sample["received"] <= 20 or sample.get("withoutIdentity") != sample["received"] - len(rows):
+        raise Stop("invalid_order_checkpoint")
+    stamp = round(timestamp(sample.get("observedAt")) * 1000)
+    for key, row in rows.items():
+        if not re.fullmatch(r"[A-Z0-9_]{1,50}:[0-9]{1,30}", key) or not isinstance(row,dict):
+            raise Stop("invalid_order_checkpoint")
+        if (type(row.get("created")) is not int or type(row.get("updated")) is not int or
+                not 0 < row["created"] <= row["updated"] <= stamp or
+                not row["created"] <= round(timestamp(row.get("firstSeenAt")) * 1000) <= stamp or
+                row.get("side") not in ("BUY","SELL") or row.get("leg") not in ("LONG","SHORT","BOTH") or
+                numeric(row.get("executedQty")) < 0):
+            raise Stop("invalid_order_checkpoint")
+
+
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         raise Stop("redirect_refused")
@@ -190,10 +261,21 @@ class Transport:
         raise Stop(f"http_{status}")
 
     def get(self, route):
-        if route not in ("lead-portfolio/detail", "lead-data/positions"):
+        if route == "lead-portfolio/order-history":
+            hold = source_holds.reason("binanceOrders5075281354358777856")
+            if hold:
+                raise Stop(hold)
+            end = int(time.time() * 1000)
+            payload = {"portfolioId": PORTFOLIO_ID, "startTime": end - 7 * 86400000,
+                       "endTime": end, "pageSize": 20}
+            request = urllib.request.Request(BASE + route, data=json.dumps(payload).encode(),
+                                             headers={"Content-Type":"application/json", "Accept":"application/json",
+                                                      "User-Agent":"BooksReadOnlyMonitor/1.0"})
+        elif route in ("lead-portfolio/detail", "lead-data/positions"):
+            request = urllib.request.Request(BASE + route + "?portfolioId=" + PORTFOLIO_ID,
+                                             headers={"Accept":"application/json", "User-Agent":"BooksReadOnlyMonitor/1.0"})
+        else:
             raise Stop("unsupported_route")
-        request = urllib.request.Request(BASE + route + "?portfolioId=" + PORTFOLIO_ID,
-                                         headers={"Accept": "application/json", "User-Agent": "BooksReadOnlyMonitor/1.0"})
         deadline = self.clock() + self.timeout
         try:
             with self.opener.open(request, timeout=self.timeout) as response:
@@ -284,6 +366,8 @@ def validate_state(state):
             raise Stop("invalid_checkpoint")
     if not state["initialized"] and all_positions:
         raise Stop("invalid_checkpoint")
+    if "orderSample" in state:
+        validate_order_checkpoint(state["orderSample"])
     return state
 
 
@@ -388,8 +472,9 @@ class DurationEnd(Exception):
 
 class Monitor:
     def __init__(self, store, transport, repository_guard, interval=5.0, clock=time.monotonic,
-                 wall=time.time, sleep=time.sleep, logger=emit):
+                 wall=time.time, sleep=time.sleep, logger=emit, observe_orders=False):
         self.store, self.transport, self.guard = store, transport, repository_guard
+        self.observe_orders = observe_orders
         self.interval, self.clock, self.wall, self.sleep, self.log = interval, clock, wall, sleep, logger
         self.last_request, self.deadline, self.first_cycle = None, None, True
 
@@ -418,12 +503,22 @@ class Monitor:
             state = {**old, "initialized": True, "status": "ready", "errorCode": None,
                      "lastAttemptAt": attempt, "lastSuccessAt": observed_at, "positions": current,
                      "pendingAbsent": pending, "needsBaseline": False}
-            self.store.save(state, events)
+            order_events = []
+            if self.observe_orders:
+                page = self.request("lead-portfolio/order-history")
+                read_at = iso(self.wall())
+                prev = old.get("orderSample")
+                gap = timestamp(read_at) - timestamp(prev["observedAt"]) if prev else math.inf
+                state["orderSample"], order_events = order_samples(page, prev, read_at,
+                    baseline or not 0 < gap <= self.interval * 2 + 2)
+            self.store.save(state, events + order_events)
             self.first_cycle = False
             self.log("baseline" if baseline else "checked", observedAt=observed_at, sourceUpdatedAt=None,
                      positionCount=len(current), changes=len(events), status="ready")
             for event in events:
                 self.log("position_change", event=event)
+            for event in order_events:
+                self.log("order_observation", event=event)
             return "ready"
         except (Stop, Temporary) as exc:
             stopped = isinstance(exc, Stop)
@@ -485,6 +580,11 @@ def main(argv=None):
     parser.add_argument("--repo-snapshot", type=Path, default=ROOT / "trader/binance/portfolios.json")
     parser.add_argument("--status", action="store_true", help="Inspect the saved checkpoint without any network request")
     args = parser.parse_args(argv)
+    if not args.status:
+        hold = source_holds.reason("binancePublicCollector") or source_holds.reason("binanceOrders5075281354358777856")
+        if hold:
+            emit("stopped", reason=hold)
+            return 2
     if not math.isfinite(args.interval) or args.interval < 5:
         parser.error("--interval must be at least 5 seconds")
     if args.max_cycles is not None and args.max_cycles < 1:
@@ -500,7 +600,7 @@ def main(argv=None):
             emit("status", **state)
             return 2 if state["stopped"] or state["runActive"] else 0
         store = Store(args.state_db)
-        monitor = Monitor(store, Transport(), lambda: check_repository(args.repo_snapshot), args.interval)
+        monitor = Monitor(store, Transport(), lambda: check_repository(args.repo_snapshot), args.interval, observe_orders=True)
         def interrupt(_signum, _frame):
             raise KeyboardInterrupt()
         signal.signal(signal.SIGTERM, interrupt)

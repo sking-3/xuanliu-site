@@ -6,7 +6,7 @@
   // Normal/loading states have no extra action rows. Recovery is error-only.
   function recovery(s, visible) {
     s.controls.hidden = !visible;
-    if (s.shortcuts) s.shortcuts.hidden = !visible;
+    if (s.shortcuts) s.shortcuts.hidden = false;
   }
   function fail(s, message) {
     clearTimeout(s.timer);

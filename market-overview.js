@@ -80,7 +80,7 @@ function anchor(doc,text,url,cls){const a=node(doc,'a',text,cls);a.href=url;a.ta
 function renderCard(doc,host,id,c,now,readFailed){
   const status=stale(id,c,now,readFailed)?'stale':c.data?'ready':'unavailable';
   const head=node(doc,'div',undefined,'insight-heading');head.append(node(doc,'h2',LABELS[id]));
-  if(status!=='ready')head.append(node(doc,'span',status==='stale'?'待更新':'暂无数据','insight-state'));
+  head.append(node(doc,'span',status==='ready'?'已采集':status==='stale'?'待更新':'暂无数据','insight-state'));
   const scope=node(doc,'p',SCOPES[id],'insight-scope'),body=node(doc,'div',undefined,'insight-body');
   const metric=(value,unit,label)=>{const line=node(doc,'div',undefined,'insight-metric');line.append(node(doc,'strong',value));if(unit)line.append(node(doc,'span',unit));body.append(line);if(label)body.append(node(doc,'p',label,'insight-caption'));};
   const row=(label,value)=>{const r=node(doc,'div',undefined,'insight-row');r.append(node(doc,'span',label),node(doc,'strong',value));body.append(r);};
@@ -95,7 +95,9 @@ function renderCard(doc,host,id,c,now,readFailed){
     }else if(id==='flows'){
       metric(signed(d.netMillions/100),'亿美元',d.period.replace('-','年')+'月 · 月度');row('美债净买入',d.treasuryMillions===null?'':signed(d.treasuryMillions/100)+' 亿');row('股票净买入',d.equityMillions===null?'':signed(d.equityMillions/100)+' 亿');
     }else if(id==='active'){
-      const list=node(doc,'ol',undefined,'insight-ranking');for(const r of d.items.slice(0,3)){const li=node(doc,'li');li.append(node(doc,'strong',r.symbol),node(doc,'span',compactUsd(r.volumeUsd)));li.setAttribute('title',r.name+'；来源更新 '+dateLabel(r.lastUpdated,true));list.append(li);}body.append(list,node(doc,'p',d.universe,'insight-caption'));
+      const list=node(doc,'ol',undefined,'insight-ranking');for(const r of d.items.slice(0,3)){const li=node(doc,'li');const name=node(doc,'strong',r.symbol);
+        if(['BTC','ETH','SOL','USDT'].includes(r.symbol)){const chart=node(doc,'a',r.symbol);chart.href='chart.html?tvwidgetsymbol='+encodeURIComponent('COINBASE:'+r.symbol+'USD');chart.setAttribute('aria-label',r.symbol+' · 查看 Coinbase 美元现货K线');name.replaceChildren(chart);}
+        li.append(name,node(doc,'span',compactUsd(r.volumeUsd)));li.setAttribute('title',r.name+'；来源更新 '+dateLabel(r.lastUpdated,true));list.append(li);}body.append(list,node(doc,'p',d.universe,'insight-caption'));
     }else{
       const headline=anchor(doc,employmentHeadline(d.latest.title),d.latest.url,'insight-headline');headline.setAttribute('title',d.latest.title);body.append(headline,node(doc,'p','发布 '+dateLabel(d.latest.publishedAt),'insight-caption'));
       const events=d.events.filter(e=>Date.parse(e.startAt)>=now).slice(0,2);
