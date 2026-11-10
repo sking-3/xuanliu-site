@@ -9,31 +9,19 @@
     "visibility": "public",
     "sourceUrl": "https://www.binance.com/en/copy-trading/lead-details/5156287639231681792"
   },
-  "generatedAt": "2026-11-10T10:19:59.237Z",
+  "generatedAt": "2026-11-10T11:08:11.617Z",
   "source": {
     "status": "ready",
-    "lastAttemptAt": "2026-11-10T10:19:52.085Z",
-    "lastSuccessAt": "2026-11-10T10:19:54.886Z",
+    "lastAttemptAt": "2026-11-10T11:08:01.993Z",
+    "lastSuccessAt": "2026-11-10T11:08:04.710Z",
     "errorCode": null,
     "refreshStopped": false
   },
   "snapshot": {
-    "observedAt": "2026-11-10T10:19:54.886Z",
+    "observedAt": "2026-11-10T11:08:04.710Z",
     "complete": true,
     "rawCount": 1938,
-    "positions": [
-      {
-        "key": "NVDAUSDT:LONG:USDT",
-        "symbol": "NVDAUSDT",
-        "side": "LONG",
-        "quantity": "217.56",
-        "entryPrice": "175.5530391615",
-        "markPrice": "182.13196385",
-        "leverage": 40,
-        "unrealizedPnl": "1431.31085555",
-        "collateral": "USDT"
-      }
-    ]
+    "positions": []
   },
   "observations": [
     {
@@ -67,7 +55,23 @@
       "after": "217.56"
     }
   ],
-  "pendingAbsent": {},
+  "pendingAbsent": {
+    "NVDAUSDT:LONG:USDT": {
+      "position": {
+        "key": "NVDAUSDT:LONG:USDT",
+        "symbol": "NVDAUSDT",
+        "side": "LONG",
+        "quantity": "217.56",
+        "entryPrice": "175.5530391615",
+        "markPrice": "182.13196385",
+        "leverage": 40,
+        "unrealizedPnl": "1431.31085555",
+        "collateral": "USDT"
+      },
+      "from": "2026-11-10T10:19:54.886Z",
+      "firstMissingAt": "2026-11-10T11:08:04.710Z"
+    }
+  },
   "snapshots": [
     {
       "observedAt": "2026-11-10T00:32:20.394Z",
@@ -302,45 +306,84 @@
           "collateral": "USDT"
         }
       ]
+    },
+    {
+      "observedAt": "2026-11-10T11:08:04.710Z",
+      "complete": true,
+      "rawCount": 1938,
+      "positions": []
     }
   ],
   "evidence": {
     "lead-portfolio/detail": {
-      "sha256": "f2e67c58ddfd60aec85e0b5006dc98b6d3f0a9ab98c2077c99ec45e32c37c93b",
+      "sha256": "c268d76840e9af1a1fc9a2ffba007fa12278ad571b23e439635ea474955d4de5",
       "bytes": 2669,
       "httpStatus": 200,
       "code": "000000",
-      "receivedAt": "2026-11-10T10:19:52.571Z"
+      "receivedAt": "2026-11-10T11:08:02.384Z"
     },
     "lead-data/positions": {
-      "sha256": "b0391d3963f4d7389dfaa4d1795476088b7c75dfa580bf8a2498ea08ba383ed6",
-      "bytes": 663626,
+      "sha256": "94c72ccf92cf08a64cb13bf68188da826576622a05fc8ddffb2498fd02421707",
+      "bytes": 663594,
       "httpStatus": 200,
       "code": "000000",
-      "receivedAt": "2026-11-10T10:19:54.886Z"
+      "receivedAt": "2026-11-10T11:08:04.710Z"
     },
     "lead-portfolio/order-history": {
-      "sha256": "cf5997d42d5b4b7daee2fdd5d1bdff08a90bd8eab261a79bc9bb761ccae02092",
-      "bytes": 4981,
+      "sha256": "b830294220a2c7148a608c97de600a2817d4c7bdb4aa4478f824da611370e2b0",
+      "bytes": 4988,
       "httpStatus": 200,
       "code": "000000",
-      "receivedAt": "2026-11-10T10:19:57.066Z"
+      "receivedAt": "2026-11-10T11:08:07.009Z"
     },
     "lead-portfolio/position-history": {
-      "sha256": "dfa83d6bff0b5d84fc2181a28656e1ce63a948fd495690b7f28e2d47ed78498b",
+      "sha256": "4bea9fc5b8243af2743012f403275a671de0cac49d8ab9a5059b8d98d7f97b14",
       "bytes": 8112,
       "httpStatus": 200,
       "code": "000000",
-      "receivedAt": "2026-11-10T10:19:59.237Z"
+      "receivedAt": "2026-11-10T11:08:09.184Z"
     }
   },
   "history": {
     "orders": {
       "status": "ready",
-      "fetchedAt": "2026-11-10T10:19:57.066Z",
+      "fetchedAt": "2026-11-10T11:08:07.009Z",
       "errorCode": null,
       "complete": false,
       "rows": [
+        {
+          "symbol": "NVDAUSDT",
+          "side": "SELL",
+          "positionSide": "LONG",
+          "type": "MARKET",
+          "executedQty": "79.96",
+          "avgPrice": "179.6681878",
+          "totalPnl": "329.04728798",
+          "orderTime": 1794307348413,
+          "orderUpdateTime": 1794307348414
+        },
+        {
+          "symbol": "NVDAUSDT",
+          "side": "SELL",
+          "positionSide": "LONG",
+          "type": "MARKET",
+          "executedQty": "89.77",
+          "avgPrice": "179.9989796",
+          "totalPnl": "399.11207427",
+          "orderTime": 1794307345163,
+          "orderUpdateTime": 1794307345163
+        },
+        {
+          "symbol": "NVDAUSDT",
+          "side": "SELL",
+          "positionSide": "LONG",
+          "type": "MARKET",
+          "executedQty": "47.83",
+          "avgPrice": "180.2182876",
+          "totalPnl": "223.13883681",
+          "orderTime": 1794307338002,
+          "orderUpdateTime": 1794307338002
+        },
         {
           "symbol": "NVDAUSDT",
           "side": "BUY",
@@ -527,58 +570,37 @@
           "totalPnl": "0",
           "orderTime": 1794183275318,
           "orderUpdateTime": 1794183275318
-        },
-        {
-          "symbol": "ETHUSDT",
-          "side": "SELL",
-          "positionSide": "LONG",
-          "type": "MARKET",
-          "executedQty": "9.762",
-          "avgPrice": "2151.78",
-          "totalPnl": "346.25814",
-          "orderTime": 1794179654125,
-          "orderUpdateTime": 1794179654125
-        },
-        {
-          "symbol": "ETHUSDT",
-          "side": "BUY",
-          "positionSide": "LONG",
-          "type": "MARKET",
-          "executedQty": "9.762",
-          "avgPrice": "2116.31",
-          "totalPnl": "0",
-          "orderTime": 1794175663253,
-          "orderUpdateTime": 1794175663253
-        },
-        {
-          "symbol": "ETHUSDT",
-          "side": "BUY",
-          "positionSide": "SHORT",
-          "type": "MARKET",
-          "executedQty": "20.704",
-          "avgPrice": "2127.67605",
-          "totalPnl": "2218.0094599",
-          "orderTime": 1794174958281,
-          "orderUpdateTime": 1794174958281
         }
       ],
       "coverage": {
         "page": 1,
         "pageSize": 20,
-        "requestedFrom": "2026-11-03T10:19:54.890Z",
-        "requestedTo": "2026-11-10T10:19:54.890Z",
-        "sourceTotal": 50,
-        "indexValue": "1794174958281",
+        "requestedFrom": "2026-11-03T11:08:04.713Z",
+        "requestedTo": "2026-11-10T11:08:04.713Z",
+        "sourceTotal": 53,
+        "indexValue": "1794183275318",
         "truncated": true,
         "identity": "source_page_sample_no_cross_run_deduplication"
       }
     },
     "closedPositions": {
       "status": "ready",
-      "fetchedAt": "2026-11-10T10:19:59.237Z",
+      "fetchedAt": "2026-11-10T11:08:09.184Z",
       "errorCode": null,
       "complete": false,
       "rows": [
+        {
+          "symbol": "NVDAUSDT",
+          "side": "Long",
+          "opened": 1794230586942,
+          "closed": 1794307348414,
+          "avgCost": "175.55303916",
+          "avgClosePrice": "179.92561776",
+          "closingPnl": "898.09478508",
+          "closedVolume": "217.56",
+          "status": "All Closed",
+          "leverage": "40"
+        },
         {
           "symbol": "SKHYNIXUSDT",
           "side": "Long",
@@ -806,18 +828,6 @@
           "closedVolume": "473.99",
           "status": "All Closed",
           "leverage": "20"
-        },
-        {
-          "symbol": "BTCUSDT",
-          "side": "Short",
-          "opened": 1790535631540,
-          "closed": 1790613009274,
-          "avgCost": "84553.16945455",
-          "avgClosePrice": "84065.7",
-          "closingPnl": "338.65583092",
-          "closedVolume": "0.825",
-          "status": "All Closed",
-          "leverage": "20"
         }
       ],
       "coverage": {
@@ -825,10 +835,35 @@
         "pageSize": 20,
         "requestedFrom": null,
         "requestedTo": null,
-        "sourceTotal": 105,
+        "sourceTotal": 106,
         "indexValue": null,
         "truncated": true,
         "identity": "source_page_sample_no_cross_run_deduplication"
+      }
+    }
+  },
+  "performance": {
+    "schemaVersion": 1,
+    "byPeriod": {
+      "30D": {
+        "roi": 193.22567928,
+        "pnl": 7588.70254991,
+        "mdd": 55.076538,
+        "winRate": 80,
+        "status": "ready",
+        "lastAttemptAt": "2026-11-10T11:08:11.184Z",
+        "lastSuccessAt": "2026-11-10T11:08:11.617Z",
+        "sourceAsOf": null,
+        "sourcePeriod": "30D",
+        "currency": "USDT",
+        "errorCode": null,
+        "evidence": {
+          "sha256": "65883228240d3ff4e32b4d4e882ec9419a350f48b5bbed167c544f63bde8f79d",
+          "bytes": 258,
+          "httpStatus": 200,
+          "code": "000000",
+          "receivedAt": "2026-11-10T11:08:11.617Z"
+        }
       }
     }
   }
