@@ -267,3 +267,21 @@ th{color:#728098;font-weight:500;background:#fbfcfe}
 @media(max-width:420px){.books-shell.trader-page .card[data-layout=aligned]>.performance-body{grid-template-columns:minmax(0,1fr);gap:10px}.binance-curve-unavailable{border-left:0;border-top:1px solid #edf0f5;padding:8px 0 0}.books-shell.trader-page .card[data-layout=aligned] .roi{font-size:31px}.books-shell.trader-page .card[data-layout=aligned] .roi.long-roi{font-size:23px}}
 
 @media(max-width:420px){.books-shell.trader-page .card[data-layout=aligned] .binance-curve-unavailable{min-height:0}}
+
+/* Compact desktop cards; keep the shared row tracks and full source identity. */
+@media(min-width:761px){
+  .books-shell.trader-page .cards{gap:16px}
+  .books-shell.trader-page .card[data-layout=aligned]{padding:18px}
+  .books-shell.trader-page .card[data-layout=aligned]>.card-context{margin-top:10px}
+  .books-shell.trader-page .card[data-layout=aligned]>.card-data-status{margin-top:6px}
+  .books-shell.trader-page .card[data-layout=aligned]>.performance-body{grid-template-columns:minmax(132px,1.2fr) minmax(72px,1fr);gap:12px;min-height:126px;margin-top:10px}
+  .books-shell.trader-page .card[data-layout=aligned] .roi{font-size:28px}
+  .books-shell.trader-page .card[data-layout=aligned] .roi.long-roi{font-size:23px}
+  .books-shell.trader-page .card[data-layout=aligned] .roi-label{margin-bottom:12px}
+  .books-shell.trader-page .card[data-layout=aligned] .metrics{gap:7px}
+  .books-shell.trader-page .card[data-layout=aligned] .performance-chart{min-height:126px}
+  .books-shell.trader-page .card[data-layout=aligned] .performance-chart .chart,
+  .books-shell.trader-page .card[data-layout=aligned] .performance-chart .chart svg{height:100px}
+  .books-shell.trader-page .card[data-layout=aligned]>.card-footer{padding-top:8px}
+}
+@media(min-width:1280px){.books-shell.trader-page .cards{grid-template-columns:repeat(4,minmax(0,1fr))}}
