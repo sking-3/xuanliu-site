@@ -176,7 +176,7 @@ async function collect({feed,previous=null,priorStopCode=null,fetch:fetcher=glob
   return {schemaVersion:1,methodVersion:METHOD_VERSION,generatedAt,source:{id:'hyperliquid',endpoint:INFO,
     status:!addresses.length?'ready':failed||queue.length||stopCode?(available?'partial':'unavailable'):'ready',
     startedAt,completedAt:generatedAt,accounts:addresses.length,cached,attempted,succeeded,failed,unattempted:queue.length,
-    available,stopCode,refreshIntervalMinutes:30,staleAfterMinutes:config.staleMs/60000,sampleLimit:2000,
+    available,stopCode,refreshIntervalMinutes:360,staleAfterMinutes:config.staleMs/60000,sampleLimit:2000,
     weightPerMinute:config.weightPerMinute,requestWeight:config.requestWeight,maxConcurrency:config.concurrency,maxBatchMinutes:config.batchMs/60000},accounts};
 }
 async function readFileJson(file, io=fs) {

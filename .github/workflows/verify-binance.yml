@@ -7,6 +7,14 @@ on:
     paths:
       - 'scripts/collect_binance.cjs'
       - 'scripts/binance_run_guard.cjs'
+      - 'scripts/resolve_trader_refresh_mode.cjs'
+      - 'scripts/hyperliquid_run_guard.cjs'
+      - 'audit/hyperliquid-run-guard-unit.cjs'
+      - 'scripts/collect_trader_analytics.cjs'
+      - 'scripts/collect_trader_portfolios.cjs'
+      - 'audit/trader-refresh-mode-unit.cjs'
+      - 'audit/trader-analytics-collector-unit.cjs'
+      - 'audit/trader-portfolio-collector-unit.cjs'
       - '.github/workflows/refresh-traders.yml'
       - 'audit/binance-*.cjs'
       - 'trader/binance/**'
@@ -27,6 +35,14 @@ jobs:
           node-version: '22'
       - name: Check collector, display, and existing trader page
         run: |
+          node --check scripts/resolve_trader_refresh_mode.cjs
+          node audit/trader-refresh-mode-unit.cjs
+          node --check scripts/hyperliquid_run_guard.cjs
+          node audit/hyperliquid-run-guard-unit.cjs
+          node --check scripts/collect_trader_analytics.cjs
+          node audit/trader-analytics-collector-unit.cjs
+          node --check scripts/collect_trader_portfolios.cjs
+          node audit/trader-portfolio-collector-unit.cjs
           node --check scripts/collect_binance.cjs
           node --check trader/binance/monitor.js
           node audit/binance-collector-unit.cjs
@@ -37,6 +53,8 @@ jobs:
           node audit/trader-unit.cjs
           node audit/account-live-unit.cjs
           node audit/account-analytics-unit.cjs
+      - name: Inspect committed Hyperliquid refusal state without network access
+        run: node scripts/hyperliquid_run_guard.cjs
       - name: Check registered portfolio data without network access
         run: |
           node -e "const fs=require('node:fs');const c=require('./scripts/collect_binance.cjs');const u=require('./trader/binance/monitor.js');const p=c.validateCollection(JSON.parse(fs.readFileSync('trader/binance/portfolios.json','utf8')));u.parseCollection(p);if(JSON.stringify(c.PORTFOLIOS.map(x=>x.id).sort())!==JSON.stringify(Object.keys(u.PORTFOLIOS).sort()))process.exit(1);console.log(p.portfolios.map(s=>({id:s.portfolioId,status:s.source.status,positions:s.snapshot?.positions.length})));if(p.portfolios.some(s=>s.source.status==='ready'&&!s.snapshot?.complete))process.exit(1);"
