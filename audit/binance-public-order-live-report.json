@@ -1,0 +1,118 @@
+{
+  "verifiedAt": "2026-11-11T15:21:36Z",
+  "targetPortfolioId": "5075281354358777856",
+  "scope": "anonymous_public_execution_records_only",
+  "checkpointEvidence": {
+    "protocol": "GitHub connector read of exact public state branch",
+    "fileBlobSha": "6fc1f2c79bbaa271a555eaac9bae9974a88ef254",
+    "receivedAt": "2026-11-11T15:21:36Z",
+    "sourceUrl": "https://github.com/sking-3/xuanliu-site/blob/binance-public-orders-state/monitor-state/5075281354358777856.json"
+  },
+  "latestCompletedRun": {
+    "checkpointSealed": true,
+    "cycles": 165,
+    "durationSeconds": 836.325,
+    "endedAt": "2026-11-11T15:08:25.947Z",
+    "errorCode": null,
+    "observations": 0,
+    "positionsRequested": false,
+    "runId": "43042987747",
+    "sourceRequests": 168,
+    "startedAt": "2026-11-11T14:54:28.532Z",
+    "trigger": "workflow_dispatch",
+    "httpSuccesses": 168,
+    "minimumRequestGapSeconds": 5.001,
+    "maximumRequestGapSeconds": 5.554,
+    "runUrl": "https://github.com/sking-3/xuanliu-site/actions/runs/43042987747"
+  },
+  "activeRunAtVerification": {
+    "checkedCycles": 144,
+    "id": "43045343877",
+    "lastCheckAt": "2026-11-11T15:20:58.865Z",
+    "lastSourceResponse": {
+      "cursor": null,
+      "httpStatus": 200,
+      "receivedAt": "2026-11-11T15:20:58.864Z",
+      "requestStartedAt": "2026-11-11T15:20:58.663Z",
+      "responseSha256": "57a8145f8760498e6439f6080e2a54b4cb3dd73da67e603d088253803bd450bc",
+      "sourceDateHeader": "Wed, 11 Nov 2026 15:20:58 GMT"
+    },
+    "parentRunId": "43042987747",
+    "rootRunId": "43029237582",
+    "sourceRequests": 147,
+    "startedAt": "2026-11-11T15:08:46.246Z",
+    "trigger": "workflow_dispatch"
+  },
+  "lastSuccessAt": "2026-11-11T15:20:58.865Z",
+  "lastFullScanAt": "2026-11-11T15:19:13.848Z",
+  "retainedRecordVersions": 38,
+  "observationsRetained": 0,
+  "stopped": false,
+  "hiddenPositionsRequested": false,
+  "schedule": {
+    "mode": "single_successor_workflow_dispatch_chain",
+    "cronRemoved": true,
+    "maximumSuccessorRunSeconds": 840,
+    "targetSourceIntervalSeconds": 5,
+    "automaticSuccessorVerified": true,
+    "continuous24HourGuarantee": false
+  },
+  "frontend": {
+    "productionUrl": "https://sking-3.github.io/xuanliu-site/trader/index.html?exchange=Binance&source=all&sort=directory&currency=all&q=5075281354358777856&period=30D",
+    "automaticRefreshObservedWithoutReload": [
+      "2026-11-11T12:25:17Z",
+      "2026-11-11T12:30:27Z",
+      "2026-11-11T12:36:32Z"
+    ],
+    "displayRefreshSeconds": 60,
+    "latestSavedRecords": 38,
+    "mobile": {
+      "viewportWidth": 390,
+      "documentWidth": 375,
+      "documentScrollWidth": 375,
+      "dialogWidth": 341,
+      "tableViewport": 273,
+      "tableContentWidth": 893
+    },
+    "keyboardEscapeRestoresDetailButtonFocus": true,
+    "ownPageErrorProbeReceivedErrors": false,
+    "browserLogNote": "An unattributed MutationObserver error remained in browser logs; the new reader does not use MutationObserver. No claim of an error-free third-party ticker.",
+    "latestDisplayedCheckAt": "2026-11-11T15:19:58Z",
+    "latestScreenshot": "熬鹰公开操作记录上线验收.jpg"
+  },
+  "offlineChecks": {
+    "pythonObserverAndLegacy": 142,
+    "traderLogicAndDomModel": 252,
+    "savedRecordReader": 7,
+    "binanceAdapter": 47,
+    "siteStaticAssertions": 2099
+  },
+  "latestCIInventory": "not retried after completed-check 403; deployment verified through public asset bytes and browser UI",
+  "externalMessageAlertsConfigured": false,
+  "limits": [
+    "Public source has no order IDs; record fingerprints do not prove distinct orders or new positions.",
+    "Hidden current positions and pending orders remain unavailable.",
+    "Source quota and source publication latency have no verified published guarantee.",
+    "GitHub startup, source locks and frontend delivery can leave observation gaps.",
+    "No actual new public record appeared during observation; live new-signal detection was not demonstrated."
+  ],
+  "continuationAtVerification": {
+    "consumedAt": "2026-11-11T15:08:46.242Z",
+    "ownerRunId": "43045343877",
+    "parentRunId": "43042987747",
+    "phase": null,
+    "requestedAt": "2026-11-11T15:08:26.989Z",
+    "rootRunId": "43029237582",
+    "stopped": false,
+    "ticket": null
+  },
+  "sourceSafety": {
+    "sourceLockGroup": "binance-public-records-source",
+    "lockProtocol": "public-records-v3",
+    "oldCloudBinanceEntryRetired": true,
+    "oldQueueQueryStillStopped": true,
+    "knownStartedRunLogReadOnly": "43029433645: both jobs already started; completed source log 130552452967 verified 168 successful requests and accepted successor 204",
+    "noRunQueueInventoryQueries": true
+  },
+  "deliveryNote": "Public raw-file CDN may lag the saved checkpoint by several minutes. Frontend shows its actual saved time and stale status; background evidence uses source timestamps and the durable branch."
+}
