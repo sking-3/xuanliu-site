@@ -347,7 +347,7 @@ async function readPortfolioCache() {
     state.portfolioCache=payload.accounts;state.portfolioCacheGeneratedAt=payload.generatedAt;state.portfolioCacheReadFailed=false;
     orderChanged=state.rows.some((r,i)=>before[i]!==sortValue(r,$('period').value,$('sort').value));
   } catch {globalThis.BooksSourcePolicy?.inspect('portfolios',null);state.portfolioCacheReadFailed=true;}
-  finally {clearTimeout(timeout);state.portfolioCacheLoading=false;state.portfolioCacheAttempted=true;for(const address of new Set(state.analyticsViews.map(v=>v.r.accountId)))refreshAnalyticsViews(address);if(orderChanged)schedulePerformanceOrder();startVisibleAnalytics(state.analyticsViews.filter(v=>v.kind==='card').slice(0,12).map(v=>v.r),true);}
+  finally {clearTimeout(timeout);state.portfolioCacheLoading=false;state.portfolioCacheAttempted=true;for(const address of new Set(state.analyticsViews.map(v=>v.r.accountId)))refreshAnalyticsViews(address);if(state.detail&&$('detail').open&&state.tab==='analysis'&&globalThis.BooksTradeAnalysis)renderDetail();if(orderChanged)schedulePerformanceOrder();startVisibleAnalytics(state.analyticsViews.filter(v=>v.kind==='card').slice(0,12).map(v=>v.r),true);}
 }
 // This same-origin file contains only precomputed public-account aggregates.
 // A fetched snapshot never starts per-account成交 requests in the visitor's browser.
@@ -421,7 +421,7 @@ async function readWinCache() {
       render();
       if(focused){const replacement=state.cardControls.find(v=>v.r.id===focused.r.id);(replacement?.[focusKind]||$('sort')).focus();}
     }
-    for(const address of new Set(state.analyticsViews.map(v=>v.r.accountId)))refreshAnalyticsViews(address);
+    for(const address of new Set(state.analyticsViews.map(v=>v.r.accountId)))refreshAnalyticsViews(address);if(state.detail&&$('detail').open&&state.tab==='analysis'&&globalThis.BooksTradeAnalysis)renderDetail();
   }
 }
 function sourceIsStale(now=Date.now()) {
@@ -441,8 +441,8 @@ function eligiblePublicRows() {return state.publicRows.filter(r=>qualifiedPositi
 function retainedPublicRows() {return state.publicRows.filter(r=>!isPublicAccount(r)||state.source?.positionVerification&&r.positionCheck);}
 function isBinanceTrader(r) {return r?.sourceKind==='copy_trade'&&!r._local;}
 function binanceView(r) {if(r.referenceOnly)return BinanceData.detail(null);return BinanceData.detail(r.binance,{requestFailed:state.binanceReadFailed,checkedAt:state.binanceCheckedAt,batchStopped:r.binanceBatchSource?.refreshStopped===true,batchErrorCode:r.binanceBatchSource?.errorCode||null});}
-function binancePerformance(r,period) {return BinanceData.performance(r.referenceOnly?null:r.binance,period,{requestFailed:state.binanceReadFailed,batchStopped:r.binanceBatchSource?.refreshStopped===true,batchErrorCode:r.binanceBatchSource?.errorCode||null});}
-function hasBinancePerformance(r) {return !r.referenceOnly&&['roi','pnl','mdd','winRate'].some(key=>binancePerformance(r,'30D')[key]!==null);}
+function binancePerformance(r,period) {if(r.referenceOnly&&globalThis.BooksReferenceData)return BooksReferenceData.performance(globalThis.BooksAoyingHistory,r.accountId,period);return BinanceData.performance(r.referenceOnly?null:r.binance,period,{requestFailed:state.binanceReadFailed,batchStopped:r.binanceBatchSource?.refreshStopped===true,batchErrorCode:r.binanceBatchSource?.errorCode||null});}
+function hasBinancePerformance(r) {return ['roi','pnl','mdd','winRate'].some(key=>binancePerformance(r,'30D')[key]!==null);}
 function rejectOlderBinancePerformance(incoming,previous) {
   if(hiddenBinanceFeed(incoming))return;
   if(BinanceData.performance(incoming,'30D',{batchStopped:true}).errorCode==='performance_schema')fail();
@@ -453,7 +453,7 @@ function rejectOlderBinancePerformance(incoming,previous) {
     if(old.lastSuccessAt&&next.status!=='ready'&&['roi','pnl','mdd','winRate'].some(key=>old[key]!=null&&next[key]!==old[key]))fail();
   }
 }
-function binanceChart(r,period) {return BinanceData.chart(r.referenceOnly?null:r.binance,period,{requestFailed:state.binanceReadFailed,batchStopped:r.binanceBatchSource?.refreshStopped===true,batchErrorCode:r.binanceBatchSource?.errorCode||null});}
+function binanceChart(r,period) {if(r.referenceOnly&&globalThis.BooksReferenceData)return BooksReferenceData.chart(globalThis.BooksAoyingHistory,r.accountId,period);return BinanceData.chart(r.referenceOnly?null:r.binance,period,{requestFailed:state.binanceReadFailed,batchStopped:r.binanceBatchSource?.refreshStopped===true,batchErrorCode:r.binanceBatchSource?.errorCode||null});}
 function rejectOlderBinanceChart(incoming,previous) {
   if(hiddenBinanceFeed(incoming))return;
   if(BinanceData.chart(incoming,'30D',{batchStopped:true}).errorCode==='chart_schema')fail();
@@ -588,17 +588,17 @@ function renderBinancePerformance(r,parent,period,compact=false) {
     amount.setAttribute('title',key==='pnl'?(value.pnl===null?'—':signedValue(value.pnl,money(value.pnl,'USDT'))+' USDT'):label+' · '+display);item.append(node('small',label),amount);figures.append(item);
   }
   stats.append(figures);body.append(stats);if(!compact||binanceChart(r,period).pointCount>1)body.append(binanceChartArea(r,period));parent.append(body);
-  let note=!value.periodSupported?'未接入该周期的币安表现':r.referenceOnly?'表现数据未取得':value.status==='restricted'?'表现资料不可见':value.lastSuccessAt?'表现采集 '+timeLabel(value.lastSuccessAt)+(value.status==='ready'?' · 有效期 60 分钟':' · 上次成功结果，待更新'):'尚未取得该周期的币安表现';
+  let note=!value.periodSupported?'未接入该周期的币安表现':value.status==='restricted'?'表现资料不可见':value.lastSuccessAt?'表现采集 '+timeLabel(value.lastSuccessAt)+(value.status==='ready'?' · 有效期 60 分钟':' · 上次成功结果，待更新'):'尚未取得该周期的币安表现';
   if(value.lastSuccessAt&&!value.sourceAsOf)note+=' · 来源未提供统计截止时间';
   body.setAttribute('title',note);
-  const summary=!value.periodSupported?'未接入该周期的币安表现':r.referenceOnly?'表现数据未取得':value.status==='restricted'?'表现资料不可见':value.lastSuccessAt?'表现采集 '+timeLabel(value.lastSuccessAt)+(value.status==='ready'?'':' · 上次成功结果，待更新'):'尚未取得该周期的币安表现';
+  const summary=!value.periodSupported?'未接入该周期的币安表现':value.status==='restricted'?'表现资料不可见':value.lastSuccessAt?'表现采集 '+timeLabel(value.lastSuccessAt)+(value.status==='ready'?'':' · 上次成功结果，待更新'):'尚未取得该周期的币安表现';
   const status=node('p',compact?summary:note,'binance-performance-note');status.setAttribute('title',note);status.setAttribute('data-state',value.status);if(!compact)parent.append(status);return status;
 }
 function renderBinanceCard(r,c,period=$('period').value,compact=false) {
   const view=binanceView(r),status=node('p',binanceStatus(view,r)+' · '+binanceTiming(view,r),'card-data-status');status.setAttribute('data-state',view.status);
   if(compact){
     const context=node('div',undefined,'card-context');
-    context.append(node('span',periodLabel(period)),node('span',r.referenceOnly?'身份关注':view.currentPositionCount===null?'当前仓位未知':view.currentPositionCount===0?'最近核验空仓':'核验时持仓 '+view.currentPositionCount));
+    context.append(node('span',periodLabel(period)),node('span',r.referenceOnly&&!hasBinancePerformance(r)?'身份关注':view.currentPositionCount===null?'当前仓位未知':view.currentPositionCount===0?'最近核验空仓':'核验时持仓 '+view.currentPositionCount));
     context.setAttribute('title',status.textContent);c.append(context);
     const performance=binancePerformance(r,period);
     if(['roi','pnl','mdd','winRate'].some(key=>Number.isFinite(performance[key])) || binanceChart(r,period).pointCount>1){
@@ -918,8 +918,8 @@ function render() {
   $('sort-hint').textContent=$('sort').value==='winRate'?(source==='local'?'按已记录逐笔胜率排序 · 缺数账户排在后面':platform==='Hyperliquid'?'按近期永续平仓片段胜率排序 · 缺数账户排在后面':'按各平台来源胜率排序 · 口径见卡片 · 缺数账户排在后面'):$('sort').value==='mdd'?($('source').value==='local'?'按已记录最大回撤排序 · 缺数账户排在后面':platform==='Hyperliquid'?'按采样盈亏回撤排序 · 缺数账户排在后面':'按各平台来源回撤排序 · 口径见卡片 · 缺数账户排在后面'):'历史资料按原时间展示 · 当前持仓须在核验有效期内';
   const sort=$('sort').value,grouped=sort==='pnl'&&currency==='all'&&new Set(rows.map(r=>r.currency)).size>1;
   if(sort==='roi'&&source!=='local'){
-    rows=rows.filter(r=>Number.isFinite(sortValue(r,p,'roi')));
-    $('sort-hint').textContent='仅列有同期收益率的账户。全部资料可查看其余账户。';
+    if(!q)rows=rows.filter(r=>Number.isFinite(sortValue(r,p,'roi')));
+    $('sort-hint').textContent=q?'搜索匹配账户；缺少所选周期收益率的资料保留在后，不计入收益率排名。':'仅列有同期收益率的账户。全部资料可查看其余账户。';
   }
   rows.sort((a,b)=>{
     if(sort==='directory')return 0;
@@ -1063,8 +1063,9 @@ function renderDetail() {
     if(state.tab!=='live'){
       $('detail-data-status').hidden=true;state.analyticsViews=state.analyticsViews.filter(v=>v.kind!=='detail');
       publicExecutionReader ||= BooksBinancePublicRecords.reader(globalThis);
-      const w=isBinanceTrader(r)?binancePerformance(r,state.window):performanceWindow(r,state.window),cached=cachedWin(r);
-      BooksTradeAnalysis.render(b,{r,tab:state.tab,period:state.window,periodLabel:periodName(state.window,w),metrics:w?{...w,winRate:isPublicAccount(r)?cached?.win?.value??null:w.winRate}:null,binanceView:isBinanceTrader(r)?binanceView(r):null,publicReader:publicExecutionReader,activate:activateDetailTab,metricNote:r.exchange==='Hyperliquid'?'收益率与盈亏沿用已核验周期数据；长期区间对账未通过时收益率留空。采样盈亏回撤不是标准净值回撤。'+winCacheDescription(r):'收益率、回撤、胜率沿用币安来源字段与周期；不以操作样本推算账户表现。',winNote:r.exchange==='Binance'?'币安所选周期平台统计':cached?.win?.eligibleCount?'近期 '+cached.win.eligibleCount+' 个片段 · 独立于所选周期':'缺少有效成交样本'});
+      const w=isBinanceTrader(r)?binancePerformance(r,state.window):performanceWindow(r,state.window),cached=cachedWin(r),portfolio=isPublicAccount(r)?portfolioSection(r,state.window):null,history=portfolio?.status==='ready'?portfolio.windows[state.window]:null;
+      const curve=isBinanceTrader(r)?binanceChart(r,state.window):history?{points:history.points,lastSuccessAt:portfolio.fetchedAt,status:portfolio.stale?'stale':'ready',currency:history.curveUnit,basis:history.curveBasis}:null;
+      BooksTradeAnalysis.render(b,{r,tab:state.tab,period:state.window,periodLabel:periodName(state.window,w),metrics:w?{...w,mdd:isPublicAccount(r)?sampledDrawdown(history,state.window):w.mdd,winRate:isPublicAccount(r)?cached?.win?.value??null:w.winRate}:null,curve,profile:r.referenceOnly?globalThis.BooksReferenceData?.profile(globalThis.BooksAoyingHistory,r.accountId):null,binanceView:isBinanceTrader(r)?binanceView(r):null,publicReader:publicExecutionReader,activate:activateDetailTab,setPeriod:p=>{if(periods.includes(p)){state.window=p;renderDetail();}},metricNote:r.exchange==='Hyperliquid'?'收益率与盈亏沿用已核验周期数据；长期区间对账未通过时收益率留空。采样盈亏回撤不是标准净值最大回撤。'+winCacheDescription(r):'收益率、回撤、胜率沿用币安来源字段与周期；不以操作样本推算账户表现。',winNote:r.exchange==='Binance'?'币安所选周期平台统计':cached?.win?.eligibleCount?'近期 '+cached.win.eligibleCount+' 个片段 · 独立于所选周期':'缺少有效成交样本'});
       return;
     }
     BooksTradeAnalysis.pause();

@@ -1,5 +1,8 @@
 // Unit fixtures are synthetic; the published feed is validated separately.
 // This DOM model verifies logic, not browser layout.
+require('./reference-data-unit.cjs');
+require('./trade-chart-unit.cjs');
+require('./trade-replay-unit.cjs');
 require('./public-focus-unit.cjs');
 require('./public-focus-ui-unit.cjs');
 require('./public-executions-unit.cjs');
@@ -584,6 +587,17 @@ await test('an older public response cannot revive hidden samples merely because
 await test('equivalent ISO success timestamps cannot disguise a rewritten successful curve',async()=>{
  unifiedSetup();const at=Math.floor((Date.now()-1000)/1000)*1000,original=installChart(chartCollection(at)),old=original.portfolios[0].chart.byPeriod['30D'];remoteBinance=chartCollection(at+1000);const next=remoteBinance.portfolios[0].chart.byPeriod['30D'];next.lastSuccessAt=old.lastSuccessAt.replace('.000Z','Z');next.evidence.receivedAt=next.lastSuccessAt;next.points=structuredClone(old.points);next.points[0].value=999;assert.equal(Date.parse(next.lastSuccessAt),Date.parse(old.lastSuccessAt));assert.notEqual(next.lastSuccessAt,old.lastSuccessAt);
  await a.refreshBinance();assert.equal(a.state.binanceReadFailed,true);assert.equal(a.binanceChart(a.state.binanceRows[0],'30D').points[0].value,125);assert.equal(a.binanceChart(a.state.binanceRows[0],'30D').lastSuccessAt,old.lastSuccessAt);assert.equal(a.binanceChart(a.state.binanceRows[0],'30D').status,'stale');
+});
+await test('independent Aoying public performance participates in default Binance ROI ranking',()=>{
+ unifiedSetup();context.BooksReferenceData=require('../trader/reference-data.js');const bundle={};vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../trader/aoying-history.js'),'utf8'),bundle);context.BooksAoyingHistory=bundle.BooksAoyingHistory;
+ ids.exchange.value='Binance';ids.sort.value='roi';ids.period.value='30D';a.render();assert.equal(ids.leaders.children.length,1);assert.match(content(ids.leaders),/熬鹰资本/);const r=a.state.binanceRows.find(x=>x.accountId==='5075281354358777856');assert.equal(a.sortValue(r,'30D','roi'),bundle.BooksAoyingHistory.performance.roi);assert.equal(a.binanceView(r).currentPositionCount,null);assert.equal(a.binanceChart(r,'30D').pointCount,30);
+});
+await test('search finds Aoying by name and exact public ID without switching away from ROI',()=>{
+ for(const query of ['熬鹰','5075281354358777856']){ids.search.value=query;a.render();assert.equal(ids.leaders.children.length,1);assert.match(content(ids.leaders),/熬鹰资本/);assert.equal(ids.sort.value,'roi');}
+});
+await test('search keeps a missing-period identity visible without borrowing monthly performance',()=>{
+ ids.period.value='90D';ids.search.value='熬鹰';a.render();assert.equal(ids.leaders.children.length,1);assert.doesNotMatch(content(ids.leaders),/95\.90|95\.9%/);assert.match(ids['sort-hint'].textContent,/不计入收益率排名/);ids.search.value='not-a-registered-account';const before=binanceFetches;a.render();assert.doesNotMatch(content(ids.leaders),/熬鹰资本/);assert.match(content(ids.leaders),/暂无可排名账户/);assert.equal(binanceFetches,before);
+ delete context.BooksReferenceData;delete context.BooksAoyingHistory;
 });
 console.log(`${passed} logic and DOM-model tests passed. Synthetic fixtures stay local; the published feed is checked separately.`);
 })().catch(e=>{console.error(e);process.exitCode=1;});

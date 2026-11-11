@@ -12,4 +12,10 @@ Hyperliquid 只为打开的公开账户请求官方 `userFills`，最多 2000 �
 
 图表使用 Lightweight Charts 5.3.0，Apache 2.0；本地 LICENSE、官方版本 NOTICE、包完整性与脚本哈希位于 `vendor/lightweight-charts-5.3.0/`，页面保留 TradingView 署名及链接。
 
-验证：`node --test audit/trade-replay-unit.cjs audit/public-executions-unit.cjs`，以及现有广场、来源停止与 Python 监控测试。合成样本仅在测试进程，不进入公开数据文件。
+点位保留逐条标记 ID；悬浮显示操作、方向、数量、均价、名义金额和时间，点击 / 轻触可固定查看；同柱过密时保留全部事件入口。图表与操作均用北京时间，成交量仅使用来源值。回放进度隐藏尚未揭示的买卖点。
+
+交易分析增加公开组合资料、闭合样本结构、来源 PNL 曲线和币种汇总。统计按所选区间内的平仓时间计样本；杠杆为有来源字段样本的等权均值。它们与平台原生周期表现独立，不混算为账户收益或能力评分。熬鹰 30D 原生表现同时进入广场筛选，其他周期不套用该值；主动搜索可找到缺少所选周期收益率的账户，缺数账户不参加排名。详情有独立分析周期，不改动广场筛选。
+
+跟单路径的证据、可复制部分与执行限制见 [COPY-RESEARCH.md](COPY-RESEARCH.md)。
+
+验证：`node --test audit/trade-replay-unit.cjs audit/trade-chart-unit.cjs audit/reference-data-unit.cjs audit/public-executions-unit.cjs`，以及现有广场、来源停止与 Python 监控测试。合成样本仅在测试进程，不进入公开数据文件。

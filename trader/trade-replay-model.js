@@ -60,7 +60,7 @@ function cycles(events,official=[]){
   if(!['avgCost','avgClosePrice','closedVolume','closingPnl'].every(k=>number(r[k])!==null))continue;
   const positionSide=r.side.toLowerCase(),es=events.filter(e=>e.symbol===r.symbol&&e.positionSide===positionSide&&e.time>=r.opened&&e.time<=r.closed);
   for(const e of es)used.add(e.id);
-  out.push(finish({id:'official:'+r.symbol+':'+r.opened+':'+r.closed+':'+i,symbol:r.symbol,positionSide,official:true,status:'官方已平仓',coverage:'官方仓位汇总；逐条操作为本站有限样本',opened:r.opened,closed:r.closed,quantity:r.closedVolume,avgEntry:r.avgCost,avgExit:r.avgClosePrice,pnl:Number(r.closingPnl),events:es,quote:'USDT'}));
+  out.push(finish({id:'official:'+r.symbol+':'+r.opened+':'+r.closed+':'+i,sourcePositionId:r.positionId||null,symbol:r.symbol,positionSide,official:true,status:'官方已平仓',coverage:'官方仓位汇总；逐条操作为本站有限样本',opened:r.opened,closed:r.closed,quantity:r.closedVolume,avgEntry:r.avgCost,avgExit:r.avgClosePrice,pnl:Number(r.closingPnl),leverage:Number(r.leverage)>0&&Number.isFinite(Number(r.leverage))?Number(r.leverage):null,events:es,quote:'USDT'}));
  }
  const grouped=new Map();for(const e of events)if(!used.has(e.id)){const k=e.symbol+'|'+(e.startPosition!==undefined?'hl':e.positionSide);if(!grouped.has(k))grouped.set(k,[]);grouped.get(k).push(e);}
  for(const es of grouped.values()){
@@ -83,8 +83,26 @@ function cycles(events,official=[]){
 function candles(raw,kind){
  if(!Array.isArray(raw)||raw.length>1500)throw Error('kline_schema');const out=[],seen=new Set();
  for(const r of raw){const t=kind==='binance'?r[0]:r.t,o=Number(kind==='binance'?r[1]:r.o),h=Number(kind==='binance'?r[2]:r.h),l=Number(kind==='binance'?r[3]:r.l),c=Number(kind==='binance'?r[4]:r.c);
-  if(!time(t)||![o,h,l,c].every(x=>Number.isFinite(x)&&x>0)||l>Math.min(o,c)||h<Math.max(o,c)||l>h||seen.has(t))throw Error('kline_schema');seen.add(t);out.push({time:Math.floor(t/1000),open:o,high:h,low:l,close:c});}
+  if(!time(t)||![o,h,l,c].every(x=>Number.isFinite(x)&&x>0)||l>Math.min(o,c)||h<Math.max(o,c)||l>h||seen.has(t))throw Error('kline_schema');seen.add(t);const rawVolume=kind==='binance'?r[5]:r.v,volume=rawVolume!==null&&rawVolume!==undefined&&rawVolume!==''?Number(rawVolume):NaN;out.push({time:Math.floor(t/1000),open:o,high:h,low:l,close:c,...(Number.isFinite(volume)&&volume>=0?{volume}:{} )});}
  return out.sort((a,b)=>a.time-b.time);
 }
-return {add,neg,binanceEvents,hyperliquidEvents,cycles,candles};
+function summary(cycles,days,end){
+ if(!Number.isSafeInteger(days)||days<1||!Number.isFinite(end))throw Error('summary_window');const start=end-days*86400000;
+ const selected=cycles.filter(x=>(x.official||x.status==='样本内闭合'&&!x.ambiguous)&&Number.isFinite(x.pnl)&&x.opened>0&&x.closed>=start&&x.closed<=end),quotes=new Set(selected.map(x=>x.quote)),sameQuote=quotes.size<=1;
+ const bySymbol=new Map();let duration=0,leverage=0,leverageCount=0,wins=0,longs=0;
+ for(const x of selected){wins+=x.pnl>0?1:0;longs+=x.positionSide==='long'?1:0;duration+=x.closed-x.opened;if(x.leverage>0){leverage+=x.leverage;leverageCount++;}const key=x.symbol+'|'+x.quote;if(!bySymbol.has(key))bySymbol.set(key,{symbol:x.symbol,quote:x.quote,count:0,pnl:0,wins:0});const v=bySymbol.get(key);v.count++;v.pnl+=x.pnl;v.wins+=x.pnl>0?1:0;}
+ return {start,end,count:selected.length,wins,losses:selected.filter(x=>x.pnl<0).length,breakeven:selected.filter(x=>x.pnl===0).length,longs,shorts:selected.filter(x=>x.positionSide==='short').length,averageDuration:selected.length?duration/selected.length:null,averageLeverage:leverageCount?leverage/leverageCount:null,leverageCount,pnl:selected.length&&sameQuote?selected.reduce((v,x)=>v+x.pnl,0):null,quote:sameQuote?[...quotes][0]||null:null,bySymbol:[...bySymbol.values()].map(x=>({...x,winRate:x.wins/x.count*100})).sort((a,b)=>Math.abs(b.pnl)-Math.abs(a.pnl)),rows:selected};
+}
+function markerLabel(e){return ({open:'开',increase:e.startPosition!==undefined?'加':'开/加',decrease:e.startPosition!==undefined?'减':'减/平',close:'平',reverse:'反'})[e.effect]||(e.side==='buy'?'买':'卖');}
+function markerGroups(events,bars,seconds,maxStack=6){
+ const available=new Set(bars.map(b=>b.time)),groups=new Map(),out=[];
+ for(const e of events){const t=Math.floor(e.time/1000/seconds)*seconds;if(!available.has(t))continue;if(!groups.has(t))groups.set(t,[]);groups.get(t).push(e);}
+ for(const [t,es]of [...groups].sort((a,b)=>a[0]-b[0])){
+  const singles=es.length>maxStack?es.slice(0,maxStack-1):es;
+  for(const e of singles)out.push({id:e.id,time:t,position:e.side==='buy'?'belowBar':'aboveBar',color:e.side==='buy'?'#159578':'#dd526e',shape:e.side==='buy'?'arrowUp':'arrowDown',text:markerLabel(e),events:[e]});
+  if(es.length>maxStack)out.push({id:'group:'+t,time:t,position:'aboveBar',color:'#617184',shape:'circle',text:'另 '+(es.length-singles.length)+' 笔',events:es.slice(singles.length)});
+ }
+ return out;
+}
+return {add,neg,binanceEvents,hyperliquidEvents,cycles,candles,summary,markerLabel,markerGroups};
 });
