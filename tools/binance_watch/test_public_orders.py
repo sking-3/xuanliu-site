@@ -55,6 +55,21 @@ class PublicOrderTests(unittest.TestCase):
         c=Clock();source=Source(c,[{'list':[raw(0),raw(1)],'total':3,'indexValue':'123'}, {'list':[raw(1),raw(2)],'total':3,'indexValue':'122'}]);rows,coverage=p.collect(source,p.initial_state(),p.monitor.iso(c.wall()));self.assertEqual(len(rows),3);self.assertTrue(coverage['fullWindowRead']);self.assertEqual(source.calls[1]['cursor'],'123');self.assertEqual(source.calls[1]['at'],5)
     def test_pagination_cannot_loop_or_guess_cursor(self):
         c=Clock();source=Source(c,[{'list':[raw()],'total':3,'indexValue':'123'}]);self.assertRaises(p.Halt,p.collect,source,p.initial_state(),p.monitor.iso(c.wall()))
+    def test_gap_and_periodic_backfill_continue_after_known_first_page(self):
+        for delta,recent_success in ((25,0),(301,296)):
+            with self.subTest(delta=delta):
+                c=Clock();at=p.monitor.iso(c.wall());s=p.initial_state();r=p.record(raw(),at)
+                p.apply(s,{r['fingerprint']:r},at,{'fullWindowRead':True})
+                s['lastSuccessAt']=p.monitor.iso(c.wall()+recent_success);c.t=delta
+                source=Source(c,[{'list':[raw()], 'total':2,'indexValue':'123'}, {'list':[raw(20)],'total':2,'indexValue':'122'}])
+                rows,coverage=p.collect(source,s,p.monitor.iso(c.wall()))
+                self.assertEqual(len(rows),2);self.assertEqual(len(source.calls),2);self.assertTrue(coverage['fullWindowRead']);self.assertEqual(coverage['scanMode'],'bounded_window_backfill')
+                events=p.apply(s,rows,p.monitor.iso(c.wall()),coverage)
+                self.assertEqual(events[0]['kind'],'late_public_record_first_seen');self.assertEqual(s['lastFullScanAt'],s['lastSuccessAt'])
+    def test_recent_prefix_stays_small_between_full_scans(self):
+        c=Clock();at=p.monitor.iso(c.wall());s=p.initial_state();r=p.record(raw(),at);p.apply(s,{r['fingerprint']:r},at,{'fullWindowRead':True});c.t=5
+        source=Source(c,[{'list':[raw()],'total':2,'indexValue':'123'}]);rows,coverage=p.collect(source,s,p.monitor.iso(c.wall()))
+        self.assertEqual(len(source.calls),1);self.assertFalse(coverage['fullWindowRead']);self.assertEqual(coverage['scanMode'],'recent_prefix')
     def test_no_order_id_records_are_observed_without_calling_them_new_orders(self):
         s=p.initial_state();at=p.monitor.iso(1794389352);r=p.record(raw(),at);self.assertEqual(p.apply(s,{r['fingerprint']:r},at,{}),[]);at2=p.monitor.iso(1794389357);r2=p.record(raw(orderTime=1794389356000,orderUpdateTime=1794389356000),at2);events=p.apply(s,{r2['fingerprint']:r2},at2,{});self.assertEqual(events[0]['kind'],'public_record_first_seen');self.assertIsNone(events[0]['record']['sourceOrderId']);self.assertEqual(events[0]['record']['direction'],'opening_or_increasing_short');self.assertIn('not_a_confirmed_new_order',events[0]['meaning']);self.assertEqual(p.apply(s,{r2['fingerprint']:r2},at2,{}),[])
     def test_possible_revision_preserves_each_fingerprints_first_seen_without_claiming_order_identity(self):

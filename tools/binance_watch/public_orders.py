@@ -29,6 +29,7 @@ MAX_RECORDS = 500
 MAX_EVENTS = 200
 MAX_PAGES = 10
 INTERVAL = 5
+BACKFILL_SECONDS = 300
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -60,7 +61,7 @@ def initial_state():
     return {'schemaVersion': 1, 'scope': 'public_execution_records_only', 'portfolioId': PORTFOLIO,
             'initialized': False, 'activeRun': None, 'stopped': False, 'errorCode': None,
             'lastSuccessAt': None, 'lastAttemptAt': None, 'records': {}, 'events': [],
-            'lastCoverage': None, 'lastRun': None, 'hiddenPositionsRequested': False}
+            'lastCoverage': None, 'lastRun': None, 'lastFullScanAt': None, 'hiddenPositionsRequested': False}
 
 
 def validate_state(state):
@@ -81,7 +82,7 @@ def validate_state(state):
                      'orderUpdateTime', 'executedQty', 'avgPrice', 'totalPnl', 'sourceOrderId', 'identity')
         require(all(k in row for k in core_keys) and digest({k: row[k] for k in core_keys}) == row['fingerprint'], 'checkpoint_fingerprint_mismatch')
         stamp(row.get('firstSeenAt'))
-    for field in ('lastSuccessAt', 'lastAttemptAt'):
+    for field in ('lastSuccessAt', 'lastAttemptAt', 'lastFullScanAt'):
         if state.get(field) is not None:
             stamp(state[field])
     require(state.get('errorCode') is None or isinstance(state['errorCode'], str) and
@@ -192,6 +193,9 @@ def record(raw, observed_at):
 def collect(source, state, observed_at):
     end = round(stamp(observed_at) * 1000)
     start = end - 7 * 86400000
+    gap = state['lastSuccessAt'] is None or stamp(observed_at) - stamp(state['lastSuccessAt']) > 2 * INTERVAL + 8
+    due = state.get('lastFullScanAt') is None or stamp(observed_at) - stamp(state['lastFullScanAt']) >= BACKFILL_SECONDS
+    backfill = not state['initialized'] or gap or due
     rows, cursors, cursor, complete, total = {}, set(), None, False, None
     for page_number in range(MAX_PAGES):
         page = source.page(start, end, cursor)
@@ -206,9 +210,9 @@ def collect(source, state, observed_at):
         if len(rows) >= total:
             complete = True
             break
-        # During ongoing observation only the recent prefix is checked, with a
-        # backfill to a known fingerprint when a whole page is new.
-        if state['initialized'] and overlap:
+        # Read recent records between bounded window scans. A gap or periodic
+        # rescan must continue beyond known overlap to find delayed older rows.
+        if not backfill and overlap:
             break
         next_cursor = page.get('indexValue')
         require(len(rows) > before and isinstance(next_cursor, str) and re.fullmatch('[0-9]{1,20}', next_cursor) and
@@ -221,6 +225,7 @@ def collect(source, state, observed_at):
     return rows, {'windowStart': monitor.iso(start / 1000), 'windowEnd': observed_at,
                   'pages': page_number + 1, 'uniqueRows': len(rows), 'sourceTotal': total,
                   'fullWindowRead': complete, 'sourceOrderIdsAvailable': False,
+                  'scanMode': 'bounded_window_backfill' if backfill else 'recent_prefix',
                   'scope': 'public_execution_records_not_pending_orders_or_positions'}
 
 
@@ -256,6 +261,8 @@ def apply(state, rows, observed_at, coverage):
     merged = dict(sorted(merged.items(), key=lambda item: item[1]['orderUpdateTime'], reverse=True)[:MAX_RECORDS])
     state.update(initialized=True, records=merged, lastSuccessAt=observed_at, lastAttemptAt=observed_at,
                  lastCoverage=coverage, events=(state['events'] + events)[-MAX_EVENTS:])
+    if coverage.get('fullWindowRead') is True:
+        state['lastFullScanAt'] = observed_at
     return events
 
 
