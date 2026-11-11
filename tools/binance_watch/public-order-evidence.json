@@ -55,5 +55,23 @@
     "minRequestStartIntervalSeconds": 5.002,
     "maxRequestStartIntervalSeconds": 5.009
   },
-  "baselineUniquePublicRecords": 38
+  "baselineUniquePublicRecords": 38,
+  "githubLiveVerification": {
+    "runId": "43011772192",
+    "runUrl": "https://github.com/sking-3/xuanliu-site/actions/runs/43011772192",
+    "trigger": "push",
+    "startedAt": "2026-11-11T11:25:20.166Z",
+    "endedAt": "2026-11-11T11:26:22.570Z",
+    "durationSeconds": 61.524,
+    "sourceRequests": 13,
+    "successfulHttpResponses": 13,
+    "cycles": 12,
+    "observations": 0,
+    "baselineRecords": 38,
+    "checkpointSealed": true,
+    "errorCode": null,
+    "positionsRequested": false,
+    "minRequestStartIntervalSeconds": 5.001,
+    "maxRequestStartIntervalSeconds": 5.08
+  }
 }

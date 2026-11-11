@@ -180,6 +180,7 @@ def record(raw, observed_at):
     out['identity'] = digest({key: out[key] for key in (*fields, 'orderTime')})
     out['fingerprint'] = digest(out)
     out['firstSeenAt'] = observed_at
+    out['versionFirstSeenAt'] = observed_at
     out['sourceCreatedAt'] = monitor.iso(out['orderTime'] / 1000)
     out['sourceUpdatedAt'] = monitor.iso(out['orderUpdateTime'] / 1000)
     directions = {('BUY', 'LONG'): 'opening_or_increasing_long', ('SELL', 'SHORT'): 'opening_or_increasing_short',
@@ -231,6 +232,7 @@ def apply(state, rows, observed_at, coverage):
     for key, row in rows.items():
         if key in previous:
             row['firstSeenAt'] = previous[key]['firstSeenAt']
+            row['versionFirstSeenAt'] = previous[key].get('versionFirstSeenAt', previous[key]['firstSeenAt'])
             continue
         prior = identities.get(row['identity'])
         if prior:
@@ -351,6 +353,8 @@ def run(store, source, duration, run_id, trigger, clock=time.monotonic, wall=tim
             baseline = not state['initialized']
             events = apply(state, rows, monitor.iso(wall()), coverage)
             cycles += 1;event_count += len(events)
+            state['activeRun'].update(checkedCycles=cycles, sourceRequests=len(source.calls), lastCheckAt=state['lastSuccessAt'],
+                                      lastSourceResponse=copy.deepcopy(source.calls[-1]))
             if baseline or events or cycles % 12 == 0:
                 store.save(state)
             monitor.emit('baseline' if baseline else 'public_records_checked', observedAt=state['lastSuccessAt'],

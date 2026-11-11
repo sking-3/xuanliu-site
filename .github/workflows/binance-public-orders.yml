@@ -14,7 +14,8 @@ on:
       - 'tools/binance_watch/test_public_orders.py'
       - '.github/workflows/binance-public-orders.yml'
   workflow_dispatch:
-  # Scheduled observation is enabled only after the bounded cloud run passes.
+  schedule:
+    - cron: '3,18,33,48 * * * *'
 
 permissions:
   contents: read
