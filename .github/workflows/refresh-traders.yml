@@ -71,6 +71,7 @@ jobs:
           node audit/home-ranking-ui-unit.cjs
           node --check books-shell.js
           node audit/shell-unit.cjs
+          node audit/market-live-unit.cjs
           node --check trader/account-live.js
           node --check trader/account-analytics.js
           node --check trader/plaza.js

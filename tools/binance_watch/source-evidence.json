@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "portfolioId": "5075281354358777856",
+  "requestStartedAt": "2026-11-11T05:11:29.850778+00:00",
+  "responseDateHeader": "Wed, 11 Nov 2026 05:11:30 GMT",
+  "sourceUpdatedAt": null,
+  "sourceUrl": "https://www.binance.com/bapi/futures/v1/friendly/future/copy-trade/lead-portfolio/detail?portfolioId=5075281354358777856",
+  "httpStatus": 200,
+  "businessCode": "000000",
+  "businessSuccess": true,
+  "identityMatches": true,
+  "positionShow": false,
+  "portfolioStatus": "ACTIVE",
+  "responseBytes": 3278,
+  "responseSha256": "769a0abb9d23d12b86fde4b3d307e06029553b95d244a95a62130a8cc8e00c8d",
+  "requestsMade": 1,
+  "positionsRequested": false,
+  "ordersRequested": false,
+  "previousTargetHold": "prior_visibility_closed_and_order_access_unverified",
+  "decision": "stop_target_positions_not_public",
+  "rawResponse": "Retained locally; only visibility verification fields and digest are published."
+}
