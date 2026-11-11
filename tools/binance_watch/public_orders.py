@@ -18,6 +18,7 @@ import urllib.request
 import fcntl
 import monitor
 import source_holds
+import continuation
 
 PORTFOLIO = monitor.PORTFOLIO_ID
 ENDPOINT = monitor.BASE + 'lead-portfolio/order-history'
@@ -292,7 +293,7 @@ class GitHubStore:
         require(os.environ.get('GITHUB_EVENT_NAME') in ('push', 'schedule', 'workflow_dispatch'), 'untrusted_github_context')
         # Old queued workflow definitions lack this fence and must not run on
         # their obsolete coarse lock after checking out newer source code.
-        require(os.environ.get('BINANCE_LOCK_PROTOCOL') == 'public-records-v2', 'obsolete_source_lock_protocol')
+        require(os.environ.get('BINANCE_LOCK_PROTOCOL') == 'public-records-v3', 'obsolete_source_lock_protocol')
         self.token = os.environ.get('GITHUB_TOKEN')
         require(self.token, 'missing_github_token')
         self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), monitor.NoRedirect())
@@ -342,6 +343,7 @@ class GitHubStore:
         new_sha = (body.get('content') or {}).get('sha') if isinstance(body, dict) else None
         require(isinstance(new_sha, str) and re.fullmatch('[a-f0-9]{40}', new_sha), 'invalid_checkpoint_write_response')
         self.sha, self.etag = new_sha, None
+        self.state = copy.deepcopy(state)
     def close(self):
         pass
 
@@ -352,6 +354,8 @@ def run(store, source, duration, run_id, trigger, clock=time.monotonic, wall=tim
     require(state['activeRun'] is None, 'previous_run_incomplete')
     policy()
     state['activeRun'] = {'id': run_id, 'trigger': trigger, 'startedAt': monitor.iso(wall())}
+    if chain := state.get('continuation'):
+        state['activeRun'].update(rootRunId=chain['rootRunId'], parentRunId=chain['parentRunId'])
     store.save(state)  # Durable claim before the first exchange request.
     started, deadline, target = clock(), clock() + duration, clock()
     source.deadline = deadline
@@ -420,22 +424,26 @@ def main(argv=None):
         store = GitHubStore() if args.github else LocalStore(args.state)
         # No transport is created for a stopped or incomplete checkpoint.
         require(not store.state['stopped'] and store.state['activeRun'] is None, 'checkpoint_requires_review')
-        signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))
-        source = PublicSource()
         run_id = os.environ.get('GITHUB_RUN_ID', 'local-' + str(int(time.time())))
         trigger = os.environ.get('GITHUB_EVENT_NAME', 'local_bounded_verification')
+        if args.github:
+            continuation.admit(store.state, trigger, run_id, os.environ.get('BINANCE_CONTINUATION_TICKET', ''))
+        signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))
+        source = PublicSource()
         result = run(store, source, args.duration_seconds, run_id, trigger)
+        if args.github and result['errorCode'] is None and result['checkpointSealed']:
+            result['continuation'] = continuation.dispatch_next(store, result, store.token)
         if args.report:
             args.report.write_text(json.dumps(result, indent=2) + '\n')
         monitor.emit('public_order_watch_result', **{k: v for k, v in result.items() if k != 'sourceCalls'})
         if path := os.environ.get('GITHUB_STEP_SUMMARY'):
             with Path(path).open('a') as out:
                 out.write('## Public execution-record watch\n\n' + json.dumps({k: v for k, v in result.items() if k != 'sourceCalls'}, indent=2) + '\n\nSource records have no order IDs. Direction does not distinguish opening from adding. Hidden positions and pending orders are not requested.\n')
-        return 2 if result['errorCode'] else 0
+        return 2 if result['errorCode'] or args.github and result.get('continuation', {}).get('status') != 'accepted' else 0
     except (Halt, monitor.Stop, OSError, ValueError) as error:
         code = str(error) if isinstance(error, (Halt, monitor.Stop)) else type(error).__name__
         monitor.emit('public_order_watch_not_started', reason=code)
-        return 2
+        return 0 if code == 'continuation_already_active' else 2
     finally:
         if store:
             store.close()

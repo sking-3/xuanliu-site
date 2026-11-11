@@ -6,16 +6,24 @@ on:
     paths:
       - 'tools/binance_watch/public_orders.py'
       - 'tools/binance_watch/test_public_orders.py'
+      - 'tools/binance_watch/continuation.py'
+      - 'tools/binance_watch/test_continuation.py'
       - 'tools/binance_watch/public-order-evidence.json'
       - '.github/workflows/binance-public-orders.yml'
   pull_request:
     paths:
       - 'tools/binance_watch/public_orders.py'
       - 'tools/binance_watch/test_public_orders.py'
+      - 'tools/binance_watch/continuation.py'
+      - 'tools/binance_watch/test_continuation.py'
       - '.github/workflows/binance-public-orders.yml'
   workflow_dispatch:
-  schedule:
-    - cron: '8,23,38,53 * * * *'
+    inputs:
+      continuation_ticket:
+        description: 'Internal successor marker; leave empty only for the initial manual start'
+        type: string
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -42,6 +50,7 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: write
+      actions: write
     # Dedicated exchange lock; retired full-site jobs cannot request Binance.
     concurrency:
       group: binance-public-records-source
@@ -58,7 +67,8 @@ jobs:
       - name: Observe anonymous public records every five seconds
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          BINANCE_LOCK_PROTOCOL: public-records-v2
+          BINANCE_LOCK_PROTOCOL: public-records-v3
+          BINANCE_CONTINUATION_TICKET: ${{ github.event.inputs.continuation_ticket || '' }}
           WATCH_SECONDS: ${{ github.event_name == 'push' && '65' || '840' }}
         run: >-
           python -B tools/binance_watch/public_orders.py

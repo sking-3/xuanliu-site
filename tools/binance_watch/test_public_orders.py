@@ -128,7 +128,7 @@ class PublicOrderTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             path=Path(d)/'state.json';s=p.initial_state();s.update(stopped=True,errorCode='http_403');path.write_text(json.dumps(s));store=p.LocalStore(path);self.assertTrue(store.state['stopped']);store.close()
     def test_github_store_only_uses_contents_api_and_compare_and_swap(self):
-        env={'GITHUB_REPOSITORY':p.REPOSITORY,'GITHUB_REF':'refs/heads/main','GITHUB_EVENT_NAME':'push','GITHUB_TOKEN':'unit-secret','BINANCE_LOCK_PROTOCOL':'public-records-v2'}
+        env={'GITHUB_REPOSITORY':p.REPOSITORY,'GITHUB_REF':'refs/heads/main','GITHUB_EVENT_NAME':'push','GITHUB_TOKEN':'unit-secret','BINANCE_LOCK_PROTOCOL':'public-records-v3'}
         state=p.initial_state();body={'path':p.STATE_PATH,'encoding':'base64','size':100,'sha':'a'*40,'content':p.base64.b64encode(json.dumps(state).encode()).decode()}
         with patch.dict(os.environ,env),patch.object(p.GitHubStore,'api',return_value=(body,'etag')) as api:
             store=p.GitHubStore();self.assertEqual(store.sha,'a'*40);api.return_value=({'content':{'sha':'b'*40}},None);store.save(state);payload=api.call_args.args[1];self.assertEqual(payload['sha'],'a'*40);self.assertEqual(payload['branch'],p.STATE_BRANCH);self.assertEqual(store.sha,'b'*40)
