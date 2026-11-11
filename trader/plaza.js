@@ -646,7 +646,7 @@ function renderPublicExecutions(r,parent){
 }
 function renderBinanceDetail(r,b) {
   const view=binanceView(r);b.replaceChildren();
-  if(r.referenceOnly){b.append(node('h3',({analysis:'公开操作记录跟踪',positions:'当前仓位未接入',points:'持仓变化样本未取得',orders:'公开操作记录'})[state.tab]||'交易数据未取得'),node('p','当前仓位与未成交挂单未取得，不代表空仓或零订单。页面每分钟读取后台保存的公开操作记录，可能有缓存延迟。','detail-method'),sourceLink(r));if(['analysis','orders'].includes(state.tab))renderPublicExecutions(r,b);return;}
+  if(r.referenceOnly){if(['analysis','orders'].includes(state.tab))renderPublicExecutions(r,b);else b.append(node('h3',state.tab==='positions'?'当前仓位未接入':'持仓变化样本未取得'));b.append(node('p','当前仓位与未成交挂单未取得，不代表空仓或零订单。页面每分钟读取后台保存的公开操作记录，可能有缓存延迟。','detail-method'),sourceLink(r));return;}
   b.append(node('p',binanceTiming(view,r)+(view.lastAttemptAt?' · 来源最近尝试 '+timeLabel(view.lastAttemptAt):''),'detail-method'));
   if(state.tab==='analysis'){
     b.append(node('h3','公开带单组合'),node('p','表现直接采用币安所选周期的来源字段；币安来源回撤与已平仓仓位胜率采用其平台口径，不等同于 Hyperliquid 的采样盈亏回撤或平仓片段胜率。仓位与订单样本不用于推算表现；盈亏曲线单独读取币安 30D PNL 原始采样，统计时间独立。','detail-method'));

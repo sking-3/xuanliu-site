@@ -58,7 +58,7 @@ jobs:
       - name: Observe anonymous public records every five seconds
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          WATCH_SECONDS: ${{ github.event_name == 'push' && '65' || '840' }}
+          WATCH_SECONDS: '840'
         run: >-
           python -B tools/binance_watch/public_orders.py
           --github --duration-seconds "$WATCH_SECONDS"
