@@ -12,7 +12,7 @@
     '5178595252342363392': 'FaribaFinance'
   });
   const REFERENCE_PORTFOLIOS = Object.freeze({
-    '5075281354358777856': Object.freeze({name:'熬鹰资本',note:'已收录，交易数据未取得；此前记录未公开持仓',avatarUrl:'https://public.bnbstatic.com/image/pgc/202412/e891a1e22f14b5223e15f43c4b195abc.png',avatarSourceUrl:'https://www.binance.com/zh-CN/square/profile/god_of_trader_tony'})
+    '5075281354358777856': Object.freeze({name:'熬鹰资本',note:'公开操作记录独立观察；此前记录未公开持仓',avatarUrl:'https://public.bnbstatic.com/image/pgc/202412/e891a1e22f14b5223e15f43c4b195abc.png',avatarSourceUrl:'https://www.binance.com/zh-CN/square/profile/god_of_trader_tony'})
   });
   const SOURCE_BASE = 'https://www.binance.com/en/copy-trading/lead-details/';
   const MAX_AGE = 30 * 60 * 1000;

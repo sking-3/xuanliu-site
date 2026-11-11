@@ -141,15 +141,17 @@ if raw_path.is_file() and source.get('rawSha256')==hashlib.sha256(raw_path.read_
     check(math.isclose(row['windows'][period][metric],float(native[key][metric])*multiplier,rel_tol=1e-12,abs_tol=1e-9), 'published performance equals source value with correct unit conversion')
 trader_page=html.fromstring((root/'trader/index.html').read_text())
 
-# On-demand public account reads are limited to Hyperliquid's documented hosts.
+# Exchange account reads remain limited to Hyperliquid; Binance uses our saved public checkpoint.
 csp=trader_page.xpath('//meta[@http-equiv="Content-Security-Policy"]/@content')[0]
 connect=next((part.strip().split()[1:] for part in csp.split(';') if part.strip().startswith('connect-src ')),[])
-check(set(connect)=={"'self'",'https://api.hyperliquid.xyz','wss://api.hyperliquid.xyz'}, 'account read CSP permits only same-origin and exact official REST/WS hosts')
+check(set(connect)=={"'self'",'https://api.hyperliquid.xyz','wss://api.hyperliquid.xyz','https://raw.githubusercontent.com/sking-3/xuanliu-site/binance-public-orders-state/monitor-state/5075281354358777856.json'}, 'account read CSP permits official Hyperliquid hosts and the exact saved public execution checkpoint')
 live_scripts=trader_page.xpath('//script[starts-with(@src,"account-live.js")]')
 check(len(live_scripts)==1 and 'defer' in live_scripts[0].attrib, 'public live-data module loaded exactly once without blocking page')
 live_ref=live_scripts[0].get('src')
 check(bool(re.fullmatch('[0-9a-f]{8}',parse_qs(urlsplit(live_ref).query).get('v',[''])[0])), 'live-data module has a content hash version')
 script_sources=trader_page.xpath('//script[@src]/@src')
+order_refs=[ref for ref in script_sources if ref.startswith('public-executions.js')]
+check(len(order_refs)==1 and script_sources.index(order_refs[0])<next(i for i,ref in enumerate(script_sources) if ref.startswith('plaza.js')), 'saved public execution reader initializes before detail UI')
 check(script_sources.index(live_ref)<next(i for i,ref in enumerate(script_sources) if ref.startswith('plaza.js')), 'public live client initializes before detail UI')
 analytics_scripts=trader_page.xpath('//script[starts-with(@src,"account-analytics.js")]')
 check(len(analytics_scripts)==1 and 'defer' in analytics_scripts[0].attrib, 'public analytics module loaded exactly once without blocking page')
