@@ -9,9 +9,10 @@ function environment(fetch){const store=new Map();return {fetch,localStorage:{ge
 test('saved records preserve exact units and direction ambiguity without inferred orders',()=>{
  const v=api.parse(fixture(),NOW);assert.equal(v.rows.length,1);assert.equal(v.rows[0].quantity,'0.125');assert.equal(v.rows[0].price,'2000.12345');assert.equal(v.rows[0].quoteAsset,'USDT');assert.equal(v.rows[0].direction,'开空/加空方向');assert.equal(v.checkedAt,stamp);assert.equal(v.rows[0].versionFirstSeenAt,stamp);assert.equal(v.rows[0].sourceOrderId,undefined);
 });
-test('aggregate versions collapse to latest saved version, including equal source times',()=>{
+test('different fingerprints with equal source identity and times remain separate public records',()=>{
  const v=fixture(),r=record('c');r.executedQty='0.25';r.versionFirstSeenAt=new Date(NOW).toISOString();v.records[r.fingerprint]=r;
- assert.equal(api.parse(v,NOW).rows[0].quantity,'0.25');assert.equal(api.parse(v,NOW).retainedRecords,1);
+ const third=record('d');third.executedQty='1';v.records[third.fingerprint]=third;
+ const parsed=api.parse(v,NOW);assert.equal(parsed.rows[0].quantity,'0.25');assert.equal(parsed.retainedRecords,3);assert.deepEqual(new Set(parsed.rows.map(x=>x.quantity)),new Set(['0.125','0.25','1']));
 });
 test('invalid identities, scope, timestamps and numeric data fail closed',()=>{
  for(const change of [v=>v.portfolioId='another',v=>v.scope='positions',v=>v.hiddenPositionsRequested=true,v=>v.lastSuccessAt=null,v=>v.lastSuccessAt=new Date(NOW+600000).toISOString(),v=>v.records['a'.repeat(64)].direction='new_short',v=>v.records['a'.repeat(64)].firstSeenAt='unknown',v=>v.records['a'.repeat(64)].versionFirstSeenAt='unknown',v=>v.records['a'.repeat(64)].executedQty='Infinity',v=>v.records['a'.repeat(64)].avgPrice='-1',v=>v.records['a'.repeat(64)].orderUpdateTime=NOW+600000,v=>v.records['a'.repeat(64)].sourceOrderId='invented']){const v=fixture();change(v);assert.throws(()=>api.parse(v,NOW),/SCHEMA/);}

@@ -226,7 +226,11 @@ def collect(source, state, observed_at):
 
 def apply(state, rows, observed_at, coverage):
     previous = state['records']
-    identities = {r['identity']: r for r in previous.values()}
+    identities = {}
+    for prior_row in previous.values():
+        known = identities.get(prior_row['identity'])
+        if known is None or stamp(prior_row['firstSeenAt']) < stamp(known['firstSeenAt']):
+            identities[prior_row['identity']] = prior_row
     gap = state['lastSuccessAt'] is not None and stamp(observed_at) - stamp(state['lastSuccessAt']) > 2 * INTERVAL + 8
     events = []
     for key, row in rows.items():
@@ -236,13 +240,16 @@ def apply(state, rows, observed_at, coverage):
             continue
         prior = identities.get(row['identity'])
         if prior:
-            row['firstSeenAt'] = prior['firstSeenAt']
+            # No order ID: shared source fields may also describe distinct fills.
+            # Preserve each fingerprint's own first-seen time, never merge it.
+            row['sharedIdentityFirstSeenAt'] = prior['firstSeenAt']
         if state['initialized']:
-            kind = 'public_record_updated' if prior else 'gap_public_record_seen' if gap else 'public_record_first_seen'
+            kind = 'public_record_possible_revision' if prior else 'gap_public_record_seen' if gap else 'public_record_first_seen'
             if not prior and row['orderUpdateTime'] <= round(stamp(state['lastSuccessAt']) * 1000):
                 kind = 'late_public_record_first_seen'
             events.append({'id': key, 'kind': kind, 'observedAt': observed_at, 'record': copy.deepcopy(row),
-                           'meaning': 'public_record_observation_not_a_confirmed_new_order_or_new_position'})
+                           'sourceIdentityIsOrderId': False,
+                           'meaning': 'possible_revision_or_distinct_public_record_not_a_confirmed_new_order_or_new_position' if prior else 'public_record_observation_not_a_confirmed_new_order_or_new_position'})
     merged = {**previous, **rows}
     cutoff = stamp(observed_at) * 1000 - 7 * 86400000
     merged = {k: r for k, r in merged.items() if r['orderUpdateTime'] >= cutoff}

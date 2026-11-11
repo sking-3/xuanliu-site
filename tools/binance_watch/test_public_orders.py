@@ -57,10 +57,18 @@ class PublicOrderTests(unittest.TestCase):
         c=Clock();source=Source(c,[{'list':[raw()],'total':3,'indexValue':'123'}]);self.assertRaises(p.Halt,p.collect,source,p.initial_state(),p.monitor.iso(c.wall()))
     def test_no_order_id_records_are_observed_without_calling_them_new_orders(self):
         s=p.initial_state();at=p.monitor.iso(1794389352);r=p.record(raw(),at);self.assertEqual(p.apply(s,{r['fingerprint']:r},at,{}),[]);at2=p.monitor.iso(1794389357);r2=p.record(raw(orderTime=1794389356000,orderUpdateTime=1794389356000),at2);events=p.apply(s,{r2['fingerprint']:r2},at2,{});self.assertEqual(events[0]['kind'],'public_record_first_seen');self.assertIsNone(events[0]['record']['sourceOrderId']);self.assertEqual(events[0]['record']['direction'],'opening_or_increasing_short');self.assertIn('not_a_confirmed_new_order',events[0]['meaning']);self.assertEqual(p.apply(s,{r2['fingerprint']:r2},at2,{}),[])
-    def test_aggregate_update_preserves_first_seen_and_has_separate_type(self):
-        s=p.initial_state();at=p.monitor.iso(1794389352);r=p.record(raw(),at);p.apply(s,{r['fingerprint']:r},at,{});at2=p.monitor.iso(1794389357);changed=p.record(raw(executedQty='2.0',orderUpdateTime=1794389356000),at2);event=p.apply(s,{changed['fingerprint']:changed},at2,{})[0];self.assertEqual(event['kind'],'public_record_updated');self.assertEqual(event['record']['firstSeenAt'],at)
+    def test_possible_revision_preserves_each_fingerprints_first_seen_without_claiming_order_identity(self):
+        s=p.initial_state();at=p.monitor.iso(1794389352);r=p.record(raw(),at);p.apply(s,{r['fingerprint']:r},at,{});at2=p.monitor.iso(1794389357);changed=p.record(raw(executedQty='2.0',orderUpdateTime=1794389356000),at2);event=p.apply(s,{changed['fingerprint']:changed},at2,{})[0];self.assertEqual(event['kind'],'public_record_possible_revision');self.assertEqual(event['record']['firstSeenAt'],at2);self.assertEqual(event['record']['sharedIdentityFirstSeenAt'],at);self.assertFalse(event['sourceIdentityIsOrderId']);self.assertIn('distinct_public_record',event['meaning']);self.assertEqual(len(s['records']),2)
     def test_late_record_is_not_a_newly_created_order(self):
         s=p.initial_state();at=p.monitor.iso(1794389352);p.apply(s,{},at,{});later=p.monitor.iso(1794389357);r=p.record(raw(20),later);self.assertEqual(p.apply(s,{r['fingerprint']:r},later,{})[0]['kind'],'late_public_record_first_seen')
+    def test_equal_source_times_do_not_collapse_distinct_baseline_records(self):
+        s=p.initial_state();at=p.monitor.iso(1794389352)
+        records=[p.record(raw(executedQty=n),at) for n in (1,2,3)]
+        rows={r['fingerprint']:r for r in records}
+        self.assertEqual(len({r['identity'] for r in records}),1)
+        self.assertEqual(p.apply(s,rows,at,{}),[])
+        self.assertEqual(len(s['records']),3)
+        self.assertEqual(p.apply(s,copy.deepcopy(rows),p.monitor.iso(1794389357),{}),[])
     def test_gap_is_reported_without_rewriting_source_times(self):
         s=p.initial_state();at=p.monitor.iso(1794389352);p.apply(s,{},at,{});later=p.monitor.iso(1794389400);r=p.record(raw(orderTime=1794389399000,orderUpdateTime=1794389399000),later);event=p.apply(s,{r['fingerprint']:r},later,{})[0];self.assertEqual(event['kind'],'gap_public_record_seen');self.assertEqual(r['sourceUpdatedAt'],p.monitor.iso(1794389399))
     def test_decimal_variants_and_negative_zero_do_not_create_duplicates(self):
