@@ -290,6 +290,9 @@ class GitHubStore:
     def __init__(self):
         require(os.environ.get('GITHUB_REPOSITORY') == REPOSITORY and os.environ.get('GITHUB_REF') == 'refs/heads/main', 'untrusted_github_context')
         require(os.environ.get('GITHUB_EVENT_NAME') in ('push', 'schedule', 'workflow_dispatch'), 'untrusted_github_context')
+        # Old queued workflow definitions lack this fence and must not run on
+        # their obsolete coarse lock after checking out newer source code.
+        require(os.environ.get('BINANCE_LOCK_PROTOCOL') == 'public-records-v2', 'obsolete_source_lock_protocol')
         self.token = os.environ.get('GITHUB_TOKEN')
         require(self.token, 'missing_github_token')
         self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), monitor.NoRedirect())

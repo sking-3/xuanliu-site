@@ -480,7 +480,7 @@ class CommandTests(unittest.TestCase):
         self.assertNotIn("group: pages", text)
         self.assertIn("$RUNNER_TEMP/binance-watch", text)
         self.assertIn("run-id: ${{ steps.prior.outputs.restore_run_id }}", text)
-        self.assertIn("group: binance-public-source", text)
+        self.assertIn("group: binance-public-records-source", text)
         self.assertIn("node scripts/binance_run_guard.cjs", text)
         self.assertIn("steps.budget.outputs.duration_seconds", text)
         self.assertLess(text.index("Recheck remaining schedule budget"), text.index("- name: Poll public positions"))

@@ -42,9 +42,9 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: write
-    # Same repository-wide exchange lock as the legacy collector. No queue API.
+    # Dedicated exchange lock; retired full-site jobs cannot request Binance.
     concurrency:
-      group: binance-public-source
+      group: binance-public-records-source
       queue: max
       cancel-in-progress: false
     steps:
@@ -58,7 +58,8 @@ jobs:
       - name: Observe anonymous public records every five seconds
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          WATCH_SECONDS: '840'
+          BINANCE_LOCK_PROTOCOL: public-records-v2
+          WATCH_SECONDS: ${{ github.event_name == 'push' && '65' || '840' }}
         run: >-
           python -B tools/binance_watch/public_orders.py
           --github --duration-seconds "$WATCH_SECONDS"

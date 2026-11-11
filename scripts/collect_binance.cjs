@@ -343,9 +343,13 @@ function reconcileLegacy(previous,legacy){
  if(refusal&&!out.source.refreshStopped)out.source={refreshStopped:true,errorCode:refusal.source.errorCode};
  return out;
 }
+function legacyCloudDisabled(env=process.env){return env.GITHUB_ACTIONS==='true';}
 async function main(){
  const hold=require('./source-holds.json').binancePublicCollector;
  if(hold!=='approved')throw Error(hold||'source_policy_unverified');
+ // The old full-site job no longer owns the exchange lock. Retire its cloud
+ // source entry before state reads or transport; local source holds still apply.
+ if(legacyCloudDisabled())throw Error('legacy_cloud_binance_collector_disabled');
  const args=process.argv.slice(2);if(args.length>1)throw Error('usage: collect_binance.cjs [portfolios.json]');
  const file=path.resolve(args[0]||'trader/binance/portfolios.json');
  let previous=null;
@@ -361,5 +365,5 @@ async function main(){
  await save(path.join(path.dirname(file),'snapshot.json'),out.portfolios.find(p=>p.portfolioId===DEFAULT_ID));
  console.log(JSON.stringify({batch:out.source,portfolios:out.portfolios.map(p=>({id:p.portfolioId,name:p.profile.name,status:p.source.status,refreshStopped:p.source.refreshStopped,errorCode:p.source.errorCode,lastSuccessAt:p.source.lastSuccessAt,positions:p.snapshot?.positions.length??null,orders:p.history.orders.rows.length,closedPositions:p.history.closedPositions.rows.length}))}));
 }
-module.exports={...defaultCollector,DEFAULT_ID,PORTFOLIOS,createCollector,validateCollection,globalRefusal,collectAll,reconcileLegacy};
+module.exports={...defaultCollector,DEFAULT_ID,PORTFOLIOS,createCollector,validateCollection,globalRefusal,collectAll,reconcileLegacy,legacyCloudDisabled};
 if(require.main===module)main().catch(e=>{console.error(e.message);process.exitCode=1;});

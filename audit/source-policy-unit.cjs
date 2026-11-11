@@ -23,3 +23,10 @@ assert.equal(action({dir:'Short > Long',startPosition:'-0.05'}),'空转多');
 assert.equal(action({startPosition:undefined}),null);
 assert.equal(action({dir:'Buy'}),null);
 console.log('PASS persisted stops and exact-decimal fill actions');
+
+const legacy=require("../scripts/collect_binance.cjs");
+assert.equal(legacy.legacyCloudDisabled({GITHUB_ACTIONS:"true"}),true);
+for(const env of [{},{GITHUB_ACTIONS:"false"}])assert.equal(legacy.legacyCloudDisabled(env),false);
+const source=require("node:fs").readFileSync(require("node:path").join(__dirname,"../scripts/collect_binance.cjs"),"utf8").split("async function main(){")[1];
+assert.ok(source.indexOf("if(legacyCloudDisabled())")<source.indexOf("const out=await collectAll"));
+console.log("PASS retired cloud source entry precedes transport and preserves local holds");

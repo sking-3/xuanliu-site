@@ -58,10 +58,10 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    # The existing snapshot collector uses the same lock. This can create long
-    # gaps; expired scheduled watch jobs skip source requests rather than catch up.
+    # Keep this disabled observer on the exchange lock used by public records.
+    # Full-site collection is excluded; its old Binance cloud entry is retired.
     concurrency:
-      group: binance-public-source
+      group: binance-public-records-source
       queue: max
       cancel-in-progress: false
     steps:

@@ -97,6 +97,25 @@ class PublicOrderTests(unittest.TestCase):
             self.assertEqual(source.calls,[])
     def test_checkpoint_conflict_leaves_durable_claim_and_never_requests_source(self):
         s=Store();s.conflict=True;result,s,source=self.run_watch(store=s);self.assertEqual(source.calls,[]);self.assertFalse(result['checkpointSealed']);self.assertIsNotNone(s.state['activeRun'])
+    def test_old_and_new_lock_claim_race_allows_only_one_source_reader(self):
+        shared={'revision':0,'state':p.initial_state()}
+        class CAS(Store):
+            def __init__(self):super().__init__(shared['state']);self.revision=shared['revision']
+            def save(self,state):
+                if self.revision!=shared['revision']:raise p.Halt('github_http_409')
+                super().save(state);shared['revision']+=1;self.revision=shared['revision'];shared['state']=copy.deepcopy(state)
+            def assert_current(self):
+                if self.revision!=shared['revision']:raise p.Halt('checkpoint_changed')
+        winner,loser=CAS(),CAS();clock=Clock();source=Source(clock);blocked_source=Source(Clock());page=source.page
+        def first_page(*args,**kwargs):
+            if not source.calls:
+                with self.assertRaisesRegex(p.Halt,'github_http_409'):
+                    p.run(loser,blocked_source,5,'obsolete-lock','unit',clock=clock.now,wall=clock.wall,sleep=clock.sleep)
+                self.assertEqual(shared['state']['activeRun']['id'],'test-run')
+            return page(*args,**kwargs)
+        source.page=first_page
+        result,_,_=self.run_watch(source,winner,11)
+        self.assertEqual(blocked_source.calls,[]);self.assertEqual(result['sourceRequests'],3);self.assertIsNone(shared['state']['activeRun'])
     def test_empty_result_cannot_erase_visible_history(self):
         c=Clock();s=p.initial_state();r=p.record(raw(),p.monitor.iso(c.wall()));p.apply(s,{r['fingerprint']:r},p.monitor.iso(c.wall()),{});source=Source(c,[{'list':[],'total':0,'indexValue':None}]);self.assertRaises(p.Halt,p.collect,source,s,p.monitor.iso(c.wall()));self.assertEqual(len(s['records']),1)
     def test_invalid_source_fields_fail_closed(self):
@@ -109,10 +128,16 @@ class PublicOrderTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             path=Path(d)/'state.json';s=p.initial_state();s.update(stopped=True,errorCode='http_403');path.write_text(json.dumps(s));store=p.LocalStore(path);self.assertTrue(store.state['stopped']);store.close()
     def test_github_store_only_uses_contents_api_and_compare_and_swap(self):
-        env={'GITHUB_REPOSITORY':p.REPOSITORY,'GITHUB_REF':'refs/heads/main','GITHUB_EVENT_NAME':'push','GITHUB_TOKEN':'unit-secret'}
+        env={'GITHUB_REPOSITORY':p.REPOSITORY,'GITHUB_REF':'refs/heads/main','GITHUB_EVENT_NAME':'push','GITHUB_TOKEN':'unit-secret','BINANCE_LOCK_PROTOCOL':'public-records-v2'}
         state=p.initial_state();body={'path':p.STATE_PATH,'encoding':'base64','size':100,'sha':'a'*40,'content':p.base64.b64encode(json.dumps(state).encode()).decode()}
         with patch.dict(os.environ,env),patch.object(p.GitHubStore,'api',return_value=(body,'etag')) as api:
             store=p.GitHubStore();self.assertEqual(store.sha,'a'*40);api.return_value=({'content':{'sha':'b'*40}},None);store.save(state);payload=api.call_args.args[1];self.assertEqual(payload['sha'],'a'*40);self.assertEqual(payload['branch'],p.STATE_BRANCH);self.assertEqual(store.sha,'b'*40)
+    def test_obsolete_queued_lock_protocol_never_reads_state_or_source(self):
+        env={'GITHUB_REPOSITORY':p.REPOSITORY,'GITHUB_REF':'refs/heads/main','GITHUB_EVENT_NAME':'schedule','GITHUB_TOKEN':'unit-secret','BINANCE_LOCK_PROTOCOL':''}
+        with patch.dict(os.environ,env),patch.object(p.GitHubStore,'api') as api:
+            with self.assertRaisesRegex(p.Halt,'obsolete_source_lock_protocol'):p.GitHubStore()
+            api.assert_not_called()
+
     def test_github_denial_does_not_retry_or_clear_the_active_claim(self):
         s=Store();s.assert_current=lambda:(_ for _ in ()).throw(p.Halt('github_http_403'));result,s,source=self.run_watch(store=s);self.assertEqual(source.calls,[]);self.assertFalse(result['checkpointSealed']);self.assertIsNotNone(s.state['activeRun']);self.assertEqual(len(s.writes),1)
 
@@ -131,7 +156,7 @@ class DeploymentContractTests(unittest.TestCase):
     def test_workflow_serializes_source_and_has_no_trade_secrets(self):
         root=Path(__file__).resolve().parents[2]
         workflow=(root/'.github/workflows/binance-public-orders.yml').read_text()
-        self.assertIn('group: binance-public-source',workflow)
+        self.assertIn('group: binance-public-records-source',workflow)
         self.assertIn('cancel-in-progress: false',workflow)
         self.assertIn('contents: write',workflow)
         self.assertIn('persist-credentials: false',workflow)

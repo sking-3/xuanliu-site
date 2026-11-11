@@ -34,7 +34,7 @@ test('UI-only skips Binance while Pages serialization and peer source guards rem
  assert.match(workflow,/concurrency:\n  group: pages\n  queue: max\n  cancel-in-progress: false/);
  assert.match(workflow,/    concurrency:\n      group:.*'binance-public-source'.*\n      queue: max\n      cancel-in-progress: false/);
  const watch=fs.readFileSync(path.join(root,'.github/workflows/binance-python-watch.yml'),'utf8');
- assert.match(watch,/    concurrency:\n      group: binance-public-source\n      queue: max\n      cancel-in-progress: false/);
+ assert.match(watch,/    concurrency:\n      group: binance-public-records-source\n      queue: max\n      cancel-in-progress: false/);
  assert.match(step('Reverify holdings after the long analytics batch'),/sleep 60\n.*refresh_trader_positions\.cjs --not-before "\$BOOKS_COLLECTION_STARTED_AT"/);
  for(const name of ['Verify the preceding Binance run was safely committed','Collect the public Binance lead sample'])assert.match(step(name),/^        if: steps.refresh-mode.outputs.mode != 'skip' && steps.binance-peer-validate.outputs.allowed == 'true'$/m);
  assert.match(step('Save the snapshot without overwriting concurrent edits'),/git push origin HEAD:main/);
