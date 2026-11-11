@@ -880,7 +880,7 @@ function card(r,period) {
 }
 function readURL() {
   const p=new URL(location.href).searchParams, defaults={period:'30D',exchange:'all',source:'all',sort:'roi',currency:'all'};
-  const account=(p.get('account')||'').toLowerCase();linkedAccount=/^0x[0-9a-f]{40}$/.test(account)?account:null;
+  const account=(p.get('account')||'').toLowerCase();linkedAccount=/^(?:0x[0-9a-f]{40}|\d{19})$/.test(account)?account:null;
   state.explicitPeriod=periods.includes(p.get('period'));
   for(const id of controls) { const el=$(id); el.value=[...el.options].some(o=>o.value===p.get(id))?p.get(id):defaults[id]; }
   $('search').value=(p.get('q')||'').slice(0,100); const page=Number(p.get('page')); state.page=Number.isSafeInteger(page)&&page>0?page:1;
@@ -889,10 +889,11 @@ function openLinkedAccount(finalRead=false) {
   if(!linkedAccount)return false;
   // The URL can select only an already validated public account. It cannot
   // supply a profile, external destination or a new account to fetch.
-  const row=publicFocus.record?.accountId===linkedAccount?publicFocus.record:state.rows.find(r=>isPublicAccount(r)&&r.accountId===linkedAccount);
+  const row=publicFocus.record?.accountId===linkedAccount?publicFocus.record:state.rows.find(r=>(isPublicAccount(r)||isBinanceTrader(r))&&r.accountId===linkedAccount);
   if(!row){if(finalRead)linkedAccount=null;return false;}
   linkedAccount=null;
   openDetail(row,$('period').value);
+  const view=new URL(location.href).searchParams.get('view');if(['positions','points','orders'].includes(view))activateDetailTab(view);
   return true;
 }
 function saveURL(replace=false) {
@@ -1045,10 +1046,11 @@ function renderLiveData() {
 function activateDetailTab(tab) {
   if(!state.detail||!['analysis','live','positions','points','orders'].includes(tab)||tab===state.tab)return;
   if(tab==='live'&&!canReadLive(state.detail))return;
-  if(canReadLive(state.detail)&&!['analysis','live'].includes(tab))return;
+  if(typeof BooksTradeAnalysis==='undefined'&&canReadLive(state.detail)&&!['analysis','live'].includes(tab))return;
   if(state.tab==='live')stopLive();state.tab=tab;renderDetail();
 }
 function openDetail(r,p) {
+  globalThis.BooksTradeAnalysis?.dispose();
   stopLive();state.detail=r;state.window=p;state.tab='analysis';renderDetailIdentity(r);
   renderDetail();$('detail').showModal();$('close').focus();
 }
@@ -1056,6 +1058,17 @@ function renderDetail() {
   const r=state.detail,b=$('detail-body');if(!r)return;
   renderDetailIdentity(r);
   renderDetailStatus();
+  if(typeof BooksTradeAnalysis!=='undefined'){
+    document.querySelectorAll('[data-tab]').forEach(x=>{x.hidden=x.dataset.tab==='live'&&!canReadLive(r);x.textContent=({analysis:'交易分析',positions:'历史仓位',points:'交易点位',orders:'成交流水',live:'实时交易'})[x.dataset.tab];x.setAttribute('aria-pressed',String(x.dataset.tab===state.tab));});
+    if(state.tab!=='live'){
+      $('detail-data-status').hidden=true;state.analyticsViews=state.analyticsViews.filter(v=>v.kind!=='detail');
+      publicExecutionReader ||= BooksBinancePublicRecords.reader(globalThis);
+      const w=isBinanceTrader(r)?binancePerformance(r,state.window):performanceWindow(r,state.window),cached=cachedWin(r);
+      BooksTradeAnalysis.render(b,{r,tab:state.tab,period:state.window,periodLabel:periodName(state.window,w),metrics:w?{...w,winRate:isPublicAccount(r)?cached?.win?.value??null:w.winRate}:null,binanceView:isBinanceTrader(r)?binanceView(r):null,publicReader:publicExecutionReader,activate:activateDetailTab,metricNote:r.exchange==='Hyperliquid'?'收益率与盈亏沿用已核验周期数据；长期区间对账未通过时收益率留空。采样盈亏回撤不是标准净值回撤。'+winCacheDescription(r):'收益率、回撤、胜率沿用币安来源字段与周期；不以操作样本推算账户表现。',winNote:r.exchange==='Binance'?'币安所选周期平台统计':cached?.win?.eligibleCount?'近期 '+cached.win.eligibleCount+' 个片段 · 独立于所选周期':'缺少有效成交样本'});
+      return;
+    }
+    BooksTradeAnalysis.pause();
+  }
   document.querySelectorAll('[data-tab]').forEach(x=>{x.hidden=canReadLive(r)?!['analysis','live'].includes(x.dataset.tab):x.dataset.tab==='live';x.setAttribute('aria-pressed',String(x.dataset.tab===state.tab));});
   if(isBinanceTrader(r)){document.querySelectorAll('[data-tab]').forEach(x=>{x.hidden=x.dataset.tab==='live';x.textContent=({analysis:'组合概览',positions:'持仓快照',points:'持仓变化',orders:'历史样本'})[x.dataset.tab]||x.textContent;});state.analyticsViews=state.analyticsViews.filter(v=>v.kind!=='detail');renderBinanceDetail(r,b);return;}
   document.querySelectorAll('[data-tab]').forEach(x=>{x.textContent=({analysis:'交易分析',live:'实时交易',positions:'仓位历史',points:'交易点位',orders:'订单流水'})[x.dataset.tab]||x.textContent;});
@@ -1204,7 +1217,7 @@ const tabs=[...$('tabs').querySelectorAll('[data-tab]')];
 function selectTab(b){if(!state.detail||!tabs.includes(b)||b.hidden)return;activateDetailTab(b.dataset.tab);}
 $('tabs').addEventListener('click',e=>selectTab(e.target.closest('[data-tab]')));
 $('tabs').addEventListener('keydown',e=>{const visibleTabs=tabs.filter(b=>!b.hidden),i=visibleTabs.indexOf(e.target);if(i<0)return;let n;if(e.key==='ArrowRight')n=(i+1)%visibleTabs.length;else if(e.key==='ArrowLeft')n=(i+visibleTabs.length-1)%visibleTabs.length;else if(e.key==='Home')n=0;else if(e.key==='End')n=visibleTabs.length-1;else return;e.preventDefault();visibleTabs[n].focus();selectTab(visibleTabs[n]);});
-$('detail').addEventListener('close',()=>{stopLive();state.analyticsViews=state.analyticsViews.filter(v=>v.kind!=='detail');state.detail=null;});
+$('detail').addEventListener('close',()=>{globalThis.BooksTradeAnalysis?.dispose();stopLive();state.analyticsViews=state.analyticsViews.filter(v=>v.kind!=='detail');state.detail=null;});
 addEventListener('popstate',()=>{if($('detail').open)$('detail').close();readURL();choosePeriod();render();openLinkedAccount();});
 readURL();loadLocal();const hydrated=hydratePublicSnapshots();state.loading=!hydrated;choosePeriod();render();renderSource();state.loading=false;openLinkedAccount();refresh(hydrated);
 setInterval(()=>{reevaluatePositions();if(document.visibilityState==='visible')refresh(true);},60000);

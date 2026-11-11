@@ -132,6 +132,28 @@ class PublicOrderTests(unittest.TestCase):
         state=p.initial_state();body={'path':p.STATE_PATH,'encoding':'base64','size':100,'sha':'a'*40,'content':p.base64.b64encode(json.dumps(state).encode()).decode()}
         with patch.dict(os.environ,env),patch.object(p.GitHubStore,'api',return_value=(body,'etag')) as api:
             store=p.GitHubStore();self.assertEqual(store.sha,'a'*40);api.return_value=({'content':{'sha':'b'*40}},None);store.save(state);payload=api.call_args.args[1];self.assertEqual(payload['sha'],'a'*40);self.assertEqual(payload['branch'],p.STATE_BRANCH);self.assertEqual(store.sha,'b'*40)
+    def test_only_own_immediate_predecessor_can_wait_for_read_after_write(self):
+        store=object.__new__(p.GitHubStore);store.sha='b'*40;store.etag=None
+        store.previous_write_sha='a'*40;store.written_at=p.time.monotonic()
+        with patch.object(store,'api',side_effect=[({'sha':'a'*40},'old'),({'sha':'b'*40},'new')]) as api,patch.object(p.time,'sleep') as sleep:
+            store.assert_current();self.assertEqual(api.call_count,2);sleep.assert_called_once_with(0.25)
+            self.assertIsNone(store.previous_write_sha);self.assertEqual(store.etag,'new')
+
+    def test_unknown_conflict_and_http_refusal_are_never_retried(self):
+        for result in [({'sha':'c'*40},None),p.Halt('github_http_403'),p.Halt('github_http_429')]:
+            store=object.__new__(p.GitHubStore);store.sha='b'*40;store.etag=None
+            store.previous_write_sha='a'*40;store.written_at=p.time.monotonic()
+            with patch.object(store,'api',side_effect=[result]) as api,patch.object(p.time,'sleep') as sleep:
+                with self.assertRaises(p.Halt):store.assert_current()
+                self.assertEqual(api.call_count,1);sleep.assert_not_called()
+
+    def test_stale_predecessor_wait_is_bounded(self):
+        store=object.__new__(p.GitHubStore);store.sha='b'*40;store.etag=None
+        store.previous_write_sha='a'*40;store.written_at=p.time.monotonic()
+        with patch.object(store,'api',return_value=({'sha':'a'*40},None)) as api,patch.object(p.time,'sleep'):
+            with self.assertRaisesRegex(p.Halt,'checkpoint_changed'):store.assert_current()
+            self.assertEqual(api.call_count,3)
+
     def test_obsolete_queued_lock_protocol_never_reads_state_or_source(self):
         env={'GITHUB_REPOSITORY':p.REPOSITORY,'GITHUB_REF':'refs/heads/main','GITHUB_EVENT_NAME':'schedule','GITHUB_TOKEN':'unit-secret','BINANCE_LOCK_PROTOCOL':''}
         with patch.dict(os.environ,env),patch.object(p.GitHubStore,'api') as api:

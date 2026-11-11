@@ -298,6 +298,7 @@ class GitHubStore:
         require(self.token, 'missing_github_token')
         self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), monitor.NoRedirect())
         self.sha, self.etag = None, None
+        self.previous_write_sha, self.written_at = None, None
         body = self.get()
         self.state = validate_state(monitor.load_json(base64.b64decode(body['content'].replace('\n', ''), validate=True)))
     def api(self, method, payload=None, conditional=False):
@@ -331,10 +332,20 @@ class GitHubStore:
         self.sha, self.etag = body['sha'], etag
         return body
     def assert_current(self):
-        body, etag = self.api('GET', conditional=True)
-        if body is not None:
-            require(body.get('sha') == self.sha, 'checkpoint_changed')
-            self.etag = etag
+        # GitHub can briefly return the exact predecessor of our own CAS write.
+        # Wait only for this known successful-write propagation; no source call
+        # happens until our claimed version is read back. Unknown versions and
+        # HTTP errors still stop immediately and preserve the claim.
+        for attempt in range(3):
+            body, etag = self.api('GET', conditional=attempt == 0)
+            if body is None or body.get('sha') == self.sha:
+                self.etag = etag
+                self.previous_write_sha = None
+                return
+            own_predecessor = (body.get('sha') == self.previous_write_sha and
+                               self.written_at is not None and time.monotonic() - self.written_at < 10)
+            require(own_predecessor and attempt < 2, 'checkpoint_changed')
+            time.sleep(0.25 * (attempt + 1))
     def save(self, state):
         validate_state(state)
         body, _ = self.api('PUT', {'branch': STATE_BRANCH, 'sha': self.sha,
@@ -342,6 +353,7 @@ class GitHubStore:
             'content': base64.b64encode(json.dumps(state, sort_keys=True, allow_nan=False).encode()).decode()})
         new_sha = (body.get('content') or {}).get('sha') if isinstance(body, dict) else None
         require(isinstance(new_sha, str) and re.fullmatch('[a-f0-9]{40}', new_sha), 'invalid_checkpoint_write_response')
+        self.previous_write_sha, self.written_at = self.sha, time.monotonic()
         self.sha, self.etag = new_sha, None
         self.state = copy.deepcopy(state)
     def close(self):
@@ -427,7 +439,7 @@ def main(argv=None):
         run_id = os.environ.get('GITHUB_RUN_ID', 'local-' + str(int(time.time())))
         trigger = os.environ.get('GITHUB_EVENT_NAME', 'local_bounded_verification')
         if args.github:
-            continuation.admit(store.state, trigger, run_id, os.environ.get('BINANCE_CONTINUATION_TICKET', ''))
+            continuation.admit(store.state, trigger, run_id, os.environ.get('BINANCE_CONTINUATION_TICKET', ''), os.environ.get('GITHUB_SHA'))
         signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))
         source = PublicSource()
         result = run(store, source, args.duration_seconds, run_id, trigger)

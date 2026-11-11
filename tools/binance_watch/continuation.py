@@ -17,7 +17,7 @@ def require(value, reason):
         raise monitor.Stop(reason)
 
 
-def admit(state, event, run_id, ticket):
+def admit(state, event, run_id, ticket, commit_sha=None):
     require(isinstance(run_id, str) and re.fullmatch('[A-Za-z0-9_-]{1,80}', run_id), 'invalid_chain_run')
     chain = state.get('continuation')
     if chain is None:
@@ -27,6 +27,20 @@ def admit(state, event, run_id, ticket):
         return
     require(isinstance(chain, dict) and chain.get('stopped') is False, 'continuation_requires_review')
     if event == 'push':
+        recovery = state.get('reviewedRecovery')
+        if isinstance(recovery, dict) and recovery.get('consumedBy') is None:
+            require(state.get('stopped') is False and state.get('activeRun') is None and
+                    re.fullmatch('[a-f0-9]{40}', recovery.get('authorizedCommit', '')) and
+                    commit_sha == recovery['authorizedCommit'] and not ticket and
+                    recovery.get('failedRunId') == chain.get('ownerRunId') and
+                    recovery.get('confirmedSourceRequests') == 0 and
+                    recovery.get('confirmedError') == 'checkpoint_changed' and
+                    recovery.get('confirmedJobConclusion') == 'failure', 'invalid_reviewed_recovery')
+            parent = chain['ownerRunId']
+            chain.update(ownerRunId=run_id, parentRunId=parent, ticket=None, phase=None,
+                         consumedAt=monitor.iso(time.time()))
+            recovery.update(consumedBy=run_id, consumedAt=monitor.iso(time.time()))
+            return
         raise monitor.Stop('continuation_already_active')
     require(event == 'workflow_dispatch' and isinstance(ticket, str) and
             re.fullmatch('[a-f0-9]{32}', ticket) and ticket == chain.get('ticket') and

@@ -22,6 +22,23 @@ def result(**changes):
 
 
 class ContinuationTests(unittest.TestCase):
+    def test_reviewed_zero_request_failure_requires_exact_commit_and_is_single_use(self):
+        s=Store().state;s['records']={'history':'retained'}
+        s['reviewedRecovery']={'authorizedCommit':'a'*40,'failedRunId':'100','confirmedSourceRequests':0,'confirmedError':'checkpoint_changed','confirmedJobConclusion':'failure'}
+        before=copy.deepcopy(s)
+        for event,sha in [('push','b'*40),('push',None),('workflow_dispatch','a'*40)]:
+            with self.assertRaises(c.monitor.Stop):c.admit(s,event,'101','',sha)
+            self.assertEqual(s,before)
+        c.admit(s,'push','101','','a'*40)
+        self.assertEqual(s['continuation']['rootRunId'],'100');self.assertEqual(s['continuation']['parentRunId'],'100')
+        self.assertEqual(s['records'],{'history':'retained'});self.assertEqual(s['reviewedRecovery']['consumedBy'],'101')
+        with self.assertRaises(c.monitor.Stop):c.admit(s,'push','102','','a'*40)
+
+    def test_reviewed_recovery_never_unlocks_a_source_stop_or_an_active_owner(self):
+        for mutation in [lambda s:s.update(stopped=True),lambda s:s.update(activeRun={'id':'100'}),lambda s:s['reviewedRecovery'].update(confirmedSourceRequests=1),lambda s:s['reviewedRecovery'].update(confirmedError='http_403')]:
+            s=Store().state;s['reviewedRecovery']={'authorizedCommit':'a'*40,'failedRunId':'100','confirmedSourceRequests':0,'confirmedError':'checkpoint_changed','confirmedJobConclusion':'failure'};mutation(s)
+            with self.assertRaises(c.monitor.Stop):c.admit(s,'push','101','','a'*40)
+
     def test_bootstrap_does_not_overwrite_history_or_create_a_second_chain(self):
         s={'records':{'history':'retained'}};c.admit(s,'push','100','')
         self.assertEqual(s['records'],{'history':'retained'})

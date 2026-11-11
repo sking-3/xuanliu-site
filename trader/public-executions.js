@@ -14,16 +14,21 @@ function parse(value,now=Date.now()){
   if(!plain(r)||!/^[a-f0-9]{64}$/.test(key)||r.fingerprint!==key||!/^[a-f0-9]{64}$/.test(r.identity)||r.sourceOrderId!==null||!stamp(r.firstSeenAt)||!Number.isSafeInteger(r.orderTime)||!Number.isSafeInteger(r.orderUpdateTime)||r.orderTime<=0||r.orderUpdateTime<r.orderTime||r.orderUpdateTime>now+300000||!Object.hasOwn(directions,r.direction))fail();
   if(!['symbol','baseAsset','quoteAsset'].every(k=>typeof r[k]==='string'&&/^[A-Z0-9_]{1,50}$/.test(r[k]))||!['executedQty','avgPrice','totalPnl'].every(k=>decimal(r[k]))||Number(r.executedQty)<0||Number(r.avgPrice)<0)fail();
   if(Date.parse(r.firstSeenAt)>now+300000||r.versionFirstSeenAt!==undefined&&(!stamp(r.versionFirstSeenAt)||Date.parse(r.versionFirstSeenAt)>now+300000))fail();
-  const row={symbol:r.symbol,baseAsset:r.baseAsset,quoteAsset:r.quoteAsset,quantity:r.executedQty,price:r.avgPrice,sourcePnl:r.totalPnl,createdAt:r.orderTime,updatedAt:r.orderUpdateTime,firstSeenAt:r.firstSeenAt,versionFirstSeenAt:r.versionFirstSeenAt||r.firstSeenAt,direction:directions[r.direction]};
+  const row={id:key,identity:r.identity,sourceDirection:r.direction,symbol:r.symbol,baseAsset:r.baseAsset,quoteAsset:r.quoteAsset,quantity:r.executedQty,price:r.avgPrice,sourcePnl:r.totalPnl,createdAt:r.orderTime,updatedAt:r.orderUpdateTime,firstSeenAt:r.firstSeenAt,versionFirstSeenAt:r.versionFirstSeenAt||r.firstSeenAt,direction:directions[r.direction]};
   // Equal source creation times do not establish a common order identity.
   rows.push(row);
  }
  if(value.lastSuccessAt===null&&rows.length)fail();
- return {checkedAt:value.lastSuccessAt,stopped:value.stopped,rows:rows.sort((a,b)=>b.updatedAt-a.updatedAt||Date.parse(b.versionFirstSeenAt)-Date.parse(a.versionFirstSeenAt)).slice(0,20),retainedRecords:rows.length};
+ rows.sort((a,b)=>b.updatedAt-a.updatedAt||Date.parse(b.versionFirstSeenAt)-Date.parse(a.versionFirstSeenAt));
+ return {checkedAt:value.lastSuccessAt,stopped:value.stopped,rows:rows.slice(0,20),allRows:rows,retainedRecords:rows.length};
 }
 function reader(env){
  let last=null,loadedAt=0,pending=null,stopped=null;
  const key='books.binance-public-record-reader-stop.v1';
+ const cacheKey='books.binance-public-record-cache.v1';
+ function hydrate(value){try{const next=parse(value);if(!last||Date.parse(next.checkedAt)>Date.parse(last.checkedAt))last=next;}catch{}}
+ if(env.BooksPublicRecordSeed)hydrate(env.BooksPublicRecordSeed);
+ try{const raw=env.localStorage.getItem(cacheKey);if(raw&&raw.length<=900000)hydrate(JSON.parse(raw));}catch{}
  function reason(){try{return stopped||env.localStorage.getItem(key);}catch{return 'storage_unavailable';}}
  async function read(){
   if(reason())throw Error(reason());
@@ -38,7 +43,9 @@ function reader(env){
     if(!response.ok)throw Error('checkpoint_read_failed');
     const stream=response.body.getReader(),chunks=[];let size=0;
     while(true){const {done,value}=await stream.read();if(done)break;size+=value.byteLength;if(size>900000){await stream.cancel();throw Error('checkpoint_too_large');}chunks.push(value);}
-    last=parse(JSON.parse(await new Blob(chunks).text()));loadedAt=Date.now();return last;
+    const raw=JSON.parse(await new Blob(chunks).text()),next=parse(raw);
+    if(!last||Date.parse(next.checkedAt)>=Date.parse(last.checkedAt)){last=next;try{env.localStorage.setItem(cacheKey,JSON.stringify({schemaVersion:1,portfolioId:ID,scope:'public_execution_records_only',hiddenPositionsRequested:false,stopped:raw.stopped,lastSuccessAt:raw.lastSuccessAt,records:raw.records}));}catch{}}
+    loadedAt=Date.now();return last;
    }finally{clearTimeout(timer);pending=null;}
   })();return pending;
  }
