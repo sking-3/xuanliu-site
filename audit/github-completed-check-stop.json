@@ -1,0 +1,12 @@
+{
+  "checkedAt": "2026-11-11T11:49:05Z",
+  "operation": "githubCompletedCheckRuns",
+  "request": "GET /repos/sking-3/xuanliu-site/commits/0d8452ba2f93a5372701b85443018a93a5698192/check-runs?status=completed&per_page=100",
+  "httpStatus": 403,
+  "reason": "API rate limit exceeded",
+  "stopped": true,
+  "retried": false,
+  "alternativeClientUsed": false,
+  "scope": "completed check query only; existing queue denial remains untouched",
+  "responseSha256": "2cc87d69c2cb76e5cf6f6a51b6768236df098eb7ad855ec76220924ffe269100"
+}
