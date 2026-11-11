@@ -21,7 +21,7 @@ test('empty baseline and stopped history remain distinguishable',()=>{
  const v=fixture();v.records={};v.lastSuccessAt=null;assert.deepEqual(api.parse(v,NOW).rows,[]);v.stopped=true;assert.equal(api.parse(v,NOW).stopped,true);
 });
 test('reader uses only saved public checkpoint, single flight and a one-minute cache',async()=>{
- let calls=0,release;const wait=new Promise(r=>release=r),env=environment(async(url,options)=>{calls++;assert.equal(url,api.URL);assert.equal(options.credentials,'omit');assert.equal(options.redirect,'error');await wait;return new Response(JSON.stringify(fixture()));});
+ let calls=0,release;const wait=new Promise(r=>release=r),env=environment(async(url,options)=>{calls++;assert.match(url,new RegExp('^'+api.URL.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'\\?minute=\\d+$'));assert.equal(options.credentials,'omit');assert.equal(options.redirect,'error');await wait;return new Response(JSON.stringify(fixture()));});
  const reader=api.reader(env),p=reader.read(),q=reader.read();release();assert.deepEqual(await p,await q);await reader.read();assert.equal(calls,1);assert.equal(reader.last().rows.length,1);
 });
 test('403 and 429 stop subsequent reads, including across reader instances',async()=>{

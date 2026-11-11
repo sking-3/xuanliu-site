@@ -31,7 +31,9 @@ function reader(env){
   if(pending)return pending;
   pending=(async()=>{const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),8000);
    try{
-    const response=await env.fetch(URL,{signal:controller.signal,redirect:'error',credentials:'omit',cache:'no-store'});
+    // Share one CDN key per minute while avoiding a five-minute-old raw-file cache.
+    // A persisted refusal is checked before creating any request, including this key.
+    const response=await env.fetch(URL+'?minute='+Math.floor(Date.now()/60000),{signal:controller.signal,redirect:'error',credentials:'omit',cache:'no-store'});
     if(response.status===403||response.status===429){stopped='http_'+response.status;try{env.localStorage.setItem(key,stopped);}catch{}throw Error(stopped);}
     if(!response.ok)throw Error('checkpoint_read_failed');
     const stream=response.body.getReader(),chunks=[];let size=0;
