@@ -15,7 +15,7 @@ on:
       - '.github/workflows/binance-public-orders.yml'
   workflow_dispatch:
   schedule:
-    - cron: '3,18,33,48 * * * *'
+    - cron: '8,23,38,53 * * * *'
 
 permissions:
   contents: read
