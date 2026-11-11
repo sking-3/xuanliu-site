@@ -1,5 +1,6 @@
 {
   "binancePublicCollector": "paused_pending_permission_and_frequency",
   "githubRunInventory": "stopped_after_queue_403",
-  "binanceOrders5075281354358777856": "positions_not_public"
+  "binanceOrders5075281354358777856": "approved",
+  "binancePositions5075281354358777856": "positions_not_public"
 }

@@ -1,0 +1,64 @@
+name: Binance public execution watch
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'tools/binance_watch/public_orders.py'
+      - 'tools/binance_watch/test_public_orders.py'
+      - 'tools/binance_watch/public-order-evidence.json'
+      - '.github/workflows/binance-public-orders.yml'
+  pull_request:
+    paths:
+      - 'tools/binance_watch/public_orders.py'
+      - 'tools/binance_watch/test_public_orders.py'
+      - '.github/workflows/binance-public-orders.yml'
+  workflow_dispatch:
+  # Scheduled observation is enabled only after the bounded cloud run passes.
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Public execution observer tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -B -m unittest discover -s tools/binance_watch -p 'test_*.py' -v
+
+  watch:
+    name: Observe public execution records
+    if: github.event_name != 'pull_request' && github.repository == 'sking-3/xuanliu-site' && github.ref == 'refs/heads/main'
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    # Same repository-wide exchange lock as the legacy collector. No queue API.
+    concurrency:
+      group: binance-public-source
+      queue: max
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Observe anonymous public records every five seconds
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          WATCH_SECONDS: ${{ github.event_name == 'push' && '65' || '840' }}
+        run: >-
+          python -B tools/binance_watch/public_orders.py
+          --github --duration-seconds "$WATCH_SECONDS"
+          --report "$RUNNER_TEMP/public-order-report.json"

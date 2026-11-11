@@ -5,7 +5,7 @@ from pathlib import Path
 import source_holds
 
 EVIDENCE = Path(__file__).with_name('source-evidence.json')
-OPERATIONS = ('binancePublicCollector', 'binanceOrders5075281354358777856', 'githubRunInventory')
+OPERATIONS = ('binancePublicCollector', 'binancePositions5075281354358777856', 'githubRunInventory')
 
 
 def report():
@@ -23,22 +23,24 @@ def report():
     except (OSError, ValueError, TypeError, KeyError):
         visibility = None
         blockers.append({'operation': 'visibilityEvidence', 'reason': 'unverified'})
-    return {'portfolioId': '5075281354358777856', 'status': 'blocked',
+    return {'portfolioId': '5075281354358777856', 'status': 'blocked', 'reportScope': 'legacy_combined_position_monitor',
+            'publicExecutionObserverConfigured': source_holds.reason('binanceOrders5075281354358777856') is None,
             'configuredIntervalSeconds': 5, 'sourceRequestsMade': 0,
             'backgroundMonitorRunning': False, 'blockers': blockers,
             'lastVisibilityVerification': visibility}
 
 
 def summary(result):
-    rows = ['## 币安五秒监控：未启用', '',
-            '目标组合：`5075281354358777856`；程序目标节拍为 5 秒。',
+    rows = ['## 旧仓位监控：未启用', '',
+            '目标组合：`5075281354358777856`。本摘要仅针对旧仓位观察器。',
+            '公开成交记录已改用独立的 Binance public execution watch 工作流；本步骤不查询其存活状态。',
             '本步骤只检查仓库文件，没有请求币安、受限运行队列或读取账户密钥。', '',
             '| 停止项 | 原因 |', '| --- | --- |']
     rows += [f"| `{r['operation']}` | `{r['reason']}` |" for r in result['blockers']]
     evidence = result['lastVisibilityVerification']
     if evidence:
         rows += ['', f"最近一次公开状态核验始于 `{evidence['requestStartedAt']}`；HTTP {evidence['httpStatus']}，`positionShow=false`。",
-                 '该记录是历史核验结果，不代表本次任务重新请求过来源。没有持仓、订单或新开仓监控结果。']
+                 '该记录仅核验持仓可见性，不能用它否定独立公开的成交记录。隐藏仓位仍不请求。']
     return '\n'.join(rows) + '\n'
 
 

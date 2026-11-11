@@ -17,7 +17,7 @@ class ReadinessTests(unittest.TestCase):
         self.assertEqual(result['sourceRequestsMade'], 0)
         self.assertFalse(result['backgroundMonitorRunning'])
         self.assertEqual(result['configuredIntervalSeconds'], 5)
-        self.assertEqual({r['operation'] for r in result['blockers']}, set(readiness.OPERATIONS) | {'githubLiveJob'})
+        self.assertEqual({r['operation'] for r in result['blockers']}, {op for op in readiness.OPERATIONS if readiness.source_holds.reason(op)} | {'githubLiveJob'})
         self.assertFalse(result['lastVisibilityVerification']['positionShow'])
 
     def test_invalid_or_missing_evidence_remains_blocked(self):
@@ -38,7 +38,7 @@ class ReadinessTests(unittest.TestCase):
             result=json.loads(output.getvalue());self.assertEqual(result['status'], 'blocked')
             summary=Path(temp, 'summary.md').read_text()
             self.assertIn('未启用', summary)
-            self.assertIn('历史核验结果', summary)
+            self.assertIn('仅核验持仓可见性', summary)
             self.assertIn('positionShow=false', summary)
 
     def test_workflow_and_monitor_retained_the_pre_request_stop_gate(self):
@@ -47,7 +47,7 @@ class ReadinessTests(unittest.TestCase):
         self.assertIn('if: ${{ false &&', workflow)
         self.assertIn('python tools/binance_watch/readiness.py', workflow)
         self.assertNotIn('\n  schedule:', workflow)
-        self.assertEqual(readiness.source_holds.reason('binanceOrders5075281354358777856'), 'positions_not_public')
+        self.assertEqual(readiness.source_holds.reason('binancePositions5075281354358777856'), 'positions_not_public')
         with patch.object(monitor, 'Transport', side_effect=AssertionError('network')), patch.object(monitor, 'Store', side_effect=AssertionError('database')), contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(monitor.main(['--once']), 2)
 

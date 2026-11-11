@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 1,
+  "portfolioId": "5075281354358777856",
+  "scope": "anonymous_public_execution_history_only",
+  "sourceUrl": "https://www.binance.com/bapi/futures/v1/friendly/future/copy-trade/lead-portfolio/order-history",
+  "uiSourceUrl": "https://www.binance.com/zh-CN/copy-trading/lead-details/5075281354358777856",
+  "uiObservation": "Logged-out official page independently exposes Latest Operations; current positions require copying and remain untouched.",
+  "pages": [
+    {
+      "requestStartedAt": "2026-11-11T09:29:12.300414+00:00",
+      "receivedAt": "2026-11-11T09:29:13.437264+00:00",
+      "httpStatus": 200,
+      "sourceCode": "000000",
+      "sourceSuccess": true,
+      "rows": 20,
+      "total": 38,
+      "sha256": "57a8145f8760498e6439f6080e2a54b4cb3dd73da67e603d088253803bd450bc"
+    },
+    {
+      "requestStartedAt": "2026-11-11T09:46:08.585721+00:00",
+      "receivedAt": "2026-11-11T09:46:12.405421+00:00",
+      "httpStatus": 200,
+      "sourceCode": "000000",
+      "sourceSuccess": true,
+      "rows": 19,
+      "total": 38,
+      "sha256": "4a51a45ce8d14f2a75a7787bfb0044c3853529e7ca8cdec19c920119eff36205"
+    }
+  ],
+  "uniqueRows": 38,
+  "inclusiveCursorBoundaryDuplicates": 1,
+  "sourceOrderIdsAvailable": false,
+  "pageSize": 20,
+  "paginationField": "indexValue",
+  "positionsRequested": false,
+  "reclassifiedOrderHold": "positions_not_public",
+  "positionHold": "positions_not_public",
+  "configuredPollSeconds": 5,
+  "documentedSourceQuota": null,
+  "sourceUpdateLatencyGuarantee": null,
+  "rateAcceptanceVerification": "13 accepted requests over a bounded live observation; not a documented source quota or freshness guarantee",
+  "captureType": "real_public_source_not_test_fixture",
+  "boundedLiveVerification": {
+    "runId": "local-1794395469",
+    "trigger": "local_bounded_verification",
+    "startedAt": "2026-11-11T11:11:09.326Z",
+    "endedAt": "2026-11-11T11:12:09.996Z",
+    "durationSeconds": 60.67,
+    "cycles": 12,
+    "sourceRequests": 13,
+    "observations": 0,
+    "errorCode": null,
+    "positionsRequested": false,
+    "checkpointSealed": true,
+    "minRequestStartIntervalSeconds": 5.002,
+    "maxRequestStartIntervalSeconds": 5.009
+  },
+  "baselineUniquePublicRecords": 38
+}
