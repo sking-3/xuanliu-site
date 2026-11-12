@@ -249,6 +249,9 @@ jobs:
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/books-pages"
           git archive --format=tar HEAD | tar -x -C "$RUNNER_TEMP/books-pages"
+          # Account administration and local simulation code are not public Pages assets.
+          rm -rf "$RUNNER_TEMP/books-pages/copy-config" "$RUNNER_TEMP/books-pages/tools/copy_plan"
+          rm -f "$RUNNER_TEMP/books-pages/trader/"paper-*.js "$RUNNER_TEMP/books-pages/trader/paper-copy.css"
           test -s "$RUNNER_TEMP/books-pages/index.html"
           test -s "$RUNNER_TEMP/books-pages/trader/feed.json"
           test -s "$RUNNER_TEMP/books-pages/trader/analytics.json"

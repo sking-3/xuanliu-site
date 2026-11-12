@@ -33,6 +33,7 @@ function status(c){
  return [c.loading?'正在更新公开记录':c.error?'本次更新未成功，保留历史':old?'历史记录 · 待更新':'已保存的公开记录',`${c.events.length} 条操作 · ${c.cycles.filter(x=>x.official).length} 条官方历史仓位`,at?'最近读取 '+date(at):'尚未取得逐条记录'].join(' · ');
 }
 function teardown(c){c.focusEvent=null;if(c.playTimer)clearInterval(c.playTimer);c.playTimer=null;if(c.chartView)c.chartView.destroy();else c.chart?.remove();c.chartView=null;c.chart=null;c.chartVersion=(c.chartVersion||0)+1;}
+function stopFloating(c){c.floating?.destroy();c.floating=null;c.floatingHost=null;}
 function draw(c){
  if(c!==current||!c.root.isConnected)return;
  teardown(c);c.root.replaceChildren();c.root.classList.add('trade-analysis');
@@ -58,6 +59,7 @@ function analysis(c){
  for(const p of ['7D','30D','90D','180D','365D']){const b=btn(p,()=>c.context.setPeriod(p),'ta-period');b.setAttribute('aria-pressed',String(c.context.period===p));switches.append(b);}period.append(switches);c.root.append(period);
  const profile=c.context.profile;
  if(profile){const top=el('div',undefined,'ta-account-facts');for(const [label,value]of [['带单保证金余额 · USDT',fmt(profile.marginBalance,2)],['资产管理规模 AUM · USDT',fmt(profile.aumAmount,2)],['跟单用户数',fmt(profile.currentCopyCount,0)+' / '+fmt(profile.maxCopyCount,0)],['当前持仓',profile.positionShow?'以有效公开快照为准':'来源未公开 · 仓位未知']]){const item=el('div');item.append(el('small',label),el('strong',value));top.append(item);}c.root.append(top,note('组合资料读取 '+date(profile.fetchedAt)+(profile.status==='stale'?' · 历史快照':'')));}
+ if(isHL(c.context.r)&&env.BooksFloatingPnl){if(!c.floatingHost){c.floatingHost=el('section');c.floating=env.BooksFloatingPnl.mount(c.floatingHost,c.context.r,{onPositions:c.context.onPositions});}c.root.append(c.floatingHost);}
  const w=c.context.metrics||{},grid=el('div',undefined,'ta-metrics');
  const data=[['所选周期收益率',w.roi===null||w.roi===undefined?'—':(w.roi>0?'+':'')+percentage(w.roi),w.roi,c.context.periodLabel||c.context.period],
  ['来源盈亏 · '+(w.currency||c.context.r.currency||'USD'),signed(w.pnl),w.pnl,w.asOf||w.sourceAsOf?'数据截至 '+date(w.asOf||w.sourceAsOf):w.fetchedAt||w.lastSuccessAt?'读取 '+date(w.fetchedAt||w.lastSuccessAt):'缺少有效周期数据'],
@@ -172,8 +174,8 @@ function render(root,context){
   if(context.r.accountId==='5075281354358777856'&&env.BooksAoyingHistory)current.officialHistory=env.BooksAoyingHistory;
   rebuild(current);draw(current);load(current);const owner=current;current.refreshTimer=setInterval(()=>{if(current===owner&&!owner.paused&&document.visibilityState!=='hidden'&&root.closest('dialog').open&&owner.context.tab!=='live')load(owner);},60000);return;
  }
- const changed=current.context.tab!==context.tab||current.context.period!==context.period,updated=context.tab==='analysis'&&(JSON.stringify(current.context.metrics)!==JSON.stringify(context.metrics)||JSON.stringify(current.context.curve)!==JSON.stringify(context.curve));current.context=context;current.root=root;current.paused=false;rebuild(current);if(changed||updated||current.needsDraw||!root.firstChild){const scroller=root.closest('dialog'),offset=scroller.scrollTop;current.needsDraw=false;draw(current);scroller.scrollTop=changed?0:offset;}
+ const changed=current.context.tab!==context.tab||current.context.period!==context.period,updated=context.tab==='analysis'&&(JSON.stringify(current.context.metrics)!==JSON.stringify(context.metrics)||JSON.stringify(current.context.curve)!==JSON.stringify(context.curve));if(context.tab!=='analysis')stopFloating(current);current.context=context;current.root=root;current.paused=false;rebuild(current);if(changed||updated||current.needsDraw||!root.firstChild){const scroller=root.closest('dialog'),offset=scroller.scrollTop;current.needsDraw=false;draw(current);scroller.scrollTop=changed?0:offset;}
 }
-function dispose(){if(current){current.root.closest('dialog')?.classList.remove('ta-detail');teardown(current);clearInterval(current.refreshTimer);}current=null;}
-env.BooksTradeAnalysis={render,dispose,pause(){if(current){teardown(current);current.needsDraw=true;current.paused=true;current.root.classList.remove('trade-analysis');}}};
+function dispose(){if(current){current.root.closest('dialog')?.classList.remove('ta-detail');stopFloating(current);teardown(current);clearInterval(current.refreshTimer);}current=null;}
+env.BooksTradeAnalysis={render,dispose,pause(){if(current){stopFloating(current);teardown(current);current.needsDraw=true;current.paused=true;current.root.classList.remove('trade-analysis');}}};
 })(globalThis);

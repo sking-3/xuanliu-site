@@ -50,6 +50,8 @@
 @media(prefers-reduced-motion:reduce){.trade-analysis *{scroll-behavior:auto}}
 
 /* Analysis and point details share the same compact, scrollable workspace. */
+.ta-floating .ta-note,.ta-floating .ta-table th{color:#536779}
+.ta-floating{margin:20px 0 24px;padding-bottom:18px;border-bottom:1px solid #e3e8ee}.ta-floating-layout{display:grid;grid-template-columns:minmax(210px,.7fr) minmax(0,1.3fr);gap:24px;align-items:center;margin:16px 0}.ta-floating-total{font-size:30px;font-weight:600;font-variant-numeric:tabular-nums}.ta-floating-chart svg{width:100%;height:150px;display:block}.ta-floating[data-state=stale] .ta-floating-total{color:#6e7c89}.ta-floating .ta-table{min-width:580px}.ta-floating-chart .ta-note{margin-top:0}.ta-floating .ta-section-head>span{font-size:11px;color:#607383}@media(max-width:640px){.ta-floating-layout{grid-template-columns:minmax(0,1fr);gap:8px}.ta-floating-total{font-size:27px}.ta-floating .ta-section-head{gap:12px}.ta-floating .ta-section-head>span{max-width:48%}}
 #detail.ta-detail{scrollbar-color:#c5cdd6 #f5f7fa;scrollbar-width:thin;padding-top:0}
 #detail.ta-detail .dialog-head{position:sticky;top:0;z-index:8;background:#fff;min-height:84px;padding-top:20px;margin:0;flex-shrink:0}
 #detail.ta-detail .eyebrow{display:none}
