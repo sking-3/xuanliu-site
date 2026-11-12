@@ -12,7 +12,7 @@ function normalize(events){const out=[];for(const e of events){
  }else out.push(common);
  }return out;}
 function create(env,options={}){
- const M=env.BooksTradeReplayModel,D=env.BooksTradeReplayData.create(env),reader=env.BooksBinancePublicRecords.reader(env);let metadata=null,metadataAt=0,marketStop=null;const books=new Map(),pending=new Map();
+ const M=env.BooksTradeReplayModel,D=env.BooksTradeReplayData.create(env),reader=env.BooksBinancePublicRecords.reader(env);let metadata=null,metadataAt=0,marketStop=options.blockedReason||null;const books=new Map(),pending=new Map();
  async function request(body){
   let reason=env.BooksSourcePolicy?.reason()||(!env.BooksSourcePolicy?'snapshot_unverified':null),until=Date.now()+8000;
   while(reason==='snapshot_unverified'&&Date.now()<until){await new Promise(r=>setTimeout(r,100));reason=env.BooksSourcePolicy?.reason()||(!env.BooksSourcePolicy?'snapshot_unverified':null);}

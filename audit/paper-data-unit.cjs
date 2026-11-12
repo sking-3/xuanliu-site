@@ -1,12 +1,14 @@
 'use strict';
 const {test}=require('node:test'),assert=require('node:assert/strict'),Data=require('../trader/paper-data.js'),M=require('../trader/trade-replay-model.js'),fs=require('node:fs');
-function fixture(mode='ok'){
+function fixture(mode='ok',options={}){
  const calls=[],saved=new Map(),policy={reason:()=>saved.get('stop')||null,stop:c=>saved.set('stop',c)};
  const env={BooksTradeReplayModel:M,BooksTradeReplayData:{create:()=>({fills:async()=>({fetchedAt:Date.now(),rows:[]})})},BooksBinancePublicRecords:{reader:()=>({read:async()=>({checkedAt:new Date().toISOString(),stopped:true,stopReason:'pagination_not_advancing',allRows:[]})})},BooksSourcePolicy:policy,fetch:async(url,opts)=>{const body=JSON.parse(opts.body);calls.push({url,body,credentials:opts.credentials});if(mode==='refuse')return new Response('denied',{status:429});if(body.type==='meta')return new Response(JSON.stringify({universe:[{name:'ETH',szDecimals:3,maxLeverage:25},{name:'OLD',szDecimals:3,maxLeverage:5,isDelisted:true}]}));return new Response(JSON.stringify({coin:'ETH',time:Date.now(),levels:[[{px:'99',sz:'1'}],[{px:'100',sz:'1'}]]}));}};
- return {api:Data.create(env),calls,policy};
+ return {api:Data.create(env,options),calls,policy};
 }
 test('paper transport sends only read-only info types without credentials and coalesces market reads',async()=>{const f=fixture();const [a,b]=await Promise.all([f.api.market('ETH'),f.api.market('ETH')]);assert.equal(a,b);assert.deepEqual(f.calls.map(x=>x.body.type),['meta','l2Book']);assert.ok(f.calls.every(x=>x.url==='https://api.hyperliquid.xyz/info'&&x.credentials==='omit'));});
 test('market aliases and delisted assets are refused before a book request',async()=>{const f=fixture();await assert.rejects(f.api.market('xyz:NVDA'),/unsupported_market/);await assert.rejects(f.api.market('NVDA'),/unsupported_market/);await assert.rejects(f.api.market('OLD'),/unsupported_market/);assert.deepEqual(f.calls.map(x=>x.body.type),['meta']);});
 test('a 429 persists in the shared policy and prevents further source requests',async()=>{const f=fixture('refuse');await assert.rejects(f.api.market('ETH'),/http_429/);await assert.rejects(f.api.market('ETH'),/http_429/);assert.equal(f.calls.length,1);assert.equal(f.policy.reason(),'http_429');});
 test('Binance stopped-checkpoint reason reaches the paper workspace instead of a running label',async()=>{const f=fixture();const result=await f.api.feed({exchange:'Binance',accountId:Data.ID});assert.equal(result.stopped,true);assert.equal(result.reason,'pagination_not_advancing');assert.equal(f.calls.length,0);});
 test('paper modules have no trading endpoint or secret-storage integration',()=>{for(const name of ['paper-data.js','paper-copy.js','paper-engine.js']){const source=fs.readFileSync('trader/'+name,'utf8');assert.doesNotMatch(source,/api\.hyperliquid\.xyz\/exchange|fapi\/v1\/order|approveAgent|privateKey|secretKey|signTypedData/);}});
+
+test('a saved target refusal blocks even the first market request after reopening',async()=>{const f=fixture('ok',{venue:'Bitget',blockedReason:'http_403'});assert.equal(f.api.blocker(),'http_403');await assert.rejects(f.api.market('ZEC'),/http_403/);assert.equal(f.calls.length,0);});
