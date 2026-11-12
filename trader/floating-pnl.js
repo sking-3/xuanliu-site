@@ -53,7 +53,7 @@ function create(options){
     }catch(err){stop(err.message==='stale_position_stream'?'stale_position_stream':'invalid_position_stream');}
    };
    ws.onerror=()=>{if(alive())stop('websocket_unavailable');};
-   ws.onclose=e=>{if(!alive())return;if(e.code===1008){stop('stream_rejected',true);return;}const retry=accepted&&reconnects<2;disconnect();status='disconnected';reason='stream_gap';emit();if(retry){reconnects++;timer=set(start,5000);} };
+   ws.onclose=e=>{if(!alive())return;if([1003,1008,1009].includes(e.code)){stop('stream_rejected',true);return;}const retry=accepted&&reconnects<2;disconnect();status='disconnected';reason='stream_gap';emit();if(retry){reconnects++;timer=set(start,5000);} };
   }
   connect();
  }
