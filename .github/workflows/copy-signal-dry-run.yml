@@ -1,0 +1,66 @@
+name: Copy signal dry-run
+on:
+  workflow_dispatch:
+    inputs:
+      config_path:
+        description: 'Non-secret JSON under copy-config/. This generates intents only; no exchange orders.'
+        required: true
+        type: string
+  push:
+    branches: [main]
+    paths: ['tools/copy_plan/**', '.github/workflows/copy-signal-dry-run.yml']
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: python3 -B -m unittest discover -s tools/copy_plan -p 'test_*.py'
+  plan:
+    if: github.event_name == 'workflow_dispatch'
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    concurrency:
+      group: copy-dry-run-${{ inputs.config_path }}
+      queue: max
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Bind state cache to the exact reviewed config
+        id: config
+        env:
+          CONFIG_PATH: ${{ inputs.config_path }}
+        run: |
+          python3 -B - <<'PY'
+          import hashlib,os
+          from pathlib import Path
+          p=Path(os.environ['CONFIG_PATH']).resolve()
+          if (Path.cwd()/'copy-config').resolve() not in p.parents:raise SystemExit('Config must be under copy-config/')
+          with open(os.environ['GITHUB_OUTPUT'],'a') as f:f.write('hash='+hashlib.sha256(p.read_bytes()).hexdigest()+'\n')
+          PY
+      - uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/copy-plan/state.json
+          key: copy-plan-v1-${{ steps.config.outputs.hash }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: copy-plan-v1-${{ steps.config.outputs.hash }}-
+      - name: Observe public checkpoint for 65 seconds; never sign exchange requests
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          CONFIG_PATH: ${{ inputs.config_path }}
+        run: python3 -B tools/copy_plan/plan.py --config "$CONFIG_PATH" --state "$RUNNER_TEMP/copy-plan/state.json" --report "$RUNNER_TEMP/copy-plan/report.json"
+      - uses: actions/cache/save@v4
+        if: always() && steps.config.outputs.hash != ''
+        with:
+          path: ${{ runner.temp }}/copy-plan/state.json
+          key: copy-plan-v1-${{ steps.config.outputs.hash }}-${{ github.run_id }}-${{ github.run_attempt }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: copy-dry-run-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/copy-plan/*.json

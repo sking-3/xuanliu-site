@@ -324,7 +324,7 @@ function sortValue(r,period,sort) {
   return sort==='winRate'?win(w):w?.[sort];
 }
 function renderPreservingCardFocus() {
-  const focused=state.cardControls.find(v=>v.detailButton===document.activeElement||v.sourceLink===document.activeElement),kind=focused?.detailButton===document.activeElement?'detailButton':'sourceLink';
+  const focused=state.cardControls.find(v=>v.detailButton===document.activeElement||v.followButton===document.activeElement),kind=focused?.detailButton===document.activeElement?'detailButton':'followButton';
   render();if(focused){const replacement=state.cardControls.find(v=>v.r.id===focused.r.id);(replacement?.[kind]||$('sort')).focus();}
 }
 function isPortfolioSort() {return $('sort').value==='mdd'||['pnl','roi'].includes($('sort').value)&&derivedPeriods.includes($('period').value);}
@@ -416,8 +416,8 @@ async function readWinCache() {
     // When the feed wins the network race, apply the selected order as soon as
     // aggregate values arrive. Metadata-only refreshes preserve card nodes/focus.
     if(orderChanged&&!state.loading&&$('sort').value==='winRate'&&$('source').value!=='local') {
-      const focused=state.cardControls.find(v=>v.detailButton===document.activeElement||v.sourceLink===document.activeElement);
-      const focusKind=focused?.detailButton===document.activeElement?'detailButton':'sourceLink';
+      const focused=state.cardControls.find(v=>v.detailButton===document.activeElement||v.followButton===document.activeElement);
+      const focusKind=focused?.detailButton===document.activeElement?'detailButton':'followButton';
       render();
       if(focused){const replacement=state.cardControls.find(v=>v.r.id===focused.r.id);(replacement?.[focusKind]||$('sort')).focus();}
     }
@@ -853,8 +853,8 @@ function card(r,period) {
   const name=node('h3',r.name);name.setAttribute('title',r.name);
   const identityMeta=node('div',`${r.exchange}${r.paid?' · 付费来源':''}${r._local?' · 我的资料':''}`,'meta');identityMeta.setAttribute('title',r.accountId||r.id);const idLine=node('div',isPublicAccount(r)?'钱包 '+r.accountId.slice(0,8)+'…'+r.accountId.slice(-6):sourceIdentity(r),'platform-id');
   idLine.setAttribute('title',sourceIdentity(r));identity.append(name,identityMeta,idLine);
-  const detail=button('详情',()=>openDetail(r,period),'detail-button'),source=sourceLink(r);detail.setAttribute('aria-label',`查看 ${r.name} 的研究详情`);source.textContent='来源 ↗';source.setAttribute('title',`打开 ${r.exchange} 来源账户`);links.append(detail,source);
-  top.append(avatar(r),identity,links);c.setAttribute('data-layout','aligned');c.append(top);state.cardControls.push({r,detailButton:detail,sourceLink:source});
+  const detail=button('详情',()=>openDetail(r,period),'detail-button'),follow=button('跟单',()=>openFollow(r,period),'follow-button');detail.setAttribute('aria-label',`查看 ${r.name} 的研究详情`);follow.setAttribute('aria-label',`设置跟单 ${r.name}`);follow.setAttribute('title','选择执行账户、比例与风控');links.append(detail,follow);
+  top.append(avatar(r),identity,links);c.setAttribute('data-layout','aligned');c.append(top);state.cardControls.push({r,detailButton:detail,followButton:follow});
   if(isBinanceTrader(r)){renderBinanceCard(r,c,period,true);return c;}
   const context=node('div',undefined,'card-context');context.append(node('span',periodName(period,w)));
   let timing=w?.derived?performanceRange(r,period):stampLabel(w);
@@ -872,7 +872,7 @@ function card(r,period) {
     const roiLabel=node('div',undefined,'roi-label');stats.append(roi,roiLabel);
     const figures=metrics(w,r.currency,false,r,period);stats.append(figures);fillPerformanceGraph(r,period,graph,true);
     performance.append(stats,graph);c.append(performance);
-    if(isPublicAccount(r)){const rangeNote=node('p',undefined,'performance-range'),view={kind:'card',r,period,metrics:figures,graph,rangeNote,roi,roiLabel,cardRoot:c,detailButton:detail,sourceLink:source};fillPerformanceSummary(r,period,view);footer.append(rangeNote);state.analyticsViews.push(view);}else{roiLabel.textContent=`${displayPeriod(period,w)} 收益率`;}
+    if(isPublicAccount(r)){const rangeNote=node('p',undefined,'performance-range'),view={kind:'card',r,period,metrics:figures,graph,rangeNote,roi,roiLabel,cardRoot:c,detailButton:detail,followButton:follow};fillPerformanceSummary(r,period,view);footer.append(rangeNote);state.analyticsViews.push(view);}else{roiLabel.textContent=`${displayPeriod(period,w)} 收益率`;}
   } else c.append(node('p',Object.keys(r.windows).length?`${displayPeriod(period,w)} 表现 —`:'账号与来源已保存','performance-body meta'));
   if(r.note)footer.append(node('p',r.note,'profile-note'));
   if(r._local){const actions=node('div',undefined,'card-actions');actions.append(button('编辑',()=>openEditor(r)),button('删除',()=>removeRecord(r)));footer.append(actions);}
@@ -892,8 +892,8 @@ function openLinkedAccount(finalRead=false) {
   const row=publicFocus.record?.accountId===linkedAccount?publicFocus.record:state.rows.find(r=>(isPublicAccount(r)||isBinanceTrader(r))&&r.accountId===linkedAccount);
   if(!row){if(finalRead)linkedAccount=null;return false;}
   linkedAccount=null;
-  openDetail(row,$('period').value);
-  const view=new URL(location.href).searchParams.get('view');if(['positions','points','orders','paper'].includes(view))activateDetailTab(view);
+  const view=new URL(location.href).searchParams.get('view');openDetail(row,$('period').value,['paper','follow'].includes(view)?'paper':'analysis');
+  if(['positions','points','orders'].includes(view))activateDetailTab(view);
   return true;
 }
 function saveURL(replace=false) {
@@ -1046,13 +1046,14 @@ function renderLiveData() {
 function activateDetailTab(tab) {
   if(!state.detail||!['analysis','live','positions','points','orders','paper'].includes(tab)||tab===state.tab)return;
   if(tab==='live'&&!canReadLive(state.detail))return;
-  if(tab==='paper'&&!globalThis.BooksPaperCopy?.supported(state.detail))return;
+  if(tab==='paper'&&!globalThis.BooksFollowSettings&&!globalThis.BooksPaperCopy?.supported(state.detail))return;
   if(typeof BooksTradeAnalysis==='undefined'&&canReadLive(state.detail)&&!['analysis','live'].includes(tab))return;
   if(state.tab==='live')stopLive();state.tab=tab;renderDetail();
 }
-function openDetail(r,p) {
-  globalThis.BooksPaperCopy?.dispose();globalThis.BooksTradeAnalysis?.dispose();
-  stopLive();state.detail=r;state.window=p;state.tab='analysis';renderDetailIdentity(r);
+function openFollow(r,p){const url=new URL(location.href);url.searchParams.set('account',r.accountId||r.id);url.searchParams.set('view','follow');history.replaceState({},'',url);openDetail(r,p,'paper');}
+function openDetail(r,p,initialTab='analysis') {
+  globalThis.BooksFollowSettings?.dispose();globalThis.BooksPaperCopy?.dispose();globalThis.BooksTradeAnalysis?.dispose();
+  stopLive();state.detail=r;state.window=p;state.tab=initialTab;renderDetailIdentity(r);
   renderDetail();$('detail').showModal();$('close').focus();
 }
 function renderDetail() {
@@ -1060,9 +1061,9 @@ function renderDetail() {
   renderDetailIdentity(r);
   renderDetailStatus();
   if(typeof BooksTradeAnalysis!=='undefined'){
-    document.querySelectorAll('[data-tab]').forEach(x=>{x.hidden=x.dataset.tab==='live'&&!canReadLive(r)||x.dataset.tab==='paper'&&!globalThis.BooksPaperCopy?.supported(r);x.textContent=({paper:'模拟跟单',analysis:'交易分析',positions:'历史仓位',points:'交易点位',orders:'成交流水',live:'实时交易'})[x.dataset.tab];x.setAttribute('aria-pressed',String(x.dataset.tab===state.tab));});
-    if(state.tab==='paper'){BooksTradeAnalysis.pause();$('detail-data-status').hidden=true;BooksPaperCopy.render(b,r);return;}
-    globalThis.BooksPaperCopy?.dispose();
+    document.querySelectorAll('[data-tab]').forEach(x=>{x.hidden=x.dataset.tab==='live'&&!canReadLive(r)||x.dataset.tab==='paper'&&!globalThis.BooksFollowSettings&&!globalThis.BooksPaperCopy?.supported(r);x.textContent=({paper:'跟单设置',analysis:'交易分析',positions:'历史仓位',points:'交易点位',orders:'成交流水',live:'实时交易'})[x.dataset.tab];x.setAttribute('aria-pressed',String(x.dataset.tab===state.tab));});
+    if(state.tab==='paper'){BooksTradeAnalysis.pause();$('detail-data-status').hidden=true;if(globalThis.BooksFollowSettings)BooksFollowSettings.render(b,r,{mode:new URL(location.href).searchParams.get('view')==='paper'?'paper':'api'});else BooksPaperCopy.render(b,r);return;}
+    globalThis.BooksFollowSettings?.dispose();globalThis.BooksPaperCopy?.dispose();
     if(state.tab!=='live'){
       $('detail-data-status').hidden=true;state.analyticsViews=state.analyticsViews.filter(v=>v.kind!=='detail');
       publicExecutionReader ||= BooksBinancePublicRecords.reader(globalThis);
@@ -1221,7 +1222,7 @@ const tabs=[...$('tabs').querySelectorAll('[data-tab]')];
 function selectTab(b){if(!state.detail||!tabs.includes(b)||b.hidden)return;activateDetailTab(b.dataset.tab);}
 $('tabs').addEventListener('click',e=>selectTab(e.target.closest('[data-tab]')));
 $('tabs').addEventListener('keydown',e=>{const visibleTabs=tabs.filter(b=>!b.hidden),i=visibleTabs.indexOf(e.target);if(i<0)return;let n;if(e.key==='ArrowRight')n=(i+1)%visibleTabs.length;else if(e.key==='ArrowLeft')n=(i+visibleTabs.length-1)%visibleTabs.length;else if(e.key==='Home')n=0;else if(e.key==='End')n=visibleTabs.length-1;else return;e.preventDefault();visibleTabs[n].focus();selectTab(visibleTabs[n]);});
-$('detail').addEventListener('close',()=>{globalThis.BooksPaperCopy?.dispose();globalThis.BooksTradeAnalysis?.dispose();stopLive();state.analyticsViews=state.analyticsViews.filter(v=>v.kind!=='detail');state.detail=null;});
+$('detail').addEventListener('close',()=>{globalThis.BooksFollowSettings?.dispose();globalThis.BooksPaperCopy?.dispose();globalThis.BooksTradeAnalysis?.dispose();stopLive();state.analyticsViews=state.analyticsViews.filter(v=>v.kind!=='detail');state.detail=null;});
 addEventListener('popstate',()=>{if($('detail').open)$('detail').close();readURL();choosePeriod();render();openLinkedAccount();});
 readURL();loadLocal();const hydrated=hydratePublicSnapshots();state.loading=!hydrated;choosePeriod();render();renderSource();state.loading=false;openLinkedAccount();refresh(hydrated);
 setInterval(()=>{reevaluatePositions();if(document.visibilityState==='visible')refresh(true);},60000);

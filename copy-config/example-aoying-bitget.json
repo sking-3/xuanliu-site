@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "mode": "dry_run",
+  "liveTradingEnabled": false,
+  "source": {
+    "exchange": "Binance",
+    "accountId": "5075281354358777856"
+  },
+  "target": {
+    "exchange": "Bitget",
+    "accountRef": "EXAMPLE_BITGET"
+  },
+  "copyRatio": 0.5,
+  "notionalPerIncrease": 100,
+  "maxOrderNotional": 100,
+  "maxTotalNotional": 300,
+  "leverage": 5,
+  "slippageBps": 10,
+  "direction": "both",
+  "symbols": [],
+  "signalMaxAgeSeconds": 60
+}

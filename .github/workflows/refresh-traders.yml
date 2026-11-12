@@ -3,6 +3,11 @@ name: Refresh trader data and deploy Pages
 on:
   push:
     branches: [main]
+    # Saving a non-secret copy draft must not start full-site source collection.
+    paths-ignore:
+      - 'copy-config/**'
+      - 'tools/copy_plan/**'
+      - '.github/workflows/copy-signal-dry-run.yml'
   workflow_dispatch:
     inputs:
       refresh_scope:

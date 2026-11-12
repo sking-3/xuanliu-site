@@ -601,7 +601,12 @@ await test('search keeps a missing-period identity visible without borrowing mon
  ids.period.value='90D';ids.search.value='熬鹰';a.render();assert.equal(ids.leaders.children.length,1);assert.doesNotMatch(content(ids.leaders),/95\.90|95\.9%/);assert.match(ids['sort-hint'].textContent,/不计入收益率排名/);ids.search.value='not-a-registered-account';const before=binanceFetches;a.render();assert.doesNotMatch(content(ids.leaders),/熬鹰资本/);assert.match(content(ids.leaders),/暂无可排名账户/);assert.equal(binanceFetches,before);
  delete context.BooksReferenceData;delete context.BooksAoyingHistory;
 });
+await test('card Follow opens its own setup immediately without rendering analysis or navigating to the source',()=>{
+ const calls=[];context.BooksTradeAnalysis={pause(){},dispose(){},render(){throw Error('Analysis must not load for Follow');}};context.BooksFollowSettings={dispose(){},render(host,r,options){calls.push({r,options});}};
+ const r={...row(1),accountId:'5075281354358777856',name:'熬鹰资本'};a.state.cardControls=[];a.card(r,'30D');const controls=a.state.cardControls.at(-1);assert.ok(controls.followButton);assert.equal(controls.sourceLink,undefined);assert.equal(controls.followButton.textContent,'跟单');controls.followButton.click();assert.equal(a.state.tab,'paper');assert.equal(calls.length,1);assert.equal(calls[0].r.accountId,r.accountId);assert.equal(calls[0].options.mode,'api');assert.equal(new URL(location.href).searchParams.get('view'),'follow');assert.equal(new URL(location.href).origin,'https://example.com');assert.equal(ids.detail.open,true);delete context.BooksTradeAnalysis;delete context.BooksFollowSettings;
+});
 console.log(`${passed} logic and DOM-model tests passed. Synthetic fixtures stay local; the published feed is checked separately.`);
 })().catch(e=>{console.error(e);process.exitCode=1;});
 
 require('./paper-ui-unit.cjs');
+require('./follow-settings-unit.cjs');
