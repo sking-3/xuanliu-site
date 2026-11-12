@@ -11,8 +11,8 @@ function normalize(events){const out=[];for(const e of events){
   out.push({...common,id:e.id+':open',identity:common.identity+':open',effect:'increase',positionSide:after>0?'long':'short',quantity:Math.abs(after),sourceBefore:0,sourceAfter:after});
  }else out.push(common);
  }return out;}
-function create(env){
- const M=env.BooksTradeReplayModel,D=env.BooksTradeReplayData.create(env),reader=env.BooksBinancePublicRecords.reader(env);let metadata=null,metadataAt=0;const books=new Map(),pending=new Map();
+function create(env,options={}){
+ const M=env.BooksTradeReplayModel,D=env.BooksTradeReplayData.create(env),reader=env.BooksBinancePublicRecords.reader(env);let metadata=null,metadataAt=0,marketStop=null;const books=new Map(),pending=new Map();
  async function request(body){
   let reason=env.BooksSourcePolicy?.reason()||(!env.BooksSourcePolicy?'snapshot_unverified':null),until=Date.now()+8000;
   while(reason==='snapshot_unverified'&&Date.now()<until){await new Promise(r=>setTimeout(r,100));reason=env.BooksSourcePolicy?.reason()||(!env.BooksSourcePolicy?'snapshot_unverified':null);}
@@ -30,11 +30,13 @@ function create(env){
   const task=(async()=>{const raw=await request({type:'meta'});if(!Array.isArray(raw?.universe)||raw.universe.length>2000)throw Error('market_meta_schema');const map=new Map();for(const a of raw.universe)if(typeof a.name==='string'&&/^[A-Za-z0-9_-]{1,40}$/.test(a.name)&&!a.isDelisted&&Number.isInteger(a.szDecimals)&&a.szDecimals>=0&&a.szDecimals<=8&&Number.isInteger(a.maxLeverage)&&a.maxLeverage>0)map.set(a.name,{coin:a.name,szDecimals:a.szDecimals,maxLeverage:a.maxLeverage,minNotional:10});metadata=map;metadataAt=Date.now();return map;})();pending.set('meta',task);try{return await task;}finally{pending.delete('meta');}
  }
  async function market(coin){
+  if(options.venue&&options.venue!=='Hyperliquid'){if(marketStop)throw Error(marketStop);if(!['Binance','Bitget'].includes(options.venue)||!/^\w{1,30}$/.test(coin))throw Error('unsupported_market');const reason=env.BooksSourcePolicy?.reason();if(reason)throw Error(reason);const r=await env.fetch('/api/paper-market?venue='+options.venue+'&coin='+encodeURIComponent(coin),{credentials:'same-origin',cache:'no-store',redirect:'error',signal:AbortSignal.timeout(10000)});const value=await r.json();if(!r.ok){if(value.error==='source_stopped'){marketStop='source_stopped';}throw Error(value.error||'market_unavailable');}return value;}
+
   if(!/^[A-Za-z0-9_-]{1,40}$/.test(coin))throw Error('unsupported_market');const map=await meta(),asset=map.get(coin);if(!asset)throw Error('unsupported_market');
   const old=books.get(coin);if(old&&Date.now()-old.receivedAt<1500)return old;if(pending.has(coin))return pending.get(coin);
   const task=(async()=>{const raw=await request({type:'l2Book',coin});if(raw?.coin!==coin||!Number.isSafeInteger(raw.time)||!Array.isArray(raw.levels)||raw.levels.length!==2)throw Error('book_schema');const parse=(xs,buy)=>{if(!Array.isArray(xs)||!xs.length||xs.length>100)throw Error('book_schema');let previous=buy?Infinity:0;return xs.map(x=>{const px=Number(x.px),sz=Number(x.sz);if(!(px>0&&sz>0&&Number.isFinite(px)&&Number.isFinite(sz))||(buy?px>previous:px<previous))throw Error('book_schema');previous=px;return [px,sz];});};const next={...asset,bids:parse(raw.levels[0],true),asks:parse(raw.levels[1],false),time:raw.time,receivedAt:Date.now(),source:'Hyperliquid l2Book · USDC'};books.set(coin,next);return next;})();pending.set(coin,task);try{return await task;}finally{pending.delete(coin);}
  }
- return {feed,market,blocker:()=>env.BooksSourcePolicy?.reason()||null};
+ return {feed,market,blocker:()=>marketStop||env.BooksSourcePolicy?.reason()||null};
 }
 return {ID,supported,normalize,create};
 });

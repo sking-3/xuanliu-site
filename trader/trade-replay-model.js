@@ -44,6 +44,14 @@ function hyperliquidEvents(rows){
  }
  return list.sort((a,b)=>a.time-b.time||a.id.localeCompare(b.id));
 }
+function realizedSummary(events,days,end=Date.now()){
+ const start=end-days*86400000,seen=new Set(),groups=new Map();
+ for(const e of events){if(e.time<start||e.time>end||seen.has(e.id))continue;seen.add(e.id);const quote=e.quote||'USDC';if(!groups.has(quote))groups.set(quote,{quote,count:0,closingCount:0,pnl:0,missingPnl:0,fees:0,missingFees:0,otherFees:Object.create(null),firstTime:e.time,lastTime:e.time});const g=groups.get(quote);g.count++;g.firstTime=Math.min(g.firstTime,e.time);g.lastTime=Math.max(g.lastTime,e.time);if(['decrease','close','reverse'].includes(e.effect))g.closingCount++;
+  if(e.pnl===null||e.pnl===undefined||!Number.isFinite(Number(e.pnl)))g.missingPnl++;else g.pnl+=Number(e.pnl);
+  if(e.fee===null||e.fee===undefined||!Number.isFinite(Number(e.fee))||!e.feeToken)g.missingFees++;else if(e.feeToken===quote)g.fees+=Number(e.fee);else{g.otherFees[e.feeToken]=(g.otherFees[e.feeToken]||0)+Number(e.fee);g.missingFees++;}
+ }
+ return {start,end,groups:[...groups.values()].map(g=>({...g,net:g.missingPnl||g.missingFees?null:g.pnl-g.fees}))};
+}
 function finish(c){
  const es=c.events;c.firstTime=c.opened??es[0]?.time??null;c.lastTime=c.closed??es.at(-1)?.time??null;
  c.quote=es[0]?.quote||c.quote||'USDT';c.ambiguous=es.some(e=>e.ambiguous);
@@ -104,5 +112,5 @@ function markerGroups(events,bars,seconds,maxStack=6){
  }
  return out;
 }
-return {add,neg,binanceEvents,hyperliquidEvents,cycles,candles,summary,markerLabel,markerGroups};
+return {add,neg,binanceEvents,hyperliquidEvents,cycles,candles,summary,realizedSummary,markerLabel,markerGroups};
 });

@@ -56,7 +56,8 @@ function draw(c){
 }
 function analysis(c){
  const live=isHL(c.context.r)&&env.BooksFloatingPnl;
- if(live){if(!c.floatingHost){c.floatingHost=el('section');c.floating=env.BooksFloatingPnl.mount(c.floatingHost,c.context.r,{onPositions:c.context.onPositions,data:D});}c.root.append(c.floatingHost);}
+ if(isHL(c.context.r))realized(c);
+ if(live){if(!c.floatingHost){c.floatingHost=el('section');c.floating=env.BooksFloatingPnl.mount(c.floatingHost,c.context.r,{onPositions:s=>{c.context.onPositions?.(s);const signature=JSON.stringify(s.rows.map(x=>[x.coin,x.signedSize]));if(signature!==c.positionSignature){const previous=c.positionSignature;c.positionSignature=signature;if((previous!==undefined||s.rows.length===0)&&Date.now()-(c.lastFillRefreshAt||0)>=30000){c.lastFillRefreshAt=Date.now();load(c,true);}}},data:D});}c.root.append(c.floatingHost);}
  const historical=el('details',undefined,'ta-historical'),summary=el('summary','历史周期统计与已平仓分析');historical.append(summary);c.root.append(historical);
  const statsRoot=live?historical:c.root;if(!live)historical.remove();
  const period=el('div',undefined,'ta-period-bar');period.append(el('strong','分析周期'));const switches=el('div',undefined,'ta-period-switch');
@@ -85,6 +86,12 @@ function analysis(c){
   for(const group of c.cycles.filter(x=>!x.official).slice(0,20)){const tr=el('tr');cell(tr,group.symbol+' · '+side(group.positionSide),'ta-contract');cell(tr,String(group.events.length));cell(tr,group.ambiguous?'记录版本待核':signed(group.observedChange,8));cell(tr,group.status);cell(tr).append(btn('查看点位',()=>jump(c,group),'ta-link'));t.body.append(tr);}if(t.body.children.length)c.root.append(t.wrap);else c.root.append(note('当前操作已关联到官方历史仓位；当前仓位未知。'));
  }
  const foot=el('div',undefined,'ta-summary-links');foot.append(btn(`历史仓位与片段 ${c.cycles.length}`,()=>c.context.activate('positions')),btn(`成交流水 ${c.events.length}`,()=>c.context.activate('orders')));c.root.append(foot);
+}
+function realized(c){
+ const box=el('section',undefined,'ta-realized'),end=c.history?.fetchedAt||Date.now(),days=Number.parseInt(c.context.period,10)||30,report=M.realizedSummary(c.events,days,end),heading=el('div',undefined,'ta-section-head');heading.append(el('h3','已实现收益'),el('span',days+'D · 已返回的公开成交'));box.append(heading);c.root.append(box);
+ if(!c.history){box.append(note(c.error?'成交读取未成功，收益未知。':'正在读取官方成交收益…'));return;}
+ if(!report.groups.length){box.append(note('所选区间未返回可统计成交，收益未知；当前空仓不代表历史收益为零。'));return;}
+ for(const g of report.groups){const grid=el('div',undefined,'ta-sample-metrics');for(const [label,value,n]of [['已实现盈亏 · '+g.quote,g.missingPnl?'—':signed(g.pnl,6),g.missingPnl?null:g.pnl],['手续费 · '+g.quote,fmt(g.fees,6),null],['扣手续费后 · '+g.quote,signed(g.net,6),g.net],['已返回 / 平仓成交',g.count+' / '+g.closingCount,null]]){const item=el('div',undefined,'ta-sample-metric');item.append(el('span',label),tone(el('strong',value),n));grid.append(item);}box.append(grid,note('成交 '+date(g.firstTime)+' — '+date(g.lastTime)+' · 读取 '+date(end)+' · 未含资金费；最近最多 2000 笔，不代表完整账户周期收益。'+(g.missingFees?'费用缺失或费用币不同，净额待核。':'')+(g.missingPnl?'存在缺失盈亏，合计待核。':'')));for(const [token,fee]of Object.entries(g.otherFees))box.append(note('其他费用币：'+fmt(fee,6)+' '+token+'，未换算合并。'));}
 }
 function distribution(target,title,rows,total){
  const group=el('div',undefined,'ta-distribution');group.append(el('h4',title));const bar=el('div',undefined,'ta-distribution-bar');bar.setAttribute('aria-label',rows.map(([name,count])=>name+' '+count+' 个').join('，'));

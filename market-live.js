@@ -24,19 +24,23 @@
     const marketName=card.querySelector('.pulse-market-name'),pause=card.querySelector('.pulse-pause');
     const host=card.querySelector('.pulse-host'),state=card.querySelector('.pulse-state'),buttons=card.querySelectorAll('[data-view]');
     const markets=Object.keys(spec.symbols||{});
-    let marketIndex=1,paused=false,rotationTimer=null;
+    let marketIndex=1,paused=false,rotationTimer=null,nextRotationAt=null,remaining=rotationMs;
     let selected=card.dataset.defaultView||'live',observer=null,timer=null,generation=0,failed=false;
     const currentMarket=()=>markets[marketIndex];
+    const rotationNote=card.querySelector('.pulse-rotation-note');
+    function progress(){if(!rotationNote)return;const seconds=Math.max(0,Math.ceil(((nextRotationAt||Date.now()+remaining)-Date.now())/1000));rotationNote.textContent=paused?'轮播已暂停':`自动轮播 · ${Math.floor(seconds/60)}:${String(seconds%60).padStart(2,'0')} 后切换 · A股 / 美股 / 加密`;}
     function stopRotation(){clearTimeout(rotationTimer);rotationTimer=null;}
     function rotateLater(){
       stopRotation();
       if(markets.length<2||paused||failed||selected!=='live'||document.hidden)return;
-      rotationTimer=setTimeout(()=>{marketIndex=(marketIndex+1)%markets.length;clear();show();},rotationMs);
+      if(nextRotationAt===null)nextRotationAt=Date.now()+remaining;
+      progress();rotationTimer=setTimeout(()=>{marketIndex=(marketIndex+1)%markets.length;nextRotationAt=Date.now()+rotationMs;remaining=rotationMs;clear();show();},Math.max(0,nextRotationAt-Date.now()));
     }
     function clear() {
       generation++;clearTimeout(timer);stopRotation();observer?.disconnect();host.replaceChildren();
     }
     function show() {
+      if(markets.length>1&&!paused&&nextRotationAt!==null&&Date.now()>=nextRotationAt){const steps=1+Math.floor((Date.now()-nextRotationAt)/rotationMs);marketIndex=(marketIndex+steps)%markets.length;nextRotationAt+=steps*rotationMs;clear();}
       live.hidden=selected!=='live';saved.hidden=selected==='live';
       for(const b of buttons)b.setAttribute('aria-pressed',String(b.dataset.view===selected));
       if(marketName)marketName.textContent=spec.names[currentMarket()];
@@ -68,10 +72,12 @@
     notice.hidden=true;notice.textContent='动态来源未加载，显示保存的快照。';card.append(notice);
     for(const b of buttons)b.addEventListener('click',()=>{selected=b.dataset.view;show();});
     pause?.addEventListener('click',()=>{
-      paused=!paused;pause.setAttribute('aria-pressed',String(paused));pause.textContent=paused?'继续轮播':'暂停轮播';
+      if(!paused)remaining=nextRotationAt===null?rotationMs:Math.max(0,nextRotationAt-Date.now());else nextRotationAt=Date.now()+remaining;
+      paused=!paused;pause.setAttribute('aria-pressed',String(paused));pause.textContent=paused?'继续轮播':'暂停轮播';progress();
       if(paused)stopRotation();else rotateLater();
     });
     document.addEventListener('visibilitychange',show);
+    if(markets.length>1)setInterval(()=>{if(!document.hidden&&selected==='live')progress();},1000);
     show();
   }
 })();
