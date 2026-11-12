@@ -83,7 +83,7 @@ def validate_state(state):
                      'orderUpdateTime', 'executedQty', 'avgPrice', 'totalPnl', 'sourceOrderId', 'identity')
         require(all(k in row for k in core_keys) and digest({k: row[k] for k in core_keys}) == row['fingerprint'], 'checkpoint_fingerprint_mismatch')
         stamp(row.get('firstSeenAt'))
-    for field in ('lastSuccessAt', 'lastAttemptAt', 'lastFullScanAt'):
+    for field in ('lastSuccessAt', 'lastAttemptAt', 'lastFullScanAt', 'lastWindowScanAt'):
         if state.get(field) is not None:
             stamp(state[field])
     require(state.get('errorCode') is None or isinstance(state['errorCode'], str) and
@@ -195,7 +195,8 @@ def collect(source, state, observed_at):
     end = round(stamp(observed_at) * 1000)
     start = end - 7 * 86400000
     gap = state['lastSuccessAt'] is None or stamp(observed_at) - stamp(state['lastSuccessAt']) > 2 * INTERVAL + 8
-    due = state.get('lastFullScanAt') is None or stamp(observed_at) - stamp(state['lastFullScanAt']) >= BACKFILL_SECONDS
+    last_scan = state.get('lastWindowScanAt') or state.get('lastFullScanAt')
+    due = last_scan is None or stamp(observed_at) - stamp(last_scan) >= BACKFILL_SECONDS
     backfill = not state['initialized'] or gap or due
     rows, cursors, cursor, complete, total = {}, set(), None, False, None
     terminal_boundary = False
@@ -277,6 +278,9 @@ def apply(state, rows, observed_at, coverage):
                  lastCoverage=coverage, events=(state['events'] + events)[-MAX_EVENTS:])
     if coverage.get('fullWindowRead') is True:
         state['lastFullScanAt'] = observed_at
+    if coverage.get('scanMode') == 'bounded_window_backfill':
+        # Attempt time controls the scan budget; it never asserts full coverage.
+        state['lastWindowScanAt'] = observed_at
     return events
 
 

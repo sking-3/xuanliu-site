@@ -62,6 +62,17 @@ class PublicOrderTests(unittest.TestCase):
         self.assertEqual(len(rows),1);self.assertEqual(len(source.calls),2)
         self.assertFalse(coverage['fullWindowRead']);self.assertTrue(coverage['terminalBoundaryObserved'])
         self.assertEqual(coverage['coverageWarning'],'source_total_mismatch_at_terminal_cursor')
+    def test_incomplete_boundary_scan_does_not_repeat_all_pages_on_every_tick(self):
+        c=Clock();r=raw();cursor=str(r['orderUpdateTime']);s=p.initial_state()
+        source=Source(c,[{'list':[r],'total':2,'indexValue':cursor},{'list':[r],'total':2,'indexValue':cursor}])
+        rows,coverage=p.collect(source,s,p.monitor.iso(c.wall()))
+        p.apply(s,rows,p.monitor.iso(c.wall()),coverage)
+        self.assertIsNone(s['lastFullScanAt']);self.assertEqual(s['lastWindowScanAt'],s['lastSuccessAt'])
+        c.t+=5;prefix=Source(c,[{'list':[r],'total':2,'indexValue':cursor}])
+        _,next_coverage=p.collect(prefix,s,p.monitor.iso(c.wall()))
+        self.assertEqual(len(prefix.calls),1);self.assertEqual(next_coverage['scanMode'],'recent_prefix')
+        self.assertFalse(next_coverage['fullWindowRead'])
+
     def test_repeated_nonterminal_or_multirow_page_still_stops(self):
         for rows in ([raw(),raw(1)], [raw()]):
             c=Clock();source=Source(c,[{'list':rows,'total':9,'indexValue':'123'}])

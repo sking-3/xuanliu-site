@@ -27,6 +27,31 @@ def admit(state, event, run_id, ticket, commit_sha=None):
         return
     require(isinstance(chain, dict) and chain.get('stopped') is False, 'continuation_requires_review')
     if event == 'push':
+        resume = state.get('reviewedPublicResume')
+        if isinstance(resume, dict) and resume.get('consumedBy') is None:
+            previous = state.get('lastRun') or {}
+            calls = previous.get('sourceCalls')
+            require(state.get('stopped') is False and state.get('activeRun') is None and
+                    state.get('scope') == 'public_execution_records_only' and
+                    state.get('hiddenPositionsRequested') is False and
+                    re.fullmatch('[a-f0-9]{40}', resume.get('authorizedCommit', '')) and
+                    commit_sha == resume['authorizedCommit'] and not ticket and
+                    chain.get('ticket') is None and chain.get('phase') is None and
+                    resume.get('authorization') == 'resume_public_execution_records_every_5_seconds' and
+                    resume.get('originalError') == 'pagination_not_advancing' and
+                    re.fullmatch('[a-f0-9]{40}', resume.get('originalBlob', '')) and
+                    resume.get('failedRunId') == previous.get('runId') == chain.get('ownerRunId') and
+                    previous.get('errorCode') == 'pagination_not_advancing' and
+                    previous.get('checkpointSealed') is True and previous.get('positionsRequested') is False and
+                    isinstance(calls, list) and len(calls) > 0 and
+                    previous.get('sourceRequests') == len(calls) and
+                    all(isinstance(call, dict) and call.get('httpStatus') == 200 for call in calls),
+                    'invalid_reviewed_public_resume')
+            parent = chain['ownerRunId']
+            chain.update(ownerRunId=run_id, parentRunId=parent, ticket=None, phase=None,
+                         consumedAt=monitor.iso(time.time()))
+            resume.update(consumedBy=run_id, consumedAt=monitor.iso(time.time()))
+            return
         recovery = state.get('reviewedRecovery')
         if isinstance(recovery, dict) and recovery.get('consumedBy') is None:
             require(state.get('stopped') is False and state.get('activeRun') is None and

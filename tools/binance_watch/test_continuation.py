@@ -39,6 +39,33 @@ class ContinuationTests(unittest.TestCase):
             s=Store().state;s['reviewedRecovery']={'authorizedCommit':'a'*40,'failedRunId':'100','confirmedSourceRequests':0,'confirmedError':'checkpoint_changed','confirmedJobConclusion':'failure'};mutation(s)
             with self.assertRaises(c.monitor.Stop):c.admit(s,'push','101','','a'*40)
 
+    def reviewed_public_resume(self):
+        s=Store().state
+        s.update(scope='public_execution_records_only',hiddenPositionsRequested=False,records={'history':'retained'})
+        s['lastRun']={'runId':'100','errorCode':'pagination_not_advancing','checkpointSealed':True,'positionsRequested':False,'sourceRequests':3,'sourceCalls':[{'httpStatus':200} for _ in range(3)]}
+        s['reviewedPublicResume']={'authorizedCommit':'a'*40,'originalBlob':'b'*40,'failedRunId':'100','originalError':'pagination_not_advancing','authorization':'resume_public_execution_records_every_5_seconds'}
+        return s
+
+    def test_reviewed_public_pagination_resume_is_exact_commit_single_use_and_preserves_history(self):
+        s=self.reviewed_public_resume();before=copy.deepcopy(s)
+        for event,ticket,sha in [('push','','c'*40),('push','x','a'*40),('workflow_dispatch','','a'*40)]:
+            with self.assertRaises(c.monitor.Stop):c.admit(s,event,'101',ticket,sha)
+            self.assertEqual(s,before)
+        c.admit(s,'push','101','','a'*40)
+        self.assertEqual(s['records'],{'history':'retained'})
+        self.assertEqual(s['continuation']['parentRunId'],'100')
+        self.assertEqual(s['reviewedPublicResume']['consumedBy'],'101')
+        self.assertEqual(s['lastRun'],before['lastRun'])
+        with self.assertRaises(c.monitor.Stop):c.admit(s,'push','102','','a'*40)
+
+    def test_reviewed_public_resume_refuses_denial_active_claim_pending_ticket_and_missing_evidence(self):
+        mutations=[lambda s:s.update(stopped=True),lambda s:s.update(activeRun={'id':'100'}),lambda s:s['continuation'].update(stopped=True),lambda s:s['continuation'].update(ticket='c'*32,phase='attempt_reserved'),lambda s:s['lastRun'].update(checkpointSealed=False),lambda s:s['lastRun'].update(errorCode='http_403'),lambda s:s['lastRun']['sourceCalls'][0].update(httpStatus=429),lambda s:s['lastRun'].update(sourceCalls=[]),lambda s:s['lastRun'].update(sourceRequests=4),lambda s:s['reviewedPublicResume'].update(authorization='not_approved'),lambda s:s['reviewedPublicResume'].update(failedRunId='other'),lambda s:s.update(hiddenPositionsRequested=True),lambda s:s['reviewedPublicResume'].update(originalBlob='invalid')]
+        for mutation in mutations:
+            with self.subTest(mutation=mutation):
+                s=self.reviewed_public_resume();mutation(s);before=copy.deepcopy(s)
+                with self.assertRaises(c.monitor.Stop):c.admit(s,'push','101','','a'*40)
+                self.assertEqual(s,before)
+
     def test_bootstrap_does_not_overwrite_history_or_create_a_second_chain(self):
         s={'records':{'history':'retained'}};c.admit(s,'push','100','')
         self.assertEqual(s['records'],{'history':'retained'})
