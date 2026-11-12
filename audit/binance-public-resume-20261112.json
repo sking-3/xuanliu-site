@@ -1,0 +1,175 @@
+{
+  "schemaVersion": 1,
+  "checkedAt": "2026-11-12T10:39:58Z",
+  "scope": "public_execution_records_only",
+  "portfolioId": "5075281354358777856",
+  "authorization": "explicit_user_approval_to_resume_original_5_second_public_monitor",
+  "codeCommit": "d6be9ab8f192efe04b6bde49c68637a42d3ae003",
+  "recoveryAudit": "https://github.com/sking-3/xuanliu-site/blob/binance-public-orders-state/monitor-audit/resume-pagination-20261112.json",
+  "testsPassed": 152,
+  "firstRun": {
+    "checkpointSealed": true,
+    "cycles": 12,
+    "durationSeconds": 61.613,
+    "endedAt": "2026-11-12T10:36:18.985Z",
+    "errorCode": null,
+    "observations": 0,
+    "positionsRequested": false,
+    "runId": "43201639572",
+    "sourceCalls": [
+      {
+        "cursor": null,
+        "httpStatus": 200,
+        "receivedAt": "2026-11-12T10:35:17.888Z",
+        "requestStartedAt": "2026-11-12T10:35:17.668Z",
+        "responseSha256": "ff883cd4a5bb32af271ce152285fb7b50a820b2ad0e74d10672b29219179f40d",
+        "sourceDateHeader": "Thu, 12 Nov 2026 10:35:17 GMT"
+      },
+      {
+        "cursor": "1794234147511",
+        "httpStatus": 200,
+        "receivedAt": "2026-11-12T10:35:22.819Z",
+        "requestStartedAt": "2026-11-12T10:35:22.669Z",
+        "responseSha256": "fe87ecd1682322ec5db726957fbb0b02bd1237c330a481d8343d6048b287490d",
+        "sourceDateHeader": "Thu, 12 Nov 2026 10:35:22 GMT"
+      },
+      {
+        "cursor": null,
+        "httpStatus": 200,
+        "receivedAt": "2026-11-12T10:35:27.822Z",
+        "requestStartedAt": "2026-11-12T10:35:27.672Z",
+        "responseSha256": "ff883cd4a5bb32af271ce152285fb7b50a820b2ad0e74d10672b29219179f40d",
+        "sourceDateHeader": "Thu, 12 Nov 2026 10:35:27 GMT"
+      },
+      {
+        "cursor": null,
+        "httpStatus": 200,
+        "receivedAt": "2026-11-12T10:35:32.841Z",
+        "requestStartedAt": "2026-11-12T10:35:32.674Z",
+        "responseSha256": "ff883cd4a5bb32af271ce152285fb7b50a820b2ad0e74d10672b29219179f40d",
+        "sourceDateHeader": "Thu, 12 Nov 2026 10:35:32 GMT"
+      },
+      {
+        "cursor": null,
+        "httpStatus": 200,
+        "receivedAt": "2026-11-12T10:35:37.827Z",
+        "requestStartedAt": "2026-11-12T10:35:37.676Z",
+        "responseSha256": "ff883cd4a5bb32af271ce152285fb7b50a820b2ad0e74d10672b29219179f40d",
+        "sourceDateHeader": "Thu, 12 Nov 2026 10:35:37 GMT"
+      },
+      {
+        "cursor": null,
+        "httpStatus": 200,
+        "receivedAt": "2026-11-12T10:35:42.834Z",
+        "requestStartedAt": "2026-11-12T10:35:42.677Z",
+        "responseSha256": "ff883cd4a5bb32af271ce152285fb7b50a820b2ad0e74d10672b29219179f40d",
+        "sourceDateHeader": "Thu, 12 Nov 2026 10:35:42 GMT"
+      },
+      {
+        "cursor": null,
+        "httpStatus": 200,
+        "receivedAt": "2026-11-12T10:35:47.856Z",
+        "requestStartedAt": "2026-11-12T10:35:47.679Z",
+        "responseSha256": "ff883cd4a5bb32af271ce152285fb7b50a820b2ad0e74d10672b29219179f40d",
+        "sourceDateHeader": "Thu, 12 Nov 2026 10:35:47 GMT"
+      },
+      {
+        "cursor": null,
+        "httpStatus": 200,
+        "receivedAt": "2026-11-12T10:35:52.836Z",
+        "requestStartedAt": "2026-11-12T10:35:52.680Z",
+        "responseSha256": "ff883cd4a5bb32af271ce152285fb7b50a820b2ad0e74d10672b29219179f40d",
+        "sourceDateHeader": "Thu, 12 Nov 2026 10:35:52 GMT"
+      },
+      {
+        "cursor": null,
+        "httpStatus": 200,
+        "receivedAt": "2026-11-12T10:35:57.842Z",
+        "requestStartedAt": "2026-11-12T10:35:57.682Z",
+        "responseSha256": "ff883cd4a5bb32af271ce152285fb7b50a820b2ad0e74d10672b29219179f40d",
+        "sourceDateHeader": "Thu, 12 Nov 2026 10:35:57 GMT"
+      },
+      {
+        "cursor": null,
+        "httpStatus": 200,
+        "receivedAt": "2026-11-12T10:36:02.833Z",
+        "requestStartedAt": "2026-11-12T10:36:02.684Z",
+        "responseSha256": "ff883cd4a5bb32af271ce152285fb7b50a820b2ad0e74d10672b29219179f40d",
+        "sourceDateHeader": "Thu, 12 Nov 2026 10:36:02 GMT"
+      },
+      {
+        "cursor": null,
+        "httpStatus": 200,
+        "receivedAt": "2026-11-12T10:36:07.840Z",
+        "requestStartedAt": "2026-11-12T10:36:07.685Z",
+        "responseSha256": "ff883cd4a5bb32af271ce152285fb7b50a820b2ad0e74d10672b29219179f40d",
+        "sourceDateHeader": "Thu, 12 Nov 2026 10:36:07 GMT"
+      },
+      {
+        "cursor": null,
+        "httpStatus": 200,
+        "receivedAt": "2026-11-12T10:36:12.834Z",
+        "requestStartedAt": "2026-11-12T10:36:12.687Z",
+        "responseSha256": "ff883cd4a5bb32af271ce152285fb7b50a820b2ad0e74d10672b29219179f40d",
+        "sourceDateHeader": "Thu, 12 Nov 2026 10:36:12 GMT"
+      },
+      {
+        "cursor": null,
+        "httpStatus": 200,
+        "receivedAt": "2026-11-12T10:36:17.840Z",
+        "requestStartedAt": "2026-11-12T10:36:17.688Z",
+        "responseSha256": "ff883cd4a5bb32af271ce152285fb7b50a820b2ad0e74d10672b29219179f40d",
+        "sourceDateHeader": "Thu, 12 Nov 2026 10:36:17 GMT"
+      }
+    ],
+    "sourceRequests": 13,
+    "startedAt": "2026-11-12T10:35:16.244Z",
+    "trigger": "push"
+  },
+  "measuredIntervalSeconds": {
+    "min": 5.001,
+    "max": 5.003,
+    "sampleCount": 12
+  },
+  "successor": {
+    "checkedCycles": 36,
+    "id": "43201848162",
+    "lastCheckAt": "2026-11-12T10:39:39.640Z",
+    "lastSourceResponse": {
+      "cursor": null,
+      "httpStatus": 200,
+      "receivedAt": "2026-11-12T10:39:39.640Z",
+      "requestStartedAt": "2026-11-12T10:39:39.368Z",
+      "responseSha256": "ff883cd4a5bb32af271ce152285fb7b50a820b2ad0e74d10672b29219179f40d",
+      "sourceDateHeader": "Thu, 12 Nov 2026 10:39:39 GMT"
+    },
+    "parentRunId": "43201639572",
+    "rootRunId": "43029237582",
+    "sourceRequests": 37,
+    "startedAt": "2026-11-12T10:36:37.693Z",
+    "trigger": "workflow_dispatch",
+    "verifiedSourceSuccess": "2026-11-12T10:39:39.640Z"
+  },
+  "checkpointBlob": "7c1d87314bb3aecb62952b4e9dc4e90b1a8b90ae",
+  "stopped": false,
+  "errorCode": null,
+  "sourceStopRecordsPreserved": true,
+  "hiddenPositionsRequested": false,
+  "pendingOrdersRequested": false,
+  "tradingRequested": false,
+  "currentRecordCount": 36,
+  "observationsInCheckpoint": 4,
+  "priorCheckpointArchivedRecords": 37,
+  "browserAcceptance": {
+    "sourceHealthyStartEnabled": true,
+    "baselineStartedAndPaused": true,
+    "initialHistoricalPaperOrders": 0,
+    "paperLedgerLeftPaused": true,
+    "upstreamMonitorLeftRunning": true
+  },
+  "limits": [
+    "5 seconds is an in-process target; GitHub handoff and public checkpoint CDN can introduce gaps and delays",
+    "No new public operation record was observed in this sample; a downstream paper fill on a new real operation remains unverified",
+    "No hidden positions, pending orders or complete execution statement is available from this source"
+  ]
+}
