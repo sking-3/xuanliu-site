@@ -474,6 +474,14 @@ function retainedStatus(r) {
   if(!at)return '持仓尚未核验 · 当前仓位未知';
   return `上次持仓核验 ${timeLabel(at)} · ${state.lastReadFailed?'快照读取失败，当前仓位未知':state.source?.status!=='ok'?'采集更新失败，当前仓位未知':qualifiedPosition(r)?'核验仍在有效期内':'核验已过期，当前仓位未知'}`;
 }
+function retainedCardState(r) {
+  const check=r.positionCheck,excluded=state.positionExclusions[r.accountId]??-Infinity;
+  const lastEmpty=excluded>=Date.parse(check?.checkedAt||''),recentEmpty=lastEmpty&&Date.now()-excluded<=3600000;
+  const at=lastEmpty?excluded:check?.checkedAt;
+  const stamp=at?new Date(at).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}):null;
+  const reason=state.lastReadFailed?'快照读取失败':state.source?.status!=='ok'?'采集更新失败':check&&Date.now()-Date.parse(check.checkedAt)>3600000?'快照过期':'持仓待核验';
+  return {label:recentEmpty?'最近核验空仓':check?reason+' · 当前仓位未知':'持仓尚未核验',stamp,count:recentEmpty?null:lastEmpty?0:check?.count};
+}
 function selectPlatform(exchange) {
   if(!['all','Hyperliquid','Binance'].includes(exchange))return;
   $('exchange').value=exchange;$('source').value='all';$('currency').value='all';$('search').value='';state.page=1;render();saveURL();
@@ -862,8 +870,9 @@ function card(r,period) {
   else context.append(node('span',r.currency));
   context.setAttribute('title',timing);c.append(context);
   if(isPublicAccount(r)&&!currentHolding(r)){
-    const badge=node('span',retainedStatus(r).startsWith('最近读取确认空仓')?'最近核验空仓':'当前仓位未知','position-state');
+    const saved=retainedCardState(r),badge=node('span',saved.label,'position-state');
     badge.setAttribute('title',retainedStatus(r));context.append(badge);
+    if(saved.stamp)context.append(node('span',(saved.count===null?'核验 ':'上次持仓 '+saved.count+' · 核验 ')+saved.stamp+' 北京时间','position-asof'));
   }
   const footer=node('div',undefined,'card-footer');
   if(hasMetrics(w)||isPublicAccount(r)) {

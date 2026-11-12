@@ -605,6 +605,9 @@ await test('public cards expose research and source only, including legacy Follo
  const r={...row(1),accountId:'5075281354358777856',name:'熬鹰资本'};a.state.cardControls=[];a.card(r,'30D');const controls=a.state.cardControls.at(-1);assert.equal(controls.followButton,undefined);assert.ok(controls.sourceLink);assert.equal(controls.sourceLink.href,r.sourceUrl);assert.equal(controls.sourceLink.textContent,'来源 ↗');
  a.openDetail(r,'30D');for(const tab of ['paper','follow','api']){a.activateDetailTab(tab);assert.equal(a.state.tab,'analysis');}
 });
+await test('expired card positions show the original count and Beijing check time instead of an unexplained unknown badge',()=>{
+ const before={source:a.state.source,lastReadFailed:a.state.lastReadFailed,positionExclusions:a.state.positionExclusions};try{const f=qualify(published,Date.now()-3700000),rows=a.validate(f);a.state.source=a.validateSource(f,rows);a.state.lastReadFailed=false;a.state.positionExclusions={};const r=rows[0],view=a.card(r,'7D');assert.match(content(view),/快照过期.*上次持仓 3/);assert.match(content(view),/核验.*北京时间/);assert.equal(a.currentHolding(r),false);a.state.lastReadFailed=true;assert.match(content(a.card(r,'7D')),/快照读取失败.*上次持仓 3/);a.state.lastReadFailed=false;a.state.positionExclusions[r.accountId]=Date.now();const empty=a.card(r,'7D');assert.match(content(empty),/最近核验空仓/);assert.doesNotMatch(content(empty),/上次持仓 3/);}finally{Object.assign(a.state,before);}
+});
 console.log(`${passed} logic and DOM-model tests passed. Synthetic fixtures stay local; the published feed is checked separately.`);
 })().catch(e=>{console.error(e);process.exitCode=1;});
 
