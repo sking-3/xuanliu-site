@@ -474,14 +474,6 @@ function retainedStatus(r) {
   if(!at)return '持仓尚未核验 · 当前仓位未知';
   return `上次持仓核验 ${timeLabel(at)} · ${state.lastReadFailed?'快照读取失败，当前仓位未知':state.source?.status!=='ok'?'采集更新失败，当前仓位未知':qualifiedPosition(r)?'核验仍在有效期内':'核验已过期，当前仓位未知'}`;
 }
-function retainedCardState(r) {
-  const check=r.positionCheck,excluded=state.positionExclusions[r.accountId]??-Infinity;
-  const lastEmpty=excluded>=Date.parse(check?.checkedAt||''),recentEmpty=lastEmpty&&Date.now()-excluded<=3600000;
-  const at=lastEmpty?excluded:check?.checkedAt;
-  const stamp=at?new Date(at).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}):null;
-  const reason=state.lastReadFailed?'快照读取失败':state.source?.status!=='ok'?'采集更新失败':check&&Date.now()-Date.parse(check.checkedAt)>3600000?'快照过期':'持仓待核验';
-  return {label:recentEmpty?'最近核验空仓':check?reason+' · 当前仓位未知':'持仓尚未核验',stamp,count:recentEmpty?null:lastEmpty?0:check?.count};
-}
 function selectPlatform(exchange) {
   if(!['all','Hyperliquid','Binance'].includes(exchange))return;
   $('exchange').value=exchange;$('source').value='all';$('currency').value='all';$('search').value='';state.page=1;render();saveURL();
@@ -606,7 +598,7 @@ function renderBinanceCard(r,c,period=$('period').value,compact=false) {
   const view=binanceView(r),status=node('p',binanceStatus(view,r)+' · '+binanceTiming(view,r),'card-data-status');status.setAttribute('data-state',view.status);
   if(compact){
     const context=node('div',undefined,'card-context');
-    context.append(node('span',periodLabel(period)),node('span',r.referenceOnly&&!hasBinancePerformance(r)?'身份关注':view.currentPositionCount===null?'当前仓位未知':view.currentPositionCount===0?'最近核验空仓':'核验时持仓 '+view.currentPositionCount));
+    context.append(node('span',periodLabel(period)),node('span',r.referenceOnly&&!hasBinancePerformance(r)?'身份关注':r.currency));
     context.setAttribute('title',status.textContent);c.append(context);
     const performance=binancePerformance(r,period);
     if(['roi','pnl','mdd','winRate'].some(key=>Number.isFinite(performance[key])) || binanceChart(r,period).pointCount>1){
@@ -716,6 +708,7 @@ function renderSource() {
     $('source-cadence').textContent='持仓核验有效期 60 分钟';
   }
   $('source-state').textContent=statusText(summary);
+  const notice=$('position-notice');notice.hidden=!s&&!state.lastReadFailed;notice.textContent=statusText(summary)+(s?.positionVerification?' 上次批次完成 '+timeLabel(s.positionVerification.completedAt)+'；历史收益资料继续保留，逐账户核验在详情查看。':'');
   if(!s&&state.lastReadFailed)$('source-name').textContent='Hyperliquid 公开账户';
   $('status').textContent=statusText(summary);$('status').setAttribute('data-state',positionStatus(summary));
   $('source-universe').textContent=s?.positionVerification?s.positionVerification.candidateAccounts.toLocaleString('zh-CN'):'—';
@@ -866,14 +859,9 @@ function card(r,period) {
   if(isBinanceTrader(r)){renderBinanceCard(r,c,period,true);return c;}
   const context=node('div',undefined,'card-context');context.append(node('span',periodName(period,w)));
   let timing=w?.derived?performanceRange(r,period):stampLabel(w);
-  if(isPublicAccount(r)&&r.positionCheck){const check=node('span',`${currentHolding(r)?'核验时持仓':'上次持仓'} ${r.positionCheck.count}`,'position-check');if(currentHolding(r))context.append(check);timing+=` · 永续主市场持仓核验 ${timeLabel(r.positionCheck.checkedAt)} · 持仓来源时间 ${timeLabel(r.positionCheck.sourceTime)}`;}
+  if(isPublicAccount(r)&&r.positionCheck){timing+=` · 永续主市场持仓核验 ${timeLabel(r.positionCheck.checkedAt)} · 持仓来源时间 ${timeLabel(r.positionCheck.sourceTime)}`;}
   else context.append(node('span',r.currency));
   context.setAttribute('title',timing);c.append(context);
-  if(isPublicAccount(r)&&!currentHolding(r)){
-    const saved=retainedCardState(r),badge=node('span',saved.label,'position-state');
-    badge.setAttribute('title',retainedStatus(r));context.append(badge);
-    if(saved.stamp)context.append(node('span',(saved.count===null?'核验 ':'上次持仓 '+saved.count+' · 核验 ')+saved.stamp+' 北京时间','position-asof'));
-  }
   const footer=node('div',undefined,'card-footer');
   if(hasMetrics(w)||isPublicAccount(r)) {
     const performance=node('div',undefined,'performance-body'),stats=node('div',undefined,'performance-stats'),graph=node('div',undefined,'performance-chart'),roiText=signedValue(w?.roi,pct(w?.roi));

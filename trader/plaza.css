@@ -301,9 +301,10 @@ th{color:#728098;font-weight:500;background:#fbfcfe}
 .books-shell.trader-page .card[data-layout=aligned]{display:flex;flex-direction:column;grid-row:auto;min-height:0}
 .books-shell.trader-page .card[data-layout=aligned]>.card-context{flex-wrap:wrap;align-items:baseline}
 .books-shell.trader-page .card[data-layout=aligned] .position-state{color:#6b5941}
-.books-shell.trader-page .card-context .position-asof{flex-basis:100%;color:#6b7989}
 .books-shell.trader-page .card[data-layout=aligned]>.card-footer:empty{display:none}
 .books-shell.trader-page .card .platform-id{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .books-shell.trader-page #leaders{scroll-margin-top:calc(var(--books-ticker-height,45px) + 10px)}
 
 .snapshot-update-note{margin:5px 0 10px;color:#6b7787;font-size:11px;line-height:1.5}
+
+.books-shell.trader-page .position-notice{margin:12px 0 16px;padding:10px 14px;border:1px solid #e1e6ec;border-radius:8px;background:#f8fafb;color:#536779;font-size:12px;line-height:1.7}
