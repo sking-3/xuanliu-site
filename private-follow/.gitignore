@@ -1,0 +1,5 @@
+dist/
+.openai/hosting.json
+.sites-runtime/
+.env*
+!/.env.example
