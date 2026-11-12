@@ -893,7 +893,7 @@ function openLinkedAccount(finalRead=false) {
   if(!row){if(finalRead)linkedAccount=null;return false;}
   linkedAccount=null;
   openDetail(row,$('period').value);
-  const view=new URL(location.href).searchParams.get('view');if(['positions','points','orders'].includes(view))activateDetailTab(view);
+  const view=new URL(location.href).searchParams.get('view');if(['positions','points','orders','paper'].includes(view))activateDetailTab(view);
   return true;
 }
 function saveURL(replace=false) {
@@ -1044,13 +1044,14 @@ function renderLiveData() {
   }
 }
 function activateDetailTab(tab) {
-  if(!state.detail||!['analysis','live','positions','points','orders'].includes(tab)||tab===state.tab)return;
+  if(!state.detail||!['analysis','live','positions','points','orders','paper'].includes(tab)||tab===state.tab)return;
   if(tab==='live'&&!canReadLive(state.detail))return;
+  if(tab==='paper'&&!globalThis.BooksPaperCopy?.supported(state.detail))return;
   if(typeof BooksTradeAnalysis==='undefined'&&canReadLive(state.detail)&&!['analysis','live'].includes(tab))return;
   if(state.tab==='live')stopLive();state.tab=tab;renderDetail();
 }
 function openDetail(r,p) {
-  globalThis.BooksTradeAnalysis?.dispose();
+  globalThis.BooksPaperCopy?.dispose();globalThis.BooksTradeAnalysis?.dispose();
   stopLive();state.detail=r;state.window=p;state.tab='analysis';renderDetailIdentity(r);
   renderDetail();$('detail').showModal();$('close').focus();
 }
@@ -1059,7 +1060,9 @@ function renderDetail() {
   renderDetailIdentity(r);
   renderDetailStatus();
   if(typeof BooksTradeAnalysis!=='undefined'){
-    document.querySelectorAll('[data-tab]').forEach(x=>{x.hidden=x.dataset.tab==='live'&&!canReadLive(r);x.textContent=({analysis:'交易分析',positions:'历史仓位',points:'交易点位',orders:'成交流水',live:'实时交易'})[x.dataset.tab];x.setAttribute('aria-pressed',String(x.dataset.tab===state.tab));});
+    document.querySelectorAll('[data-tab]').forEach(x=>{x.hidden=x.dataset.tab==='live'&&!canReadLive(r)||x.dataset.tab==='paper'&&!globalThis.BooksPaperCopy?.supported(r);x.textContent=({paper:'模拟跟单',analysis:'交易分析',positions:'历史仓位',points:'交易点位',orders:'成交流水',live:'实时交易'})[x.dataset.tab];x.setAttribute('aria-pressed',String(x.dataset.tab===state.tab));});
+    if(state.tab==='paper'){BooksTradeAnalysis.pause();$('detail-data-status').hidden=true;BooksPaperCopy.render(b,r);return;}
+    globalThis.BooksPaperCopy?.dispose();
     if(state.tab!=='live'){
       $('detail-data-status').hidden=true;state.analyticsViews=state.analyticsViews.filter(v=>v.kind!=='detail');
       publicExecutionReader ||= BooksBinancePublicRecords.reader(globalThis);
@@ -1218,7 +1221,7 @@ const tabs=[...$('tabs').querySelectorAll('[data-tab]')];
 function selectTab(b){if(!state.detail||!tabs.includes(b)||b.hidden)return;activateDetailTab(b.dataset.tab);}
 $('tabs').addEventListener('click',e=>selectTab(e.target.closest('[data-tab]')));
 $('tabs').addEventListener('keydown',e=>{const visibleTabs=tabs.filter(b=>!b.hidden),i=visibleTabs.indexOf(e.target);if(i<0)return;let n;if(e.key==='ArrowRight')n=(i+1)%visibleTabs.length;else if(e.key==='ArrowLeft')n=(i+visibleTabs.length-1)%visibleTabs.length;else if(e.key==='Home')n=0;else if(e.key==='End')n=visibleTabs.length-1;else return;e.preventDefault();visibleTabs[n].focus();selectTab(visibleTabs[n]);});
-$('detail').addEventListener('close',()=>{globalThis.BooksTradeAnalysis?.dispose();stopLive();state.analyticsViews=state.analyticsViews.filter(v=>v.kind!=='detail');state.detail=null;});
+$('detail').addEventListener('close',()=>{globalThis.BooksPaperCopy?.dispose();globalThis.BooksTradeAnalysis?.dispose();stopLive();state.analyticsViews=state.analyticsViews.filter(v=>v.kind!=='detail');state.detail=null;});
 addEventListener('popstate',()=>{if($('detail').open)$('detail').close();readURL();choosePeriod();render();openLinkedAccount();});
 readURL();loadLocal();const hydrated=hydratePublicSnapshots();state.loading=!hydrated;choosePeriod();render();renderSource();state.loading=false;openLinkedAccount();refresh(hydrated);
 setInterval(()=>{reevaluatePositions();if(document.visibilityState==='visible')refresh(true);},60000);

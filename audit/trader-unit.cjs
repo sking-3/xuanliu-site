@@ -1,5 +1,7 @@
 // Unit fixtures are synthetic; the published feed is validated separately.
 // This DOM model verifies logic, not browser layout.
+require('./paper-copy-unit.cjs');
+require('./paper-data-unit.cjs');
 require('./reference-data-unit.cjs');
 require('./trade-chart-unit.cjs');
 require('./trade-replay-unit.cjs');
@@ -601,3 +603,5 @@ await test('search keeps a missing-period identity visible without borrowing mon
 });
 console.log(`${passed} logic and DOM-model tests passed. Synthetic fixtures stay local; the published feed is checked separately.`);
 })().catch(e=>{console.error(e);process.exitCode=1;});
+
+require('./paper-ui-unit.cjs');

@@ -1,0 +1,24 @@
+'use strict';
+const {test}=require('node:test'),assert=require('node:assert/strict'),vm=require('node:vm'),fs=require('node:fs'),E=require('../trader/paper-engine.js');
+const script=fs.readFileSync(require.resolve('../trader/paper-copy.js'),'utf8');
+// Small DOM double exercises asynchronous cancellation and persistence, not layout.
+class Element {
+ constructor(tag){this.tagName=tag;this.children=[];this.value='';this.classList={add(){},remove(){}};}
+ set value(v){this._value=String(v??'');}get value(){return this._value;}
+ append(...children){this.children.push(...children);}replaceChildren(...children){this.children=[...children];}
+ setAttribute(){}closest(){return new Element('dialog');}scrollIntoView(){}get firstChild(){return this.children[0];}
+ click(){return this.onclick?.();}
+}
+const deferred=()=>{let resolve;const promise=new Promise(r=>resolve=r);return {promise,resolve};},flush=async()=>{for(let i=0;i<8;i++)await new Promise(setImmediate);};
+function setup(){
+ const storage=new Map(),listeners={},doc={visibilityState:'visible',createElement:t=>new Element(t),createTextNode:t=>t},root=new Element('section'),now=Date.now();let fresh={checkedAt:now,stopped:false,events:[]},pendingFeed=null,pendingMarket=null,interval;
+ const api={feed:()=>{if(pendingFeed){const p=pendingFeed;pendingFeed=null;return p;}return Promise.resolve(fresh);},market:()=>pendingMarket||Promise.resolve({coin:'ETH',szDecimals:3,maxLeverage:25,minNotional:10,time:Date.now(),bids:[[99,100]],asks:[[100,100]]}),blocker:()=>null};
+ const env={document:doc,Node:Element,BooksPaperEngine:E,BooksPaperData:{create:()=>api,supported:()=>true},localStorage:{getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v)},crypto:{randomUUID:()=> 'ui-test'},navigator:{locks:{request:async(_,options,fn)=>fn({})}},addEventListener:(k,fn)=>listeners[k]=fn,clearInterval(){},setInterval:fn=>{interval=fn;return 1;},setTimeout,Blob,URL,console};vm.runInNewContext(script,env);
+ const button=name=>{const walk=n=>n instanceof Element?[n,...n.children.flatMap(walk)]:[];return walk(root).find(n=>n.tagName==='button'&&n.textContent===name);};
+ const saved=()=>JSON.parse(storage.get('books.paper-copy.v1')||'{}')['Binance:5075281354358777856'];
+ return {env,doc,root,button,saved,now,feed:x=>fresh=x,delayFeed:p=>pendingFeed=p,delayMarket:p=>pendingMarket=p,tick:()=>interval(),hide:()=>{doc.visibilityState='hidden';listeners.visibilitychange();}};
+}
+test('pending baseline visibly disables duplicate starts and pause cancels it before saving running state',async()=>{const s=setup();s.env.BooksPaperCopy.render(s.root,{exchange:'Binance',accountId:'5075281354358777856'});await flush();s.button('建立模拟账户').click();await flush();const gate=deferred();s.delayFeed(gate.promise);s.button('开始模拟').click();await flush();assert.equal(s.button('开始模拟').disabled,true);assert.equal(s.button('暂停').disabled,false);s.button('暂停').click();gate.resolve({checkedAt:Date.now(),stopped:false,events:[]});await flush();assert.equal(s.saved().status,'paused');assert.equal(s.saved().orders.length,0);});
+test('hiding during a pending quote pauses the ledger without committing the new source event',async()=>{const s=setup();s.env.BooksPaperCopy.render(s.root,{exchange:'Binance',accountId:'5075281354358777856'});await flush();s.button('建立模拟账户').click();await flush();s.button('开始模拟').click();await flush();assert.equal(s.saved().status,'running');const gate=deferred();s.delayMarket(gate.promise);const time=Date.now()+1;s.feed({checkedAt:Date.now(),stopped:false,events:[{id:'new',identity:'new',symbol:'ETHUSDT',coin:'ETH',positionSide:'long',effect:'increase',quantity:10,time,firstSeenAt:time}]});s.tick();await flush();s.hide();gate.resolve({coin:'ETH',szDecimals:3,maxLeverage:25,minNotional:10,time:Date.now(),bids:[[99,100]],asks:[[100,100]]});await flush();assert.equal(s.saved().status,'paused');assert.equal(s.saved().reason,'page_hidden');assert.equal(s.saved().orders.length,0);});
+
+test('a public market refusal immediately pauses an active ledger and does not create a paper order',async()=>{const s=setup();s.env.BooksPaperCopy.render(s.root,{exchange:'Binance',accountId:'5075281354358777856'});await flush();s.button('建立模拟账户').click();await flush();s.button('开始模拟').click();await flush();const gate=deferred();s.delayMarket(gate.promise);const time=Date.now()+1;s.feed({checkedAt:Date.now(),stopped:false,events:[{id:'new',identity:'new',symbol:'ETHUSDT',coin:'ETH',positionSide:'long',effect:'increase',quantity:10,time,firstSeenAt:time}]});s.tick();await flush();gate.resolve(Promise.reject(Error('http_429')));await flush();assert.equal(s.saved().status,'paused');assert.equal(s.saved().reason,'http_429');assert.equal(s.saved().orders.length,0);});

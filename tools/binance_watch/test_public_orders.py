@@ -55,6 +55,17 @@ class PublicOrderTests(unittest.TestCase):
         c=Clock();source=Source(c,[{'list':[raw(0),raw(1)],'total':3,'indexValue':'123'}, {'list':[raw(1),raw(2)],'total':3,'indexValue':'122'}]);rows,coverage=p.collect(source,p.initial_state(),p.monitor.iso(c.wall()));self.assertEqual(len(rows),3);self.assertTrue(coverage['fullWindowRead']);self.assertEqual(source.calls[1]['cursor'],'123');self.assertEqual(source.calls[1]['at'],5)
     def test_pagination_cannot_loop_or_guess_cursor(self):
         c=Clock();source=Source(c,[{'list':[raw()],'total':3,'indexValue':'123'}]);self.assertRaises(p.Halt,p.collect,source,p.initial_state(),p.monitor.iso(c.wall()))
+    def test_inclusive_terminal_boundary_with_inconsistent_total_is_incomplete(self):
+        c=Clock();r=raw();cursor=str(r['orderUpdateTime'])
+        source=Source(c,[{'list':[r],'total':2,'indexValue':cursor}, {'list':[r],'total':2,'indexValue':cursor}])
+        rows,coverage=p.collect(source,p.initial_state(),p.monitor.iso(c.wall()))
+        self.assertEqual(len(rows),1);self.assertEqual(len(source.calls),2)
+        self.assertFalse(coverage['fullWindowRead']);self.assertTrue(coverage['terminalBoundaryObserved'])
+        self.assertEqual(coverage['coverageWarning'],'source_total_mismatch_at_terminal_cursor')
+    def test_repeated_nonterminal_or_multirow_page_still_stops(self):
+        for rows in ([raw(),raw(1)], [raw()]):
+            c=Clock();source=Source(c,[{'list':rows,'total':9,'indexValue':'123'}])
+            self.assertRaises(p.Halt,p.collect,source,p.initial_state(),p.monitor.iso(c.wall()))
     def test_gap_and_periodic_backfill_continue_after_known_first_page(self):
         for delta,recent_success in ((25,0),(301,296)):
             with self.subTest(delta=delta):

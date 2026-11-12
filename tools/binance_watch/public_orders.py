@@ -198,6 +198,8 @@ def collect(source, state, observed_at):
     due = state.get('lastFullScanAt') is None or stamp(observed_at) - stamp(state['lastFullScanAt']) >= BACKFILL_SECONDS
     backfill = not state['initialized'] or gap or due
     rows, cursors, cursor, complete, total = {}, set(), None, False, None
+    terminal_boundary = False
+    previous_boundary = None
     for page_number in range(MAX_PAGES):
         page = source.page(start, end, cursor)
         total = page['total']
@@ -216,8 +218,17 @@ def collect(source, state, observed_at):
         if not backfill and overlap:
             break
         next_cursor = page.get('indexValue')
+        # The inclusive terminal cursor can return only the exact last boundary
+        # record while the platform's total is inconsistent. End this bounded
+        # scan with explicit incomplete coverage; never invent the missing row.
+        if (cursor is not None and next_cursor == cursor and len(rows) == before and
+                len(page['list']) == 1 and previous_boundary is not None and
+                r['fingerprint'] == previous_boundary and str(r['orderUpdateTime']) == cursor):
+            terminal_boundary = True
+            break
         require(len(rows) > before and isinstance(next_cursor, str) and re.fullmatch('[0-9]{1,20}', next_cursor) and
                 next_cursor not in cursors, 'pagination_not_advancing')
+        previous_boundary = r['fingerprint'] if page['list'] else None
         cursors.add(next_cursor)
         cursor = next_cursor
     require(rows or total == 0, 'public_history_disappeared')
@@ -225,7 +236,9 @@ def collect(source, state, observed_at):
         raise Halt('public_history_disappeared')
     return rows, {'windowStart': monitor.iso(start / 1000), 'windowEnd': observed_at,
                   'pages': page_number + 1, 'uniqueRows': len(rows), 'sourceTotal': total,
-                  'fullWindowRead': complete, 'sourceOrderIdsAvailable': False,
+                  'fullWindowRead': complete, 'terminalBoundaryObserved': terminal_boundary,
+                  'coverageWarning': 'source_total_mismatch_at_terminal_cursor' if terminal_boundary else None,
+                  'sourceOrderIdsAvailable': False,
                   'scanMode': 'bounded_window_backfill' if backfill else 'recent_prefix',
                   'scope': 'public_execution_records_not_pending_orders_or_positions'}
 

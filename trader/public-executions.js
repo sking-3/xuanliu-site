@@ -20,7 +20,7 @@ function parse(value,now=Date.now()){
  }
  if(value.lastSuccessAt===null&&rows.length)fail();
  rows.sort((a,b)=>b.updatedAt-a.updatedAt||Date.parse(b.versionFirstSeenAt)-Date.parse(a.versionFirstSeenAt));
- return {checkedAt:value.lastSuccessAt,stopped:value.stopped,rows:rows.slice(0,20),allRows:rows,retainedRecords:rows.length};
+ return {checkedAt:value.lastSuccessAt,stopped:value.stopped,stopReason:typeof value.errorCode==='string'&&/^[a-zA-Z0-9_]{1,80}$/.test(value.errorCode)?value.errorCode:null,rows:rows.slice(0,20),allRows:rows,retainedRecords:rows.length};
 }
 function reader(env){
  let last=null,loadedAt=0,pending=null,stopped=null;
@@ -44,7 +44,7 @@ function reader(env){
     const stream=response.body.getReader(),chunks=[];let size=0;
     while(true){const {done,value}=await stream.read();if(done)break;size+=value.byteLength;if(size>900000){await stream.cancel();throw Error('checkpoint_too_large');}chunks.push(value);}
     const raw=JSON.parse(await new Blob(chunks).text()),next=parse(raw);
-    if(!last||Date.parse(next.checkedAt)>=Date.parse(last.checkedAt)){last=next;try{env.localStorage.setItem(cacheKey,JSON.stringify({schemaVersion:1,portfolioId:ID,scope:'public_execution_records_only',hiddenPositionsRequested:false,stopped:raw.stopped,lastSuccessAt:raw.lastSuccessAt,records:raw.records}));}catch{}}
+    if(!last||Date.parse(next.checkedAt)>=Date.parse(last.checkedAt)){last=next;try{env.localStorage.setItem(cacheKey,JSON.stringify({schemaVersion:1,portfolioId:ID,scope:'public_execution_records_only',hiddenPositionsRequested:false,stopped:raw.stopped,errorCode:raw.errorCode||null,lastSuccessAt:raw.lastSuccessAt,records:raw.records}));}catch{}}
     loadedAt=Date.now();return last;
    }finally{clearTimeout(timer);pending=null;}
   })();return pending;
