@@ -708,7 +708,7 @@ function renderSource() {
     $('source-cadence').textContent='持仓核验有效期 60 分钟';
   }
   $('source-state').textContent=statusText(summary);
-  const notice=$('position-notice');notice.hidden=!s&&!state.lastReadFailed;notice.textContent=statusText(summary)+(s?.positionVerification?' 上次批次完成 '+timeLabel(s.positionVerification.completedAt)+'；历史收益资料继续保留，逐账户核验在详情查看。':'');
+  const notice=$('position-notice');notice.hidden=!s&&!state.lastReadFailed;notice.textContent='Hyperliquid · '+statusText(summary)+(s?.positionVerification?' 上次批次完成 '+timeLabel(s.positionVerification.completedAt)+'；历史收益资料继续保留，逐账户核验在详情查看。':'');
   if(!s&&state.lastReadFailed)$('source-name').textContent='Hyperliquid 公开账户';
   $('status').textContent=statusText(summary);$('status').setAttribute('data-state',positionStatus(summary));
   $('source-universe').textContent=s?.positionVerification?s.positionVerification.candidateAccounts.toLocaleString('zh-CN'):'—';
