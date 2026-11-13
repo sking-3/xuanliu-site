@@ -25,3 +25,16 @@
 .pulse-rotation{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 3px;font-size:11px;color:#52627a}
 .pulse-pause{border:0;background:none;padding:5px 0 5px 6px;font:inherit;font-size:10px;color:#99501f;cursor:pointer;white-space:nowrap}
 .pulse-rotation-note{margin:0 0 5px;font-size:10px;line-height:1.5;color:#52627a}
+
+/* Keep the five signals compact, with frequency and provenance aligned. */
+.market-insight{padding:16px 16px 14px}
+.insight-scope{margin-bottom:10px}
+.insight-body{min-height:124px}
+.insight-cadence{font-size:10px;line-height:1.5;color:#788499;margin:10px 0 0}
+.insight-footer{margin-top:auto;padding-top:10px}
+.insight-cadence+.insight-footer{margin-top:10px}
+[data-pulse=macro] .pulse-host{height:180px}
+@media(max-width:520px){.market-insight{padding:16px}.insight-body{min-height:0}}
+.market-insight>.insight-cadence{margin-top:auto;padding-top:12px}
+.pulse-host{position:relative}
+.pulse-host[data-pulse-state=loading]::after{content:"正在连接来源…";position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:#fafbfc;color:#758197;font-size:11px;border-radius:4px;pointer-events:none}

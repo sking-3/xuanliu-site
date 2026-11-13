@@ -4,7 +4,8 @@ const IDS=['sentiment','valuation','flows','active','macro'];
 const MAX_BYTES=262144;
 const MAX_AGE_DAYS={sentiment:3,valuation:45,flows:120,active:2/24,macro:45};
 const LABELS={sentiment:'市场温度',valuation:'核心估值',flows:'跨境资金',active:'活跃标的',macro:'宏观速递'};
-const SCOPES={sentiment:'比特币 · 恐惧与贪婪',valuation:'沪深300 · 月末事实表',flows:'美国长期证券 · 外资净买入',active:'加密资产 · 24小时成交额',macro:'美国宏观 · 官方发布与日历'};
+const SCOPES={sentiment:'比特币 · 恐惧与贪婪',valuation:'沪深300 · 月末事实表',flows:'美国长期证券 · 月度净买入',active:'加密资产 · 24小时成交额',macro:'美国宏观 · 官方发布与日历'};
+const CADENCE={sentiment:'日度情绪指标 · 非盘中报价',valuation:'月末估值 · 随来源事实表发布',flows:'月度统计 · 不代表盘中资金流',active:'成交额快照 · 盘中报价见行情区',macro:'官方发布 · 非盘中行情'};
 const HOSTS=['alternative.me','csindex.com.cn','treasury.gov','bls.gov'];
 function fail(){throw Error('Invalid market overview snapshot');}
 function plain(v){return v!==null&&typeof v==='object'&&!Array.isArray(v);}
@@ -80,7 +81,7 @@ function anchor(doc,text,url,cls){const a=node(doc,'a',text,cls);a.href=url;a.ta
 function renderCard(doc,host,id,c,now,readFailed){
   const status=stale(id,c,now,readFailed)?'stale':c.data?'ready':'unavailable';
   const head=node(doc,'div',undefined,'insight-heading');head.append(node(doc,'h2',LABELS[id]));
-  head.append(node(doc,'span',status==='ready'?'已采集':status==='stale'?'待更新':'暂无数据','insight-state'));
+  head.append(node(doc,'span',status==='ready'?({sentiment:'日度',valuation:'月末',flows:'月度',active:'快照',macro:'官方发布'})[id]:status==='stale'?'待更新':'暂无数据','insight-state'));
   const scope=node(doc,'p',SCOPES[id],'insight-scope'),body=node(doc,'div',undefined,'insight-body');
   const metric=(value,unit,label)=>{const line=node(doc,'div',undefined,'insight-metric');line.append(node(doc,'strong',value));if(unit)line.append(node(doc,'span',unit));body.append(line);if(label)body.append(node(doc,'p',label,'insight-caption'));};
   const row=(label,value)=>{const r=node(doc,'div',undefined,'insight-row');r.append(node(doc,'span',label),node(doc,'strong',value));body.append(r);};
@@ -104,9 +105,10 @@ function renderCard(doc,host,id,c,now,readFailed){
       for(const e of events){const a=anchor(doc,eventTitle(e.title),e.url,'insight-event');a.append(node(doc,'time',dateLabel(e.startAt,true)+' 北京时间'));body.append(a);}
     }
   }
+  const cadence=node(doc,'p',CADENCE[id]+(c.errorCode?(c.errorCode==='http_403'||c.errorCode==='http_429'?' · 来源访问已停止':' · 本次读取失败，保留旧值'):''),'insight-cadence');
   const foot=node(doc,'footer',undefined,'insight-footer');foot.append(anchor(doc,c.sourceName+' ↗',c.sourceUrl,'insight-source'));
   if(c.asOf){const time=node(doc,'time','截至 '+dateLabel(c.asOf,id==='active'),'insight-asof');time.dateTime=c.asOf;time.setAttribute('title','来源统计时间（北京时间）；采集于 '+dateLabel(c.fetchedAt,true)+(c.sourceUpdatedAt?'；来源更新 '+dateLabel(c.sourceUpdatedAt,true):''));foot.append(time);}
-  host.setAttribute('data-state',status);host.setAttribute('aria-busy','false');host.replaceChildren(head,scope,body,foot);
+  host.setAttribute('data-state',status);host.setAttribute('aria-busy','false');host.replaceChildren(head,scope,body,cadence,foot);
 }
 function mount(doc,options={}){
   const root=doc.getElementById('market-insights');if(!root)return null;

@@ -1,31 +1,31 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-11-10T09:42:29Z",
+  "generatedAt": "2026-11-13T14:31:49Z",
   "cards": {
     "sentiment": {
       "status": "ready",
       "sourceName": "Alternative.me",
       "sourceUrl": "https://alternative.me/crypto/fear-and-greed-index/",
-      "sourceUpdatedAt": "2026-11-10T00:00:00Z",
-      "fetchedAt": "2026-11-10T09:40:02Z",
-      "lastAttemptAt": "2026-11-10T09:39:54Z",
-      "asOf": "2026-11-10T00:00:00Z",
+      "sourceUpdatedAt": "2026-11-13T00:00:00Z",
+      "fetchedAt": "2026-11-13T14:31:33Z",
+      "lastAttemptAt": "2026-11-13T14:31:31Z",
+      "asOf": "2026-11-13T00:00:00Z",
       "errorCode": null,
       "data": {
-        "value": 32,
-        "previous": 29,
-        "classification": "Fear"
+        "value": 20,
+        "previous": 28,
+        "classification": "Extreme Fear"
       }
     },
     "valuation": {
-      "status": "ready",
+      "status": "stale",
       "sourceName": "中证指数",
       "sourceUrl": "https://oss-ch.csindex.com.cn/static/html/csindex/public/uploads/indices/detail/files/zh_CN/000300factsheet.pdf",
       "sourceUpdatedAt": "2026-11-03T08:41:20Z",
       "fetchedAt": "2026-11-10T09:40:13Z",
-      "lastAttemptAt": "2026-11-10T09:40:02Z",
+      "lastAttemptAt": "2026-11-13T14:31:33Z",
       "asOf": "2026-10-29T16:00:00Z",
-      "errorCode": null,
+      "errorCode": "network_error",
       "data": {
         "name": "沪深300",
         "indexCode": "000300",
@@ -39,8 +39,8 @@
       "sourceName": "美国财政部 TIC",
       "sourceUrl": "https://home.treasury.gov/data/treasury-international-capital-tic-system-home-page/tic-forms-instructions/securities-a-us-transactions-with-foreign-residents-in-long-term-securities",
       "sourceUpdatedAt": "2026-10-16T20:06:51Z",
-      "fetchedAt": "2026-11-10T09:40:20Z",
-      "lastAttemptAt": "2026-11-10T09:40:13Z",
+      "fetchedAt": "2026-11-13T14:31:47Z",
+      "lastAttemptAt": "2026-11-13T14:31:43Z",
       "asOf": "2026-08-31T00:00:00Z",
       "errorCode": null,
       "data": {
@@ -56,47 +56,47 @@
       "status": "ready",
       "sourceName": "Alternative.me",
       "sourceUrl": "https://alternative.me/crypto/",
-      "sourceUpdatedAt": "2026-11-10T09:37:56Z",
-      "fetchedAt": "2026-11-10T09:40:27Z",
-      "lastAttemptAt": "2026-11-10T09:40:21Z",
-      "asOf": "2026-11-10T09:37:56Z",
+      "sourceUpdatedAt": "2026-11-13T14:27:50Z",
+      "fetchedAt": "2026-11-13T14:31:48Z",
+      "lastAttemptAt": "2026-11-13T14:31:47Z",
+      "asOf": "2026-11-13T14:27:50Z",
       "errorCode": null,
       "data": {
-        "universe": "Alternative.me 返回的成交额前10样本 · 收录 190 币种 · 含稳定币",
+        "universe": "Alternative.me 返回的成交额前10样本 · 收录 191 币种 · 含稳定币",
         "items": [
           {
             "symbol": "USDT",
             "name": "Tether",
-            "volumeUsd": 42098542364.0,
-            "change24h": 0.00173,
-            "lastUpdated": "2026-11-10T09:37:56Z"
+            "volumeUsd": 64489604708.0,
+            "change24h": 0.00602,
+            "lastUpdated": "2026-11-13T14:27:50Z"
           },
           {
             "symbol": "BTC",
             "name": "Bitcoin",
-            "volumeUsd": 24771422480.0,
-            "change24h": 0.00201,
-            "lastUpdated": "2026-11-10T09:37:56Z"
+            "volumeUsd": 44884436821.0,
+            "change24h": -3.66017,
+            "lastUpdated": "2026-11-13T14:27:50Z"
           },
           {
             "symbol": "ETH",
             "name": "Ethereum",
-            "volumeUsd": 9591459253.0,
-            "change24h": -0.65965,
-            "lastUpdated": "2026-11-10T09:37:56Z"
+            "volumeUsd": 14889163637.0,
+            "change24h": -1.24134,
+            "lastUpdated": "2026-11-13T14:27:50Z"
           }
         ]
       }
     },
     "macro": {
-      "status": "ready",
+      "status": "stale",
       "sourceName": "美国劳工统计局 BLS",
       "sourceUrl": "https://www.bls.gov/",
       "sourceUpdatedAt": "2026-11-06T12:50:31Z",
       "fetchedAt": "2026-11-10T09:40:42Z",
-      "lastAttemptAt": "2026-11-10T09:40:27Z",
+      "lastAttemptAt": "2026-11-13T14:31:48Z",
       "asOf": "2026-11-06T12:50:31Z",
-      "errorCode": null,
+      "errorCode": "http_403",
       "data": {
         "latest": {
           "title": "Payroll employment rises by 165,000 in October; unemployment rate changes little at 4.1%",
@@ -124,5 +124,10 @@
       }
     }
   },
-  "sourceStops": {}
+  "sourceStops": {
+    "www.bls.gov": {
+      "code": "http_403",
+      "at": "2026-11-13T14:31:49Z"
+    }
+  }
 }

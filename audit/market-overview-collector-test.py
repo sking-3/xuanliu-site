@@ -10,6 +10,7 @@ import tempfile
 import unittest
 from unittest import mock
 import urllib.error
+import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('market_collector', ROOT / 'scripts/collect_market_overview.py')
@@ -23,6 +24,19 @@ LAYOUT = '''2026年10月30日
      3年年化                  17.88%                市净率                    1.3
      5年年化                  17.51%                股息率                   2.73%
 '''
+
+
+def atom_feed(*entries):
+    """Synthetic Atom fixtures only; the test suite never fetches BLS."""
+    feed = ET.Element('feed', xmlns='http://www.w3.org/2005/Atom')
+    for title, published, url, updated in entries:
+        entry = ET.SubElement(feed, 'entry')
+        ET.SubElement(entry, 'title').text = title
+        ET.SubElement(entry, 'published').text = published
+        if updated is not None:
+            ET.SubElement(entry, 'updated').text = updated
+        ET.SubElement(entry, 'link', href=url)
+    return ET.tostring(feed, encoding='utf-8')
 
 
 def fixtures(now=NOW):
@@ -62,7 +76,12 @@ END:VCALENDAR
 '''
     return {c.FNG: (json.dumps(fng).encode(), {}), c.CSI: (b'%PDF-fixture', {}),
             c.TIC: (tic.encode(), {'last-modified': 'Fri, 16 Oct 2026 20:06:51 GMT'}),
-            c.TICKER: (json.dumps(active).encode(), {}), c.BLS_FEED: (atom.encode(), {}), c.BLS_CAL: (ics.encode(), {})}
+            c.TICKER: (json.dumps(active).encode(), {}), c.BLS_FEED: (atom.encode(), {}),
+            c.BLS_CPI: (atom_feed(('Synthetic CPI September release', '2026-10-14T12:30:00Z',
+                                 'https://www.bls.gov/news.release/archives/cpi_10142026.htm', None)), {}),
+            c.BLS_PPI: (atom_feed(('Synthetic PPI September release', '2026-10-15T12:30:00Z',
+                                 'https://www.bls.gov/news.release/archives/ppi_10152026.htm', None)), {}),
+            c.BLS_CAL: (ics.encode(), {})}
 
 
 def run(previous=None, now=NOW, errors=None, payloads=None):
@@ -81,7 +100,7 @@ def run(previous=None, now=NOW, errors=None, payloads=None):
 class CollectorTests(unittest.TestCase):
     def test_all_five_sources_normalize_without_price_or_performance_invention(self):
         result, calls = run()
-        self.assertEqual(len(calls), 6)
+        self.assertEqual(len(calls), 8)
         self.assertEqual([r['status'] for r in result['cards'].values()], ['ready']*5)
         self.assertEqual(result['cards']['sentiment']['data']['value'], 32)
         self.assertEqual(result['cards']['valuation']['data']['pb'], 1.3)
@@ -102,7 +121,10 @@ class CollectorTests(unittest.TestCase):
     def test_pdf_reader_requires_layout_mode_and_rejects_bad_bodies(self):
         page = mock.Mock(); page.extract_text.return_value = LAYOUT
         reader = mock.Mock(is_encrypted=False, pages=[page])
-        with mock.patch('pypdf.PdfReader', return_value=reader):
+        # This is a parser contract fixture, not a real PDF/dependency check.
+        # Keep it runnable without downloading the production pypdf package.
+        pdf = mock.Mock(PdfReader=mock.Mock(return_value=reader))
+        with mock.patch.dict('sys.modules', {'pypdf': pdf}):
             self.assertEqual(c.parse_valuation(b'%PDF-mock', NOW)[0]['pe'], 12.61)
         page.extract_text.assert_called_once_with(extraction_mode='layout')
         with self.assertRaises(c.SourceError): c.parse_valuation(b'<html>blocked</html>', NOW)
@@ -179,6 +201,65 @@ class CollectorTests(unittest.TestCase):
         for bad in [body.replace(b'https://www.bls.gov/', b'https://untrusted.example/'), body.replace(b'<feed ', b'<!DOCTYPE x><feed ')]:
             with self.assertRaises(c.SourceError): c.parse_employment(bad, NOW)
 
+    def test_bls_merge_deduplicates_release_and_orders_by_real_publication_not_revision(self):
+        now = datetime(2026, 11, 13, 14, tzinfo=timezone.utc)
+        cpi = ('Synthetic CPI latest', '2026-11-10T08:30:21-05:00',
+               'https://www.bls.gov/news.release/archives/cpi_11102026.htm', '2026-11-10T13:30:21Z')
+        revised = (*cpi[:3], '2026-11-13T13:45:00Z')
+        ppi = ('Synthetic PPI latest', '2026-11-13T08:30:11-05:00',
+               'https://www.bls.gov/news.release/archives/ppi_11132026.htm', None)
+        bodies = (atom_feed(cpi), atom_feed(revised, ppi), fixtures(now)[c.BLS_FEED][0])
+        releases = c.merge_bls_releases(bodies, now)
+        self.assertEqual(len(releases), 3)
+        self.assertEqual(releases[0]['title'], ppi[0])
+        self.assertEqual(releases[0]['url'], ppi[2])
+        self.assertEqual(releases[0]['publishedAt'], '2026-11-13T13:30:11Z')
+        self.assertEqual(releases[1]['updatedAt'], revised[3])
+        self.assertEqual(c.merge_bls_releases(reversed(bodies), now), releases)
+
+    def test_macro_uses_latest_of_all_three_feeds_and_keeps_release_link(self):
+        now = datetime(2026, 11, 13, 14, tzinfo=timezone.utc)
+        payloads = fixtures(now)
+        latest = ('Synthetic CPI latest', '2026-11-10T13:30:21Z',
+                  'https://www.bls.gov/news.release/archives/cpi_11102026.htm', '2026-11-10T13:30:22Z')
+        payloads[c.BLS_CPI] = (atom_feed(latest), {'last-modified': 'Fri, 13 Nov 2026 13:59:00 GMT'})
+        result, calls = run(now=now, payloads=payloads)
+        macro = result['cards']['macro']
+        self.assertEqual(macro['data']['latest']['title'], latest[0])
+        self.assertEqual(macro['data']['latest']['url'], latest[2])
+        self.assertEqual(macro['asOf'], latest[1])
+        self.assertEqual(macro['sourceUpdatedAt'], latest[3])
+        self.assertEqual(calls[-4:], [*c.BLS_FEEDS, c.BLS_CAL])
+
+    def test_macro_200_without_new_publication_never_relabels_release_as_fetched_now(self):
+        before, _ = run()
+        later = NOW + timedelta(hours=7)
+        after, _ = run(before, now=later)
+        for key in ['asOf', 'sourceUpdatedAt']:
+            self.assertEqual(after['cards']['macro'][key], before['cards']['macro'][key])
+        self.assertEqual(after['cards']['macro']['data']['latest'], before['cards']['macro']['data']['latest'])
+        self.assertEqual(after['cards']['macro']['fetchedAt'], c.iso(later))
+        payloads = fixtures(later)
+        for url in c.BLS_FEEDS:
+            payloads[url] = (atom_feed(), {})
+        empty, _ = run(before, now=later, payloads=payloads)
+        for key in ['asOf', 'sourceUpdatedAt', 'data']:
+            self.assertEqual(empty['cards']['macro'][key], after['cards']['macro'][key])
+        self.assertEqual(empty['cards']['macro']['fetchedAt'], c.iso(later))
+        first, _ = run(now=later, payloads=payloads)
+        self.assertEqual(first['cards']['macro']['status'], 'unavailable')
+        self.assertEqual(first['cards']['macro']['errorCode'], 'no_bls_releases')
+
+    def test_macro_refusal_stops_later_same_host_feeds_and_persists_across_runs(self):
+        for blocked in c.BLS_FEEDS:
+            first, calls = run(errors={blocked: 'http_403'})
+            attempted = c.BLS_FEEDS.index(blocked) + 1
+            self.assertEqual([url for url in calls if url in (*c.BLS_FEEDS, c.BLS_CAL)], list(c.BLS_FEEDS[:attempted]))
+            self.assertEqual(first['sourceStops']['www.bls.gov']['code'], 'http_403')
+            second, calls = run(first, NOW + timedelta(days=2))
+            self.assertFalse(set(calls) & {*c.BLS_FEEDS, c.BLS_CAL})
+            self.assertEqual(second['sourceStops'], first['sourceStops'])
+
     def test_fresh_cards_reuse_existing_times_and_make_no_requests(self):
         before, _ = run()
         after, calls = run(before, NOW+timedelta(minutes=20))
@@ -192,7 +273,7 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(calls, [c.TICKER])
         self.assertEqual(after['cards']['flows'], before['cards']['flows'])
         after, calls = run(before, NOW+timedelta(hours=7))
-        self.assertEqual(set(calls), {c.FNG, c.TICKER, c.BLS_FEED, c.BLS_CAL})
+        self.assertEqual(set(calls), {c.FNG, c.TICKER, *c.BLS_FEEDS, c.BLS_CAL})
 
     def test_first_source_refusal_blocks_other_same_host_requests(self):
         result, calls = run(errors={c.FNG: 'http_403'})

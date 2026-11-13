@@ -1,0 +1,121 @@
+{
+  "schemaVersion": 1,
+  "kind": "manual_market_overview_refresh",
+  "startedAt": "2026-11-13T14:31:31Z",
+  "completedAt": "2026-11-13T14:31:49Z",
+  "timeZone": "UTC",
+  "requested": 5,
+  "succeeded": 3,
+  "failed": 2,
+  "requests": [
+    {
+      "url": "https://api.alternative.me/fng/?limit=2",
+      "attemptedAt": "2026-11-13T14:31:31Z",
+      "completedAt": "2026-11-13T14:31:33Z",
+      "status": 200,
+      "bytes": 307,
+      "sha256": "c2616c80c65da117d62da76da8e4a7f040caec046a1913ffe6c50253ad9f3997"
+    },
+    {
+      "url": "https://oss-ch.csindex.com.cn/static/html/csindex/public/uploads/indices/detail/files/zh_CN/000300factsheet.pdf",
+      "attemptedAt": "2026-11-13T14:31:33Z",
+      "completedAt": "2026-11-13T14:31:43Z",
+      "errorCode": "network_error"
+    },
+    {
+      "url": "https://ticdata.treasury.gov/resource-center/data-chart-center/tic/Documents/slt_table1.txt",
+      "attemptedAt": "2026-11-13T14:31:43Z",
+      "completedAt": "2026-11-13T14:31:47Z",
+      "status": 200,
+      "bytes": 972020,
+      "sha256": "dbdb9fb062d5f435aa625fd225bd42288029df46be33e84759c4741961e91180"
+    },
+    {
+      "url": "https://api.alternative.me/v2/ticker/?limit=10&structure=array&sort=volume_24h",
+      "attemptedAt": "2026-11-13T14:31:47Z",
+      "completedAt": "2026-11-13T14:31:48Z",
+      "status": 200,
+      "bytes": 6746,
+      "sha256": "4cb08b9e2cd3e6442068e6ce88f767908b40987a84cf88004a3d88e4edea3b02"
+    },
+    {
+      "url": "https://www.bls.gov/feed/empsit.rss",
+      "attemptedAt": "2026-11-13T14:31:48Z",
+      "completedAt": "2026-11-13T14:31:49Z",
+      "errorCode": "http_403"
+    }
+  ],
+  "notRequested": [
+    {
+      "url": "https://www.bls.gov/feed/cpi.rss",
+      "reason": "host_stopped_after_http_403"
+    },
+    {
+      "url": "https://www.bls.gov/feed/ppi.rss",
+      "reason": "host_stopped_after_http_403"
+    },
+    {
+      "url": "https://www.bls.gov/schedule/news_release/bls.ics",
+      "reason": "host_stopped_after_http_403"
+    }
+  ],
+  "sourceStops": {
+    "www.bls.gov": {
+      "code": "http_403",
+      "at": "2026-11-13T14:31:49Z"
+    }
+  },
+  "cards": {
+    "sentiment": {
+      "status": "ready",
+      "asOf": "2026-11-13T00:00:00Z",
+      "sourceUpdatedAt": "2026-11-13T00:00:00Z",
+      "fetchedAt": "2026-11-13T14:31:33Z",
+      "lastAttemptAt": "2026-11-13T14:31:31Z",
+      "errorCode": null
+    },
+    "valuation": {
+      "status": "stale",
+      "asOf": "2026-10-29T16:00:00Z",
+      "sourceUpdatedAt": "2026-11-03T08:41:20Z",
+      "fetchedAt": "2026-11-10T09:40:13Z",
+      "lastAttemptAt": "2026-11-13T14:31:33Z",
+      "errorCode": "network_error"
+    },
+    "flows": {
+      "status": "ready",
+      "asOf": "2026-08-31T00:00:00Z",
+      "sourceUpdatedAt": "2026-10-16T20:06:51Z",
+      "fetchedAt": "2026-11-13T14:31:47Z",
+      "lastAttemptAt": "2026-11-13T14:31:43Z",
+      "errorCode": null
+    },
+    "active": {
+      "status": "ready",
+      "asOf": "2026-11-13T14:27:50Z",
+      "sourceUpdatedAt": "2026-11-13T14:27:50Z",
+      "fetchedAt": "2026-11-13T14:31:48Z",
+      "lastAttemptAt": "2026-11-13T14:31:47Z",
+      "errorCode": null
+    },
+    "macro": {
+      "status": "stale",
+      "asOf": "2026-11-06T12:50:31Z",
+      "sourceUpdatedAt": "2026-11-06T12:50:31Z",
+      "fetchedAt": "2026-11-10T09:40:42Z",
+      "lastAttemptAt": "2026-11-13T14:31:48Z",
+      "errorCode": "http_403"
+    }
+  },
+  "candidateArtifact": {
+    "name": "market-overview.refreshed.json",
+    "generatedAt": "2026-11-13T14:31:49Z",
+    "bytes": 4376,
+    "sha256": "012432d3bd22b825677d15f0a729d7ede6fac696769cba115316ddf539a015ea",
+    "publicationVerified": false
+  },
+  "rawBodiesIncluded": false,
+  "credentialsIncluded": false,
+  "schedulesEnabledByThisRefresh": false,
+  "tradingRequestsMade": false
+}

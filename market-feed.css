@@ -39,3 +39,11 @@
 .public-feed .feed-controls:not([hidden]){margin-top:8px;padding-top:8px;border-top:1px solid #edf0f5}
 
 [data-books-attribution][hidden]{display:none!important}
+
+/* Reserve quote space while the remote component fills rows. No animation or price claims. */
+.feed-widget-area{position:relative;min-height:250px}
+.feed-card .feed-widget-area,.feed-card .tradingview-widget-container,.feed-card .tradingview-widget-container__widget{height:310px;min-height:310px}
+.public-feed:is([data-feed-state=queued],[data-feed-state=loading]) .feed-widget-area::after{content:attr(data-loading-label);position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:#fafbfc;color:#6b7890;font-size:12px;border:1px solid #e8ecf1;border-radius:5px;pointer-events:none}
+.public-feed[data-feed-state=queued] .feed-widget-area::after{content:"接近此区域时加载行情…"}
+.public-feed[data-feed-state=loading] .feed-widget-area:not([data-loading-label])::after{content:"正在连接行情来源…"}
+.feed-card-note{min-height:18px;font-variant-numeric:tabular-nums}

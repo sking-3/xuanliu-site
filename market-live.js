@@ -15,7 +15,7 @@
     },
     macro: {
       script:'embed-widget-timeline.js', title:'市场快讯',
-      config:{feedMode:'all_symbols',displayMode:'regular',colorTheme:'light',locale:'zh_CN',width:'100%',height:215},
+      config:{feedMode:'all_symbols',displayMode:'regular',colorTheme:'light',locale:'zh_CN',width:'100%',height:180},
       note:'新闻按来源发布时间展示'
     }
   };
@@ -34,25 +34,29 @@
       stopRotation();
       if(markets.length<2||paused||failed||selected!=='live'||document.hidden)return;
       if(nextRotationAt===null)nextRotationAt=Date.now()+remaining;
-      progress();rotationTimer=setTimeout(()=>{marketIndex=(marketIndex+1)%markets.length;nextRotationAt=Date.now()+rotationMs;remaining=rotationMs;clear();show();},Math.max(0,nextRotationAt-Date.now()));
+      progress();rotationTimer=setTimeout(()=>{if(document.hidden||selected!=='live'){stopRotation();return;}marketIndex=(marketIndex+1)%markets.length;nextRotationAt=Date.now()+rotationMs;remaining=rotationMs;clear();show();},Math.max(0,nextRotationAt-Date.now()));
     }
     function clear() {
       generation++;clearTimeout(timer);stopRotation();observer?.disconnect();host.replaceChildren();
     }
     function show() {
-      if(markets.length>1&&!paused&&nextRotationAt!==null&&Date.now()>=nextRotationAt){const steps=1+Math.floor((Date.now()-nextRotationAt)/rotationMs);marketIndex=(marketIndex+steps)%markets.length;nextRotationAt+=steps*rotationMs;clear();}
+      if(failed)selected='saved';
       live.hidden=selected!=='live';saved.hidden=selected==='live';
       for(const b of buttons)b.setAttribute('aria-pressed',String(b.dataset.view===selected));
+      // Keep pending provider scripts attached; removing their host does not cancel async initialization.
+      if(live.hidden || document.hidden){stopRotation();return;}
+      if(markets.length>1&&!paused&&nextRotationAt!==null&&Date.now()>=nextRotationAt){const steps=1+Math.floor((Date.now()-nextRotationAt)/rotationMs);marketIndex=(marketIndex+steps)%markets.length;nextRotationAt+=steps*rotationMs;clear();}
       if(marketName)marketName.textContent=spec.names[currentMarket()];
-      if(live.hidden || document.hidden){clear();return;}
-      if(host.firstChild || failed)return;
+      if(host.firstChild){if(host.querySelector('iframe'))rotateLater();return;}
+      if(failed)return;
       const stamp=++generation;
       const container=document.createElement('div'),slot=document.createElement('div');
       container.className='tradingview-widget-container';slot.className='tradingview-widget-container__widget';
-      container.append(slot);host.append(container);state.textContent='正在连接来源…';
+      container.append(slot);host.append(container);host.setAttribute('data-pulse-state','loading');state.textContent='正在连接来源…';
       function unavailable() {
         if(stamp!==generation)return;
-        clear();failed=true;selected='saved';show();
+        generation++;clearTimeout(timer);stopRotation();observer?.disconnect();
+        failed=true;host.setAttribute('data-pulse-state','error');selected='saved';show();
         const notice=card.querySelector('.pulse-failure');notice.hidden=false;
         buttons[0].disabled=true;if(pause)pause.disabled=true;
       }
@@ -60,7 +64,12 @@
         const frame=container.querySelector('iframe');
         if(stamp!==generation||!frame)return;
         frame.title=spec.title+' · '+(spec.names?.[currentMarket()]||'市场快讯')+' · TradingView';clearTimeout(timer);observer.disconnect();
-        state.textContent=spec.notes?.[currentMarket()]||spec.note;rotateLater();
+        frame.addEventListener('load',()=>{
+          if(stamp!==generation||failed)return;
+          host.setAttribute('data-pulse-state','embedded');
+          state.textContent='组件已载入，内容与时效以来源显示为准。'+(spec.notes?.[currentMarket()]||spec.note);
+        },{once:true});
+        rotateLater();
       });
       observer.observe(container,{childList:true,subtree:true});
       const script=document.createElement('script');script.async=true;

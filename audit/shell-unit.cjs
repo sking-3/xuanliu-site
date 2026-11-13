@@ -4,9 +4,11 @@ const path = require('node:path');
 const assert = require('node:assert/strict');
 const sourcePath = process.argv[2] || path.join(__dirname, '..', 'books-shell.js');
 const source = fs.readFileSync(sourcePath, 'utf8');
-function test(mobileInitially, currentType = 'page') {
+function test(mobileInitially, currentType = 'page', headStartup = false) {
   const eventTarget = () => ({events:{}, addEventListener(k, fn){this.events[k]=fn;}});
-  const document = {activeElement:null};
+  const document = Object.assign(eventTarget(), {activeElement:null,readyState:headStartup?'loading':'complete'});
+  const rootClasses = new Set();
+  document.documentElement={classList:{add:x=>rootClasses.add(x),remove:x=>rootClasses.delete(x)}};
   const element = (tagName='div') => Object.assign(eventTarget(), {
     tagName,attrs:{},children:[],ownText:'',className:'',
     setAttribute(k,v){this.attrs[k]=String(v)},getAttribute(k){return this.attrs[k]},
@@ -37,7 +39,8 @@ function test(mobileInitially, currentType = 'page') {
   const sidebar = makeElement('aside');sidebar.querySelector=selector=>selector==='.books-nav'?nav:button;
   sidebar.insertBefore=b=>button=b;
   const classes=new Set(['books-shell']);
-  document.body={classList:{contains:x=>classes.has(x),add:x=>classes.add(x)}};
+  const body={classList:{contains:x=>classes.has(x),add:x=>classes.add(x)}};
+  document.body=headStartup?null:body;
   document.querySelector=()=>sidebar;
   document.createElement=tag=>makeElement(tag);
   document.createElementNS=(namespace,tag)=>{const node=makeElement(tag);node.namespaceURI=namespace;return node};
@@ -45,6 +48,13 @@ function test(mobileInitially, currentType = 'page') {
   const media=Object.assign(eventTarget(),{matches:mobileInitially});
   const window=Object.assign(eventTarget(),{matchMedia:()=>media});
   vm.runInNewContext(source,{window,document});
+  if(headStartup){
+    assert.equal(rootClasses.has('books-shell-preparing'),true);
+    assert.equal(button,undefined);assert.equal(links[0].children.length,0);
+    assert.equal(nav.hidden,undefined); // Source DOM still contains every link; preparing CSS alone conceals the mobile flash.
+    document.body=body;document.readyState='interactive';document.events.DOMContentLoaded();
+  }
+  assert.equal(rootClasses.has('books-shell-preparing'),false);
   links.forEach((node,i)=>{
     assert.equal(node.attrs.href,destinations[i]);assert.equal(node.attrs['aria-label'],names[i]);
     assert.equal(node.attrs.title,names[i]);assert.equal(node.children.length,2);
@@ -64,11 +74,23 @@ function test(mobileInitially, currentType = 'page') {
   link.focus();media.matches=true;media.events.change();assert.equal(nav.hidden,true);assert.equal(document.activeElement,button);
   media.matches=false;media.events.change();assert.equal(document.activeElement,link);
   skip.events.click();assert.equal(document.activeElement,target);assert.equal(target.attrs.tabindex,'-1');
-  button.events.click();window.events.pageshow();assert.equal(button.attrs['aria-expanded'],'false');
+  button.events.click();window.events.pageshow({persisted:false});assert.equal(button.attrs['aria-expanded'],'true');
+  window.events.pageshow({persisted:true});assert.equal(button.attrs['aria-expanded'],'false');
   const originalIcon=links[0].children[0];vm.runInNewContext(source,{window,document});
   assert.equal(sidebar.querySelector('.books-menu-toggle'),button);assert.equal(links[0].children[0],originalIcon);
 }
 test(true);test(false);test(true,'location');test(false,'location');
+test(true,'page',true);test(false,'location',true);
+// Fallback paths must release the temporary CSS guard even if a page has no shell or initialization fails.
+for(const fails of [false,true]){
+  const classes=new Set(),events={};
+  const document={readyState:'loading',body:null,documentElement:{classList:{add:x=>classes.add(x),remove:x=>classes.delete(x)}},
+    addEventListener(name,fn){events[name]=fn},querySelector(){return null}};
+  vm.runInNewContext(source,{window:{},document});assert.equal(classes.has('books-shell-preparing'),true);
+  if(fails)document.body={classList:{contains(){throw new Error('synthetic shell initialization failure')}}};
+  if(fails)assert.throws(()=>events.DOMContentLoaded(),/synthetic shell initialization failure/);else events.DOMContentLoaded();
+  assert.equal(classes.has('books-shell-preparing'),false);
+}
 const css=fs.readFileSync(path.join(path.dirname(sourcePath),'books-ui.css'),'utf8');
 const ticker=fs.readFileSync(path.join(path.dirname(sourcePath),'index-ticker.css'),'utf8');
 assert.match(css,/--books-side:92px/);assert.match(css,/padding:0 0 0 var\(--books-side\)/);
@@ -76,6 +98,9 @@ assert.match(css,/\.books-nav a\{position:relative;flex-direction:column/);
 assert.match(css,/\.books-nav-icon\{display:block;width:21px;height:21px/);
 assert.match(css,/\.books-nav a\{width:100%;min-height:44px;[^}]*flex-direction:row/);
 assert.match(css,/\.books-nav\[hidden\]\{display:none\}/);
+assert.match(css,/@media\(max-width:760px\)\{\s*\.books-shell \.books-sidebar\{[^}]*min-height:82px/);
+assert.match(css,/\.books-shell-preparing \.books-shell \.books-nav\{display:none\}/);
+assert.match(css,/\.books-shell \.books-nav\{grid-column:1\/-1;display:grid/); // No-JavaScript fallback stays visible.
 assert.match(ticker,/\.books-shell>\.index-ticker\{[^}]*inset:0 0 auto;[^}]*width:100%/);
 assert.match(ticker,/\.books-sidebar\{top:var\(--books-ticker-height\);height:calc\(100dvh - var\(--books-ticker-height\)\)/);
-console.log('PASS: 7 accessible local SVG navigation icons, preserved destinations/current page, short labels, unknown-link fallback, 92px shared rail/body offset, full-width ticker separation, mobile/desktop disclosure, Escape focus, viewport focus recovery, skip focus, pageshow reset, duplicate initialization.');
+console.log('PASS: head execution without body, DOMContentLoaded enhancement, preparing cleanup on success/early return/failure, stable mobile header and no-JavaScript navigation; 7 accessible local SVG icons, preserved destinations/current page, unknown-link fallback, mobile/desktop disclosure, Escape focus, viewport focus recovery, skip focus, ordinary pageshow preserves opened menu and BFCache pageshow resets, duplicate initialization.');

@@ -39,13 +39,17 @@ CSI = 'https://oss-ch.csindex.com.cn/static/html/csindex/public/uploads/indices/
 TIC = 'https://ticdata.treasury.gov/resource-center/data-chart-center/tic/Documents/slt_table1.txt'
 TICKER = 'https://api.alternative.me/v2/ticker/?limit=10&structure=array&sort=volume_24h'
 BLS_FEED = 'https://www.bls.gov/feed/empsit.rss'
+BLS_CPI = 'https://www.bls.gov/feed/cpi.rss'
+BLS_PPI = 'https://www.bls.gov/feed/ppi.rss'
+# News-release links from the official RSS index: https://www.bls.gov/feed/
+BLS_FEEDS = (BLS_FEED, BLS_CPI, BLS_PPI)
 BLS_CAL = 'https://www.bls.gov/schedule/news_release/bls.ics'
 SOURCES = {
     'sentiment': ('Alternative.me', 'https://alternative.me/crypto/fear-and-greed-index/', (FNG,)),
     'valuation': ('中证指数', CSI, (CSI,)),
     'flows': ('美国财政部 TIC', 'https://home.treasury.gov/data/treasury-international-capital-tic-system-home-page/tic-forms-instructions/securities-a-us-transactions-with-foreign-residents-in-long-term-securities', (TIC,)),
     'active': ('Alternative.me', 'https://alternative.me/crypto/', (TICKER,)),
-    'macro': ('美国劳工统计局 BLS', 'https://www.bls.gov/', (BLS_FEED, BLS_CAL)),
+    'macro': ('美国劳工统计局 BLS', 'https://www.bls.gov/', BLS_FEEDS + (BLS_CAL,)),
 }
 URLS = frozenset(url for _, _, urls in SOURCES.values() for url in urls)
 HOSTS = frozenset(urllib.parse.urlsplit(url).hostname for url in URLS)
@@ -286,7 +290,7 @@ def bls_url(value):
     return value
 
 
-def parse_employment(body, now):
+def parse_bls_entries(body, now):
     source = decode(body)
     if '<!DOCTYPE' in source.upper() or '<!ENTITY' in source.upper():
         fail('unsafe_xml')
@@ -298,7 +302,7 @@ def parse_employment(body, now):
     if root.tag != '{http://www.w3.org/2005/Atom}feed':
         fail('invalid_atom')
     entries = root.findall('a:entry', ns)
-    if not 1 <= len(entries) <= 200:
+    if len(entries) > 200:
         fail('invalid_atom')
     result = []
     for entry in entries:
@@ -312,7 +316,31 @@ def parse_employment(body, now):
         if len(links) != 1:
             fail('invalid_atom_link')
         result.append({'title': title, 'url': bls_url(links[0]), 'publishedAt': published, 'updatedAt': updated})
-    return max(result, key=lambda row: row['publishedAt'])
+    return result
+
+
+def merge_bls_releases(bodies, now):
+    """Merge official release feeds by source dates, never response/fetch time."""
+    releases = {}
+    for body in bodies:
+        for row in parse_bls_entries(body, now):
+            # The same archived release can appear in more than one feed.
+            identity = (row['url'], row['publishedAt'])
+            existing = releases.get(identity)
+            revision = row['updatedAt'] or row['publishedAt']
+            if existing is None or revision > (existing['updatedAt'] or existing['publishedAt']):
+                releases[identity] = row
+            elif revision == (existing['updatedAt'] or existing['publishedAt']) and row['title'] != existing['title']:
+                fail('conflicting_bls_release')
+    return sorted(releases.values(), key=lambda row: (row['publishedAt'], row['updatedAt'] or row['publishedAt'], row['url']), reverse=True)
+
+
+def parse_employment(body, now):
+    """Compatibility wrapper for callers parsing a single employment feed."""
+    releases = merge_bls_releases((body,), now)
+    if not releases:
+        fail('no_bls_releases')
+    return releases[0]
 
 
 def parse_calendar(body, now):
@@ -505,8 +533,13 @@ def collect(previous=None, *, fetch=fetch_url, clock=lambda: datetime.now(UTC)):
             elif key == 'flows': data, as_of = parse_flows(body, completed)
             elif key == 'active': data, as_of, modified = parse_active(body, completed)
             else:
-                latest = parse_employment(body, completed)
-                data = {'latest': latest, 'events': parse_calendar(responses[1][0], completed)}
+                releases = merge_bls_releases((response[0] for response in responses[:-1]), completed)
+                # HTTP 200 with an empty, valid feed is not a new publication.
+                # Retain the last known release and its original source times.
+                latest = releases[0] if releases else (old['data']['latest'] if old['data'] else None)
+                if latest is None:
+                    fail('no_bls_releases')
+                data = {'latest': latest, 'events': parse_calendar(responses[-1][0], completed)}
                 as_of, modified = latest['publishedAt'], latest['updatedAt']
             if old['asOf'] and timestamp(as_of, completed) < timestamp(old['asOf'], completed): fail('source_time_regressed')
             card = empty_card(key)

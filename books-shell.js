@@ -1,10 +1,14 @@
 /* Progressive enhancement only: no data requests, storage or research calculations. */
 (() => {
   'use strict';
+  const root = document.documentElement;
+  root.classList.add('books-shell-preparing');
+  const init = () => {
+  try {
   const body = document.body;
   const sidebar = document.querySelector('.books-sidebar');
   const nav = sidebar && sidebar.querySelector('.books-nav');
-  if (!body.classList.contains('books-shell') || !nav || sidebar.querySelector('.books-menu-toggle')) return;
+  if (!body?.classList.contains('books-shell') || !nav || sidebar.querySelector('.books-menu-toggle')) return;
 
   // Decorative local SVGs retain the original destinations and accessible names.
   const navigation = {
@@ -77,7 +81,7 @@
   mobile.addEventListener('change', syncViewport);
   syncViewport();
   // Restore a consistent navigation state when returning through the browser cache.
-  window.addEventListener('pageshow', syncViewport);
+  window.addEventListener('pageshow', event => { if (event.persisted) syncViewport(); });
 
   // All existing skip links must move keyboard focus, not only the viewport.
   document.querySelectorAll('.skip, .skip-link').forEach((link) => {
@@ -88,4 +92,10 @@
     if (!target.hasAttribute('tabindex')) target.setAttribute('tabindex', '-1');
     link.addEventListener('click', () => target.focus({ preventScroll: true }));
   });
+  } finally {
+    root.classList.remove('books-shell-preparing');
+  }
+  };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init, {once:true});
+  else init();
 })();

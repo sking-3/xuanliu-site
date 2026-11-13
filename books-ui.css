@@ -59,11 +59,12 @@ body.books-shell{margin:0;padding:0 0 0 var(--books-side);background:#f7f7f9;col
 .books-shell :is(.research-topbar,.research-breadcrumb,.snapshot-status){flex-wrap:wrap}
 .books-shell :is(.research-view-nav,.terminal-tabs){max-width:100%;overflow-x:auto}
 @media(max-width:760px){
-  .books-shell .books-sidebar{padding:16px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:0 12px;align-items:center}
+  .books-shell .books-sidebar{padding:16px;min-height:82px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:0 12px;align-items:center}
   .books-shell .books-brand{font-size:24px;text-align:left}
   .books-shell .books-brand span{display:block;margin-top:4px;font-size:8px;color:#767b85;letter-spacing:1.6px}
   /* Without JavaScript all links remain visible and wrap instead of disappearing off-screen. */
   .books-shell .books-nav{grid-column:1/-1;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px;margin-top:14px;overflow:visible;padding:0}
+  .books-shell-preparing .books-shell .books-nav{display:none}
   .books-shell .books-nav a{width:100%;min-height:44px;padding:10px 12px;font-size:13px;white-space:normal;flex-direction:row;justify-content:flex-start;gap:10px;text-align:left}
   .books-shell .books-nav a:is([aria-current=page],[aria-current=location])::before{top:12px;bottom:12px}
   .books-shell .books-nav-icon{width:19px;height:19px}
