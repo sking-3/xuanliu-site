@@ -38,6 +38,7 @@ function mount(host,env){
  const notice=n('p','正在读取研究工作台…','sr-notice');notice.setAttribute('role','status');host.append(notice);
  function links(){const nav=n('nav',undefined,'sr-links');for(const [label,path]of [['A股选股','screening/index.html'],['美股选股','us.html']]){const a=n('a',label+' →');a.href=new URL(path,base).href;nav.append(a);}return nav;}
  if(overview)host.append(links());
+ const ownerEntry=n('div',undefined,'sr-links'),ownerLink=n('a',overview?'打开本人行情工作台 →':market==='us'?'打开本人真实日终数据 →':'打开本人数据接入 →');ownerLink.href='https://books-private-follow.rr7jp4d56w.chatgpt.site/research'+(overview?'':market==='us'?'#market-us':'#market-a');ownerLink.rel='noopener noreferrer';ownerEntry.append(ownerLink,n('span','需本人登录；个人数据不进入公开仓库'));host.append(ownerEntry);
  const metrics=n('div',undefined,'sr-metrics');host.append(metrics);
  const body=n('div');host.append(body);
  let dailyBody,watchBody,radarBody,watchInput,filterInput,strategyInput,queryInput,dailyNote,watchNote,radarNote,drawer,lastFocus;

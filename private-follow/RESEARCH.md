@@ -42,3 +42,21 @@ HTTP401/403/429持久停止整个对应数据供应商；权限逻辑拒绝停�
 `node --test test/*.test.mjs` 验证身份隔离、加密、固定端点、拒绝停止、缓存时效、D1分段、日历时区、单位、资格和去重。测试数据只在测试模块里。
 
 还需本人录入真实行情凭证，逐项验收实际授权、真实日期、分页覆盖、61日复权、分钟基线和真实异动；新后台排程需另获明确同意。凭证成功保存、接口返回一次成功、模拟样本通过、日常生产运行，均为不同验收层。
+
+## Massive Stocks Basic — owner-only EOD adapter (2026-11-13)
+
+The Google registration was authorized by the owner and completed on the free Basic plans. No payment or upgrade. Integration uses only `https://api.massive.com`, Bearer header authentication, existing AES-GCM owner vault, at most one request per 13.5 seconds across the entire source. 401/403/429 persist a source hold; source logical permission denials hold that interface. No automatic fallback, no trade endpoint and no closed-page job.
+
+Only three whitelisted reads: SPY daily aggregates (actual observed trading dates and benchmark); all point-in-time common-stock directory pages (`type=CS`, requested date, 1000/page, bounded 40 pages and cursor host/path validation); grouped US daily aggregates (adjusted for splits, OTC excluded). The requested date cannot exceed the released EOD range or the two-year free entitlement. The official 2026-11-13 changelog changes stock EOD release from midnight to 20:15 ET; code waits until 20:30 ET. Otherwise it requests a previous date. This is source EOD data, never live intraday data. An SPY date series is identified as such, not represented as an official exchange holiday calendar.
+
+The latest dated close is saved first, with history/qualification gaps retained; no moving average or strategy match is invented. A full screening run needs 61 distinct SPY trading dates, all directory pages, per-security continuous adjusted bars and valid fields. Current thresholds and independent U1/U2/U3 rules are retained. Security types/exchanges come from the dated official directory, including explicit exclusions. Missing/new/listing/suspended histories remain pending. Stock Basic does not enable intraday watch/radar; those still need permitted minute data from another source. No personal raw data or derived results are copied into public Pages/GitHub.
+
+Large successful responses are compressed before D1 caching, preserving the first actual receipt time. Browser visibility/close aborts further collection. Cold full history can take 15–25 minutes at the free limit; warm successful requests reuse cached data. Runtime acceptance and source permissions must be reported separately from the synthetic automated tests.
+
+Primary references:
+- https://massive.com/docs/rest/quickstart (Bearer header)
+- https://massive.com/docs/rest/stocks/aggregates/daily-market-summary (Basic EOD, two years, grouped fields)
+- https://massive.com/docs/rest/stocks/aggregates/custom-bars (dated benchmark aggregates)
+- https://massive.com/docs/rest/stocks/tickers/all-tickers (dated universe and pagination)
+- https://massive.com/changelog#changelog-2026-11-13-products (20:15 ET release)
+- https://massive.com/legal/individuals-terms-of-service (personal use; no public redistribution inferred)
