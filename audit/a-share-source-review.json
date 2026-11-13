@@ -1,0 +1,320 @@
+{
+  "schema": "books.a-share.source-review.v1",
+  "verifiedDate": "2026-11-14",
+  "scope": "Official documentation and public disclosure source review only; no live data API acceptance or full-universe collection.",
+  "apiRequestsPerformed": false,
+  "fullMarketQuotesVerified": false,
+  "realTimeInstitutionPositionsAvailable": false,
+  "newSourceRefusalsObserved": [],
+  "selection": "free_end_of_day_and_public_disclosures",
+  "rightsPrinciple": "An open web page, an open-source client, a provider account or sufficient points do not by themselves prove permission to redistribute an entire source database through a public repository. Verify the exact feed and intended display rights before publication.",
+  "officialSources": [
+    {
+      "id": "cninfo_disclosures",
+      "name": "巨潮资讯网公开披露",
+      "url": "https://www.cninfo.com.cn/new/commonUrl?url=disclosure/list/notice",
+      "coverage": "Official page provides Shanghai, Shenzhen, Beijing, fund and research-disclosure sections. This review did not collect or reconcile a complete security universe.",
+      "frequency": "As disclosed; preserve original announcement time separately from event date and first-seen time. No guaranteed ingestion latency verified.",
+      "limits": "No anonymous bulk API rate, pagination contract or database redistribution license verified.",
+      "usage": "Public disclosure browsing and original-document provenance; the page links separately to a data platform and data API. Do not infer a blanket bulk-redistribution license."
+    },
+    {
+      "id": "sse_public_trading",
+      "name": "上交所交易公开信息",
+      "url": "https://www.sse.com.cn/disclosure/diclosure/public/index.shtml",
+      "coverage": "Published trading disclosures only; the official page states that transaction data include auction trading, excluding block trades and after-hours fixed-price trading.",
+      "frequency": "Trading-date disclosure; no exact first-publication latency verified in this review.",
+      "limits": "Not a full-market institution position or transaction ledger.",
+      "usage": "Preserve the disclosure reason and coverage; source rights governed separately by the legal notice."
+    },
+    {
+      "id": "sse_margin_detail",
+      "name": "上交所融资融券明细",
+      "url": "https://www.sse.com.cn/market/othersdata/margin/detail/index.shtml",
+      "coverage": "Broker-reported margin data. Detailed data cover current margin-eligible securities; aggregate balances also include securities removed from the eligible range.",
+      "frequency": "By credit-trading date; not a real-time institution account stream.",
+      "limits": "Units differ by security type; do not treat every instrument quantity as shares.",
+      "usage": "The exchange states brokers guarantee the submitted data. Preserve source, date and units; do not infer final investor identity."
+    },
+    {
+      "id": "sse_legal",
+      "name": "上交所法律声明",
+      "url": "https://www.sse.com.cn/home/legal/",
+      "coverage": "Website content including quotes, company information and market statistics.",
+      "frequency": "Terms as read on the verification date.",
+      "limits": "The notice permits non-commercial browsing and downloading, reserves intellectual property rights and sets written-permission requirements for use intended for resale profit, as well as separate linking conditions.",
+      "usage": "This review does not interpret the notice as a grant to republish full-market quote or Level-2 databases. Verify intended display and distribution rights separately."
+    },
+    {
+      "id": "csrc_fund_reporting_2026",
+      "name": "证监会2026年公募定期报告格式准则",
+      "url": "https://www.csrc.gov.cn/csrc/c101954/c7619929/content.shtml",
+      "coverage": "Publicly offered fund quarterly, interim and annual reports.",
+      "frequency": "Effective 2026-05-01; quarterly reports within 15 working days after quarter-end, interim reports within two months after half-year-end, annual reports within three months after year-end.",
+      "limits": "Report-period-end information is not information known at period end. Actual disclosed security scope must be retained; not a live portfolio feed.",
+      "usage": "The new rule replaces the listed prior annual/interim/quarterly formats and older XBRL templates. Parse the actual report rather than assuming old templates remain current."
+    },
+    {
+      "id": "csrc_fund_disclosure_rules",
+      "name": "公开募集证券投资基金信息披露管理办法",
+      "url": "https://www.csrc.gov.cn/csrc/c106256/c1653985/content.shtml",
+      "coverage": "Fund information disclosure obligations and designated disclosure websites.",
+      "frequency": "Periodic and event-driven disclosure.",
+      "limits": "Designated websites must provide investors disclosure services without charge; this alone does not verify a third-party database redistribution license.",
+      "usage": "Use official fund-manager, custodian and CSRC disclosure documents with their original dates."
+    },
+    {
+      "id": "tushare_stk_surv",
+      "name": "Tushare机构调研",
+      "url": "https://tushare.pro/document/2?doc_id=275",
+      "apiName": "stk_surv",
+      "coverage": "Listed-company research/visit records, including meeting date, visitors, location/mode, receiving organization and optional content.",
+      "frequency": "Event records; no guaranteed end-to-end delay verified.",
+      "limits": {
+        "minimumPoints": 5000,
+        "maxRowsPerRequest": 400,
+        "pagination": "Documentation allows loops or pagination. Actual account access and complete paging were not tested."
+      },
+      "usage": "Meeting attendance is not ownership or a buy/sell transaction. Invocation permission is not verified public redistribution permission."
+    },
+    {
+      "id": "tushare_top_inst",
+      "name": "Tushare龙虎榜机构明细",
+      "url": "https://tushare.pro/document/2?doc_id=107",
+      "apiName": "top_inst",
+      "coverage": "Disclosed leaderboard seats, buy/sell amounts, side and reason; not all stocks or all institution transactions.",
+      "frequency": "Trade-date records; no guaranteed exact publication latency verified from this single-endpoint document.",
+      "limits": {
+        "minimumPoints": 5000,
+        "maxRowsPerRequest": 10000,
+        "pagination": "Documentation permits parameter-based historical extraction. Actual paging not tested."
+      },
+      "usage": "The same seat may appear under buy/sell lists or different disclosure reasons; prevent double counting. A seat name does not prove final beneficial account identity."
+    },
+    {
+      "id": "tushare_margin_detail",
+      "name": "Tushare融资融券明细",
+      "url": "https://tushare.pro/document/2?doc_id=59",
+      "apiName": "margin_detail",
+      "coverage": "Document describes daily Shanghai/Shenzhen margin details and includes a Shenzhen/Beijing Friday-release note; this is not proof of complete Beijing coverage.",
+      "frequency": "Documentation states approximately 08:30 for previous-day data; Shenzhen and Beijing Friday data update on Monday morning.",
+      "limits": {
+        "minimumPoints": 2000,
+        "maxRowsPerRequest": 6000,
+        "pagination": "Date-based loops; complete coverage not tested."
+      },
+      "usage": "Balances and credit flows are not final institution identities or real-time capital flows."
+    },
+    {
+      "id": "tushare_fund_portfolio",
+      "name": "Tushare公募基金持仓",
+      "url": "https://tushare.pro/document/2?doc_id=121",
+      "apiName": "fund_portfolio",
+      "coverage": "Disclosed fund portfolio records with announcement date and report period.",
+      "frequency": "Quarterly updates.",
+      "limits": {
+        "pointsAndFrequency": [
+          {
+            "minimumPoints": 5000,
+            "requestsPerMinute": 200
+          },
+          {
+            "minimumPoints": 8000,
+            "requestsPerMinute": 500
+          }
+        ],
+        "maxRowsPerRequest": null,
+        "note": "No row cap or complete portfolio coverage inferred where not verified."
+      },
+      "usage": "Not current positions. Retain the original report coverage; absence from a limited holdings table is not proof that a fund sold the security."
+    },
+    {
+      "id": "tushare_top10_holders",
+      "name": "Tushare前十大股东",
+      "url": "https://tushare.pro/document/2?doc_id=61",
+      "apiName": "top10_holders",
+      "coverage": "Company top-ten shareholder disclosures, with report period and announcement date.",
+      "frequency": "By disclosed report period; not a current full shareholder register.",
+      "limits": {
+        "minimumPoints": 2000,
+        "note": "Document states higher frequency above 5000 points; no exact rate verified."
+      },
+      "usage": "Compare matching reporting scopes and periods. Report-period positions cannot be backfilled as known before the announcement."
+    },
+    {
+      "id": "tushare_block_trade",
+      "name": "Tushare大宗交易",
+      "url": "https://tushare.pro/document/2?doc_id=161",
+      "apiName": "block_trade",
+      "coverage": "Block-trade records with transaction details and counterpart brokerage/seat fields.",
+      "frequency": "Trade-date records; no guaranteed ingestion latency verified.",
+      "limits": {
+        "minimumPoints": 2000,
+        "maxRowsPerRequest": 1000,
+        "note": "Documentation says total amount unrestricted and higher frequency above 5000 points; actual account throughput not tested."
+      },
+      "usage": "Broker/seat names are not final institution identities. A premium or discount alone does not establish institutional directional intent."
+    },
+    {
+      "id": "tushare_moneyflow",
+      "name": "Tushare个股资金流向",
+      "url": "https://tushare.pro/document/2?doc_id=170",
+      "apiName": "moneyflow",
+      "coverage": "Shanghai/Shenzhen A-share active buy/sell order-size statistics; documentation says history starts in 2010.",
+      "frequency": "Trade-date data; no real-time guarantee verified.",
+      "limits": {
+        "minimumPoints": 2000,
+        "maxRowsPerRequest": 6000,
+        "sizeBandsRmb": {
+          "small": "below 50000",
+          "medium": "50000 to 200000",
+          "large": "200000 to 1000000",
+          "extraLarge": "at least 1000000"
+        },
+        "units": {
+          "volume": "lots (手)",
+          "amount": "RMB ten-thousands (万元)"
+        }
+      },
+      "usage": "Source describes active-order classification using Level-2 orders, not disclosed investor identity. Net inflow is not simply the sum of size-band buy/sell differences. Do not label these fields as verified institutional net buying."
+    },
+    {
+      "id": "tushare_permissions_overview",
+      "name": "Tushare权限总表",
+      "url": "https://tushare.pro/document/1?doc_id=108",
+      "coverage": "Overview of points and update schedules.",
+      "frequency": "Documentation snapshot, not an account permission receipt.",
+      "limits": "The overview listed top_inst at 2000 points, while the current endpoint page requires 5000.",
+      "usage": "A general table must not override current endpoint requirements or actual permission responses."
+    }
+  ],
+  "tushareAccessAndPrice": {
+    "accountPermissionTested": false,
+    "currencyPriceVerified": false,
+    "currencyPrice": null,
+    "reason": "This review verified documentation point thresholds, not a purchase quote. Points are access gates, not RMB prices. Do not promise that the required points or separate real-time/featured-data permissions are free.",
+    "conflicts": [
+      {
+        "apiName": "top_inst",
+        "overviewPoints": 2000,
+        "endpointPoints": 5000,
+        "resolution": "Document the conflict and use current endpoint requirements as the planned minimum; verify the actual account before collecting."
+      },
+      {
+        "apiName": "stk_surv",
+        "olderThirdPartyCopyMaxRows": 100,
+        "currentOfficialEndpointMaxRows": 400,
+        "resolution": "Do not use the older copy as the current pagination contract."
+      }
+    ],
+    "publicRedistributionVerified": false
+  },
+  "institutionEvidencePriorities": [
+    {
+      "priority": 1,
+      "category": "official_announcements_and_financials",
+      "sourceIds": [
+        "cninfo_disclosures"
+      ],
+      "requiredDates": [
+        "reportPeriod",
+        "publishedAt",
+        "firstSeenAt"
+      ],
+      "mustNotClaim": "An announcement was known before publication; an unverified headline is a confirmed favorable catalyst."
+    },
+    {
+      "priority": 2,
+      "category": "institution_research_visits",
+      "sourceIds": [
+        "cninfo_disclosures",
+        "tushare_stk_surv"
+      ],
+      "requiredDates": [
+        "meetingDate",
+        "publishedAt",
+        "firstSeenAt"
+      ],
+      "mustNotClaim": "Attending institutions bought the stock or currently hold it."
+    },
+    {
+      "priority": 3,
+      "category": "leaderboard_institution_seats",
+      "sourceIds": [
+        "sse_public_trading",
+        "tushare_top_inst"
+      ],
+      "requiredDates": [
+        "tradeDate",
+        "publishedAt",
+        "firstSeenAt"
+      ],
+      "mustNotClaim": "The disclosed subset is the full market institution ledger, or seat names identify final owners."
+    },
+    {
+      "priority": 4,
+      "category": "margin_credit_activity",
+      "sourceIds": [
+        "sse_margin_detail",
+        "tushare_margin_detail"
+      ],
+      "requiredDates": [
+        "tradeDate",
+        "sourcePublishedAt",
+        "receivedAt"
+      ],
+      "mustNotClaim": "Previous-day broker-reported balances are intraday institution flows or complete market coverage."
+    },
+    {
+      "priority": 5,
+      "category": "fund_and_shareholder_reported_holdings",
+      "sourceIds": [
+        "csrc_fund_reporting_2026",
+        "tushare_fund_portfolio",
+        "tushare_top10_holders"
+      ],
+      "requiredDates": [
+        "reportPeriodEnd",
+        "announcedAt",
+        "firstSeenAt"
+      ],
+      "mustNotClaim": "Reported period-end holdings are current positions; omission from limited disclosures proves a sale; period changes reveal exact daily trades."
+    }
+  ],
+  "implementationBoundary": "Research evidence only. No new schedule, API account, secret storage, trading endpoint or public provider-data feed is authorized or enabled by this file.",
+  "widgetEvidence": {
+    "configurationSource": "https://www.tradingview.com/widget-docs/widgets/screeners/screener/",
+    "dataLevelSource": "https://www.tradingview.com/widget-docs/markets/asia-pacific/",
+    "market": "china",
+    "screenerType": "stock",
+    "locale": "zh_CN",
+    "officialPreviewRowsObserved": [
+      "601398",
+      "688825",
+      "601288"
+    ],
+    "isolatedLocalRowsObserved": [
+      "600519",
+      "300750"
+    ],
+    "displayedMatchCountAtReview": 7075,
+    "countMeaning": "Provider screener matches, not a reconciled count of ordinary A shares. No quote extraction or database publication.",
+    "fullAShareUniverseReconciled": false,
+    "beijingCoverageVerified": false,
+    "integrationIssue": "Direct component in the existing page remained loading while the same strict-CSP minimal document showed rows. Isolated same-origin frame used; precise upstream race not asserted.",
+    "integratedLocalRowsObserved": [
+      "601398",
+      "688825",
+      "600519",
+      "300750"
+    ],
+    "customLinkDocumentation": "https://www.tradingview.com/widget-docs/tutorials/web-components/custom-links/",
+    "customLinkMode": "Bare HTTPS site chart URL; provider appends tvwidgetsymbol automatically.",
+    "chartRouting": "Strict SSE/SZSE six-digit identifiers accepted independently of the old display-name map; source availability remains provider-owned. BSE not inferred."
+  },
+  "knownValidationLimits": [
+    "Full raw A-share universe and security eligibility have not been reconciled.",
+    "The unchanged us.html has two h1 elements, so the existing whole-site static audit stops there; changed A pages passed focused local resource and ID checks.",
+    "An existing third-party MutationObserver error remains observable on the integrated page despite successful quote rendering; no whole-site zero-error claim."
+  ]
+}

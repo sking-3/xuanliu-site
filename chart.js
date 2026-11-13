@@ -36,7 +36,8 @@
       return;
     }
   }
-  if (!symbols.has(symbol)) {
+  const aShareSymbol = symbol && symbol === symbol.trim() && /^(?:SSE|SZSE):[0-9]{6}$/.test(symbol);
+  if (!symbols.has(symbol) && !aShareSymbol) {
     title.textContent = '请选择行情标的';
     status.textContent = '此链接未包含本站支持的标的。请返回市场，从行情列表选择。';
     retry.hidden = true;
@@ -58,8 +59,9 @@
   else if (symbol.startsWith('SSE:') || symbol.startsWith('SZSE:')) { marketBack.href = 'a-shares.html'; marketBack.textContent = '← 返回A股行情'; }
   const closeOnly = symbol.startsWith('FRED:');
   const chartKind = closeOnly ? '日终走势' : 'K线';
-  title.textContent = symbols.get(symbol);
-  document.title = symbols.get(symbol) + ' · ' + chartKind + ' · Books';
+  const symbolName = symbols.get(symbol) || symbol;
+  title.textContent = symbolName;
+  document.title = symbolName + ' · ' + chartKind + ' · Books';
   document.getElementById('chart-symbol').textContent = symbol;
   document.getElementById('chart-data-note').textContent = symbol.startsWith('SSE:') || symbol.startsWith('SZSE:')
     ? 'A股日终数据，非盘中实时。可用性以图表显示为准。'
@@ -85,7 +87,7 @@
     observer = new MutationObserver(() => {
       const frame = container.querySelector('iframe');
       if (frame && current === generation) {
-        frame.title = symbols.get(symbol) + ' ' + chartKind + '（TradingView）';
+        frame.title = symbolName + ' ' + chartKind + '（TradingView）';
         status.textContent = '已嵌入第三方图表；不代表已取得行情。数据、时间与错误提示以组件内显示为准。';
         clearTimeout(timer); retry.disabled = false; observer.disconnect();
       }
