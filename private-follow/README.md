@@ -1,5 +1,7 @@
 # Books 私人跟单服务
 
+新增本人可见的 `/research` 行情研究入口，详见 [RESEARCH.md](RESEARCH.md)。Tushare / Alpaca 行情凭证服务端加密，个人数据只在受认证页面展示；38项离线测试通过。私人入口已部署，但用户尚未完成供应商注册、录入凭证及真实行情验收，不应据此声称全市场筛选、分钟监控或真实异动已跑通。没有新增后台排程，实盘保持关闭。
+
 公开研究站保留在 GitHub Pages。用户已选择当前 ChatGPT 账号登录的 [私人跟单站](https://books-private-follow.rr7jp4d56w.chatgpt.site)。Sites 项目 `appgprj_6af5c58e52f48191bd02a88337c9c231` 使用仅所有者的自定义访问名单，无编辑者、群组、外部访客或后台排程。这是独立的服务端权限边界，不是公开网页里的隐藏按钮。私人界面沿用 Books 的视觉体系。
 
 ## 权限和凭证

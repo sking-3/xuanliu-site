@@ -1,3 +1,5 @@
+import {dataStatus,saveDataCredentials,readData,loadResearchResult,saveResearchResult} from './research-data.mjs';
+import {researchPage,researchClient} from './research-ui.mjs';
 import {owner,origin,body,seal,unseal,headers,json,settings,SOURCE} from './security.mjs';
 import {probe,credentials,exchanges} from './connectors.mjs';
 import {page,client,css} from './ui.mjs';
@@ -9,6 +11,10 @@ export async function handle(request,env,{fetcher=fetch}={}){
  try{
   const path=new URL(request.url).pathname;if(path==='/api/identity'&&request.method==='GET'){const id=request.headers.get('oai-authenticated-user-id');if(!id)return json({error:'sign_in_required'},401);return json({siteUserId:id,setupOnly:true});}const user=owner(request,env);
   if(request.method==='GET'){
+   if(path==='/research')return new Response(researchPage,{headers:{...headers,'Content-Type':'text/html;charset=utf-8'}});
+   if(path==='/research.js')return new Response(researchClient,{headers:{...headers,'Content-Type':'application/javascript;charset=utf-8'}});
+   if(path==='/api/research/status')return json(await dataStatus(env,user));
+   if(path==='/api/research/result'){const saved=await loadResearchResult(env,user);return json(saved||{schema:'books.stock.workspace.v1',audience:'owner',publishedAt:new Date().toISOString(),markets:Object.fromEntries(['a','us'].map(k=>[k,{status:'not_configured',asOf:null,rows:[],source:null,completeUniverse:false}])),observations:[],alerts:[],execution:{backgroundEnabled:false,realOrdersSent:0}});}
    if(path==='/')return new Response(page,{headers:{...headers,'Content-Type':'text/html;charset=utf-8'}});
    if(path==='/paper')return new Response(paperPage,{headers:{...headers,'Content-Type':'text/html;charset=utf-8'}});
    if(path==='/paper-boot.js')return new Response(paperBoot,{headers:{...headers,'Content-Type':'application/javascript;charset=utf-8'}});
@@ -22,7 +28,10 @@ export async function handle(request,env,{fetcher=fetch}={}){
    if(path==='/api/settings'){const row=await env.DB.prepare('SELECT settings_json, revision, updated_at FROM follow_settings WHERE owner_id = ?').bind(user).first(),rows=await env.DB.prepare('SELECT exchange, summary_json, checked_at, stopped_reason FROM connections WHERE owner_id = ?').bind(user).all();const stops=await env.DB.prepare('SELECT source, reason FROM source_stops').all(),stopMap=Object.fromEntries(stops.results.map(x=>[x.source,x.reason]));return json({settings:row?JSON.parse(row.settings_json):null,revision:row?.revision||0,marketStops:{Binance:stopMap['paper_market:Binance']||null,Bitget:stopMap['paper_market:Bitget']||null},connections:rows.results.map(x=>({exchange:x.exchange,...JSON.parse(x.summary_json),checkedAt:x.checked_at,stoppedReason:stopMap[x.exchange]||x.stopped_reason}))});}
    return json({error:'not_found'},404);
   }
-  if(request.method!=='POST')return json({error:'method_not_allowed'},405);origin(request);const input=await body(request);
+  if(request.method!=='POST')return json({error:'method_not_allowed'},405);origin(request);const input=await body(request,path==='/api/research/result'?8000000:8192);
+  if(path==='/api/research/credentials')return json(await saveDataCredentials(env,user,input));
+  if(path==='/api/research/read'){try{return json(await readData(env,user,input,{fetcher}));}catch(e){if(/^research_[a-z0-9_]+$/.test(e.message))return json({error:e.message,...(e.waitMs?{waitMs:e.waitMs}:{}),...(e.reason?{reason:e.reason}:{})},400);throw e;}}
+  if(path==='/api/research/result'){if(input?.schema!=='books.stock.workspace.v1'||input.audience!=='owner'||!Array.isArray(input.alerts)||input.alerts.length>500||!Array.isArray(input.observations)||input.observations.length>2000||!Number.isFinite(Date.parse(input.publishedAt))||!['a','us'].every(k=>Array.isArray(input.markets?.[k]?.rows)&&input.markets[k].rows.length<=30000))throw Error('research_invalid_result');input.execution={backgroundEnabled:false,realOrdersSent:0};return json(await saveResearchResult(env,user,input));}
   if(path==='/api/settings'){const next=settings(input);await env.DB.prepare('INSERT INTO follow_settings (owner_id, settings_json, updated_at) VALUES (?, ?, ?) ON CONFLICT(owner_id) DO UPDATE SET settings_json=excluded.settings_json, revision=follow_settings.revision+1, updated_at=excluded.updated_at').bind(user,JSON.stringify(next),Date.now()).run();return json({saved:true,settings:next});}
   const connection=path.match(/^\/api\/connections\/(Binance|Bitget|Hyperliquid)$/);
   if(connection){const exchange=connection[1],blocked=await env.DB.prepare('SELECT reason FROM source_stops WHERE source = ?').bind(exchange).first();if(blocked)return json({error:'source_stopped',reason:blocked.reason},409);
@@ -33,6 +42,6 @@ export async function handle(request,env,{fetcher=fetch}={}){
    catch(e){if(e.stop)await env.DB.prepare('INSERT INTO source_stops (source, reason, stopped_at) VALUES (?, ?, ?) ON CONFLICT(source) DO NOTHING').bind(exchange,e.message,Date.now()).run();throw e;}
   }
   return json({error:'not_found'},404);
- }catch(e){const allowed=/^(sign_in_required|owner_only|invalid_origin|invalid_settings|invalid_credentials|invalid_address|public_policy_unavailable|policy_http_[0-9]{3}|policy_transport_error|source_stopped|checkpoint_waiting|checkpoint_unavailable|checkpoint_schema|request_too_large|invalid_request|vault_not_configured|connection_missing|account_schema|account_read_rejected|source_rejected|response_too_large|source_http_(403|429)|connection_http_[0-9]{3}|unsupported_market|unsupported_quantity_step|market_schema|book_schema|market_unavailable|market_http_[0-9]{3})$/;return json({error:allowed.test(e.message)?e.message:'request_failed'},e.status||400);}
+ }catch(e){const allowed=/^(research_[a-z0-9_]+|sign_in_required|owner_only|invalid_origin|invalid_settings|invalid_credentials|invalid_address|public_policy_unavailable|policy_http_[0-9]{3}|policy_transport_error|source_stopped|checkpoint_waiting|checkpoint_unavailable|checkpoint_schema|request_too_large|invalid_request|vault_not_configured|connection_missing|account_schema|account_read_rejected|source_rejected|response_too_large|source_http_(403|429)|connection_http_[0-9]{3}|unsupported_market|unsupported_quantity_step|market_schema|book_schema|market_unavailable|market_http_[0-9]{3})$/;return json({error:allowed.test(e.message)?e.message:'request_failed'},e.status||400);}
 }
 export default {fetch:handle};
