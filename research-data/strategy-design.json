@@ -1,0 +1,170 @@
+{
+  "schema": "books.stock.strategy-design.v1",
+  "version": "2026-11-14-v0",
+  "stage": "proposal_unvalidated",
+  "rulesEnabled": false,
+  "marketDataPrinciple": "正式选股池必须来自当日完整证券目录和完整分页行情，固定观察样本不代表全市场；当前新方案尚未启用，也不代表全市场筛选已跑通。",
+  "commonGate": [
+    "收盘完整、当日资格、统一复权、真实交易日历、来源权限、证券覆盖和分页全部核验。",
+    "基准、行业或事件证据缺失的分支单列待核，其他分支独立运行；当天可以没有合格记录。"
+  ],
+  "parameters": "上述数字是待验证的初始研究参数，不是回测最优参数或已证优势。先冻结版本，再按日期滚动样本外检验。",
+  "validation": {
+    "realForwardResultsAvailable": false,
+    "returnsAreTradePnl": false,
+    "direction": "C[next]/C[signal]-1",
+    "nextSessionIntradayObservation": "C[next]/O[next]-1",
+    "overnightGap": "O[next]/C[signal]-1",
+    "dailySequence": "日线不能证明触发、止损、止盈先后；没有分钟证据不认定成交。",
+    "aExecution": "A股次日新买仓位不能同日卖出；方向正确不等于可执行盈利。",
+    "comparison": "与同交易日、同资格及流动性对照比较，分市场阶段报告样本外超额、未触发、失效、不可成交和数据缺口；不输出未验证概率。",
+    "denominators": "前晚冻结的全部方向信号保留；观察项不计方向准确率。条件触发、未触发、先失效、不可成交和模拟收益另账，不能只挑次日触发者回算前晚准确率。",
+    "entryObservation": "entry_plan只核对已冻结做多计划和有序逐笔证据，报价机会不等于成交或收益；分钟OHLC不确定先后时待核。",
+    "priceBasis": "方向比较要求同一复权锚点；触发价/失效价必须换算到目标交易日实际报价单位，核验拆股、分红等公司行动。"
+  },
+  "markets": {
+    "a": [
+      {
+        "id": "A-R1",
+        "title": "平台突破延续",
+        "status": "research_hypothesis",
+        "enabled": false,
+        "direction": "conditional_long",
+        "filters": [
+          "当日资格核验：沪深主板普通股、非ST/风险警示/退市/停牌，正常10%限幅；10%本身不能证明非ST。",
+          "指数和所属行业趋势不弱，个股收盘高于20日、50日均线；收盘突破此前20日最高价（不含当日）。",
+          "成交量至少为此前20日均量的1.5倍，收盘位于当日振幅上部30%；偏离20日均线超过12%暂不追。"
+        ],
+        "nextSessionTrigger": "次日价格突破已冻结的信号高点，且市场与行业条件仍成立；仅作为待分钟数据确认的计划。",
+        "invalidation": "跳空超过信号日ATR14、先跌破信号低点、停牌或无法核实可成交时取消；一字涨停不按触价认定成交。",
+        "additionalDataRequired": [
+          "dated_index_bars",
+          "dated_sector_membership",
+          "dated_sector_bars",
+          "minute_sequence",
+          "tradability_evidence"
+        ],
+        "validatedEdge": false
+      },
+      {
+        "id": "A-R2",
+        "title": "趋势回撤后转强",
+        "status": "research_hypothesis",
+        "enabled": false,
+        "direction": "conditional_long",
+        "filters": [
+          "保留上升趋势和相对行业强度，回撤期间不破坏20/50日趋势结构。",
+          "此前3日均量低于此前20日均量；信号日重新收复前一日高点，收盘位于当日振幅上部40%。"
+        ],
+        "nextSessionTrigger": "次日延续转强并突破信号高点；与突破分支独立筛选，同票合并但保留命中分支。",
+        "invalidation": "先跌破回撤低点、行业转弱或开盘偏离预设ATR范围则取消。",
+        "additionalDataRequired": [
+          "dated_index_bars",
+          "dated_sector_membership",
+          "dated_sector_bars",
+          "minute_sequence",
+          "tradability_evidence"
+        ],
+        "validatedEdge": false
+      },
+      {
+        "id": "A-R3",
+        "title": "正式催化与行业共振",
+        "status": "research_hypothesis",
+        "enabled": false,
+        "direction": "conditional_long",
+        "filters": [
+          "正式公告原文、发布时间、首次发现时间与结构化事件证据齐全。",
+          "事件在筛选截止前已公开，并有行业相对强度和个股量价配合；不能仅凭新闻标题判定利好。"
+        ],
+        "nextSessionTrigger": "公告条件仍有效且次日量价确认后才触发。",
+        "invalidation": "证据缺失、公告修订、异常一字板或行业不配合均待核或取消。",
+        "additionalDataRequired": [
+          "official_event_record",
+          "event_published_at",
+          "event_first_seen_at",
+          "dated_sector_membership",
+          "dated_sector_bars",
+          "minute_sequence"
+        ],
+        "validatedEdge": false
+      }
+    ],
+    "us": [
+      {
+        "id": "US-R1",
+        "title": "财报或指引后的延续",
+        "status": "research_hypothesis",
+        "enabled": false,
+        "direction": "conditional_long",
+        "filters": [
+          "财报/指引来自公司公告或SEC，原文和公开/首次发现时间均早于筛选截止。",
+          "必须是事件公开之后的常规时段量价确认；盘后首次公告没有事后常规数据时只观察，不能用公告前涨幅确认，也不能翌日确认后回填前夜信号。",
+          "初始研究过滤：股价至少5美元、20日平均成交额至少2500万美元，避免将低流动性跳空视为普遍机会。"
+        ],
+        "nextSessionTrigger": "次日常规时段确认承接后才触发，盘前价格另列，不与日线收盘混用。",
+        "invalidation": "隔夜跳空超过冻结ATR范围、事件修订、流动性/价差或停牌条件不满足时取消。",
+        "additionalDataRequired": [
+          "official_event_record",
+          "event_published_at",
+          "event_first_seen_at",
+          "regular_session_bars",
+          "minute_sequence",
+          "spread_and_halt_evidence"
+        ],
+        "validatedEdge": false
+      },
+      {
+        "id": "US-R2",
+        "title": "相对强势的放量突破",
+        "status": "research_hypothesis",
+        "enabled": false,
+        "direction": "conditional_long",
+        "filters": [
+          "SPY趋势不弱，个股20日相对SPY超额为正，收盘高于20/50日均线且50日均线上行。",
+          "收盘突破此前20日最高价（不含当日），成交量至少为此前20日均量的1.5倍，收盘位于当日振幅上部30%。",
+          "初始研究过滤：股价至少5美元、20日平均成交额至少2500万美元、距20日均线不超过10%。"
+        ],
+        "nextSessionTrigger": "次日常规时段突破信号高点且相对强度维持；记录是否因跳空错过可进入区。",
+        "invalidation": "先失守信号低点、SPY/相对强度转弱、停牌或开盘偏离冻结ATR范围则取消。",
+        "additionalDataRequired": [
+          "dated_spy_bars",
+          "regular_session_bars",
+          "minute_sequence",
+          "spread_and_halt_evidence"
+        ],
+        "validatedEdge": false
+      },
+      {
+        "id": "US-R3",
+        "title": "临近突破观察",
+        "status": "research_hypothesis",
+        "enabled": false,
+        "direction": "watch",
+        "filters": [
+          "趋势与相对强度满足要求，但价格尚未突破此前20日高点。",
+          "只进入观察队列，不把“接近突破”当成已经触发的看多信号。"
+        ],
+        "nextSessionTrigger": "未来实际突破时生成带新时间戳的新信号，不能回填到前一天。",
+        "invalidation": "未突破、结构转弱或出现新事件时取消或更新版本。",
+        "additionalDataRequired": [
+          "dated_spy_bars",
+          "regular_session_bars",
+          "minute_sequence"
+        ],
+        "validatedEdge": false
+      }
+    ]
+  },
+  "sources": {
+    "aRules": "https://docs.static.szse.cn/www/lawrules/rule/trade/current/W020260424690713155663.pdf",
+    "aRiskWarning": "https://www.sse.com.cn/services/tradingtech/development/c/10816505/files/8006a51174524e7cae832568b5e726a6.pdf",
+    "usCalendar": "https://www.nyse.com/trade/hours-calendars",
+    "usEvents": "https://www.sec.gov/search-filings/edgar-application-programming-interfaces",
+    "usExtended": "https://www.investor.gov/introduction-investing/general-resources/news-alerts/alerts-bulletins/investor-bulletins-42"
+  },
+  "marketGates": {
+    "a": "所有A-R分支共同继承：沪深主板普通股、非ST/风险警示/退市/停牌，独立核验当日正常10%限幅；任何资格证据不完整均待核。",
+    "us": "所有US-R分支共同核验当日普通股资格、流动性、常规时段、真实日历、停牌、完整行情与来源权限；第一版不执行做空。"
+  }
+}

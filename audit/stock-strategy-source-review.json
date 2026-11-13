@@ -1,0 +1,19 @@
+{
+  "reviewDate": "2026-11-14",
+  "sources": {
+    "aRules": "https://docs.static.szse.cn/www/lawrules/rule/trade/current/W020260424690713155663.pdf",
+    "aRiskWarning": "https://www.sse.com.cn/services/tradingtech/development/c/10816505/files/8006a51174524e7cae832568b5e726a6.pdf",
+    "usCalendar": "https://www.nyse.com/trade/hours-calendars",
+    "usEvents": "https://www.sec.gov/search-filings/edgar-application-programming-interfaces",
+    "usExtended": "https://www.investor.gov/introduction-investing/general-resources/news-alerts/alerts-bulletins/investor-bulletins-42"
+  },
+  "stoppedRequests": [
+    {
+      "url": "https://www.nber.org/papers/w21329",
+      "errorCode": "http_403",
+      "scope": "research_document",
+      "action": "stopped; no retry or alternate endpoint"
+    }
+  ],
+  "strategyPerformanceVerified": false
+}

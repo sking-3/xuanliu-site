@@ -24,6 +24,27 @@ def finite(v):
     return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
 
 
+def benchmark_lookup(benchmark):
+    """A dated benchmark is a series, not a last-write-wins dictionary."""
+    if not isinstance(benchmark, list):
+        raise ValueError('benchmark_shape_invalid')
+    lookup = {}
+    for bar in benchmark:
+        if not isinstance(bar, dict) or not isinstance(bar.get('date'), str):
+            raise ValueError('benchmark_date_invalid')
+        day = bar.get('date')
+        try:
+            date.fromisoformat(day)
+        except ValueError:
+            raise ValueError('benchmark_date_invalid') from None
+        if day in lookup:
+            raise ValueError('duplicate_benchmark_date')
+        if not finite(bar.get('close')) or bar['close'] <= 0:
+            raise ValueError('benchmark_values_invalid')
+        lookup[day] = bar['close']
+    return lookup
+
+
 def qualification(s, market, day):
     """Unknown evidence cannot qualify a formal candidate."""
     e = s.get('eligibility', {})
@@ -65,7 +86,7 @@ def metrics(s, benchmark, day, trading_dates):
     vol = mean(b['volume'] for b in bars[-21:-1])
     if vol <= 0:
         raise ValueError('volume_baseline_missing')
-    lookup = {b['date']: b['close'] for b in benchmark if finite(b.get('close')) and b['close'] > 0}
+    lookup = benchmark_lookup(benchmark)
     excess = None
     if dates[-1] in lookup and dates[-21] in lookup:
         excess = last['close'] / bars[-21]['close'] - lookup[dates[-1]] / lookup[dates[-21]]
@@ -77,19 +98,35 @@ def metrics(s, benchmark, day, trading_dates):
 
 
 def screen(batch, now=None):
-    now = now or datetime.now(timezone.utc).timestamp()
+    now = datetime.now(timezone.utc).timestamp() if now is None else now
+    if not finite(now):
+        raise ValueError('invalid_now')
     market, day = batch['market'], batch['session']['date']
     date.fromisoformat(day)
     if market not in ['a', 'us']:
         raise ValueError('invalid_market')
     source = batch['source']
+    close_at = stamp(batch['session']['closeTime'])
+    received_at = stamp(source.get('receivedAt'))
+    close_day = datetime.fromtimestamp(close_at, ZoneInfo('Asia/Shanghai' if market == 'a' else 'America/New_York')).date().isoformat()
+    timing_reasons = []
+    if close_day != day:
+        timing_reasons.append('market_close_date_mismatch')
+    if close_at > now:
+        timing_reasons.append('market_close_in_future')
+    if received_at > now:
+        timing_reasons.append('source_received_in_future')
+    if received_at < close_at:
+        timing_reasons.append('source_received_before_close')
+    # Reject contradictory batch-level source data before considering any stock.
+    benchmark_lookup(batch.get('benchmark', []))
     trading_dates = batch['session'].get('tradingDates', [])
     if trading_dates:
         for value in trading_dates:
             date.fromisoformat(value)
         if trading_dates != sorted(set(trading_dates)) or trading_dates[-1] != day:
             raise ValueError('invalid_trading_calendar')
-    complete = (batch['session'].get('calendarVerified') is True and stamp(batch['session']['closeTime']) <= now
+    complete = (not timing_reasons and batch['session'].get('calendarVerified') is True
                 and source.get('paginationComplete') is True and source.get('coverage') == 'full_universe'
                 and type(source.get('expectedCount')) is int and source['expectedCount'] > 0
                 and source.get('expectedCount') == len(batch['securities']) and source.get('permissionsVerified') is True
@@ -109,6 +146,10 @@ def screen(batch, now=None):
                  currency='CNY' if market == 'a' else 'USD', asOf=day, metrics=None, bars=[])
         rows.append(r)
         if status == 'excluded':
+            continue
+        if timing_reasons:
+            r['reasons'].extend(timing_reasons)
+            r['reasons'].append('batch_coverage_or_close_unverified')
             continue
         try:
             m = metrics(s, batch.get('benchmark', []), day, trading_dates)

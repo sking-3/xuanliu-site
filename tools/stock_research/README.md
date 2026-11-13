@@ -45,3 +45,19 @@ python3 -B -m tools.stock_research.pipeline --input /path/to/authorized-batch.js
 官方依据：[Tushare日线与单位](https://tushare.pro/document/2?doc_id=27)、[Tushare响应结构](https://tushare.pro/document/1?doc_id=130)、[Alpaca历史Bars分页](https://docs.alpaca.markets/us/reference/stockbars)、[IEX/SIP覆盖差异](https://docs.alpaca.markets/us/docs/market-data-faq)。这些链接不构成数据授权。
 
 后续需要接入经授权的数据源并完成真实批次对账，再验证盘中推送、端到端延迟、失败停止及通知。当前没有这些账号权限，因此未声称“自动全市场已运行”或“第一时间看到机构资金”。
+
+## 次日研究与两项独立验收（2026-11-14）
+
+`research-data/strategy-design.json` 为六个独立研究假设的版本化设计，A-R / US-R 不替换原 M1—M5、U1—U3。方案尚未启用，数字只是研究初值；不存在已验证的方向概率或真实样本外成绩。正式选股池必须来自完整证券目录和已核验批次，观察样本不代表全市场。
+
+`next_session.py` 只做无网络、无交易的方向核对：`evaluate_direction(signal, outcome, now)` 分别给出昨收至次收、次日开盘至收盘和隔夜跳空。信号要求 `strategyVersion`；同策略不同版本不混算。时间声明只用于校验顺序，不能证明事前真实发布；晚发布标 `historical_replay`，未定数据不填数字。`priceBasis` 必须涵盖同一复权锚点和公司行动口径，不能只写笼统的“复权”。
+
+`summarize_direction()` 按市场、策略版本与时间证据类别分别统计命中、未定、观察及真实不同交易日数，不输出虚构胜率。前晚方向分母保留全部冻结信号，不能只挑次日触发者。日线不能证明触发与失效的先后，不据此认定成交；A股次日新买仓位不能同日卖出。可执行机会与方向另账，模拟收益还须另外验证成本和成交。
+
+```sh
+python3 -B -m unittest tools.stock_research.test_engine tools.stock_research.test_next_session tools.stock_research.test_entry_plan -v
+```
+
+`entry_plan.py` 独立核对冻结后的做多触发价、失效价和最高可接受价格，区分未触发、先失效、开盘超出范围、触价但报价未核验、已观察到报价机会与证据待核。必须具备从开盘开始的连续有序证据、同一实际报价单位和复权锚点，以及新鲜买卖报价、停牌与限价状态；仅有分钟OHLC不推断先后。报价机会不等于真实成交，不计算交易收益。其统计不与方向命中混算，也没有连接生产账本或自动运行。
+
+本轮还修复收盘日期/来源接收时间校验、矛盾重复基准和失败时私人缓存误进入公开输出的路径。来源失败仍保留合法公开历史；不可信批次待核，不输出当天形态或价格。新增规则设计和离线验证器并不表示生产选股、盘中雷达或新后台排程已启用。

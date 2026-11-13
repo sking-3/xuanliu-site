@@ -15,6 +15,16 @@ SOURCE_KEYS = ['id', 'name', 'receivedAt', 'dataAsOf', 'coverage', 'expectedCoun
                'paginationComplete', 'permissionsVerified', 'redistributionAllowed', 'feed', 'errorCode']
 
 
+def public_source(source):
+    return (source.get('permissionsVerified') is True
+            and source.get('redistributionAllowed') is True
+            and source.get('accessScope') in [None, 'public'])
+
+
+def public_audience(snapshot):
+    return snapshot.get('audience') in [None, 'public']
+
+
 def empty():
     return dict(schema=SCHEMA, publishedAt=datetime.now(timezone.utc).isoformat(),
                 markets={k:dict(status='not_configured', asOf=None, source=None, parameters=None,
@@ -33,19 +43,25 @@ def build(raw, previous=None, now=None):
         if batch.get('market') != market:
             raise ValueError('market_mismatch')
         source = batch.get('source', {})
-        public_source = {k:source[k] for k in SOURCE_KEYS if k in source}
-        if source.get('stopped') or source.get('errorCode'):
-            old = (previous or {}).get('markets', {}).get(market, {})
-            out['markets'][market] = {**out['markets'][market], **old, 'status':'stale' if old.get('rows') else 'unavailable',
-                                      'source':{**(old.get('source') or {}), **public_source}}
-            out['markets'][market].setdefault('rows', [])
-            continue
-        if source.get('redistributionAllowed') is not True:
-            out['markets'][market] = dict(status='restricted', asOf=None, source=public_source,
+        safe_source = {k:source[k] for k in SOURCE_KEYS if k in source}
+        if not public_audience(raw) or not public_source(source):
+            out['markets'][market] = dict(status='restricted', asOf=None, source=safe_source,
                                           rows=[], completeUniverse=False)
             continue
+        if source.get('stopped') or source.get('errorCode'):
+            old = (previous or {}).get('markets', {}).get(market, {})
+            # A failed new fetch cannot turn an owner-only or unlicensed cache public.
+            if (not public_audience(previous or {})
+                    or old.get('rows') and not public_source(old.get('source') or {})):
+                out['markets'][market] = dict(status='restricted', asOf=None, source=safe_source,
+                                              rows=[], completeUniverse=False)
+                continue
+            out['markets'][market] = {**out['markets'][market], **old, 'status':'stale' if old.get('rows') else 'unavailable',
+                                      'source':{**(old.get('source') or {}), **safe_source}}
+            out['markets'][market].setdefault('rows', [])
+            continue
         result = screen(batch, now)
-        result['source'] = public_source
+        result['source'] = safe_source
         out['markets'][market] = result
     allowed = {m for m,v in out['markets'].items() if v['status'] in ['ready','partial']}
     obs = [x for x in raw.get('observations', []) if x.get('market') in allowed]
