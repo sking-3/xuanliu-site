@@ -30,21 +30,99 @@ def observation():
                 sourceTime='2026-11-13T00:59:30Z',receivedAt='2026-11-13T00:59:31Z',price=100,turnover=400,priceChange1m=.02,
                 baseline=[dict(date=(date.fromisoformat(DAY)-timedelta(days=i)).isoformat(),minute='19:59',session='post',turnover=100) for i in range(1,11)])
 
+def official_event(b):
+    """Synthetic causal source evidence; no real issuer announcement is claimed."""
+    b['session']['openTime']='2026-11-12T14:30:00Z'
+    b['securities'][0]['event']=dict(symbol='FIXTURE',kind='earnings',officialVerified=True,
+        sourceType='sec',sourceUrl='https://www.sec.gov/Archives/SYNTHETIC_TEST_ONLY',
+        publishedAt='2026-11-12T12:00:00Z',firstSeenAt='2026-11-12T12:00:01Z',
+        receivedAt='2026-11-12T12:00:02Z')
+    return b
+
 class Research(unittest.TestCase):
     def test_independent_rules_merge_and_exclude_current_high(self):
-        b=batch();r=e.screen(b,NOW)['rows'][0]
+        b=batch();result=e.screen(b,NOW);r=result['rows'][0]
+        self.assertEqual(result['rulesVersion'],'books.stock.us.causal.v2')
         self.assertEqual(r['hits'],['U1','U2']);self.assertEqual(r['status'],'candidate')
         self.assertLess(r['metrics']['high20'],r['close']);self.assertIn('event_catalyst_requires_evidence',r['reasons'])
+        self.assertEqual(r['pending'],['U1'])
+        self.assertEqual(r['eligibleHits'],['U2'])
 
     def test_near_breakout_is_independent(self):
         b=batch();last=b['securities'][0]['bars'][-1];last.update(open=100.8,close=100.8,low=100.7,high=100.9,volume=100000)
-        self.assertEqual(e.screen(b,NOW)['rows'][0]['hits'],['U3'])
+        r=e.screen(b,NOW)['rows'][0]
+        self.assertEqual(r['hits'],['U3']);self.assertEqual(r['status'],'pending')
+        self.assertEqual(r['pending'],['U3']);self.assertIn('near_breakout_watch_only',r['reasons'])
+        self.assertEqual(r['eligibleHits'],[])
+
+    def test_u1_shape_without_causal_official_event_stays_pending_without_blocking_independent_u2(self):
+        b=batch();b['benchmark']=[]
+        r=e.screen(b,NOW)['rows'][0]
+        self.assertEqual(r['hits'],['U1']);self.assertEqual(r['status'],'pending')
+        self.assertEqual(r['pending'],['U1']);self.assertIn('event_catalyst_requires_evidence',r['reasons'])
+        self.assertEqual(r['eligibleHits'],[])
+        self.assertEqual(e.screen(batch(),NOW)['rows'][0]['status'],'candidate')
+        b=official_event(batch());b['benchmark']=[]
+        r=e.screen(b,NOW)['rows'][0]
+        self.assertEqual(r['hits'],['U1']);self.assertEqual(r['status'],'candidate')
+        self.assertEqual(r['pending'],[])
+        self.assertEqual(r['eligibleHits'],['U1'])
+
+    def test_u1_event_identity_original_source_and_opening_causality_are_verified_before_promotion(self):
+        changes=[lambda b:b['securities'][0]['event'].update(symbol='OTHER'),
+                 lambda b:b['securities'][0]['event'].update(kind='rumour'),
+                 lambda b:b['securities'][0]['event'].update(officialVerified=1),
+                 lambda b:b['securities'][0]['event'].update(sourceType='social'),
+                 lambda b:b['securities'][0]['event'].update(sourceUrl='http://www.sec.gov/filing'),
+                 lambda b:b['securities'][0]['event'].update(sourceUrl='https://user:secret@www.sec.gov/filing'),
+                 lambda b:b['securities'][0]['event'].update(sourceUrl='https://www.sec.gov:not-a-port/filing'),
+                 lambda b:b['securities'][0]['event'].update(publishedAt='2026-11-12T14:30:00Z',firstSeenAt='2026-11-12T14:30:01Z',receivedAt='2026-11-12T14:30:02Z'),
+                 lambda b:b['securities'][0]['event'].update(publishedAt='2026-11-12T22:00:00Z',firstSeenAt='2026-11-12T22:00:01Z',receivedAt='2026-11-12T22:00:02Z'),
+                 lambda b:b['securities'][0]['event'].update(firstSeenAt='2026-11-12T11:59:59Z'),
+                 lambda b:b['securities'][0]['event'].update(receivedAt='2026-11-12T21:30:01Z'),
+                 lambda b:b['securities'][0]['event'].update(receivedAt='2026-11-13T02:00:00Z'),
+                 lambda b:b['session'].pop('openTime'),
+                 lambda b:b['session'].update(openTime='2026-11-11T14:30:00Z')]
+        for index,change in enumerate(changes):
+            with self.subTest(index=index):
+                b=official_event(batch());b['benchmark']=[];change(b)
+                r=e.screen(b,NOW)['rows'][0]
+                self.assertEqual(r['status'],'pending');self.assertEqual(r['hits'],['U1'])
+                self.assertEqual(r['pending'],['U1'])
+        b=official_event(batch());b['securities'][0]['event'].update(kind='guidance',sourceType='issuer',sourceUrl='https://issuer.example/SYNTHETIC_TEST_ONLY')
+        b['benchmark']=[]
+        self.assertEqual(e.screen(b,NOW)['rows'][0]['status'],'candidate')
+
+    def test_unverified_calendar_never_produces_quotes_metrics_or_shape_hits(self):
+        for value in [False,None,1]:
+            with self.subTest(calendarVerified=value):
+                b=batch();b['session']['calendarVerified']=value;r=e.screen(b,NOW)['rows'][0]
+                self.assertEqual(r['status'],'pending');self.assertEqual(r['hits'],[])
+                self.assertIsNone(r['close']);self.assertIsNone(r['metrics']);self.assertEqual(r['bars'],[])
+                self.assertIn('complete_close_or_calendar_unverified',r['reasons'])
+
+    def test_finite_raw_values_cannot_publish_nonfinite_derived_metrics(self):
+        for mutation in ['volume','gap','relative']:
+            with self.subTest(mutation=mutation):
+                b=batch();bars=b['securities'][0]['bars']
+                if mutation=='volume':
+                    for bar in bars[:-1]:bar['volume']=1e-300
+                    bars[-1]['volume']=1e308
+                elif mutation=='gap':
+                    for key in ['open','high','low','close']:bars[-2][key]=1e-310
+                else:
+                    b['benchmark'][-21]['close']=1e-300;b['benchmark'][-1]['close']=1e308
+                r=e.screen(b,NOW)['rows'][0]
+                self.assertEqual(r['status'],'pending');self.assertEqual(r['hits'],[])
+                self.assertIsNone(r['metrics']);self.assertIn('derived_metrics_invalid',r['reasons'])
+                json.dumps(r,allow_nan=False)
 
     def test_no_incomplete_batch_promotes_candidate(self):
         for field,value in [('paginationComplete',False),('permissionsVerified',False),('coverage','watchlist'),('feed','iex'),('dataAsOf','2026-11-11'),('expectedCount',2),('expectedCount',True)]:
             b=batch();b['source'][field]=value
             with self.subTest(field=field):
                 result=e.screen(b,NOW);self.assertEqual(result['status'],'partial');self.assertEqual(result['rows'][0]['status'],'pending')
+                self.assertEqual(result['rows'][0]['eligibleHits'],[])
         b=batch();b['session']['closeTime']='2026-11-14T21:00:00Z';self.assertEqual(e.screen(b,NOW)['status'],'partial')
 
     def test_a_qualification_and_unconfirmed_modes(self):
@@ -123,6 +201,13 @@ class Research(unittest.TestCase):
             with self.subTest(change=change):self.assertEqual(e.anomalies([q],NOW),[])
         q=copy.deepcopy(x);q['baseline'].reverse();self.assertEqual(e.anomalies([q],NOW)[0]['ratio'],4)
 
+    def test_overflowing_activity_ratio_cannot_erase_valid_observations_or_enter_output(self):
+        valid=observation();bad=copy.deepcopy(valid);bad['symbol']='OVERFLOW_FIXTURE';bad['turnover']=1e308
+        for row in bad['baseline']:row['turnover']=1e-300
+        events=e.anomalies([bad,valid],NOW)
+        self.assertEqual(len(events),1);self.assertEqual(events[0]['symbol'],'FIXTURE')
+        json.dumps(events,allow_nan=False)
+
     def test_pipeline_permissions_and_failure_retention(self):
         b=batch();raw=dict(schema='books.stock.input.v1',markets={'us':b},observations=[]);previous=p.build(raw,now=NOW)
         b['source'].update(stopped=True,errorCode='http_429');out=p.build(raw,previous,NOW)
@@ -130,6 +215,71 @@ class Research(unittest.TestCase):
         initial_failure=p.build(raw,now=NOW)['markets']['us'];self.assertEqual(initial_failure['status'],'unavailable');self.assertIsNone(initial_failure['asOf'])
         b['source'].pop('stopped');b['source'].pop('errorCode');b['source']['redistributionAllowed']=False
         out=p.build(raw,now=NOW);self.assertEqual(out['markets']['us']['status'],'restricted');self.assertEqual(out['markets']['us']['rows'],[])
+
+    def test_failed_us_refresh_retains_original_evidence_but_downgrades_old_rule_candidates(self):
+        raw=dict(schema='books.stock.input.v1',markets={'us':batch()})
+        previous=p.build(raw,now=NOW)
+        raw['markets']['us']['source']['errorCode']='http_429'
+        for version in [None,'legacy-us-rules-v1']:
+            old=copy.deepcopy(previous)
+            if version is None:old['markets']['us'].pop('rulesVersion')
+            else:old['markets']['us']['rulesVersion']=version
+            old_row=old['markets']['us']['rows'][0]
+            old_row['userNote']={'label':'SYNTHETIC retained user note'}
+            before=copy.deepcopy(old)
+            result=p.build(raw,old,NOW)['markets']['us'];row=result['rows'][0]
+            with self.subTest(version=version):
+                self.assertEqual(result['status'],'stale')
+                self.assertEqual(result.get('rulesVersion'),version)
+                self.assertEqual(result['asOf'],old['markets']['us']['asOf'])
+                self.assertEqual(row['status'],'pending');self.assertEqual(row['previousRulesStatus'],'candidate')
+                self.assertEqual(row['eligibleHits'],[])
+                self.assertIn('us_rules_recompute_required',row['reasons'])
+                for field in ['close','hits','metrics','bars','asOf','userNote']:
+                    self.assertEqual(row[field],old_row[field])
+                self.assertEqual(old,before)
+                again=p.build(raw,dict(markets={'us':result}),NOW)['markets']['us']['rows'][0]
+                self.assertEqual(again,row)
+
+    def test_failed_us_refresh_rejects_false_current_version_candidate_eligibility(self):
+        raw=dict(schema='books.stock.input.v1',markets={'us':batch()})
+        previous=p.build(raw,now=NOW)
+        raw['markets']['us']['source']['errorCode']='http_403'
+        for eligible in [None,[],['U3'],['U2','U3'],['U2','U2'],['U1'],'U2',[{}]]:
+            old=copy.deepcopy(previous);row=old['markets']['us']['rows'][0]
+            if eligible is None:row.pop('eligibleHits')
+            else:row['eligibleHits']=eligible
+            before=copy.deepcopy(old)
+            result=p.build(raw,old,NOW)['markets']['us']
+            with self.subTest(eligible=eligible):
+                self.assertEqual(result['status'],'stale')
+                self.assertEqual(result['rulesVersion'],e.US_RULES_VERSION)
+                self.assertEqual(result['rows'][0]['status'],'pending')
+                self.assertEqual(result['rows'][0]['eligibleHits'],[])
+                self.assertEqual(result['rows'][0]['previousRulesStatus'],'candidate')
+                self.assertIn('us_rules_recompute_required',result['rows'][0]['reasons'])
+                self.assertEqual(old,before)
+        # A genuine current U2 candidate survives a source failure, independently
+        # of its U1 shape still awaiting official event evidence.
+        retained=p.build(raw,previous,NOW)['markets']['us']
+        self.assertEqual(retained['rows'],previous['markets']['us']['rows'])
+        self.assertEqual(retained['rows'][0]['status'],'candidate')
+        self.assertEqual(retained['rows'][0]['eligibleHits'],['U2'])
+        old=copy.deepcopy(previous);old['markets']['us']['rows'][0]['hits']=['U1']
+        self.assertEqual(p.build(raw,old,NOW)['markets']['us']['rows'][0]['status'],'pending')
+
+    def test_failed_a_refresh_does_not_apply_the_us_version_boundary(self):
+        raw=dict(schema='books.stock.input.v1',markets={'a':batch('a')})
+        previous=p.build(raw,now=NOW)
+        previous['markets']['a']['rows'][0]['userNote']='SYNTHETIC retained A note'
+        before=copy.deepcopy(previous)
+        raw['markets']['a']['source']['errorCode']='http_429'
+        result=p.build(raw,previous,NOW)['markets']['a']
+        self.assertEqual(result['status'],'stale')
+        self.assertEqual(result['rows'],before['markets']['a']['rows'])
+        self.assertNotIn('rulesVersion',result)
+        self.assertNotIn('previousRulesStatus',result['rows'][0])
+        self.assertEqual(previous,before)
 
     def test_failed_source_cannot_publish_a_private_or_unlicensed_previous_snapshot(self):
         raw=dict(schema='books.stock.input.v1',markets={'us':batch()},observations=[])
@@ -214,7 +364,7 @@ class Research(unittest.TestCase):
             self.assertEqual(path.read_bytes(),before)
 
     def test_public_serialization_drops_unknown_provider_fields(self):
-        b=batch();b['source']['token']='SYNTHETIC_SECRET';b['source']['url']='https://fixture.invalid/?token=SYNTHETIC_SECRET';b['securities'][0]['bars'][0]['secret']='SYNTHETIC_SECRET'
+        b=official_event(batch());b['source']['token']='SYNTHETIC_SECRET';b['source']['url']='https://fixture.invalid/?token=SYNTHETIC_SECRET';b['securities'][0]['bars'][0]['secret']='SYNTHETIC_SECRET';b['securities'][0]['event']['unknownProviderField']='SYNTHETIC_SECRET'
         out=p.build(dict(schema='books.stock.input.v1',markets={'us':b}),now=NOW)
         self.assertNotIn('SYNTHETIC_SECRET',json.dumps(out));self.assertEqual(out['execution']['realOrdersSent'],0)
 
@@ -222,6 +372,15 @@ class Research(unittest.TestCase):
         out=p.empty();self.assertTrue(all(x['rows']==[] and x['status']=='not_configured' for x in out['markets'].values()))
         with tempfile.TemporaryDirectory() as folder:
             path=Path(folder)/'data/snapshot.json';p.write(path,out);self.assertEqual(json.loads(path.read_text()),out);self.assertFalse(path.with_suffix('.json.tmp').exists())
+
+    def test_nonfinite_serialization_never_overwrites_a_last_good_public_file(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path=Path(folder)/'snapshot.json';p.write(path,p.empty());before=path.read_bytes()
+            for value in [float('inf'),float('-inf'),float('nan')]:
+                with self.subTest(value=value):
+                    with self.assertRaises(ValueError):p.write(path,dict(price=value))
+                    self.assertEqual(path.read_bytes(),before)
+                    self.assertFalse(path.with_suffix('.json.tmp').exists())
 
 class Adapters(unittest.TestCase):
     def test_a_units_and_latest_factor_anchor(self):

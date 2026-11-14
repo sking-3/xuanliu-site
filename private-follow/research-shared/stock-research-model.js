@@ -2,6 +2,7 @@
 (function(root,factory){const a=factory();if(typeof module==='object'&&module.exports)module.exports=a;else root.BooksResearchModel=a;})(globalThis,function(){
 'use strict';
 const finite=v=>typeof v==='number'&&Number.isFinite(v),mean=x=>x.reduce((s,v)=>s+v,0)/x.length;
+const US_RULES_VERSION='books.stock.us.causal.v2';
 const table=r=>{const {fields,items}=r.data;if(!Array.isArray(fields)||!Array.isArray(items))throw Error('供应商表格格式错误');return items.map(x=>Object.fromEntries(fields.map((k,i)=>[k,x[i]])));};
 const isoDay=s=>s.slice(0,4)+'-'+s.slice(4,6)+'-'+s.slice(6,8),num=x=>x===null||x===''?NaN:Number(x);
 function localParts(time,market){return Object.fromEntries(new Intl.DateTimeFormat('en-CA',{timeZone:market==='a'?'Asia/Shanghai':'America/New_York',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(new Date(time)).map(x=>[x.type,x.value]));}
@@ -14,7 +15,7 @@ function validTime(value){return typeof value==='string'&&/^\d{4}-\d{2}-\d{2}T\d
 function usCoreSession(date){
  if(!validDay(date)||!date.startsWith('2026-'))return null;
  const weekday=new Date(date+'T00:00:00Z').getUTCDay();if(weekday===0||weekday===6||US_CALENDAR_2026.holidays.has(date))return null;
- return {date,closeTime:atMarket(date,US_CALENDAR_2026.early.has(date)?'13:00':'16:00','us'),calendarVerified:true,calendarSource:US_CALENDAR_2026.source,calendarVersion:US_CALENDAR_2026.version,calendarVerifiedAt:US_CALENDAR_2026.verifiedAt,scope:'scheduled_core_session'};
+ return {date,openTime:atMarket(date,'09:30','us'),closeTime:atMarket(date,US_CALENDAR_2026.early.has(date)?'13:00':'16:00','us'),calendarVerified:true,calendarSource:US_CALENDAR_2026.source,calendarVersion:US_CALENDAR_2026.version,calendarVerifiedAt:US_CALENDAR_2026.verifiedAt,scope:'scheduled_core_session'};
 }
 function knownUsDates(dates){
  if(!dates.every(d=>d.startsWith('2026-')))return null;
@@ -23,14 +24,14 @@ function knownUsDates(dates){
 }
 function orderedDates(dates){return Array.isArray(dates)&&dates.length>=61&&dates.every((d,i)=>validDay(d)&&(!i||d>dates[i-1]));}
 function sessionEvidence(values){
- const last=values.at(-1)||{};return {date:last.date||null,closeTime:validTime(last.closeTime)?last.closeTime:null,calendarVerified:values.length>=61&&values.every(x=>x.calendarVerified===true),tradingDates:values.map(x=>x.date),calendarSource:last.calendarSource||null,calendarVersion:last.calendarVersion||null,calendarVerifiedAt:last.calendarVerifiedAt||null,scope:'scheduled_core_session'};
+ const last=values.at(-1)||{};return {date:last.date||null,...(validTime(last.openTime)?{openTime:last.openTime}:{}),closeTime:validTime(last.closeTime)?last.closeTime:null,calendarVerified:values.length>=61&&values.every(x=>x.calendarVerified===true),tradingDates:values.map(x=>x.date),calendarSource:last.calendarSource||null,calendarVersion:last.calendarVersion||null,calendarVerifiedAt:last.calendarVerifiedAt||null,scope:'scheduled_core_session'};
 }
 function sessions(response,market,now=Date.now()){
  if(!['a','us'].includes(market)||!finite(now))throw Error('交易日历市场或核验时间异常');
  const values=market==='a'?table(response).filter(x=>String(x.is_open)==='1').map(x=>({date:isoDay(x.cal_date),close:'15:00'})):response.data;
  if(!Array.isArray(values)||values.some(x=>!validDay(x.date)||!/^([01]\d|2[0-3]):[0-5]\d$/.test(x.close)))throw Error('交易日历日期或收盘时间异常');
  const verified=response.provider===(market==='a'?'Tushare':'Alpaca')&&response.operation==='calendar'&&response.data.truncated!==true&&validTime(response.receivedAt)&&Date.parse(response.receivedAt)<=now;
- const rows=values.map(x=>({date:x.date,closeTime:atMarket(x.date,x.close,market),calendarVerified:verified,calendarSource:market==='a'?'Tushare trade_cal + SSE/SZSE regular close':'Alpaca /v2/calendar',calendarVerifiedAt:validTime(response.receivedAt)?response.receivedAt:null,scope:'scheduled_core_session'}));
+ const rows=values.map(x=>({date:x.date,...(market==='us'&&/^([01]\d|2[0-3]):[0-5]\d$/.test(x.open)?{openTime:atMarket(x.date,x.open,market)}:{}),closeTime:atMarket(x.date,x.close,market),calendarVerified:verified,calendarSource:market==='a'?'Tushare trade_cal + SSE/SZSE regular close':'Alpaca /v2/calendar',calendarVerifiedAt:validTime(response.receivedAt)?response.receivedAt:null,scope:'scheduled_core_session'}));
  if(market==='us')for(const item of rows){const scheduled=usCoreSession(item.date);if(item.date.startsWith('2026-')&&(!scheduled||Date.parse(scheduled.closeTime)!==Date.parse(item.closeTime)))throw Error('交易日历收盘时间或开市日与已核验时段冲突');}
  const result=rows.filter(x=>Date.parse(x.closeTime)<=now).sort((a,b)=>a.date.localeCompare(b.date));
  if(!orderedDates(result.map(x=>x.date)))throw Error('交易日历不足、异常或重复');
@@ -49,6 +50,14 @@ function dayMetrics(bars,benchmark,dates){
  const ref=benchmarkMap(benchmark,dates),excess=ref.has(dates.at(-1))&&ref.has(dates.at(-21))?a.close/bars.at(-21).close-ref.get(dates.at(-1))/ref.get(dates.at(-21)):null;
  return {close:a.close,rvol:a.volume/v,ma20,ma50,ma50_up:ma50>mean(bars.slice(-51,-1).map(x=>x.close)),high20:Math.max(...bars.slice(-21,-1).map(x=>x.high)),gap:a.open/p.close-1,dayret:a.close/p.close-1,turnover:mean(bars.slice(-20).map(x=>x.turnover)),excess};
 }
+function causalUsEvent(security,session,asOf,received,now){
+ const event=security.event;if(!event||event.symbol!==security.symbol||!['earnings','guidance'].includes(event.kind)||event.officialVerified!==true||!['sec','issuer'].includes(event.sourceType)||typeof event.sourceUrl!=='string'||!/^https:\/\/[^/\\]/i.test(event.sourceUrl)||/[\u0000-\u0020\u007f\\]/.test(event.sourceUrl))return false;
+ // Official attribution is supplied evidence, not inferred from a URL or fetched here.
+ try{const url=new URL(event.sourceUrl);if(url.protocol!=='https:'||!url.hostname||url.username||url.password)return false;}catch{return false;}
+ if(![session.openTime,event.publishedAt,event.firstSeenAt,event.receivedAt].every(validTime))return false;
+ const open=Date.parse(session.openTime),published=Date.parse(event.publishedAt),firstSeen=Date.parse(event.firstSeenAt),eventReceived=Date.parse(event.receivedAt);
+ return localDay(open,'us')===asOf&&open<Date.parse(session.closeTime)&&published<open&&published<=firstSeen&&firstSeen<=eventReceived&&eventReceived<=received&&received<=now;
+}
 function screen(raw,now=Date.now()){
  if(!finite(now)||!['a','us'].includes(raw?.market))throw Error('分析市场或核验时间异常');
  const {market,asOf,dates,securities,benchmark=[],source}=raw,rows=[],session=raw.session||{},issues=[];
@@ -63,19 +72,20 @@ function screen(raw,now=Date.now()){
  if(!closeVerified)issues.push('complete_close_or_calendar_unverified');
  let benchmarkValid=true;try{benchmarkMap(benchmark,dates||[]);}catch{benchmarkValid=false;issues.push('benchmark_invalid_or_duplicate');}
  const complete=datesValid&&closeVerified&&benchmarkValid&&source.coverage==='full_universe'&&source.paginationComplete===true&&source.permissionsVerified===true&&source.dataAsOf===asOf&&source.expectedCount>0&&source.expectedCount===securities.length&&(market==='a'||source.feed==='sip');
- for(const s of securities){const e=s.eligibility||{},excluded=e.excluded===true,qualified=e.qualified===true;const r={symbol:s.symbol,name:String(s.name||s.symbol).slice(0,120),exchange:s.exchange,status:excluded?'excluded':'pending',qualification:excluded?'excluded':qualified?'qualified':'pending',hits:[],pending:market==='a'?['M1','M2','M3','M4','M5']:[],reasons:[...(e.reasons||[])],close:null,currency:market==='a'?'CNY':'USD',asOf,metrics:null,bars:[]};rows.push(r);if(excluded)continue;
+ for(const s of securities){const e=s.eligibility||{},excluded=e.excluded===true,qualified=e.qualified===true;const r={symbol:s.symbol,name:String(s.name||s.symbol).slice(0,120),exchange:s.exchange,status:excluded?'excluded':'pending',qualification:excluded?'excluded':qualified?'qualified':'pending',hits:[],pending:market==='a'?['M1','M2','M3','M4','M5']:[],reasons:[...(e.reasons||[])],close:null,currency:market==='a'?'CNY':'USD',asOf,metrics:null,bars:[]};rows.push(r);if(market==='us')r.eligibleHits=[];if(excluded)continue;
   r.reasons.push(...issues);
   if(!closeVerified)continue;
   const latest=s.bars?.at(-1);if(validDay(asOf)&&asOf<=localDay(now,market)&&finite(received)&&received<=now&&latest?.date===asOf&&finite(latest.close)&&latest.close>0)r.close=latest.close;
-  try{if(!datesValid)throw Error('连续交易日日期无效或超前');if(!s.adjustmentVerified)throw Error('复权待核');const m=dayMetrics(s.bars,benchmark,dates);r.close=m.close;r.metrics=m;
+  try{if(!datesValid)throw Error('连续交易日日期无效或超前');if(!s.adjustmentVerified)throw Error('复权待核');const m=dayMetrics(s.bars,benchmark,dates);if(market==='us'&&!Object.values(m).every(v=>v===null||typeof v==='boolean'||finite(v))){r.close=null;throw Error('derived_metrics_invalid');}r.close=m.close;r.metrics=m;
    if(market==='a'){r.reasons.push('five_mode_definitions_pending');continue;}
+   const eligible=[];
    if(m.close<5||m.turnover<10000000){r.status='excluded';r.reasons.push('price_or_liquidity_below_threshold');continue;}
-   if(m.gap>=.04&&m.rvol>=2&&m.dayret>0){r.hits.push('U1');r.reasons.push('event_catalyst_requires_evidence');}
-   const trend=m.close>m.ma20&&m.ma20>m.ma50&&m.ma50_up&&m.excess!==null&&m.excess>0;if(trend&&m.close/m.ma20-1<=.15){if(m.close>m.high20&&m.rvol>=1.5)r.hits.push('U2');if(m.close/m.high20>=.97&&m.close/m.high20<=1)r.hits.push('U3');}
-   if(m.excess===null)r.reasons.push('same_date_spy_benchmark_missing');if(!complete)r.reasons.push('batch_coverage_or_close_unverified');if(complete&&qualified)r.status=r.hits.length?'candidate':'unmatched';r.bars=r.hits.length?s.bars.slice(-8):[];
+   if(m.gap>=.04&&m.rvol>=2&&m.dayret>0){r.hits.push('U1');if(causalUsEvent(s,session,asOf,received,now))eligible.push('U1');else{r.pending.push('U1');r.reasons.push('event_catalyst_requires_evidence');}}
+   const trend=m.close>m.ma20&&m.ma20>m.ma50&&m.ma50_up&&m.excess!==null&&m.excess>0;if(trend&&m.close/m.ma20-1<=.15){if(m.close>m.high20&&m.rvol>=1.5){r.hits.push('U2');eligible.push('U2');}if(m.close/m.high20>=.97&&m.close/m.high20<=1){r.hits.push('U3');r.pending.push('U3');r.reasons.push('near_breakout_watch_only');}}
+   if(m.excess===null)r.reasons.push('same_date_spy_benchmark_missing');if(!complete)r.reasons.push('batch_coverage_or_close_unverified');if(complete&&qualified){r.eligibleHits=eligible;r.status=eligible.length?'candidate':r.pending.length?'pending':'unmatched';}r.bars=r.hits.length?s.bars.slice(-8):[];
   }catch(err){r.reasons.push(err.message);}
  }
- return {status:complete?'ready':'partial',asOf,completeUniverse:complete,source,session:{date:validDay(session.date)?session.date:null,closeTime:validTime(session.closeTime)?session.closeTime:null,calendarVerified,calendarSource:typeof session.calendarSource==='string'?session.calendarSource.slice(0,300):null,calendarVersion:typeof session.calendarVersion==='string'?session.calendarVersion.slice(0,80):null,calendarVerifiedAt:validDay(session.calendarVerifiedAt)||validTime(session.calendarVerifiedAt)?session.calendarVerifiedAt:null,scope:'scheduled_core_session',completeCloseVerified:closeVerified},parameters:{min_price:5,min_turnover:10000000,event_gap:.04,event_volume:2,break_volume:1.5,max_extension:.15,near_high:.03},rows};
+ return {status:complete?'ready':'partial',asOf,completeUniverse:complete,source,...(market==='us'?{rulesVersion:US_RULES_VERSION}:{}),session:{date:validDay(session.date)?session.date:null,...(market==='us'?{openTime:validTime(session.openTime)?session.openTime:null}:{}),closeTime:validTime(session.closeTime)?session.closeTime:null,calendarVerified,calendarSource:typeof session.calendarSource==='string'?session.calendarSource.slice(0,300):null,calendarVersion:typeof session.calendarVersion==='string'?session.calendarVersion.slice(0,80):null,calendarVerifiedAt:validDay(session.calendarVerifiedAt)||validTime(session.calendarVerifiedAt)?session.calendarVerifiedAt:null,scope:'scheduled_core_session',completeCloseVerified:closeVerified},parameters:{min_price:5,min_turnover:10000000,event_gap:.04,event_volume:2,break_volume:1.5,max_extension:.15,near_high:.03},rows};
 }
 function assembleA(parts){
  const dates=parts.sessions.map(x=>x.date),asOf=dates.at(-1),daily=new Map(),factor=new Map();for(const p of parts.daily)for(const r of table(p)){const key=r.ts_code+'|'+isoDay(r.trade_date);if(daily.has(key))throw Error('重复日线');daily.set(key,r);}for(const p of parts.factors)for(const r of table(p)){const key=r.ts_code+'|'+isoDay(r.trade_date);if(factor.has(key))throw Error('重复复权因子');factor.set(key,num(r.adj_factor));}
@@ -106,7 +116,7 @@ function assembleMassive(parts){
  const dates=parts.sessions.map(x=>x.date),asOf=dates.at(-1),bars=new Map();for(const p of parts.daily){for(const b of p.data.results){const date=localDay(b.t,'us');if(!dates.includes(date))throw Error('日线日期不在批次范围');if(!bars.has(b.T))bars.set(b.T,[]);if(bars.get(b.T).some(x=>x.date===date))throw Error('重复日线');bars.get(b.T).push({date,open:b.o,high:b.h,low:b.l,close:b.c,volume:b.v,turnover:finite(b.vw)?b.v*b.vw:NaN});}}
  for(const rows of bars.values())rows.sort((a,b)=>a.date.localeCompare(b.date));const directory=parts.universe.flatMap(p=>p.data.results);if(!directory.length||new Set(directory.map(x=>x.ticker)).size!==directory.length)throw Error('证券目录为空或分页重复');
  const securities=directory.map(x=>{const supported=['XNYS','XNAS','XASE'].includes(x.primary_exchange),ordinary=x.type==='CS'&&x.market==='stocks'&&x.locale==='us',qualified=supported&&ordinary&&x.active===true&&x.currency_name?.toLowerCase()==='usd';return {symbol:x.ticker,name:x.name||x.ticker,exchange:({XNYS:'NYSE',XNAS:'NASDAQ',XASE:'AMEX'}[x.primary_exchange]||x.primary_exchange||'待核'),adjustmentVerified:true,bars:bars.get(x.ticker)||[],eligibility:{excluded:!supported||!ordinary||x.active===false,qualified,reasons:qualified?[]:['us_security_type_unverified']}};});
- const benchmark=parts.benchmark.data.results.map(b=>({date:localDay(b.t,'us'),close:b.c}));return {market:'us',asOf,dates,session:sessionEvidence(parts.sessions),securities,benchmark,source:{id:'massive',name:'Massive Stocks Basic · 全市场日终 · 拆股复权 · 个人研究',dataAsOf:asOf,receivedAt:parts.daily.at(-1)?.receivedAt||parts.benchmark.receivedAt,coverage:'full_universe',expectedCount:directory.length,paginationComplete:parts.complete===true&&parts.universe.at(-1).data.nextCursor===null&&parts.daily.length===dates.length&&parts.daily.every(p=>p.data.paginationComplete),permissionsVerified:true,redistributionAllowed:false,accessScope:'personal',feed:'sip',recency:'end_of_day',sessionCalendar:'SPY实际日线交易日期',releaseTime:'20:15 America/New_York',delaySeconds:null}};
+ const benchmark=parts.benchmark.data.results.map(b=>({date:localDay(b.t,'us'),close:b.c}));return {market:'us',asOf,dates,session:sessionEvidence(parts.sessions),securities,benchmark,source:{id:'massive',name:'Massive Stocks Basic · 全市场日终 · 拆股复权 · 个人研究',dataAsOf:asOf,receivedAt:parts.daily.at(-1)?.receivedAt||parts.benchmark.receivedAt,coverage:'full_universe',expectedCount:directory.length,paginationComplete:parts.complete===true&&parts.universe.at(-1).data.nextCursor===null&&parts.daily.length===dates.length&&parts.daily.every(p=>p.data.paginationComplete),permissionsVerified:true,redistributionAllowed:false,accessScope:'personal',feed:'sip',recency:'end_of_day',sessionCalendar:'SPY实际日线交易日期',releaseTime:'after 00:00 America/New_York (previous calendar day)',delaySeconds:null}};
 }
 function observations(pages,market,now=Date.now()){
  const all=[];for(const p of pages){if(market==='a')for(const r of table(p)){const t=r.time||r.trade_time,stamp=t.includes('T')?t: t.replace(' ','T')+'+08:00';all.push({symbol:r.ts_code,sourceTime:stamp,open:num(r.open),price:num(r.close),turnover:num(r.amount),receivedAt:p.receivedAt,delaySeconds:0});}else for(const [symbol,rows]of Object.entries(p.data.bars))for(const b of rows)all.push({symbol,sourceTime:b.t,open:b.o,price:b.c,turnover:b.v*b.vw,receivedAt:p.receivedAt,delaySeconds:p.feed==='sip_delayed'?960:0});}

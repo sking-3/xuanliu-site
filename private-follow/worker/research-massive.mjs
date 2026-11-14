@@ -3,8 +3,9 @@ const massiveError=code=>Error(code);
 function massiveDay(s){if(typeof s!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(s)||!Number.isFinite(Date.parse(s))||new Date(s).toISOString().slice(0,10)!==s)throw massiveError('research_invalid_date');return s;}
 export function massiveLatestDay(now=Date.now()){
  const p=Object.fromEntries(new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(new Date(now)).map(x=>[x.type,x.value]));const date=p.year+'-'+p.month+'-'+p.day;
- // Official 2026-11-13 change: 20:15 ET release, with 15 minutes of safety margin.
- return p.hour+':'+p.minute>='20:30'?date:new Date(Date.parse(date+'T12:00:00Z')-86400000).toISOString().slice(0,10);
+ // Stocks Basic excludes the current Eastern calendar day at every hour.
+ // This is a permission boundary, not a promise that every prior-day bar exists.
+ return new Date(Date.parse(date+'T12:00:00Z')-86400000).toISOString().slice(0,10);
 }
 function massivePast(s,now){massiveDay(s);if(s>massiveLatestDay(now)||Date.parse(s)<now-729*86400000)throw massiveError('research_eod_not_released');return s;}
 export function massiveRequest(operation,p,c,now){

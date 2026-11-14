@@ -6,9 +6,9 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 try:
-    from .engine import screen, anomalies
+    from .engine import screen, anomalies, US_RULES_VERSION
 except ImportError:
-    from engine import screen, anomalies
+    from engine import screen, anomalies, US_RULES_VERSION
 
 SCHEMA = 'books.stock.workspace.v1'
 SOURCE_KEYS = ['id', 'name', 'receivedAt', 'dataAsOf', 'coverage', 'expectedCount',
@@ -23,6 +23,29 @@ def public_source(source):
 
 def public_audience(snapshot):
     return snapshot.get('audience') in [None, 'public']
+
+
+def retained_us_rows(old):
+    """Keep original evidence, never renew a cached candidate's rule validity."""
+    rows = []
+    for row in old.get('rows', []):
+        if row.get('status') != 'candidate':
+            rows.append(row)
+            continue
+        eligible, hits, pending = row.get('eligibleHits'), row.get('hits'), row.get('pending', [])
+        valid = (isinstance(eligible, list) and bool(eligible) and isinstance(hits, list)
+                 and isinstance(pending, list) and all(k in ['U1', 'U2'] for k in eligible)
+                 and len(eligible) == len(set(eligible)) and all(k in hits and k not in pending for k in eligible))
+        if old.get('rulesVersion') == US_RULES_VERSION and valid:
+            rows.append(row)
+            continue
+        reasons = row.get('reasons', [])
+        if not isinstance(reasons, list):
+            raise ValueError('previous_us_reasons_invalid')
+        rows.append({**row, 'previousRulesStatus':row['status'], 'status':'pending', 'eligibleHits':[],
+                     'reasons':reasons + ([] if 'us_rules_recompute_required' in reasons
+                                           else ['us_rules_recompute_required'])})
+    return rows
 
 
 def empty():
@@ -58,6 +81,8 @@ def build(raw, previous=None, now=None):
                 continue
             out['markets'][market] = {**out['markets'][market], **old, 'status':'stale' if old.get('rows') else 'unavailable',
                                       'source':{**(old.get('source') or {}), **safe_source}}
+            if market == 'us':
+                out['markets'][market]['rows'] = retained_us_rows(old)
             out['markets'][market].setdefault('rows', [])
             continue
         result = screen(batch, now)
@@ -70,12 +95,12 @@ def build(raw, previous=None, now=None):
               'priceChange1m','source','session','minute','date']
     out['observations'] = [{k:x[k] for k in fields if k in x} for x in obs[-2000:]]
     out['alerts'] = anomalies(obs, now)[:500]
-    out['version'] = hashlib.sha256(json.dumps(out, sort_keys=True).encode()).hexdigest()[:16]
+    out['version'] = hashlib.sha256(json.dumps(out, sort_keys=True, allow_nan=False).encode()).hexdigest()[:16]
     return out
 
 
 def write(path, value):
-    encoded = json.dumps(value, ensure_ascii=False, separators=(',', ':'))+'\n'
+    encoded = json.dumps(value, ensure_ascii=False, separators=(',', ':'), allow_nan=False)+'\n'
     if len(encoded.encode('utf-8')) > 8_000_000:
         raise ValueError('public_result_too_large_split_required')
     path.parent.mkdir(parents=True, exist_ok=True)

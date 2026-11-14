@@ -37,7 +37,9 @@
     }
   }
   const aShareSymbol = symbol && symbol === symbol.trim() && /^(?:SSE|SZSE):[0-9]{6}$/.test(symbol);
-  if (!symbols.has(symbol) && !aShareSymbol) {
+  // A chart identifier is a request to the fixed provider, not proof of listing or screening eligibility.
+  const usSymbol = symbol && symbol === symbol.trim() && /^(?:NASDAQ|NYSE|AMEX):[A-Z][A-Z0-9]*(?:[.-][A-Z0-9]+)?$/.test(symbol) && symbol.split(':')[1].length <= 20;
+  if (!symbols.has(symbol) && !aShareSymbol && !usSymbol) {
     title.textContent = '请选择行情标的';
     status.textContent = '此链接未包含本站支持的标的。请返回市场，从行情列表选择。';
     retry.hidden = true;
@@ -54,7 +56,7 @@
     if (link.dataset.chartSymbol === symbol) link.setAttribute('aria-current', 'page');
   });
   const marketBack = document.querySelector('.chart-back');
-  if (symbol.startsWith('NASDAQ:')) { marketBack.href = 'us.html'; marketBack.textContent = '← 返回美股行情'; }
+  if (usSymbol) { marketBack.href = 'us.html'; marketBack.textContent = '← 返回美股行情'; }
   else if (symbol.startsWith('COINBASE:')) { marketBack.href = 'crypto.html'; marketBack.textContent = '← 返回加密行情'; }
   else if (symbol.startsWith('SSE:') || symbol.startsWith('SZSE:')) { marketBack.href = 'a-shares.html'; marketBack.textContent = '← 返回A股行情'; }
   const closeOnly = symbol.startsWith('FRED:');

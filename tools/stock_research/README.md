@@ -73,3 +73,11 @@ R1放量突破、R2缩额转强、R3行业共振独立运行，同票保留所�
 这是自行定义的研究初值，不是老虎原算法，不输出已验证概率、胜率或收益。14:00名单应冻结，收盘确认另存关联版本，次日方向与触发/未触发/失效/不可成交另账；当前没有将这些阶段接成生产自动流程。现有EOD嵌入组件不能提供本合同的盘中输入，也不被抽取使用。
 
 尚未接入真实A14采集适配器，也没有启用后台。缺少可信盘中源、同刻历史或权限时blocked；测试合成样本只存在测试代码内，不放入公开生产快照。免费源及开源研究依据见 audit/strategy-lab-review.json。手动验证工作流增加本模块测试，但仍只有workflow_dispatch，没有新schedule。
+
+## 美股规则资格 v2
+
+US 结果标记 rulesVersion=books.stock.us.causal.v2。hits 只表示形态；eligibleHits 才是完整批次且证券合格后可晋级的 U1/U2，pending 保留未完成分支。同票U1缺证不阻止独立U2成为候选；U3只列观察、不能独立成为候选。页面逐条标明条件通过、待核、观察。
+
+U1还需 security.event：symbol与证券一致；kind为earnings或guidance；officialVerified严格true；sourceType为sec或issuer；sourceUrl为无凭证的HTTPS原文地址；publishedAt、firstSeenAt、receivedAt有时区且依次不逆序，最后不晚于批次receivedAt。session须有已核验同日openTime，事件必须早于开盘公开。本校验只接收上游已核验声明，不自行联网证明原文、因果关系或收益。现有采集适配器没有正式事件源，不补造证据，因此这些U1形态仍待核。
+
+未核验日历/收盘不计算形态与价格；全部派生指标须有限，JSON拒绝NaN/Infinity。来源失败时旧US候选若版本不符或eligibleHits矛盾，保留历史并降待核，原分类写previousRulesStatus，不将旧结果改标v2。A股缓存及五模式不变。

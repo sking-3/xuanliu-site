@@ -3,10 +3,12 @@ from datetime import datetime, timezone, date
 from statistics import median, mean
 import hashlib
 import math
+from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
 A_MODES = ['M1', 'M2', 'M3', 'M4', 'M5']
 US_MODES = ['U1', 'U2', 'U3']
+US_RULES_VERSION = 'books.stock.us.causal.v2'
 PARAMS = dict(min_price=5, min_turnover=10_000_000, event_gap=.04,
               event_volume=2, break_volume=1.5, max_extension=.15, near_high=.03)
 
@@ -65,6 +67,48 @@ def qualification(s, market, day):
     return 'qualified', []
 
 
+def event_evidence(security, session, received_at):
+    """Validate input attestations for a pre-open earnings/guidance catalyst.
+
+    security.event requires symbol, kind=earnings/guidance, officialVerified=True,
+    sourceType=sec/issuer, sourceUrl (HTTPS original), publishedAt, firstSeenAt,
+    receivedAt. session.openTime must be a verified regular-session opening.
+    Event publication precedes that open; discovery/receipt precede the batch
+    receipt. A URL and boolean do not independently verify an official source.
+    No current market-data adapter supplies events: missing evidence stays pending.
+    """
+    event = security.get('event')
+    if not isinstance(event, dict):
+        return False, 'event_catalyst_requires_evidence'
+    if (event.get('symbol') != security['symbol'] or event.get('kind') not in ['earnings', 'guidance']
+            or event.get('officialVerified') is not True or event.get('sourceType') not in ['sec', 'issuer']):
+        return False, 'event_identity_or_official_source_unverified'
+    url = event.get('sourceUrl')
+    try:
+        if not isinstance(url, str) or len(url) > 2048 or any(ord(c) <= 32 or ord(c) == 127 for c in url):
+            raise ValueError('invalid_event_url')
+        parsed = urlsplit(url)
+        parsed.port  # A malformed/overflowing port is not a valid original URL.
+        if parsed.scheme != 'https' or not parsed.hostname or parsed.username or parsed.password:
+            raise ValueError('invalid_event_url')
+    except ValueError:
+        return False, 'event_identity_or_official_source_unverified'
+    try:
+        opened, closed = stamp(session.get('openTime')), stamp(session.get('closeTime'))
+        if (session.get('calendarVerified') is not True or not opened < closed
+                or datetime.fromtimestamp(opened, ZoneInfo('America/New_York')).date().isoformat() != session['date']):
+            raise ValueError('invalid_event_open')
+    except (ValueError, TypeError, OverflowError, OSError):
+        return False, 'event_regular_open_unverified'
+    try:
+        published, seen, received = (stamp(event.get(k)) for k in ['publishedAt', 'firstSeenAt', 'receivedAt'])
+        if not published < opened or not published <= seen <= received <= received_at:
+            raise ValueError('invalid_event_times')
+    except (ValueError, TypeError, OverflowError, OSError):
+        return False, 'event_publication_or_discovery_not_causal'
+    return True, None
+
+
 def metrics(s, benchmark, day, trading_dates):
     bars = s.get('bars', [])
     if s.get('adjustmentVerified') is not True or len(bars) < 61:
@@ -90,11 +134,14 @@ def metrics(s, benchmark, day, trading_dates):
     excess = None
     if dates[-1] in lookup and dates[-21] in lookup:
         excess = last['close'] / bars[-21]['close'] - lookup[dates[-1]] / lookup[dates[-21]]
-    return dict(close=last['close'], turnover=mean(b['turnover'] for b in bars[-20:]),
+    result = dict(close=last['close'], turnover=mean(b['turnover'] for b in bars[-20:]),
                 gap=last['open'] / previous['close'] - 1, dayret=last['close'] / previous['close'] - 1,
                 rvol=last['volume'] / vol, ma20=ma20, ma50=ma50,
                 ma50_up=ma50 > mean(b['close'] for b in bars[-51:-1]),
                 high20=max(b['high'] for b in bars[-21:-1]), excess=excess)
+    if not all(value is None or isinstance(value, bool) or finite(value) for value in result.values()):
+        raise ValueError('derived_metrics_invalid')
+    return result
 
 
 def screen(batch, now=None):
@@ -118,6 +165,8 @@ def screen(batch, now=None):
         timing_reasons.append('source_received_in_future')
     if received_at < close_at:
         timing_reasons.append('source_received_before_close')
+    if batch['session'].get('calendarVerified') is not True:
+        timing_reasons.append('complete_close_or_calendar_unverified')
     # Reject contradictory batch-level source data before considering any stock.
     benchmark_lookup(batch.get('benchmark', []))
     trading_dates = batch['session'].get('tradingDates', [])
@@ -145,6 +194,8 @@ def screen(batch, now=None):
                  hits=[], pending=A_MODES[:] if market == 'a' else [], reasons=reasons, close=None,
                  currency='CNY' if market == 'a' else 'USD', asOf=day, metrics=None, bars=[])
         rows.append(r)
+        if market == 'us':
+            r['eligibleHits'] = []
         if status == 'excluded':
             continue
         if timing_reasons:
@@ -164,27 +215,40 @@ def screen(batch, now=None):
             continue
         if m['close'] < p['min_price'] or m['turnover'] < p['min_turnover']:
             r.update(status='excluded', reasons=['price_or_liquidity_below_threshold']); continue
+        eligible_hits = []
         if m['gap'] >= p['event_gap'] and m['rvol'] >= p['event_volume'] and m['dayret'] > 0:
             r['hits'].append('U1')
-            r['reasons'].append('event_catalyst_requires_evidence')
+            verified, reason = event_evidence(s, batch['session'], received_at)
+            if verified:
+                eligible_hits.append('U1')
+            else:
+                r['pending'].append('U1')
+                r['reasons'].append(reason)
         trend = m['close'] > m['ma20'] > m['ma50'] and m['ma50_up'] and m['excess'] is not None and m['excess'] > 0
         if trend and m['close'] / m['ma20'] - 1 <= p['max_extension']:
             if m['close'] > m['high20'] and m['rvol'] >= p['break_volume']:
                 r['hits'].append('U2')
+                eligible_hits.append('U2')
             if 1 - p['near_high'] <= m['close'] / m['high20'] <= 1:
                 r['hits'].append('U3')
+                r['pending'].append('U3')
+                r['reasons'].append('near_breakout_watch_only')
         if m['excess'] is None:
             r['reasons'].append('same_date_spy_benchmark_missing')
         if complete and status == 'qualified':
-            r['status'] = 'candidate' if r['hits'] else 'unmatched'
+            r['eligibleHits'] = eligible_hits
+            r['status'] = 'candidate' if eligible_hits else 'pending' if r['hits'] else 'unmatched'
         r['falsifier'] = 'Breakout failure, weakening relative strength, or revised adjustment requires review.'
     # The public index is a result list, not a full market historical price dump.
     for r in rows:
         r['bars'] = r['bars'][-8:] if r['hits'] else []
         if not r['hits'] and r['metrics']:
             r['metrics'] = {'rvol': r['metrics']['rvol']}
-    return dict(status='ready' if complete else 'partial', asOf=day, source=source,
-                parameters=p, rows=rows, completeUniverse=complete)
+    result = dict(status='ready' if complete else 'partial', asOf=day, source=source,
+                  parameters=p, rows=rows, completeUniverse=complete)
+    if market == 'us':
+        result['rulesVersion'] = US_RULES_VERSION
+    return result
 
 
 def anomalies(observations, now=None):
@@ -212,7 +276,7 @@ def anomalies(observations, now=None):
         if len(set(dates)) != len(dates) or len(base) < 10 or not finite(x.get('turnover')) or not finite(x.get('priceChange1m')) or x['turnover'] < 0:
             continue
         ratio = x['turnover'] / median(base[-20:])
-        if ratio < 3:
+        if not finite(ratio) or ratio < 3:
             continue
         key = hashlib.sha256((x['market']+'|'+x['symbol']+'|'+x['sourceTime']).encode()).hexdigest()
         if key in seen:
