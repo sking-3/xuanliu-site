@@ -152,7 +152,7 @@ async function replay(g){
 async function start(mode='monitor'){
  if(!['monitor','once','replay'].includes(mode))return false;if($('run-a')?.disabled||$('run-us')?.disabled){write('us-live-status','收盘批次正在读取，请完成或停止后再启动美股监控');return false;}
  // Preserve and stop the incumbent A-share handler before taking over the shared control.
- window.BooksStopLegacyWatch?.();stop('');state.mode=mode;state.active=true;state.lastSave=0;const g=state.generation;controls(true);
+ window.BooksBrokerLive?.stop('已选择原IEX来源');window.BooksStopLegacyWatch?.();stop('');state.mode=mode;state.active=true;state.lastSave=0;const g=state.generation;controls(true);
  try{
   state.symbols=watchlist();await permissions(g);check(g);
   if(mode==='replay')await replay(g);else{if(!await quoteTick(g))return false;if(mode==='monitor')void radarTick(g);}

@@ -5,3 +5,5 @@ tools/binance_watch/__pycache__/
 tools/binance_watch/*.sqlite3*
 tools/binance_watch/*.db*
 tools/binance_watch/*.log
+tools/us_broker_quotes/__pycache__/
+tools/us_broker_quotes/.venv/
