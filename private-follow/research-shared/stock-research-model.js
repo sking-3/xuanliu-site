@@ -5,7 +5,8 @@ const finite=v=>typeof v==='number'&&Number.isFinite(v),mean=x=>x.reduce((s,v)=>
 const US_RULES_VERSION='books.stock.us.causal.v2';
 const table=r=>{const {fields,items}=r.data;if(!Array.isArray(fields)||!Array.isArray(items))throw Error('供应商表格格式错误');return items.map(x=>Object.fromEntries(fields.map((k,i)=>[k,x[i]])));};
 const isoDay=s=>s.slice(0,4)+'-'+s.slice(4,6)+'-'+s.slice(6,8),num=x=>x===null||x===''?NaN:Number(x);
-function localParts(time,market){return Object.fromEntries(new Intl.DateTimeFormat('en-CA',{timeZone:market==='a'?'Asia/Shanghai':'America/New_York',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(new Date(time)).map(x=>[x.type,x.value]));}
+const localFormatters=Object.fromEntries(['Asia/Shanghai','America/New_York'].map(timeZone=>[timeZone,new Intl.DateTimeFormat('en-CA',{timeZone,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'})]));
+function localParts(time,market){return Object.fromEntries(localFormatters[market==='a'?'Asia/Shanghai':'America/New_York'].formatToParts(new Date(time)).map(x=>[x.type,x.value]));}
 function localDay(time,market){const p=localParts(time,market);return p.year+'-'+p.month+'-'+p.day;}
 function atMarket(day,clock,market){let t=Date.parse(day+'T'+clock+':00Z');for(let i=0;i<3;i++){const p=localParts(t,market),asUTC=Date.parse(p.year+'-'+p.month+'-'+p.day+'T'+p.hour+':'+p.minute+':00Z');t+=Date.parse(day+'T'+clock+':00Z')-asUTC;}return new Date(t).toISOString();}
 // Scheduled core-session evidence only; security halts/eligibility remain separate.
