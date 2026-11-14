@@ -15,6 +15,6 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
-      - run: python3 -B -m unittest tools.stock_research.test_engine tools.stock_research.test_next_session tools.stock_research.test_entry_plan -v
+      - run: python3 -B -m unittest tools.stock_research.test_engine tools.stock_research.test_next_session tools.stock_research.test_entry_plan tools.stock_research.test_intraday_preselect -v
       - run: node --test audit/stock-workspace-unit.cjs
       - run: node audit/trader-unit.cjs

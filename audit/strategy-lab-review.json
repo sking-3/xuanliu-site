@@ -1,0 +1,39 @@
+{
+  "schema": "books.strategy-lab.review.v1",
+  "reviewDate": "2026-11-14",
+  "scope": "Primary documentation and read-only inspection of the user-opened Tiger Lab mobile interface; no API calls, subscriptions, orders or return replication.",
+  "tiger": {
+    "growthMomentum": {
+      "observed": ["ROE and long-term debt/equity contribute to a quality ranking", "price momentum ranking", "moving-average crossing and momentum weakening guide entry and exit", "per-symbol allocation guidance is present"],
+      "missing": ["factor definitions and point-in-time accounting inputs", "weights and ranking cutoff", "moving-average periods and types", "momentum window and weakening threshold", "exact execution and cost assumptions"]
+    },
+    "otherStrategies": ["Multi-factor describes quantitative daily signals without a reproducible formula", "Trend strategy describes entries after pullbacks in an uptrend without thresholds", "Quantitative selection describes financial and historical statistical inputs without weights"],
+    "statistics": "List cards and detail cards use different metrics, including average return, annualized return and win rate. No displayed performance number was copied into Books or independently verified.",
+    "api": "The official scanner supports custom filters for US/HK/SG/AU, cursor pagination and at most 200 results per page. This does not establish access to Tiger Lab model signals or A-share coverage.",
+    "redistribution": "Login visibility and OpenAPI permission do not establish public redistribution rights. Books does not scrape or republish the account-visible signal list.",
+    "sources": ["https://www.itiger.com/about/app/update/842", "https://www.itigerup.com/about/app/update/738", "https://docs.itigerup.com/docs/quote-scanner", "https://docs.itigerup.com/docs/permission", "https://www.laohu8.com/agreement/CHN-ServiceAgreement?lang=zh_CN&skin=2"]
+  },
+  "openSource": [
+    {"name":"qteasy","repository":"https://github.com/shepherdpp/qteasy","license":"BSD-3-Clause","ruleSource":"https://github.com/shepherdpp/qteasy/blob/master/qteasy/built_in.py","use":"Deterministic momentum and moving-average baselines","status":"documentation_only_not_installed_or_backtested"},
+    {"name":"Hikyuu","repository":"https://github.com/fasiondog/hikyuu","license":"Apache-2.0","ruleSource":"https://hikyuu.readthedocs.io/zh-cn/2.8.2/trade_sys/signal.html","use":"Signal, sizing and simulated-execution separation","status":"documentation_only_not_installed_or_backtested"},
+    {"name":"Qlib","repository":"https://github.com/microsoft/qlib","license":"MIT","ruleSource":"https://github.com/microsoft/qlib/blob/main/examples/benchmarks/LightGBM/workflow_config_lightgbm_Alpha158.yaml","use":"Point-in-time factors, train/validation/test split and portfolio evaluation","status":"documentation_only_not_installed_or_backtested"},
+    {"name":"RQAlpha","repository":"https://github.com/ricequant/rqalpha","license":"Non-commercial Apache-2.0 conditions; commercial license required","ruleSource":"https://github.com/ricequant/rqalpha/blob/master/LICENSE","use":"Simulation reference only; not selected for integration","status":"documentation_only_not_installed_or_backtested"}
+  ],
+  "freeDataCandidates": [
+    {"name":"AKShare","repository":"https://github.com/akfamily/akshare","docs":"https://akshare.akfamily.xyz/data/stock/stock_quote.html","functions":["stock_zh_a_spot_em", "stock_zh_a_hist"],"upstream":"Eastmoney","status":"not_api_tested","limits":"No confirmed timing, complete-universe guarantee or upstream redistribution grant"},
+    {"name":"efinance","repository":"https://github.com/Micro-sheep/efinance","docs":"https://efinance.readthedocs.io/en/latest/api.html","functions":["get_realtime_quotes", "get_quote_history"],"upstream":"Eastmoney; not independent of AKShare Eastmoney interfaces","status":"not_api_tested","limits":"README restricts commercial use; retries must not repeat 403/429"},
+    {"name":"BaoStock","docs":"https://pypi.org/project/baostock/","upstream":"BaoStock data server","status":"not_api_tested","limits":"Historical daily service verified from publisher docs; 14:00 realtime and redistribution rights unverified"},
+    {"name":"ADATA","repository":"https://github.com/1nchaos/adata","status":"not_selected","limits":"Automatic source switching and proxy behavior must not be inherited under this project's persistent-stop policy"}
+  ],
+  "independentStrategy": {
+    "version":"research_v0",
+    "implementation":"tools/stock_research/intraday_preselect.py",
+    "notATigerReplica":true,
+    "validatedEdge":false,
+    "enabled":false,
+    "stateFlow":["verify causal universe and market state", "evaluate independent A14 branches", "freeze 14:00 observations", "separate close review", "next-session conditional opportunity and direction evaluation"],
+    "implemented":"Offline causal preselection and atomic CLI only. Existing close and entry evaluators remain independent; no automatic end-to-end integration or production source is claimed.",
+    "missing":["authorized full-universe intraday adapter", "10-20 previous same-cutoff turnover snapshots", "dated causal eligibility and sector membership", "frozen production records and linked close revisions", "real out-of-sample and forward results"],
+    "nameDisplay":"The output carries a verified source Chinese name and full symbol, or explicit name-pending status. The embedded vendor screener exposes no verified default name-description setting; it was not patched through undocumented attributes."
+  }
+}
