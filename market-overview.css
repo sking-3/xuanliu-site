@@ -36,6 +36,7 @@
 [data-pulse=macro] .pulse-host{height:180px}
 @media(max-width:520px){.market-insight{padding:16px}.insight-body{min-height:0}}
 .market-insight>.insight-cadence{margin-top:auto;padding-top:12px}
+.insight-empty{display:flex;align-items:center;justify-content:center;min-height:76px;margin:0;border:1px dashed #dfe5ed;border-radius:6px;background:#fbfcfd;color:#7d899a;font-size:11px;text-align:center;line-height:1.6;padding:10px}
 .pulse-host{position:relative}
 .pulse-host[data-pulse-state=loading]::after{content:"正在连接来源…";position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:#fafbfc;color:#758197;font-size:11px;border-radius:4px;pointer-events:none}
 @media(max-width:760px){
