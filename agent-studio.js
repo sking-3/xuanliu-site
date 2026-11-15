@@ -38,18 +38,20 @@
     }).join('')+`<aside class="agent-unknowns"><strong>规则底线</strong><p>${esc(rules.reason)}。数据新鲜度、来源许可和风控参数缺失时，不生成确定性结论。</p></aside>`;
   }
   function updateAiState(text){if(aiState) aiState.textContent=text;}
+  let runToken=0;
   async function run(){
+    const token=++runToken;
     save(); render();
     if(fields.mode.value!=='hybrid'){updateAiState('规则模式运行中 · 未调用 AI');return;}
     const adapter=window.BooksAgentAdapter;
     if(!adapter || typeof adapter.analyze!=='function'){updateAiState('AI 接口未连接 · 已回退规则层');return;}
     updateAiState('AI 增强请求中 · 规则结论保持锁定');
-    try { const response=await adapter.analyze(request()); render(normalizeAi(response)); updateAiState('AI 增强已返回 · 仅补充解释，未改变规则结论'); }
-    catch { updateAiState('AI 接口失败 · 已回退规则层'); }
+    try { const response=await adapter.analyze(request()); if(token!==runToken)return; render(normalizeAi(response)); updateAiState('AI 增强已返回 · 仅补充解释，未改变规则结论'); }
+    catch { if(token===runToken)updateAiState('AI 接口失败 · 已回退规则层'); }
   }
   $('agent-run').addEventListener('click',run);
-  $('agent-reset').addEventListener('click',()=>{Object.values(fields).forEach(field=>field.value='');fields.mode.value='rules';localStorage.removeItem(storageKey);saved.textContent='已清空本机草稿';updateAiState('规则模式运行中 · 未调用 AI');render();});
-  Object.values(fields).forEach(field=>field.addEventListener('input',()=>{save();if(field===fields.mode)render();}));
+  $('agent-reset').addEventListener('click',()=>{runToken++;Object.values(fields).forEach(field=>field.value='');fields.mode.value='rules';localStorage.removeItem(storageKey);saved.textContent='已清空本机草稿';updateAiState('规则模式运行中 · 未调用 AI');render();});
+  Object.values(fields).forEach(field=>field.addEventListener('input',()=>{if(field===fields.mode)runToken++;save();if(field===fields.mode)render();}));
   window.BooksAgentBridge={version:'books.agent.bridge.v1',schema:standard.schema,getRequest:request,setAdapter(adapter){window.BooksAgentAdapter=adapter;updateAiState('AI 适配器已注册 · 运行时仍受规则层约束');},run};
   load(); render();
 })();
