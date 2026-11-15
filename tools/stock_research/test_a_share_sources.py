@@ -62,6 +62,17 @@ class AShareSources(unittest.TestCase):
             with self.assertRaisesRegex(s.ProviderError, "provider_not_installed"):
                 s.provider("akshare")
 
+    def test_provider_interface_fallback_uses_next_available_name(self):
+        class Module:
+            def old(self):
+                raise RuntimeError("old endpoint unavailable")
+
+            def current(self):
+                return [{"ok": True}]
+
+        result = s._try_calls(Module(), (("old", (), {}), ("current", (), {})))
+        self.assertEqual(result, [{"ok": True}])
+
 
 if __name__ == "__main__":
     unittest.main()
