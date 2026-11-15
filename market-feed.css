@@ -61,3 +61,33 @@
 .public-feed[data-feed-state=queued] .feed-widget-area::after{content:"接近此区域时加载行情…"}
 .public-feed[data-feed-state=loading] .feed-widget-area:not([data-loading-label])::after{content:"正在连接行情来源…"}
 .feed-card-note{min-height:18px;font-variant-numeric:tabular-nums}
+
+/* Keep the three overview cards on one visual grid.  The crypto feed has more
+   rows than the two embedded quote widgets, so its list scrolls inside the
+   same reserved card height instead of making the third card taller. */
+@media(min-width:1101px){
+  .market-card-grid{align-items:stretch}
+  .market-card-grid>.feed-card{height:760px;min-height:760px;display:flex;flex-direction:column;overflow:hidden}
+  .market-card-grid>.feed-card>.feed-widget-area{flex:1 1 auto;min-height:0;height:auto!important;overflow:hidden;display:flex;flex-direction:column}
+  .market-card-grid>.feed-card .tradingview-widget-container,
+  .market-card-grid>.feed-card .tradingview-widget-container__widget{height:100%;min-height:0;flex:1 1 auto}
+  .market-card-grid>.feed-card[data-local-feed=crypto] .crypto-native-feed{height:100%;min-height:0;overflow:auto}
+}
+
+@media(min-width:761px) and (max-width:1100px){
+  .market-card-grid{align-items:stretch}
+  .market-card-grid>.feed-card{height:640px;min-height:640px;display:flex;flex-direction:column;overflow:hidden}
+  .market-card-grid>.feed-card>.feed-widget-area{flex:1 1 auto;min-height:0;height:auto!important;overflow:hidden;display:flex;flex-direction:column}
+  .market-card-grid>.feed-card .tradingview-widget-container,
+  .market-card-grid>.feed-card .tradingview-widget-container__widget{height:100%;min-height:0;flex:1 1 auto}
+  .market-card-grid>.feed-card[data-local-feed=crypto] .crypto-native-feed{height:100%;min-height:0;overflow:auto}
+}
+
+@media(max-width:760px){
+  .market-card-grid{align-items:stretch}
+  .market-card-grid>.feed-card{height:560px;min-height:560px;display:flex;flex-direction:column;overflow:hidden}
+  .market-card-grid>.feed-card>.feed-widget-area{flex:1 1 auto;min-height:0;height:auto!important;overflow:hidden;display:flex;flex-direction:column}
+  .market-card-grid>.feed-card .tradingview-widget-container,
+  .market-card-grid>.feed-card .tradingview-widget-container__widget{height:100%;min-height:0;flex:1 1 auto}
+  .market-card-grid>.feed-card[data-local-feed=crypto] .crypto-native-feed{height:100%;min-height:0;overflow:auto}
+}
