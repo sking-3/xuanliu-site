@@ -1,0 +1,1833 @@
+{
+  "code": "000000",
+  "message": null,
+  "messageDetail": null,
+  "data": [
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1763251200000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1763337600000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1763424000000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1763510400000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1763596800000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1763683200000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1763769600000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1763856000000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1763942400000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1764028800000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1764115200000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1764201600000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1764288000000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1764374400000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1764460800000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1764547200000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1764633600000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1764720000000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1764806400000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1764892800000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1764979200000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1765065600000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1765152000000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1765238400000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1765324800000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1765411200000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1765497600000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1765584000000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1765670400000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1765756800000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1765843200000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1765929600000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1766016000000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1766102400000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1766188800000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1766275200000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1766361600000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1766448000000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1766534400000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1766620800000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1766707200000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1766793600000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1766880000000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1766966400000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1767052800000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1767139200000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1767225600000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1767312000000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1767398400000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1767484800000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1767571200000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1767657600000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1767744000000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1767830400000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1767916800000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1768003200000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1768089600000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1768176000000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1768262400000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1768348800000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1768435200000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1768521600000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1768608000000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1768694400000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1768780800000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1768867200000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1768953600000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1769040000000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1769126400000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1769212800000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1769299200000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1769385600000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1769472000000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1769558400000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1769644800000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1769731200000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1769817600000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1769904000000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1769990400000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1770076800000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1770163200000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1770249600000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1770336000000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1770422400000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1770508800000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1770595200000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1770681600000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1770768000000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1770854400000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1770940800000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1771027200000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1771113600000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1771200000000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1771286400000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1771372800000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1771459200000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1771545600000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1771632000000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1771718400000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1771804800000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1771891200000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1771977600000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1772064000000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1772150400000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1772236800000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1772323200000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1772409600000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1772496000000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1772582400000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1772668800000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1772755200000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1772841600000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1772928000000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1773014400000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1773100800000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1773187200000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1773273600000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1773360000000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1773446400000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1773532800000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1773619200000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1773705600000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1773792000000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1773878400000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1773964800000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1774051200000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1774137600000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1774224000000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1774310400000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1774396800000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1774483200000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1774569600000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1774656000000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1774742400000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1774828800000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1774915200000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1775001600000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1775088000000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1775174400000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1775260800000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1775347200000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1775433600000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1775520000000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1775606400000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1775692800000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1775779200000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1775865600000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1775952000000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1776038400000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1776124800000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1776211200000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1776297600000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1776384000000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1776470400000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1776556800000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1776643200000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1776729600000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1776816000000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1776902400000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1776988800000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1777075200000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1777161600000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1777248000000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1777334400000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1777420800000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1777507200000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1777593600000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1777680000000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1777766400000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1777852800000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1777939200000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1778025600000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1778112000000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1778198400000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1778284800000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1778371200000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1778457600000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1778544000000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1778630400000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1778716800000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1778803200000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1778889600000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1778976000000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1779062400000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1779148800000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1779235200000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1779321600000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1779408000000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1779494400000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1779580800000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1779667200000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1779753600000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1779840000000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1779926400000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1780012800000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1780099200000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1780185600000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1780272000000
+    },
+    {
+      "value": 0,
+      "dataType": "PNL",
+      "dateTime": 1780358400000
+    },
+    {
+      "value": 24840.160708,
+      "dataType": "PNL",
+      "dateTime": 1780444800000
+    },
+    {
+      "value": 104076.432744,
+      "dataType": "PNL",
+      "dateTime": 1780531200000
+    },
+    {
+      "value": 160812.304766,
+      "dataType": "PNL",
+      "dateTime": 1780617600000
+    },
+    {
+      "value": 166420.849085,
+      "dataType": "PNL",
+      "dateTime": 1780704000000
+    },
+    {
+      "value": 91493.01367,
+      "dataType": "PNL",
+      "dateTime": 1780790400000
+    },
+    {
+      "value": 88564.292009,
+      "dataType": "PNL",
+      "dateTime": 1780876800000
+    },
+    {
+      "value": 136654.172601,
+      "dataType": "PNL",
+      "dateTime": 1780963200000
+    },
+    {
+      "value": 147110.486168,
+      "dataType": "PNL",
+      "dateTime": 1781049600000
+    },
+    {
+      "value": 162935.707178,
+      "dataType": "PNL",
+      "dateTime": 1781136000000
+    },
+    {
+      "value": 162559.648923,
+      "dataType": "PNL",
+      "dateTime": 1781222400000
+    },
+    {
+      "value": 165971.615132,
+      "dataType": "PNL",
+      "dateTime": 1781308800000
+    },
+    {
+      "value": 140903.033296,
+      "dataType": "PNL",
+      "dateTime": 1781395200000
+    },
+    {
+      "value": 132530.292,
+      "dataType": "PNL",
+      "dateTime": 1781481600000
+    },
+    {
+      "value": 114440.229957,
+      "dataType": "PNL",
+      "dateTime": 1781568000000
+    },
+    {
+      "value": 219908.456149,
+      "dataType": "PNL",
+      "dateTime": 1781654400000
+    },
+    {
+      "value": 148518.606332,
+      "dataType": "PNL",
+      "dateTime": 1781740800000
+    },
+    {
+      "value": 148310.950045,
+      "dataType": "PNL",
+      "dateTime": 1781827200000
+    },
+    {
+      "value": 106429.27533,
+      "dataType": "PNL",
+      "dateTime": 1781913600000
+    },
+    {
+      "value": 88806.14214,
+      "dataType": "PNL",
+      "dateTime": 1782000000000
+    },
+    {
+      "value": 49193.55458,
+      "dataType": "PNL",
+      "dateTime": 1782086400000
+    },
+    {
+      "value": 152275.864618,
+      "dataType": "PNL",
+      "dateTime": 1782172800000
+    },
+    {
+      "value": 262065.373579,
+      "dataType": "PNL",
+      "dateTime": 1782259200000
+    },
+    {
+      "value": 318902.603051,
+      "dataType": "PNL",
+      "dateTime": 1782345600000
+    },
+    {
+      "value": 346496.525061,
+      "dataType": "PNL",
+      "dateTime": 1782432000000
+    },
+    {
+      "value": 341843.117532,
+      "dataType": "PNL",
+      "dateTime": 1782518400000
+    },
+    {
+      "value": 315226.0265,
+      "dataType": "PNL",
+      "dateTime": 1782604800000
+    },
+    {
+      "value": 354016.75795,
+      "dataType": "PNL",
+      "dateTime": 1782691200000
+    },
+    {
+      "value": 221360.696599,
+      "dataType": "PNL",
+      "dateTime": 1782777600000
+    },
+    {
+      "value": 343219.867981,
+      "dataType": "PNL",
+      "dateTime": 1782864000000
+    },
+    {
+      "value": 251532.765064,
+      "dataType": "PNL",
+      "dateTime": 1782950400000
+    },
+    {
+      "value": 323429.977384,
+      "dataType": "PNL",
+      "dateTime": 1783036800000
+    },
+    {
+      "value": 363774.896736,
+      "dataType": "PNL",
+      "dateTime": 1783123200000
+    },
+    {
+      "value": 364072.66994,
+      "dataType": "PNL",
+      "dateTime": 1783209600000
+    },
+    {
+      "value": 366872.002746,
+      "dataType": "PNL",
+      "dateTime": 1783296000000
+    },
+    {
+      "value": 329633.815177,
+      "dataType": "PNL",
+      "dateTime": 1783382400000
+    },
+    {
+      "value": 484588.531589,
+      "dataType": "PNL",
+      "dateTime": 1783468800000
+    },
+    {
+      "value": 450427.595044,
+      "dataType": "PNL",
+      "dateTime": 1783555200000
+    },
+    {
+      "value": 555661.6381,
+      "dataType": "PNL",
+      "dateTime": 1783641600000
+    },
+    {
+      "value": 563759.950202,
+      "dataType": "PNL",
+      "dateTime": 1783728000000
+    },
+    {
+      "value": 564453.967802,
+      "dataType": "PNL",
+      "dateTime": 1783814400000
+    },
+    {
+      "value": 596125.713885,
+      "dataType": "PNL",
+      "dateTime": 1783900800000
+    },
+    {
+      "value": 533693.022622,
+      "dataType": "PNL",
+      "dateTime": 1783987200000
+    },
+    {
+      "value": 272671.901893,
+      "dataType": "PNL",
+      "dateTime": 1784073600000
+    },
+    {
+      "value": 323221.357579,
+      "dataType": "PNL",
+      "dateTime": 1784160000000
+    },
+    {
+      "value": 428722.282032,
+      "dataType": "PNL",
+      "dateTime": 1784246400000
+    },
+    {
+      "value": 439308.935232,
+      "dataType": "PNL",
+      "dateTime": 1784332800000
+    },
+    {
+      "value": 394804.597809,
+      "dataType": "PNL",
+      "dateTime": 1784419200000
+    },
+    {
+      "value": 307705.859818,
+      "dataType": "PNL",
+      "dateTime": 1784505600000
+    },
+    {
+      "value": 463298.308983,
+      "dataType": "PNL",
+      "dateTime": 1784592000000
+    },
+    {
+      "value": 532279.069729,
+      "dataType": "PNL",
+      "dateTime": 1784678400000
+    },
+    {
+      "value": 621137.772605,
+      "dataType": "PNL",
+      "dateTime": 1784764800000
+    },
+    {
+      "value": 624037.862715,
+      "dataType": "PNL",
+      "dateTime": 1784851200000
+    },
+    {
+      "value": 645408.076398,
+      "dataType": "PNL",
+      "dateTime": 1784937600000
+    },
+    {
+      "value": 746248.145022,
+      "dataType": "PNL",
+      "dateTime": 1785024000000
+    },
+    {
+      "value": 731634.899539,
+      "dataType": "PNL",
+      "dateTime": 1785110400000
+    },
+    {
+      "value": 749782.308655,
+      "dataType": "PNL",
+      "dateTime": 1785196800000
+    },
+    {
+      "value": 782446.534958,
+      "dataType": "PNL",
+      "dateTime": 1785283200000
+    },
+    {
+      "value": 1439767.362342,
+      "dataType": "PNL",
+      "dateTime": 1785369600000
+    },
+    {
+      "value": 1472598.343116,
+      "dataType": "PNL",
+      "dateTime": 1785456000000
+    },
+    {
+      "value": 1472037.097077,
+      "dataType": "PNL",
+      "dateTime": 1785542400000
+    },
+    {
+      "value": 1476454.151037,
+      "dataType": "PNL",
+      "dateTime": 1785628800000
+    },
+    {
+      "value": 1471251.309227,
+      "dataType": "PNL",
+      "dateTime": 1785715200000
+    },
+    {
+      "value": 1471272.543337,
+      "dataType": "PNL",
+      "dateTime": 1785801600000
+    },
+    {
+      "value": 1495167.628803,
+      "dataType": "PNL",
+      "dateTime": 1785888000000
+    },
+    {
+      "value": 1504011.022831,
+      "dataType": "PNL",
+      "dateTime": 1785974400000
+    },
+    {
+      "value": 1504121.827475,
+      "dataType": "PNL",
+      "dateTime": 1786060800000
+    },
+    {
+      "value": 1493577.267947,
+      "dataType": "PNL",
+      "dateTime": 1786147200000
+    },
+    {
+      "value": 1506650.540441,
+      "dataType": "PNL",
+      "dateTime": 1786233600000
+    },
+    {
+      "value": 1498243.941194,
+      "dataType": "PNL",
+      "dateTime": 1786320000000
+    },
+    {
+      "value": 1505313.969774,
+      "dataType": "PNL",
+      "dateTime": 1786406400000
+    },
+    {
+      "value": 1525806.00037,
+      "dataType": "PNL",
+      "dateTime": 1786492800000
+    },
+    {
+      "value": 1525938.03349,
+      "dataType": "PNL",
+      "dateTime": 1786579200000
+    },
+    {
+      "value": 1530630.330963,
+      "dataType": "PNL",
+      "dateTime": 1786665600000
+    },
+    {
+      "value": 1530350.676647,
+      "dataType": "PNL",
+      "dateTime": 1786752000000
+    },
+    {
+      "value": 1528631.192184,
+      "dataType": "PNL",
+      "dateTime": 1786838400000
+    },
+    {
+      "value": 1523189.290672,
+      "dataType": "PNL",
+      "dateTime": 1786924800000
+    },
+    {
+      "value": 1547510.446007,
+      "dataType": "PNL",
+      "dateTime": 1787011200000
+    },
+    {
+      "value": 1572016.240088,
+      "dataType": "PNL",
+      "dateTime": 1787097600000
+    },
+    {
+      "value": 1593686.394069,
+      "dataType": "PNL",
+      "dateTime": 1787184000000
+    },
+    {
+      "value": 1627408.229548,
+      "dataType": "PNL",
+      "dateTime": 1787270400000
+    },
+    {
+      "value": 1617790.629995,
+      "dataType": "PNL",
+      "dateTime": 1787356800000
+    },
+    {
+      "value": 1649436.156582,
+      "dataType": "PNL",
+      "dateTime": 1787443200000
+    },
+    {
+      "value": 1660499.509877,
+      "dataType": "PNL",
+      "dateTime": 1787529600000
+    },
+    {
+      "value": 1669249.816152,
+      "dataType": "PNL",
+      "dateTime": 1787616000000
+    },
+    {
+      "value": 1681709.263497,
+      "dataType": "PNL",
+      "dateTime": 1787702400000
+    },
+    {
+      "value": 1669562.53865,
+      "dataType": "PNL",
+      "dateTime": 1787788800000
+    },
+    {
+      "value": 1690201.532789,
+      "dataType": "PNL",
+      "dateTime": 1787875200000
+    },
+    {
+      "value": 1704208.007996,
+      "dataType": "PNL",
+      "dateTime": 1787961600000
+    },
+    {
+      "value": 1676099.42823,
+      "dataType": "PNL",
+      "dateTime": 1788048000000
+    },
+    {
+      "value": 1721850.306871,
+      "dataType": "PNL",
+      "dateTime": 1788134400000
+    },
+    {
+      "value": 1705727.460962,
+      "dataType": "PNL",
+      "dateTime": 1788220800000
+    },
+    {
+      "value": 1697349.654698,
+      "dataType": "PNL",
+      "dateTime": 1788307200000
+    },
+    {
+      "value": 1707058.551013,
+      "dataType": "PNL",
+      "dateTime": 1788393600000
+    },
+    {
+      "value": 1734836.726934,
+      "dataType": "PNL",
+      "dateTime": 1788480000000
+    },
+    {
+      "value": 1728251.953526,
+      "dataType": "PNL",
+      "dateTime": 1788566400000
+    },
+    {
+      "value": 1706650.421537,
+      "dataType": "PNL",
+      "dateTime": 1788652800000
+    },
+    {
+      "value": 1748151.529269,
+      "dataType": "PNL",
+      "dateTime": 1788739200000
+    },
+    {
+      "value": 1737858.310337,
+      "dataType": "PNL",
+      "dateTime": 1788825600000
+    },
+    {
+      "value": 1717484.712887,
+      "dataType": "PNL",
+      "dateTime": 1788912000000
+    },
+    {
+      "value": 1682775.21584,
+      "dataType": "PNL",
+      "dateTime": 1788998400000
+    },
+    {
+      "value": 1775314.932659,
+      "dataType": "PNL",
+      "dateTime": 1789084800000
+    },
+    {
+      "value": 1755235.239279,
+      "dataType": "PNL",
+      "dateTime": 1789171200000
+    },
+    {
+      "value": 1783514.017274,
+      "dataType": "PNL",
+      "dateTime": 1789257600000
+    },
+    {
+      "value": 1764080.019436,
+      "dataType": "PNL",
+      "dateTime": 1789344000000
+    },
+    {
+      "value": 1890674.054154,
+      "dataType": "PNL",
+      "dateTime": 1789430400000
+    },
+    {
+      "value": 1857472.603756,
+      "dataType": "PNL",
+      "dateTime": 1789516800000
+    },
+    {
+      "value": 1851493.636954,
+      "dataType": "PNL",
+      "dateTime": 1789603200000
+    },
+    {
+      "value": 1851755.16727,
+      "dataType": "PNL",
+      "dateTime": 1789689600000
+    },
+    {
+      "value": 1889172.591511,
+      "dataType": "PNL",
+      "dateTime": 1789776000000
+    },
+    {
+      "value": 1904715.643623,
+      "dataType": "PNL",
+      "dateTime": 1789862400000
+    },
+    {
+      "value": 1852402.78394,
+      "dataType": "PNL",
+      "dateTime": 1789948800000
+    },
+    {
+      "value": 1893593.389613,
+      "dataType": "PNL",
+      "dateTime": 1790035200000
+    },
+    {
+      "value": 1869342.003211,
+      "dataType": "PNL",
+      "dateTime": 1790121600000
+    },
+    {
+      "value": 1877340.066501,
+      "dataType": "PNL",
+      "dateTime": 1790208000000
+    },
+    {
+      "value": 1877527.54906,
+      "dataType": "PNL",
+      "dateTime": 1790294400000
+    },
+    {
+      "value": 1877527.54906,
+      "dataType": "PNL",
+      "dateTime": 1790380800000
+    },
+    {
+      "value": 1883476.173721,
+      "dataType": "PNL",
+      "dateTime": 1790467200000
+    },
+    {
+      "value": 1895067.995628,
+      "dataType": "PNL",
+      "dateTime": 1790553600000
+    },
+    {
+      "value": 1981893.827838,
+      "dataType": "PNL",
+      "dateTime": 1790640000000
+    },
+    {
+      "value": 1961220.227838,
+      "dataType": "PNL",
+      "dateTime": 1790726400000
+    },
+    {
+      "value": 1865228.861125,
+      "dataType": "PNL",
+      "dateTime": 1790812800000
+    },
+    {
+      "value": 1584597.671217,
+      "dataType": "PNL",
+      "dateTime": 1790899200000
+    },
+    {
+      "value": 1587923.045964,
+      "dataType": "PNL",
+      "dateTime": 1790985600000
+    },
+    {
+      "value": 1693248.861226,
+      "dataType": "PNL",
+      "dateTime": 1791072000000
+    },
+    {
+      "value": 1594887.550543,
+      "dataType": "PNL",
+      "dateTime": 1791158400000
+    },
+    {
+      "value": 1594887.550543,
+      "dataType": "PNL",
+      "dateTime": 1791244800000
+    },
+    {
+      "value": 1600231.589154,
+      "dataType": "PNL",
+      "dateTime": 1791331200000
+    },
+    {
+      "value": 1728240.427663,
+      "dataType": "PNL",
+      "dateTime": 1791417600000
+    },
+    {
+      "value": 1794416.515339,
+      "dataType": "PNL",
+      "dateTime": 1791504000000
+    },
+    {
+      "value": 1760075.592654,
+      "dataType": "PNL",
+      "dateTime": 1791590400000
+    },
+    {
+      "value": 1684729.84597,
+      "dataType": "PNL",
+      "dateTime": 1791676800000
+    },
+    {
+      "value": 1868732.824771,
+      "dataType": "PNL",
+      "dateTime": 1791763200000
+    },
+    {
+      "value": 1743955.039039,
+      "dataType": "PNL",
+      "dateTime": 1791849600000
+    },
+    {
+      "value": 1886653.590326,
+      "dataType": "PNL",
+      "dateTime": 1791936000000
+    },
+    {
+      "value": 1833323.652581,
+      "dataType": "PNL",
+      "dateTime": 1792022400000
+    },
+    {
+      "value": 1894387.955711,
+      "dataType": "PNL",
+      "dateTime": 1792108800000
+    },
+    {
+      "value": 1907527.918682,
+      "dataType": "PNL",
+      "dateTime": 1792195200000
+    },
+    {
+      "value": 1848317.337253,
+      "dataType": "PNL",
+      "dateTime": 1792281600000
+    },
+    {
+      "value": 1867293.631327,
+      "dataType": "PNL",
+      "dateTime": 1792368000000
+    },
+    {
+      "value": 1765578.056656,
+      "dataType": "PNL",
+      "dateTime": 1792454400000
+    },
+    {
+      "value": 1664706.054059,
+      "dataType": "PNL",
+      "dateTime": 1792540800000
+    },
+    {
+      "value": 1921164.576583,
+      "dataType": "PNL",
+      "dateTime": 1792627200000
+    },
+    {
+      "value": 1703122.940471,
+      "dataType": "PNL",
+      "dateTime": 1792713600000
+    },
+    {
+      "value": 1778954.256103,
+      "dataType": "PNL",
+      "dateTime": 1792800000000
+    },
+    {
+      "value": 1807008.505717,
+      "dataType": "PNL",
+      "dateTime": 1792886400000
+    },
+    {
+      "value": 1845365.957326,
+      "dataType": "PNL",
+      "dateTime": 1792972800000
+    },
+    {
+      "value": 1944088.990993,
+      "dataType": "PNL",
+      "dateTime": 1793059200000
+    },
+    {
+      "value": 2121104.427807,
+      "dataType": "PNL",
+      "dateTime": 1793145600000
+    },
+    {
+      "value": 2109443.594591,
+      "dataType": "PNL",
+      "dateTime": 1793232000000
+    },
+    {
+      "value": 2279516.488002,
+      "dataType": "PNL",
+      "dateTime": 1793318400000
+    },
+    {
+      "value": 2217947.527219,
+      "dataType": "PNL",
+      "dateTime": 1793404800000
+    },
+    {
+      "value": 2111316.398519,
+      "dataType": "PNL",
+      "dateTime": 1793491200000
+    },
+    {
+      "value": 2227351.517963,
+      "dataType": "PNL",
+      "dateTime": 1793577600000
+    },
+    {
+      "value": 2118841.034281,
+      "dataType": "PNL",
+      "dateTime": 1793664000000
+    },
+    {
+      "value": 1649066.703783,
+      "dataType": "PNL",
+      "dateTime": 1793750400000
+    },
+    {
+      "value": 2637549.838064,
+      "dataType": "PNL",
+      "dateTime": 1793836800000
+    },
+    {
+      "value": 2638948.021633,
+      "dataType": "PNL",
+      "dateTime": 1793923200000
+    },
+    {
+      "value": 2637424.512016,
+      "dataType": "PNL",
+      "dateTime": 1794009600000
+    },
+    {
+      "value": 2689578.169875,
+      "dataType": "PNL",
+      "dateTime": 1794096000000
+    },
+    {
+      "value": 2713229.815385,
+      "dataType": "PNL",
+      "dateTime": 1794182400000
+    },
+    {
+      "value": 2728334.435792,
+      "dataType": "PNL",
+      "dateTime": 1794268800000
+    },
+    {
+      "value": 2741375.382642,
+      "dataType": "PNL",
+      "dateTime": 1794355200000
+    },
+    {
+      "value": 2760962.304482,
+      "dataType": "PNL",
+      "dateTime": 1794441600000
+    },
+    {
+      "value": 2813608.828223,
+      "dataType": "PNL",
+      "dateTime": 1794528000000
+    },
+    {
+      "value": 2828884.027739,
+      "dataType": "PNL",
+      "dateTime": 1794614400000
+    },
+    {
+      "value": 2857584.36763525,
+      "dataType": "PNL",
+      "dateTime": 1794740400000
+    }
+  ],
+  "success": true
+}

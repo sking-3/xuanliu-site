@@ -1,0 +1,17 @@
+{
+  "code": "000000",
+  "message": null,
+  "messageDetail": null,
+  "data": {
+    "timeRange": "90D",
+    "roi": 249.56609959,
+    "pnl": 1334395.07696365,
+    "mdd": 48.83372,
+    "copierPnl": 7780921.18725554,
+    "winRate": 64.9351,
+    "winOrders": 50,
+    "totalOrder": 77,
+    "sharpRatio": "2.68313813"
+  },
+  "success": true
+}
