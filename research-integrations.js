@@ -73,6 +73,7 @@
 
   const statusLabels = { adapt: '可提取能力', private: '私有适配', reference: '仅作参考' };
   const statusClasses = { adapt: 'is-adapt', private: 'is-private', reference: 'is-reference' };
+  const categoryGroups = { '策略与回测': ['回测引擎', '策略与交易框架', '策略与通知'] };
   const filter = root.querySelector('[data-integrations-filter]');
   const count = root.querySelector('[data-integrations-count]');
   const grid = root.querySelector('[data-integrations-grid]');
@@ -80,7 +81,7 @@
 
   function render() {
     const selected = filter?.value || 'all';
-    const visible = sources.filter(source => selected === 'all' || source.status === selected || source.category === selected);
+    const visible = sources.filter(source => selected === 'all' || source.status === selected || source.category === selected || categoryGroups[selected]?.includes(source.category));
     if (count) count.textContent = `${visible.length}/${sources.length} 个来源`;
     if (!grid) return;
     grid.innerHTML = visible.map(source => `
