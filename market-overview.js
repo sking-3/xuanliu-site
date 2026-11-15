@@ -4,9 +4,9 @@ const IDS=['sentiment','valuation','flows','active','macro'];
 const MAX_BYTES=262144;
 const MAX_AGE_DAYS={sentiment:3,valuation:45,flows:120,active:2/24,macro:45};
 const LABELS={sentiment:'市场温度',valuation:'核心估值',flows:'跨境资金',active:'活跃标的',macro:'宏观速递'};
-const SCOPES={sentiment:'比特币 · 恐惧与贪婪',valuation:'沪深300 · 月末事实表',flows:'美国长期证券 · 月度净买入',active:'加密资产 · 24小时成交额',macro:'美国宏观 · 官方发布与日历'};
-const CADENCE={sentiment:'日度情绪指标 · 非盘中报价',valuation:'月末估值 · 随来源事实表发布',flows:'月度统计 · 不代表盘中资金流',active:'成交额快照 · 盘中报价见行情区',macro:'官方发布 · 非盘中行情'};
-const HOSTS=['alternative.me','csindex.com.cn','treasury.gov','bls.gov'];
+const SCOPES={sentiment:'比特币 · 恐惧与贪婪',valuation:'沪深300 · 月末事实表',flows:'美国长期证券 · 月度净买入',active:'加密资产 · 24小时成交额',macro:'中国宏观 · 国家统计局发布'};
+const CADENCE={sentiment:'日度情绪指标 · 非盘中报价',valuation:'月末估值 · 随来源事实表发布',flows:'月度统计 · 不代表盘中资金流',active:'成交额快照 · 盘中报价见行情区',macro:'中文官方发布 · 非盘中行情'};
+const HOSTS=['alternative.me','csindex.com.cn','treasury.gov','bls.gov','stats.gov.cn'];
 function fail(){throw Error('Invalid market overview snapshot');}
 function plain(v){return v!==null&&typeof v==='object'&&!Array.isArray(v);}
 function str(v,max=160){if(typeof v!=='string'||!v.trim()||v.length>max)fail();return v.trim();}
@@ -89,6 +89,16 @@ function employmentHeadline(t){
   if(!m||!months.includes(m[3]))return t;
   return `${months.indexOf(m[3])+1}月非农 ${m[1].toLowerCase()==='falls'?'−':'+'}${decimal(Number(m[2].replace(/,/g,''))/1e4,1)}万 · 失业率 ${m[4]}%`;
 }
+function macroSnapshot(payload,base,now){
+  if(!plain(payload)||payload.schemaVersion!==1||!plain(payload.card))return null;
+  const card=payload.card;
+  const generated=[base.generatedAt,payload.generatedAt,card.fetchedAt,card.lastAttemptAt].filter(Boolean).map(Date.parse).filter(Number.isFinite);
+  if(!generated.length)return null;
+  try{
+    const probe={schemaVersion:1,generatedAt:new Date(Math.max(...generated)).toISOString(),cards:{...base.cards,macro:card}};
+    return validate(probe,now);
+  }catch(_){return null;}
+}
 function node(doc,tag,text,cls){const el=doc.createElement(tag);if(text!==undefined)el.textContent=text;if(cls)el.className=cls;return el;}
 function anchor(doc,text,url,cls){const a=node(doc,'a',text,cls);a.href=url;a.target='_blank';a.rel='noopener noreferrer';return a;}
 function renderCard(doc,host,id,c,now,readFailed){
@@ -138,7 +148,19 @@ function mount(doc,options={}){
       const r=await fetcher('market-overview.json',{cache:'no-cache',credentials:'omit',redirect:'error',signal:controller.signal});
       if(!r.ok||!/application\/(?:[\w.+-]*\+)?json(?:;|$)/i.test(r.headers.get('content-type')||'')||Number(r.headers.get('content-length'))>MAX_BYTES)fail();
       const reader=r.body.getReader(),chunks=[];let bytes=0;for(;;){const {done,value}=await reader.read();if(done)break;bytes+=value.byteLength;if(bytes>MAX_BYTES){await reader.cancel();fail();}chunks.push(value);}
-      const next=validate(JSON.parse(await new Blob(chunks).text()),now());
+      let next=validate(JSON.parse(await new Blob(chunks).text()),now());
+      // The aggregate snapshot keeps its existing last-good fallback. When
+      // that card is still on the retired BLS source, prefer the separate
+      // Chinese National Bureau of Statistics snapshot if one is available.
+      if(next.cards.macro.status!=='ready'){
+        try{
+          const macroResponse=await fetcher('macro-cn.json',{cache:'no-cache',credentials:'omit',redirect:'error'});
+          if(macroResponse.ok&&/application\/(?:[\w.+-]*\+)?json(?:;|$)/i.test(macroResponse.headers.get('content-type')||'')){
+            const macroPayload=await macroResponse.json();
+            next=macroSnapshot(macroPayload,next,now())||next;
+          }
+        }catch(_){/* keep the aggregate last-good card */}
+      }
       if(snapshot&&Date.parse(next.generatedAt)<Date.parse(snapshot.generatedAt))fail();
       if(snapshot)for(const id of IDS){const before=snapshot.cards[id],after=next.cards[id];if(before.data&&(!after.data||Date.parse(after.fetchedAt)<Date.parse(before.fetchedAt)||Date.parse(after.asOf)<Date.parse(before.asOf)))next.cards[id]={...before,status:'stale',lastAttemptAt:after.lastAttemptAt,errorCode:after.errorCode||'older_snapshot'};}
       snapshot=next;readFailed=false;render();
@@ -150,7 +172,7 @@ function mount(doc,options={}){
   doc.addEventListener('visibilitychange',()=>{if(doc.visibilityState==='visible'){render();refresh();}});
   refresh();return {refresh,render,getSnapshot:()=>snapshot,destroy:()=>clearInterval(interval)};
 }
-const api={IDS,MAX_BYTES,MAX_AGE_DAYS,validate,validateSnapshot:validate,stale,dateLabel,employmentHeadline,eventTitle,renderCard,mount};
+const api={IDS,MAX_BYTES,MAX_AGE_DAYS,validate,validateSnapshot:validate,macroSnapshot,stale,dateLabel,employmentHeadline,eventTitle,renderCard,mount};
 if(typeof module!=='undefined'&&module.exports)module.exports=api;
 if(global.document)mount(global.document);
 })(typeof window!=='undefined'?window:globalThis);
