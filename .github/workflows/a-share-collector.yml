@@ -22,7 +22,7 @@ on:
         default: false
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   collect:
@@ -40,20 +40,14 @@ jobs:
           echo 'AKShare, adata, and mootdx run here only for this manual invocation.'
           echo 'No real order API or trading secret is read.'
           echo 'No schedule is enabled by this workflow.'
+          echo 'Provider rows stay on the ephemeral runner and are never uploaded.'
       - name: Collect A-share data
         env:
           PROVIDER: ${{ inputs.provider }}
           MODE: ${{ inputs.mode }}
         run: |
           mkdir -p "$RUNNER_TEMP/a-share"
-          python scripts/collect_a_share.py --provider "$PROVIDER" --mode "$MODE" \
-            --output-dir "$RUNNER_TEMP/a-share"
-      - name: Upload local result as an artifact
-        uses: actions/upload-artifact@v6
-        with:
-          name: a-share-${{ inputs.mode }}-${{ github.run_id }}
-          path: ${{ runner.temp }}/a-share
-          if-no-files-found: error
+          python scripts/collect_a_share.py --provider "$PROVIDER" --mode "$MODE"             --output-dir "$RUNNER_TEMP/a-share"
       - name: Keep public publication disabled
         if: ${{ inputs.publish_public }}
         run: |
