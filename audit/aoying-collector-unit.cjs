@@ -52,6 +52,18 @@ test('generated periods pass reference validation and preserve old 30D aliases',
  assert.equal(history.curve,history.curveByPeriod['30D']);
 });
 
+test('a failed public request leaves the previous evidence set untouched',async()=>{
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'aoying-atomic-')),evidenceDir=path.join(dir,'evidence'),outputFile=path.join(dir,'history.js');
+ fs.mkdirSync(evidenceDir,{recursive:true});
+ const previousProfile=path.join(evidenceDir,'profile.json');fs.writeFileSync(previousProfile,'previous-evidence\n');
+ await assert.rejects(()=>C.collectAoying({now,previousFile:path.resolve(__dirname,'..','trader','aoying-history.js'),outputFile,evidenceDir,fetchImpl:async url=>{
+   const parsed=new URL(url);if(parsed.pathname.endsWith('/performance')&&parsed.searchParams.get('timeRange')==='90D')throw new Error('temporary source failure');return fixture(url);
+ }}),/temporary source failure/);
+ assert.equal(fs.readFileSync(previousProfile,'utf8'),'previous-evidence\n');
+ assert.deepEqual(fs.readdirSync(evidenceDir),['profile.json']);
+ assert.equal(fs.existsSync(outputFile),false);
+});
+
 test('legacy schema remains 30D-only and never reuses a 30D value for another period',()=>{
  const sandbox={};sandbox.globalThis=sandbox;vm.runInNewContext(fs.readFileSync(path.resolve(__dirname,'..','trader','aoying-history.js'),'utf8'),sandbox);
  const legacy=structuredClone(sandbox.BooksAoyingHistory);delete legacy.schemaVersion;legacy.schemaVersion=1;delete legacy.performanceByPeriod;delete legacy.curveByPeriod;

@@ -44,9 +44,13 @@ async function fetchJson(fetchImpl,url){
  return responseJson(response,url);
 }
 function writeEvidence(root,name,raw){
+ const evidence=prepareEvidence(root,name,raw);
+ fs.mkdirSync(path.dirname(evidence.path),{recursive:true});fs.writeFileSync(evidence.path,evidence.bytes);
+ return evidence;
+}
+function prepareEvidence(root,name,raw){
  const bytes=Buffer.from(JSON.stringify(raw,null,2)+'\n');
  const file=path.join(root,name+'.json');
- fs.mkdirSync(path.dirname(file),{recursive:true});fs.writeFileSync(file,bytes);
  return {bytes,sha256:sha256(bytes),path:file};
 }
 function evidencePath(file){return path.relative(path.resolve(__dirname,'..','trader'),file);}
@@ -83,20 +87,22 @@ async function collectAoying({fetchImpl=globalThis.fetch,outputFile=path.resolve
  const receivedAt=new Date(now).toISOString();
  if(!Number.isFinite(Date.parse(receivedAt)))throw new Error('Invalid collection timestamp');
  const detail=await fetchJson(fetchImpl,DETAIL_URL);
- const profileEvidence=writeEvidence(evidenceDir,'profile',detail);
+ const evidenceQueue=[{name:'profile',raw:detail}];
+ const profileEvidence=prepareEvidence(evidenceDir,'profile',detail);
  const profile=normalizeProfile(detail,DETAIL_URL,receivedAt,profileEvidence);
  const performanceByPeriod={};
  const curveByPeriod={};
  for(const period of PERIODS){
-  const url=performanceUrl(period),raw=await fetchJson(fetchImpl,url),evidence=writeEvidence(evidenceDir,`performance-${period}`,raw);
+  const url=performanceUrl(period),raw=await fetchJson(fetchImpl,url),evidence=prepareEvidence(evidenceDir,`performance-${period}`,raw);evidenceQueue.push({name:`performance-${period}`,raw});
   performanceByPeriod[period]=normalizePerformance(raw,period,url,receivedAt,evidence);
  }
  for(const period of PERIODS){
-  const url=chartUrl(period),raw=await fetchJson(fetchImpl,url),evidence=writeEvidence(evidenceDir,`curve-${period}`,raw);
+  const url=chartUrl(period),raw=await fetchJson(fetchImpl,url),evidence=prepareEvidence(evidenceDir,`curve-${period}`,raw);evidenceQueue.push({name:`curve-${period}`,raw});
   curveByPeriod[period]=normalizeChart(raw,period,url,receivedAt,evidence);
  }
  const previous=readPrevious(previousFile);
  const history={...previous,schemaVersion:2,portfolioId:PORTFOLIO_ID,scope:'official_historical_positions_only',fetchedAt:previous.fetchedAt||null,latestPublicFetchAt:receivedAt,profile,performanceByPeriod,curveByPeriod,performance:performanceByPeriod['30D'],curve:curveByPeriod['30D'],positionStatus:profile.positionShow?'public':'restricted',positionAsOf:profile.lastTradeTime??null,positionRows:null,positionNote:profile.positionShow?'Public positions may be read from an approved endpoint.':'Binance marks positions private for this profile. Empty filtered responses are not interpreted as flat.'};
+ for(const item of evidenceQueue)writeEvidence(evidenceDir,item.name,item.raw);
  fs.mkdirSync(path.dirname(outputFile),{recursive:true});
  fs.writeFileSync(outputFile,'/* Generated from Binance public Aoying profile/performance/chart endpoints. Positions are intentionally not requested. */\nglobalThis.BooksAoyingHistory='+JSON.stringify(history)+';\n');
  return history;

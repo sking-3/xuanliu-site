@@ -94,6 +94,8 @@ jobs:
           node audit/refresh-trader-positions-unit.cjs
           node audit/trader-unit.cjs
           node --check scripts/collect_binance.cjs
+          node --check scripts/collect_aoying.cjs
+          node audit/aoying-collector-unit.cjs
           node --check trader/binance-data.js
           node audit/binance-plaza-data-unit.cjs
           node --check trader/binance/redirect.js
@@ -106,6 +108,13 @@ jobs:
 
       - name: Test snapshot validation and last-good handling
         run: python3 -B audit/hyperliquid-collector-test.py
+
+      - name: Collect Aoying official public reference
+        if: steps.refresh-mode.outputs.mode != 'skip'
+        # Binance's public performance/profile data is independent from the
+        # Hyperliquid batch. A failed read aborts this collection before any
+        # evidence or history file is replaced.
+        run: node scripts/collect_aoying.cjs
 
       - name: Check persisted Hyperliquid source refusals
         id: hyperliquid-guard
@@ -230,7 +239,7 @@ jobs:
             echo '::error::main changed during collection. Skipping this deployment; a later run will use the new version.'
             exit 1
           fi
-          git add -- trader/feed.json trader/analytics.json trader/portfolios.json trader/binance/snapshot.json trader/binance/portfolios.json
+          git add -- trader/feed.json trader/analytics.json trader/portfolios.json trader/binance/snapshot.json trader/binance/portfolios.json trader/aoying-history.js trader/binance/evidence/aoying-analysis-current
           if ! git diff --cached --quiet; then
             git config user.name 'github-actions[bot]'
             git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
