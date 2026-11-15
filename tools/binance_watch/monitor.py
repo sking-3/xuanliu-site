@@ -392,6 +392,7 @@ def inspect_checkpoint(path):
 class Store:
     def __init__(self, path):
         path = Path(path).expanduser()
+        self.path = path
         path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.lock = path.with_name(path.name + ".lock").open("a+")
         self.db = None
@@ -399,10 +400,11 @@ class Store:
             fcntl.flock(self.lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
             existed = path.exists()
             self.db = sqlite3.connect(path)
-            self.db.execute("PRAGMA journal_mode=WAL")
             if existed:
                 self.state = inspect_checkpoint(path)
+                self.db.execute("PRAGMA journal_mode=WAL")
             else:
+                self.db.execute("PRAGMA journal_mode=WAL")
                 self.db.execute("CREATE TABLE state (id INTEGER PRIMARY KEY CHECK(id=1), payload TEXT NOT NULL)")
                 self.db.execute("CREATE TABLE events (id TEXT PRIMARY KEY, payload TEXT NOT NULL)")
                 self.save(initial_state())
@@ -428,9 +430,21 @@ class Store:
             if self.db is not None:
                 try:
                     self.db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                    # The sealed checkpoint is copied without SQLite sidecars.
+                    # Switch back to the rollback journal before closing so a
+                    # read-only validator can open the standalone database.
+                    self.db.execute("PRAGMA journal_mode=DELETE")
                 finally:
                     self.db.close()
                     self.db = None
+                    wal = Path(str(self.path) + "-wal")
+                    shm = Path(str(self.path) + "-shm")
+                    if not wal.exists() or wal.stat().st_size == 0:
+                        for sidecar in (wal, shm):
+                            try:
+                                sidecar.unlink()
+                            except FileNotFoundError:
+                                pass
         finally:
             self.lock.close()
 

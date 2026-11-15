@@ -66,6 +66,30 @@ def admit(state, event, run_id, ticket, commit_sha=None):
                          consumedAt=monitor.iso(time.time()))
             recovery.update(consumedBy=run_id, consumedAt=monitor.iso(time.time()))
             return
+        stale = state.get('reviewedStaleRecovery')
+        if isinstance(stale, dict) and stale.get('consumedBy') is None:
+            # A failed observer can leave activeRun durable even though the
+            # workflow is gone. This path is narrowly bound to the reviewed
+            # failed run and its recorded source request count. It never
+            # resumes after a source denial and never requests positions.
+            require(state.get('stopped') is False and state.get('activeRun') is None and
+                    state.get('scope') == 'public_execution_records_only' and
+                    state.get('hiddenPositionsRequested') is False and
+                    re.fullmatch('[a-f0-9]{40}', stale.get('authorizedCommit', '')) and
+                    commit_sha == stale['authorizedCommit'] and not ticket and
+                    chain.get('ticket') is None and chain.get('phase') is None and
+                    stale.get('authorization') == 'recover_checkpoint_changed_after_failed_run' and
+                    stale.get('failedRunId') == chain.get('ownerRunId') and
+                    stale.get('confirmedError') == 'checkpoint_changed' and
+                    stale.get('confirmedJobConclusion') == 'failure' and
+                    isinstance(stale.get('confirmedSourceRequests'), int) and
+                    stale.get('confirmedSourceRequests') > 0 and
+                    re.fullmatch('[a-f0-9]{40}', stale.get('originalBlob', '')), 'invalid_reviewed_stale_recovery')
+            parent = chain['ownerRunId']
+            chain.update(ownerRunId=run_id, parentRunId=parent, ticket=None, phase=None,
+                         consumedAt=monitor.iso(time.time()))
+            stale.update(consumedBy=run_id, consumedAt=monitor.iso(time.time()))
+            return
         raise monitor.Stop('continuation_already_active')
     require(event == 'workflow_dispatch' and isinstance(ticket, str) and
             re.fullmatch('[a-f0-9]{32}', ticket) and ticket == chain.get('ticket') and

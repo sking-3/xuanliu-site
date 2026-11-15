@@ -51,7 +51,7 @@ function draw(c){
  if(c.error)details.append(note('更新状态：'+c.error+'。403 / 429 会停止相应来源请求，不切换接口绕过。'));
  if(isHL(r))details.append(note('成交流水的来源已实现盈亏未扣手续费、资金费；手续费按原费用币单列。首次发现时间是本机读取此成交的时间，不当作开仓时间。'));
  if(c.officialHistory)details.append(note(`历史仓位分页：${c.officialHistory.rows.length} / 来源本次总数 ${c.officialHistory.sourceTotal}；${c.officialHistory.pages} 页，每页 20 条。读取 ${date(c.officialHistory.fetchedAt)}；不是账户完整交割单。`));
- if(c.officialHistory?.performance)details.append(note('熬鹰 30D 表现读取 '+date(c.officialHistory.performance.fetchedAt)+'；来源未提供独立统计截止时间。收益率、盈亏、回撤、胜率均为币安平台原值，不用操作样本估算。'));
+ if(c.officialHistory?.performanceByPeriod)details.append(note('熬鹰 7D、30D、90D、180D、365D 表现和对应 PNL 曲线均直接读取币安公开接口；每个周期单独保存采集时间与证据，不用操作样本估算。来源未提供独立统计截止时间；当前仓位由来源标记为不可见，不能按空数组判定空仓。'));
  const link=el('a','打开官方来源 ↗');link.href=r.sourceUrl||r.url||(isHL(r)?'https://app.hyperliquid.xyz/explorer/address/'+r.accountId:'https://www.binance.com/zh-CN/copy-trading/lead-details/'+r.accountId);link.target='_blank';link.rel='noopener noreferrer';details.append(link);c.root.append(details);
 }
 function analysis(c){
@@ -63,7 +63,7 @@ function analysis(c){
  const period=el('div',undefined,'ta-period-bar');period.append(el('strong','分析周期'));const switches=el('div',undefined,'ta-period-switch');
  for(const p of ['7D','30D','90D','180D','365D']){const b=btn(p,()=>c.context.setPeriod(p),'ta-period');b.setAttribute('aria-pressed',String(c.context.period===p));switches.append(b);}period.append(switches);statsRoot.append(period);
  const profile=c.context.profile;
- if(profile){const top=el('div',undefined,'ta-account-facts');for(const [label,value]of [['带单保证金余额 · USDT',fmt(profile.marginBalance,2)],['资产管理规模 AUM · USDT',fmt(profile.aumAmount,2)],['跟单用户数',fmt(profile.currentCopyCount,0)+' / '+fmt(profile.maxCopyCount,0)],['当前持仓',profile.positionShow?'以有效公开快照为准':'来源未公开 · 仓位未知']]){const item=el('div');item.append(el('small',label),el('strong',value));top.append(item);}statsRoot.append(top,note('组合资料读取 '+date(profile.fetchedAt)+(profile.status==='stale'?' · 历史快照':'')));}
+ if(profile){const top=el('div',undefined,'ta-account-facts');for(const [label,value]of [['带单保证金余额 · USDT',fmt(profile.marginBalance,2)],['资产管理规模 AUM · USDT',fmt(profile.aumAmount,2)],['跟单用户数',fmt(profile.currentCopyCount,0)+' / '+fmt(profile.maxCopyCount,0)],['当前持仓',profile.positionShow?'以有效公开快照为准':'来源未公开 · 仓位未知'],['最近公开交易',profile.lastTradeAt?date(profile.lastTradeAt):'来源未提供']]){const item=el('div');item.append(el('small',label),el('strong',value));top.append(item);}statsRoot.append(top,note('组合资料读取 '+date(profile.fetchedAt)+(profile.status==='stale'?' · 历史快照':'')));}
  const w=c.context.metrics||{},grid=el('div',undefined,'ta-metrics');
  const data=[['所选周期收益率',w.roi===null||w.roi===undefined?'—':(w.roi>0?'+':'')+percentage(w.roi),w.roi,c.context.periodLabel||c.context.period],
  ['来源盈亏 · '+(w.currency||c.context.r.currency||'USD'),signed(w.pnl),w.pnl,w.asOf||w.sourceAsOf?'数据截至 '+date(w.asOf||w.sourceAsOf):w.fetchedAt||w.lastSuccessAt?'读取 '+date(w.fetchedAt||w.lastSuccessAt):'缺少有效周期数据'],

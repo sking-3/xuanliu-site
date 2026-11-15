@@ -251,7 +251,13 @@ def checked_file(path, limit):
 
 def file_hash(path):
     with path.open("rb") as stream:
-        return hashlib.file_digest(stream, "sha256").hexdigest()
+        digest = getattr(hashlib, "file_digest", None)
+        if digest is not None:
+            return digest(stream, "sha256").hexdigest()
+        hasher = hashlib.sha256()
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            hasher.update(chunk)
+        return hasher.hexdigest()
 
 
 def inspect(path):

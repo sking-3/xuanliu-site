@@ -39,6 +39,36 @@ class ContinuationTests(unittest.TestCase):
             s=Store().state;s['reviewedRecovery']={'authorizedCommit':'a'*40,'failedRunId':'100','confirmedSourceRequests':0,'confirmedError':'checkpoint_changed','confirmedJobConclusion':'failure'};mutation(s)
             with self.assertRaises(c.monitor.Stop):c.admit(s,'push','101','','a'*40)
 
+    def test_reviewed_stale_recovery_requires_exact_failed_run_and_consumes_once(self):
+        s=Store().state
+        s.update(scope='public_execution_records_only',hiddenPositionsRequested=False)
+        s['reviewedStaleRecovery']={
+            'authorization':'recover_checkpoint_changed_after_failed_run',
+            'authorizedCommit':'a'*40,
+            'originalBlob':'b'*40,
+            'failedRunId':'100',
+            'confirmedError':'checkpoint_changed',
+            'confirmedJobConclusion':'failure',
+            'confirmedSourceRequests':74,
+            'consumedBy':None,
+        }
+        before=copy.deepcopy(s)
+        for event,sha in [('push','c'*40),('push',None),('workflow_dispatch','a'*40)]:
+            with self.assertRaises(c.monitor.Stop):c.admit(s,event,'101','',sha)
+            self.assertEqual(s,before)
+        c.admit(s,'push','101','','a'*40)
+        self.assertEqual(s['continuation']['parentRunId'],'100')
+        self.assertEqual(s['reviewedStaleRecovery']['consumedBy'],'101')
+        with self.assertRaises(c.monitor.Stop):c.admit(s,'push','102','', 'a'*40)
+
+    def test_reviewed_stale_recovery_rejects_zero_requests_or_source_denial(self):
+        for field,value in [('confirmedSourceRequests',0),('confirmedError','http_403'),('confirmedJobConclusion','success'),('originalBlob','bad')]:
+            s=Store().state;s.update(scope='public_execution_records_only',hiddenPositionsRequested=False)
+            s['reviewedStaleRecovery']={'authorization':'recover_checkpoint_changed_after_failed_run','authorizedCommit':'a'*40,'originalBlob':'b'*40,'failedRunId':'100','confirmedError':'checkpoint_changed','confirmedJobConclusion':'failure','confirmedSourceRequests':74,'consumedBy':None}
+            s['reviewedStaleRecovery'][field]=value;before=copy.deepcopy(s)
+            with self.assertRaises(c.monitor.Stop):c.admit(s,'push','101','','a'*40)
+            self.assertEqual(s,before)
+
     def reviewed_public_resume(self):
         s=Store().state
         s.update(scope='public_execution_records_only',hiddenPositionsRequested=False,records={'history':'retained'})

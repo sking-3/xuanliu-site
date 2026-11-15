@@ -10,7 +10,7 @@
 
 上述三人进入采集白名单，选择依据是公开数据可读取，不是收益排名或跟单推荐。
 
-广场另收录熬鹰资本（`5075281354358777856`）身份关注卡。此前会话核验为 `positionShow=false`，仓库既有审计说明也记载未开放持仓；本次没有重试受限接口，没有其公开订单、持仓或成交样本。卡片只显示身份、来源链接和未取得说明，所有交易数量与成功采集时间为空，不伪装成空仓或零订单。它不加入采集白名单，`createCollector` 仍拒绝该 ID。
+广场另收录熬鹰资本（`5075281354358777856`）身份关注卡。detail 仍返回 `positionShow=false`，因此不请求或解释隐藏仓位。公开资料、五个周期表现、五条 PNL 曲线和最近公开交易时间由独立只读采集器保存。卡片不会把权限过滤后的空数组伪装成空仓，也不把最近公开交易时间当作当前持仓快照。它不加入仓位采集白名单，`createCollector` 仍拒绝该 ID。
 
 身份卡与公开数据卡共用 `/trader/index.html` 的列表、筛选和详情窗口。旧 `/trader/binance/?portfolioId=ID` 只兼容跳转到广场对应搜索，不再提供独立监控页面。
 
@@ -18,7 +18,7 @@
 
 卡片和详情显示原组合 ID，ID 始终作为字符串保存。三个采集账号的头像仅采用现有 detail 响应中的 `avatarUrl`，由精确 HTTPS CDN 校验后保存到 `profile.avatarUrl`；缺失或非法值为空，不令交易采集失败，不增加请求。
 
-熬鹰身份卡另保留[币安广场公开主页](https://www.binance.com/zh-CN/square/profile/god_of_trader_tony)的原头像。同一图片路径在[Kopyon 公开文档](https://kopyon.com/binance-copy-trading-api/)中与 `5075281354358777856` 和昵称对应。头像是身份资料，不代表当前仓位或订单可读；不填充交易成功时间，不加入采集白名单。
+熬鹰身份卡另保留[币安广场公开主页](https://www.binance.com/zh-CN/square/profile/god_of_trader_tony)的原头像。同一图片路径在[Kopyon 公开文档](https://kopyon.com/binance-copy-trading-api/)中与 `5075281354358777856` 和昵称对应。头像是身份资料，不代表当前仓位或订单可读；最近公开交易时间只来自 detail，不填充当前持仓或订单。
 
 ## 数据范围
 
@@ -28,17 +28,17 @@ scripts/collect_binance.cjs 独立编写，只使用匿名公开网页数据接�
 
 ## 30 天来源业绩
 
-在同一白名单与停止保护通过后，采集器另行读取 `/bapi/futures/v1/public/future/copy-trade/lead-portfolio/performance?portfolioId=…&timeRange=30D`。ROI、PnL、MDD、winRate 分别存入 `performance.byPeriod["30D"]`，不从历史样本推算。ROI、MDD 与胜率使用来源百分数，PnL 为 USDT；MDD 保留返回符号，胜率必须在 0–100 内，缺失字段保留 null。
+熬鹰的独立采集器顺序读取 `7D`、`30D`、`90D`、`180D`、`365D` 五个周期的 `/bapi/futures/v1/public/future/copy-trade/lead-portfolio/performance?portfolioId=…&timeRange=…`。ROI、PnL、MDD、winRate 逐周期存入 `performanceByPeriod`，不从历史样本推算。ROI、MDD 与胜率使用来源百分数，PnL 为 USDT；MDD 保留来源数值，胜率必须在 0–100 内，缺失字段保留 null。180D 与 365D 即使返回相同数值也分别保留，不自行改算。
 
-绩效有独立的采集时间和响应摘要，来源未提供统计截止时间时保持未知；不会更新仓位核验时间。旧值失败时保留原时间并标旧，前台超过 60 分钟标旧。当前只采集 30D，其他周期不借用该结果，未取得的曲线不生成。隐藏或未知公开状态清除绩效，停止和同周期回退保护继续生效。熬鹰身份卡没有绩效样本，也不会触发该接口。
+绩效有独立的采集时间和响应摘要，来源未提供统计截止时间时保持未知；不会更新仓位核验时间。旧值失败时保留原时间并标旧，前台超过 60 分钟标旧。五个周期必须逐一通过 URL、证据摘要、周期字段和数值范围校验，缺少某周期只保留该周期缺数。隐藏或未知公开状态不会清除已经核验的公开表现，但不会解除仓位不可见限制。
 
 来源指标口径见[币安官方说明](https://www.binance.com/en/support/faq/detail/54aa6d3b43bc4f6eb4a3a6e3aea40acd)：仓位胜率不等于 Hyperliquid 的平仓成交片段胜率；两个来源在统一布局中保留不同名称和说明。
 
 ## 30 天来源盈亏曲线
 
-曲线独立保存于 `chart.byPeriod["30D"]`；请求 `GET /bapi/futures/v1/public/future/copy-trade/lead-portfolio/chart-data?portfolioId=…&timeRange=30D&dataType=PNL`。仅原三个获准公开组合通过既有停止与可见性检查后采集。依据[公开请求实现](https://github.com/doppelganger237/gendan/blob/7e8dd5bd195798f9af61dfcd265178f1500cf3d1/copy_trade_api/futures.py#L122)与[图表字段用法](https://github.com/doppelganger237/gendan/blob/7e8dd5bd195798f9af61dfcd265178f1500cf3d1/reports/image_report.py#L999)，将 `dateTime` 毫秒转换为 UTC 时间，`value` 直接保存为 USDT。不乘 100、不减去首点、不累计、不补造采样点；它不是 ROI 百分比曲线，也不是逐笔成交轨迹。
+曲线独立保存于 `curveByPeriod`，为 `7D`、`30D`、`90D`、`180D`、`365D` 各自请求 `GET /bapi/futures/v1/public/future/copy-trade/lead-portfolio/chart-data?portfolioId=…&timeRange=…&dataType=PNL`。仅熬鹰公开表现采集通过该独立链路。依据[公开请求实现](https://github.com/doppelganger237/gendan/blob/7e8dd5bd195798f9af61dfcd265178f1500cf3d1/copy_trade_api/futures.py#L122)与[图表字段用法](https://github.com/doppelganger237/gendan/blob/7e8dd5bd195798f9af61dfcd265178f1500cf3d1/reports/image_report.py#L999)，将 `dateTime` 毫秒转换为 UTC 时间，`value` 直接保存为 USDT。不乘 100、不减去首点、不累计、不补造采样点；它不是 ROI 百分比曲线，也不是逐笔成交轨迹。
 
-最多接受 1000 个有效点，拒绝重复时间、非有限数值和超过接收时间 5 分钟的未来点。少于两个点不绘制曲线，其他周期不借用 30D 数据。卡片与详情分别注明曲线单位、成功采集时间及实际点列的起止范围；30D 为请求窗口，不保证每一天都有样本或末点就是当前时刻。来源未提供更新时间，`sourceAsOf` 保持 null。
+最多接受每周期 1000 个有效点，拒绝重复时间、非有限数值和超过接收时间 5 分钟的未来点。少于两个点不绘制曲线，任何周期不借用其他周期数据。卡片与详情分别注明曲线单位、成功采集时间及实际点列的起止范围；周期值是来源请求窗口，不保证每一天都有样本或末点就是当前时刻。来源未提供更新时间，`sourceAsOf` 保持 null。
 
 曲线有独立的尝试、成功时间与响应摘要，超过 60 分钟或读取失败标旧；失败保留原成功点列及时间，旧或非法曲线不能覆盖较新的已验证样本。成功曲线不会续期仓位或绩效，不解除账号或批次停止；未知与隐藏状态清空交易曲线。浏览器只读取本站快照，不直连币安补采。
 
@@ -48,7 +48,7 @@ scripts/collect_binance.cjs 独立编写，只使用匿名公开网页数据接�
 - HTTP 202/401/403/418/429/451 或非成功业务码使整批持久停止，后续账号不再请求。下次定时运行保留停止状态，不自动解除。
 - 所有请求顺序执行，间隔至少2秒，单次15秒、响应2MB上限，无同轮自动重试。不得通过代理、凭据替换或重跑绕过停止。
 - 保留现有前次 workflow 完整成功检查。若前次采集后的提交/发布未确认成功，或重跑同次任务，则不请求来源。
-- 本次试查的 chartgol 历史数据出现 schema_changed，未加入采集名单，不重试；一亏三千里、青木问道、广西数学哥及 akato 的详情未向匿名查询开放仓位，未请求其仓位/历史。熬鹰资本此前未开放仓位；现在只收录身份关注卡，仍不在采集名单中。
+- 本次试查的 chartgol 历史数据出现 schema_changed，未加入采集名单，不重试；一亏三千里、青木问道、广西数学哥及 akato 的详情未向匿名查询开放仓位，未请求其仓位/历史。熬鹰资本仍未开放仓位，仅接入公开资料与表现链路，不加入仓位采集白名单。
 
 ## 发布与兼容
 

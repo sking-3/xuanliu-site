@@ -546,7 +546,11 @@ function refreshBinance() {
   });
 }
 function binanceStatus(view,r) {
-  if(r?.referenceOnly)return r.referenceNote;
+  if(r?.referenceOnly){
+    const profile=globalThis.BooksReferenceData?.profile(globalThis.BooksAoyingHistory,r.accountId);
+    const latest=profile?.lastTradeAt?`最近公开交易 ${timeLabel(profile.lastTradeAt)}`:'最近公开交易时间未取得';
+    return `官方当前仓位未公开 · ${latest}`;
+  }
   if(view.status==='restricted')return '资料不可见 · 当前仓位未知';
   if(state.binanceReadFailed)return '本站快照读取失败 · 当前仓位未知';
   if(view.refreshStopped)return '来源已停止刷新 · 当前仓位未知';
@@ -554,7 +558,13 @@ function binanceStatus(view,r) {
   if(view.status==='stale')return (view.errorCode?'采集未成功':'快照已过期')+' · 当前仓位未知';
   return view.currentPositionCount===0?'最近核验空仓':'持仓核验有效';
 }
-function binanceTiming(view,r) {if(r?.referenceOnly)return '仓位状态未接入';return view.observedAt?'仓位采集 '+timeLabel(view.observedAt):'尚无成功仓位采集';}
+function binanceTiming(view,r) {
+  if(r?.referenceOnly){
+    const profile=globalThis.BooksReferenceData?.profile(globalThis.BooksAoyingHistory,r.accountId);
+    return profile?.fetchedAt?`资料读取 ${timeLabel(profile.fetchedAt)} · ${profile.lastTradeAt?'最近公开交易 '+timeLabel(profile.lastTradeAt):'最近公开交易时间未取得'}`:'资料读取时间未取得';
+  }
+  return view.observedAt?'仓位采集 '+timeLabel(view.observedAt):'尚无成功仓位采集';
+}
 function binanceChartCaption(view) {
   if(!view.periodSupported)return '未接入该周期的币安曲线';
   if(view.status==='restricted')return '曲线资料不可见';
@@ -624,7 +634,7 @@ let publicExecutionReader=null;
 function renderPublicExecutions(r,parent){
   const section=node('section',undefined,'binance-data-section'),status=node('p','正在读取后台保存的公开记录…','detail-method'),table=node('div');
   section.append(status,table);parent.append(section);
-  if(typeof BooksBinancePublicRecords==='undefined'){status.textContent='公开记录组件未加载；当前仓位未知。';return;}
+  if(typeof BooksBinancePublicRecords==='undefined'){status.textContent='公开记录组件未加载，未取得可用记录；当前仓位未知。';return;}
   publicExecutionReader ||= BooksBinancePublicRecords.reader(globalThis);
   const current=()=>state.detail===r&&$('detail').open&&['analysis','orders'].includes(state.tab)&&section.isConnected;
   function draw(data,failed=false){
@@ -646,10 +656,10 @@ function renderPublicExecutions(r,parent){
 }
 function renderBinanceDetail(r,b) {
   const view=binanceView(r);b.replaceChildren();
-  if(r.referenceOnly){if(['analysis','orders'].includes(state.tab))renderPublicExecutions(r,b);else b.append(node('h3',state.tab==='positions'?'当前仓位未接入':'持仓变化样本未取得'));b.append(node('p','当前仓位与未成交挂单未取得，不代表空仓或零订单。页面每分钟读取后台保存的公开操作记录，可能有缓存延迟。','detail-method'),sourceLink(r));return;}
+  if(r.referenceOnly){if(['analysis','orders'].includes(state.tab))renderPublicExecutions(r,b);else b.append(node('h3',state.tab==='positions'?'当前仓位未公开 · 未取得可验证快照':'持仓变化样本未取得'));b.append(node('p','币安将该带单员的当前仓位标记为不可见。空数组不能解释为空仓，不代表空仓或零订单。页面只展示独立读取的公开操作记录、官方收益和曲线。','detail-method'),sourceLink(r));return;}
   b.append(node('p',binanceTiming(view,r)+(view.lastAttemptAt?' · 来源最近尝试 '+timeLabel(view.lastAttemptAt):''),'detail-method'));
   if(state.tab==='analysis'){
-    b.append(node('h3','公开带单组合'),node('p','表现直接采用币安所选周期的来源字段；币安来源回撤与已平仓仓位胜率采用其平台口径，不等同于 Hyperliquid 的采样盈亏回撤或平仓片段胜率。仓位与订单样本不用于推算表现；盈亏曲线单独读取币安 30D PNL 原始采样，统计时间独立。','detail-method'));
+    b.append(node('h3','公开带单组合'),node('p','表现直接采用币安所选周期的来源字段；币安来源回撤与已平仓仓位胜率采用其平台口径，不等同于 Hyperliquid 的采样盈亏回撤或平仓片段胜率。仓位与订单样本不用于推算表现；盈亏曲线按 7D、30D、90D、180D、365D 分别读取币安 PNL 原始采样，统计时间独立。','detail-method'));
     renderBinanceCard(r,b,state.window);renderBinanceChartDetails(r,b,state.window);b.append(sourceLink(r));return;
   }
   if(state.tab==='positions'){
