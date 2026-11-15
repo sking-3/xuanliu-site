@@ -41,8 +41,11 @@
     s.observer = observer; observer.observe(container, {childList:true, subtree:true});
     s.timer = setTimeout(() => {
       if (s.observer !== observer || generation !== s.generation || suspended) return;
-      if (s.area.querySelector('iframe')) embedded(s, '组件已建立，报价仍可能加载中；价格与时效以来源显示为准。');
-      else fail(s, '组件未能建立，已收起空白区域。可重试或查看来源。');
+      const frame=s.area.querySelector('iframe');
+      if (frame) {
+        s.status.textContent='组件已建立，仍在等待来源完成加载…';
+        s.timer=setTimeout(()=>{if(s.observer===observer&&generation===s.generation&&!suspended)fail(s,'来源未完成加载，已收起空白区域。可重试或查看来源。');},5000);
+      } else fail(s, '组件未能建立，已收起空白区域。可重试或查看来源。');
     }, 15000);
   }
   function start(s) {

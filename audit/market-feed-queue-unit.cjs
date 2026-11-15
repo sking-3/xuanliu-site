@@ -79,7 +79,8 @@ function harness(count = 4, options = {}) {
   };
   const message = (element, name, extra = {}) => window.emit('message', {
     origin:'https://www.tradingview-widget.com', source:element.contentWindow, data:{name}, ...extra});
-  return {feeds,document,window,timers,mutations,intersections,near,frame,message,run};
+  const advance = () => { const callbacks = [...timers.values()]; timers.clear(); callbacks.forEach(callback => callback()); };
+  return {feeds,document,window,timers,mutations,intersections,near,frame,message,run,advance};
 }
 let count = 0;
 function test(name, check) { check(); count++; console.log('PASS ' + name); }
@@ -128,9 +129,10 @@ test('a failure releases a slot but never automatically retries the failed sourc
 });
 test('bounded frame timeout describes only an embed and absent frames become recoverable errors', () => {
   const h = harness(2); h.near(h.feeds); h.frame(h.feeds[0]);
-  for (const callback of [...h.timers.values()]) callback();
-  assert.equal(h.feeds[0].phase(), 'embedded'); assert.match(h.feeds[0].status.textContent, /仍可能加载中/);
-  assert.equal(h.feeds[1].phase(), 'error'); assert.equal(h.timers.size, 0);
+  h.advance();
+  assert.equal(h.feeds[0].phase(), 'loading'); assert.match(h.feeds[0].status.textContent, /仍在等待来源完成加载/);
+  h.feeds[0].area.querySelector('iframe').emit('load'); assert.equal(h.feeds[0].phase(), 'embedded');
+  assert.equal(h.feeds[1].phase(), 'error'); h.advance(); assert.equal(h.timers.size, 0);
   assert.equal(h.feeds[1].retry.disabled, false);
 });
 test('existing provider message names retain origin/source checks and unknown names cannot declare readiness', () => {

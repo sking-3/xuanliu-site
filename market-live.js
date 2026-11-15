@@ -44,10 +44,10 @@
       live.hidden=selected!=='live';saved.hidden=selected==='live';
       for(const b of buttons)b.setAttribute('aria-pressed',String(b.dataset.view===selected));
       // Keep pending provider scripts attached; removing their host does not cancel async initialization.
-      if(live.hidden || document.hidden){stopRotation();return;}
+      if(document.hidden){clearTimeout(timer);timer=null;stopRotation();return;}if(live.hidden){stopRotation();return;}
       if(markets.length>1&&!paused&&nextRotationAt!==null&&Date.now()>=nextRotationAt){const steps=1+Math.floor((Date.now()-nextRotationAt)/rotationMs);marketIndex=(marketIndex+steps)%markets.length;nextRotationAt+=steps*rotationMs;clear();}
       if(marketName)marketName.textContent=spec.names[currentMarket()];
-      if(host.firstChild){if(host.querySelector('iframe'))rotateLater();return;}
+      if(host.firstChild){if(host.querySelector('iframe'))rotateLater();else if(timer===null)timer=setTimeout(unavailable,15000);return;}
       if(failed)return;
       const stamp=++generation;
       const container=document.createElement('div'),slot=document.createElement('div');
@@ -63,13 +63,15 @@
       observer=new MutationObserver(()=>{
         const frame=container.querySelector('iframe');
         if(stamp!==generation||!frame)return;
-        frame.title=spec.title+' · '+(spec.names?.[currentMarket()]||'市场快讯')+' · TradingView';clearTimeout(timer);observer.disconnect();
+        frame.title=spec.title+' · '+(spec.names?.[currentMarket()]||'市场快讯')+' · TradingView';observer.disconnect();
         frame.addEventListener('load',()=>{
           if(stamp!==generation||failed)return;
+          clearTimeout(timer);
           host.setAttribute('data-pulse-state','embedded');
           state.textContent='组件已载入，内容与时效以来源显示为准。'+(spec.notes?.[currentMarket()]||spec.note);
+          rotateLater();
         },{once:true});
-        rotateLater();
+        frame.addEventListener('error',unavailable,{once:true});        rotateLater();
       });
       observer.observe(container,{childList:true,subtree:true});
       const script=document.createElement('script');script.async=true;
