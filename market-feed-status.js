@@ -4,7 +4,7 @@
   if (window.BooksMarketFeeds) { window.BooksMarketFeeds.scan(); return; }
   const sourceScript = 'https://s3.tradingview.com/external-embedding/embed-widget-market-overview.js';
   const states = new Map(), queue = [];
-  let active = 0, suspended = false, pumping = false, viewport = null;
+  let active = 0, suspended = false, pumping = false, viewport = null; const loadTimeoutMs = typeof matchMedia==='function'&&matchMedia('(max-width: 760px)').matches ? 8000 : 15000;
   function phase(s, value) { s.phase = value; s.section.setAttribute('data-feed-state', value); }
   function recovery(s, visible) {
     s.controls.hidden = !visible;
@@ -46,7 +46,7 @@
         s.status.textContent='组件已建立，仍在等待来源完成加载…';
         s.timer=setTimeout(()=>{if(s.observer===observer&&generation===s.generation&&!suspended)fail(s,'来源未完成加载，已收起空白区域。可重试或查看来源。');},5000);
       } else fail(s, '组件未能建立，已收起空白区域。可重试或查看来源。');
-    }, 15000);
+    }, loadTimeoutMs);
   }
   function start(s) {
     const generation = ++s.generation;

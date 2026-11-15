@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const chart = new URL('chart.html', location.href).href;
-  const rotationMs=3*60*1000;
+  const rotationMs=3*60*1000,loadTimeoutMs=typeof matchMedia==='function'&&matchMedia('(max-width: 760px)').matches?8000:15000;
   const settings = {
     active: {
       script:'embed-widget-mini-symbol-overview.js', title:'跨市场观察报价',
@@ -47,7 +47,7 @@
       if(document.hidden){clearTimeout(timer);timer=null;stopRotation();return;}if(live.hidden){stopRotation();return;}
       if(markets.length>1&&!paused&&nextRotationAt!==null&&Date.now()>=nextRotationAt){const steps=1+Math.floor((Date.now()-nextRotationAt)/rotationMs);marketIndex=(marketIndex+steps)%markets.length;nextRotationAt+=steps*rotationMs;clear();}
       if(marketName)marketName.textContent=spec.names[currentMarket()];
-      if(host.firstChild){if(host.querySelector('iframe'))rotateLater();else if(timer===null)timer=setTimeout(unavailable,15000);return;}
+      if(host.firstChild){if(host.querySelector('iframe'))rotateLater();else if(timer===null)timer=setTimeout(unavailable,loadTimeoutMs);return;}
       if(failed)return;
       const stamp=++generation;
       const container=document.createElement('div'),slot=document.createElement('div');
@@ -77,7 +77,7 @@
       const script=document.createElement('script');script.async=true;
       script.src='https://s3.tradingview.com/external-embedding/'+spec.script;
       script.textContent=JSON.stringify({...spec.config,...(spec.symbols?{symbol:spec.symbols[currentMarket()]}:{})});script.onerror=unavailable;
-      timer=setTimeout(unavailable,15000);container.append(script);
+      timer=setTimeout(unavailable,loadTimeoutMs);container.append(script);
     }
     const notice=document.createElement('p');notice.className='pulse-state pulse-failure';
     notice.hidden=true;notice.textContent='动态来源未加载，显示保存的快照。';card.append(notice);
