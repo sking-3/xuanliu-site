@@ -22,6 +22,12 @@
 .feed-pages a[aria-current="page"]{font-weight:700;color:#243c72}
 @media(max-width:760px){.feed-controls button,.feed-card .feed-controls button,.feed-source{min-height:44px;display:inline-flex;align-items:center}.market-card-grid{grid-template-columns:1fr}.feed-card-heading a{min-height:32px;display:inline-flex;align-items:center}}
 @media(max-width:760px){
+  .public-feed[data-feed-state=loading] .feed-widget-area,
+  .public-feed[data-feed-state=queued] .feed-widget-area,
+  .public-feed[data-feed-state=loading] .tradingview-widget-container,
+  .public-feed[data-feed-state=queued] .tradingview-widget-container,
+  .public-feed[data-feed-state=loading] .tradingview-widget-container__widget,
+  .public-feed[data-feed-state=queued] .tradingview-widget-container__widget{height:128px;min-height:128px}
   .public-feed.feed-card[data-feed-state=loading] .feed-widget-area,
   .public-feed.feed-card[data-feed-state=queued] .feed-widget-area,
   .public-feed.feed-card[data-feed-state=loading] .tradingview-widget-container,
