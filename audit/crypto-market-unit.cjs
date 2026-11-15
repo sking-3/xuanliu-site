@@ -10,6 +10,11 @@ test('public adapter uses only Bitget',()=>{for(const needle of ['api.bitget.com
 test('adapter is read-only and has no credential or order path',()=>{
   assert.doesNotMatch(js,/api[_-]?(key|secret)|passphrase|\/order|place-order|withdraw/i);
 });
+test('homepage copy names the single active crypto source',()=>{
+  assert.match(home,/加密 · USDT/);
+  assert.match(home,/加密行情仅接入 Bitget 公共现货源/);
+  assert.doesNotMatch(home,/三家交易所|多交易所|Binance|OKX|Coinbase/);
+});
 test('homepage and full page mount the native feed',()=>{
   assert.match(home,/data-local-feed="crypto"/); assert.match(home,/data-crypto-feed/);
   assert.match(full,/data-local-feed="crypto"/); assert.match(full,/data-crypto-feed/);

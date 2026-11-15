@@ -4,7 +4,12 @@
   if (window.BooksMarketFeeds) { window.BooksMarketFeeds.scan(); return; }
   const sourceScript = 'https://s3.tradingview.com/external-embedding/embed-widget-market-overview.js';
   const states = new Map(), queue = [];
-  let active = 0, suspended = false, pumping = false, viewport = null; const loadTimeoutMs = typeof matchMedia==='function'&&matchMedia('(max-width: 760px)').matches ? 8000 : 15000;
+  let active = 0, suspended = false, pumping = false, viewport = null;
+  // Mobile browsers frequently keep a blocked provider frame alive without a load
+  // event. Do not leave a large blank card on screen while waiting for it.
+  const mobileMode = typeof matchMedia==='function' && matchMedia('(max-width: 760px)').matches;
+  const loadTimeoutMs = mobileMode ? 3500 : 12000;
+  const frameTimeoutMs = mobileMode ? 1800 : 5000;
   const queueTimeoutMs = loadTimeoutMs;
   function phase(s, value) { s.phase = value; s.section.setAttribute('data-feed-state', value); }
   function recovery(s, visible) {
@@ -52,7 +57,7 @@
       const frame=s.area.querySelector('iframe');
       if (frame) {
         s.status.textContent='组件已建立，仍在等待来源完成加载…';
-        s.timer=setTimeout(()=>{if(s.observer===observer&&generation===s.generation&&!suspended)fail(s,'来源未完成加载，已收起空白区域。可重试或查看来源。');},5000);
+        s.timer=setTimeout(()=>{if(s.observer===observer&&generation===s.generation&&!suspended)fail(s,'来源未完成加载，已收起空白区域。可重试或查看来源。');},frameTimeoutMs);
       } else fail(s, '组件未能建立，已收起空白区域。可重试或查看来源。');
     }, loadTimeoutMs);
   }
