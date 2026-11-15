@@ -2,7 +2,7 @@
 const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
 class El{constructor(id){this.id=id;this.value='';this.textContent='';this.innerHTML='';this.events={};}addEventListener(n,f){this.events[n]=f;}}
 function setup(){
-  const ids=['agent-symbol','agent-horizon','agent-mode','agent-evidence','agent-unknowns','agent-cards','agent-output-state','agent-version','agent-saved','agent-ai-state','agent-run','agent-reset'];
+  const ids=['agent-symbol','agent-horizon','agent-mode','agent-evidence','agent-unknowns','agent-layer-market','agent-layer-research','agent-layer-news','agent-layer-fundamentals','agent-layer-disclosure','agent-cards','agent-layer-summary','agent-output-state','agent-version','agent-saved','agent-ai-state','agent-run','agent-reset'];
   const els=Object.fromEntries(ids.map(id=>[id,new El(id)]));els['agent-symbol'].value='TEST';els['agent-horizon'].value='mid';els['agent-mode'].value='rules';
   const storage=new Map(),context={console,Date,JSON,window:{},document:{getElementById:id=>els[id]},localStorage:{setItem:(k,v)=>storage.set(k,v),getItem:k=>storage.get(k)||null,removeItem:k=>storage.delete(k)}};
   vm.runInNewContext(fs.readFileSync('agent-studio.js','utf8'),context);return {els,context};
@@ -17,14 +17,15 @@ function shuffle(values,seed){const out=[...values];let x=seed;for(let i=out.len
   }
   let checked=0;
   for(const fixture of shuffle(fixtures,20261115)){
-    const h=setup(),e=h.els;e['agent-evidence'].value=fixture.evidence;e['agent-unknowns'].value=fixture.unknowns;e['agent-run'].events.click();
+    const h=setup(),e=h.els;e['agent-evidence'].value=fixture.evidence;e['agent-unknowns'].value=fixture.unknowns;if(fixture.evidence)for(const id of ['market','research','news','fundamentals','disclosure'])e['agent-layer-'+id].value=`${id}层来源 2026-01-02：上涨与增长事实`;e['agent-run'].events.click();
     if(fixture.expected==='等待证据包')assert.match(e['agent-output-state'].textContent,/等待证据包/);
     else assert.match(e['agent-cards'].innerHTML,new RegExp(fixture.expected));
     for(const role of ['多方研究员','空方研究员','研究经理','风控审查','组合经理'])assert.match(e['agent-cards'].innerHTML,new RegExp(role));
     checked++;
   }
   const missing=setup();missing.els['agent-evidence'].value='价格和成交量出现变化，但没有来源时间';missing.els['agent-run'].events.click();assert.match(missing.els['agent-cards'].innerHTML,/等待确认/);
-  const h=setup(),e=h.els,pending=[];h.context.window.BooksAgentBridge.setAdapter({analyze:req=>new Promise(resolve=>pending.push({req,resolve}))});e['agent-mode'].value='hybrid';e['agent-evidence'].value='旧一代证据';e['agent-run'].events.click();e['agent-evidence'].value='新一代证据';e['agent-run'].events.click();assert.equal(pending.length,2);pending[0].resolve({decision:'进入模拟计划',order:'BUY NOW',roles:{bull:'旧响应'}});await tick();assert.doesNotMatch(e['agent-cards'].innerHTML,/旧响应/);pending[1].resolve({decision:'下单',roles:{bull:'新响应'}});await tick();assert.match(e['agent-cards'].innerHTML,/新响应/);assert.match(e['agent-cards'].innerHTML,/观察/);assert.doesNotMatch(e['agent-cards'].innerHTML,/下单/);
+  const conflict=setup();conflict.els['agent-evidence'].value='总体来源 2026-01-02：收盘事实';for(const id of ['market','research','news','fundamentals','disclosure'])conflict.els['agent-layer-'+id].value=`${id}层来源 2026-01-02：上涨与增长事实`;conflict.els['agent-layer-disclosure'].value='公告层来源 2026-01-02：问询处罚风险';conflict.els['agent-run'].events.click();assert.match(conflict.els['agent-output-state'].textContent,/等待确认/);assert.match(conflict.els['agent-cards'].innerHTML,/公告层反证/);
+  const h=setup(),e=h.els,pending=[];for(const id of ['market','research','news','fundamentals','disclosure'])e['agent-layer-'+id].value=`${id}层来源 2026-01-02：上涨与增长事实`;h.context.window.BooksAgentBridge.setAdapter({analyze:req=>new Promise(resolve=>pending.push({req,resolve}))});e['agent-mode'].value='hybrid';e['agent-evidence'].value='旧一代证据';e['agent-run'].events.click();e['agent-evidence'].value='新一代证据';e['agent-run'].events.click();assert.equal(pending.length,2);pending[0].resolve({decision:'进入模拟计划',order:'BUY NOW',roles:{bull:'旧响应'}});await tick();assert.doesNotMatch(e['agent-cards'].innerHTML,/旧响应/);pending[1].resolve({decision:'下单',roles:{bull:'新响应'}});await tick();assert.match(e['agent-cards'].innerHTML,/新响应/);assert.match(e['agent-cards'].innerHTML,/观察/);assert.doesNotMatch(e['agent-cards'].innerHTML,/下单/);
   pending.length=0;e['agent-evidence'].value='恶意文本';e['agent-run'].events.click();assert.equal(pending.length,1);pending[0].resolve({roles:{bull:'<script>alert(1)</script>'},decision:'进入模拟计划'});await tick();assert.doesNotMatch(e['agent-cards'].innerHTML,/<script>/);assert.match(e['agent-cards'].innerHTML,/观察/);
   console.log(`PASS blind multi-run: ${checked} hidden rule fixtures, stale-response isolation and hostile AI output`);
 })().catch(error=>{console.error(error);process.exitCode=1;});
