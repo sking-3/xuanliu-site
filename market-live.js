@@ -25,7 +25,7 @@
     const host=card.querySelector('.pulse-host'),state=card.querySelector('.pulse-state'),buttons=card.querySelectorAll('[data-view]');
     const markets=Object.keys(spec.symbols||{});
     let marketIndex=1,paused=false,rotationTimer=null,nextRotationAt=null,remaining=rotationMs;
-    let selected=card.dataset.defaultView||'live',observer=null,timer=null,generation=0,failed=false;
+    let selected=card.dataset.defaultView||'live',observer=null,timer=null,generation=0,failed=false,frameLoaded=false;
     const currentMarket=()=>markets[marketIndex];
     const rotationNote=card.querySelector('.pulse-rotation-note');
     function progress(){if(!rotationNote)return;const seconds=Math.max(0,Math.ceil(((nextRotationAt||Date.now()+remaining)-Date.now())/1000));rotationNote.textContent=paused?'轮播已暂停':`自动轮播 · ${Math.floor(seconds/60)}:${String(seconds%60).padStart(2,'0')} 后切换 · A股 / 美股 / 加密`;}
@@ -37,7 +37,7 @@
       progress();rotationTimer=setTimeout(()=>{if(document.hidden||selected!=='live'){stopRotation();return;}marketIndex=(marketIndex+1)%markets.length;nextRotationAt=Date.now()+rotationMs;remaining=rotationMs;clear();show();},Math.max(0,nextRotationAt-Date.now()));
     }
     function clear() {
-      generation++;clearTimeout(timer);stopRotation();observer?.disconnect();host.replaceChildren();
+      generation++;clearTimeout(timer);stopRotation();observer?.disconnect();host.replaceChildren();frameLoaded=false;
     }
     function show() {
       if(failed)selected='saved';
@@ -47,12 +47,12 @@
       if(document.hidden){clearTimeout(timer);timer=null;stopRotation();return;}if(live.hidden){stopRotation();return;}
       if(markets.length>1&&!paused&&nextRotationAt!==null&&Date.now()>=nextRotationAt){const steps=1+Math.floor((Date.now()-nextRotationAt)/rotationMs);marketIndex=(marketIndex+steps)%markets.length;nextRotationAt+=steps*rotationMs;clear();}
       if(marketName)marketName.textContent=spec.names[currentMarket()];
-      if(host.firstChild){if(host.querySelector('iframe'))rotateLater();else if(timer===null)timer=setTimeout(unavailable,loadTimeoutMs);return;}
+      if(host.firstChild){if(host.querySelector('iframe')){if(!frameLoaded&&timer===null)timer=setTimeout(unavailable,loadTimeoutMs);rotateLater();}else if(timer===null)timer=setTimeout(unavailable,loadTimeoutMs);return;}
       if(failed)return;
       const stamp=++generation;
       const container=document.createElement('div'),slot=document.createElement('div');
       container.className='tradingview-widget-container';slot.className='tradingview-widget-container__widget';
-      container.append(slot);host.append(container);host.setAttribute('data-pulse-state','loading');state.textContent='正在连接来源…';
+      container.append(slot);host.append(container);frameLoaded=false;host.setAttribute('data-pulse-state','loading');state.textContent='正在连接来源…';
       function unavailable() {
         if(stamp!==generation)return;
         generation++;clearTimeout(timer);stopRotation();observer?.disconnect();
@@ -66,6 +66,7 @@
         frame.title=spec.title+' · '+(spec.names?.[currentMarket()]||'市场快讯')+' · TradingView';observer.disconnect();
         frame.addEventListener('load',()=>{
           if(stamp!==generation||failed)return;
+          frameLoaded=true;
           clearTimeout(timer);
           host.setAttribute('data-pulse-state','embedded');
           state.textContent='组件已载入，内容与时效以来源显示为准。'+(spec.notes?.[currentMarket()]||spec.note);
