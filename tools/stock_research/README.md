@@ -72,6 +72,14 @@ R1放量突破、R2缩额转强、R3行业共振独立运行，同票保留所�
 
 这是自行定义的研究初值，不是老虎原算法，不输出已验证概率、胜率或收益。14:00名单应冻结，收盘确认另存关联版本，次日方向与触发/未触发/失效/不可成交另账；当前没有将这些阶段接成生产自动流程。现有EOD嵌入组件不能提供本合同的盘中输入，也不被抽取使用。
 
+## 本地 A 股采集适配器
+
+`a_share_sources.py` 提供 AKShare、adata、mootdx 三个本机适配器。可在 Mac 上安装可选依赖并手动运行 `python3 scripts/collect_a_share.py --provider auto --mode eod --output-dir research-data/local-a-share`。浏览器和 GitHub Pages 不加载这些 Python 包，也不会读取交易密钥。
+
+默认输出是 owner 范围的本地批次。`--mode a14` 会把实际采到的同刻成交额写入本地基线，缺少 14:00 分钟快照、交易日历核验、复权锚点或十个历史同刻样本时保持 blocked。适配器对 API 版本漂移、重复证券、重复日线和权限错误都停止当前来源，不切换到另一个来源冒充连续数据。
+
+`.github/workflows/a-share-collector.yml` 只有 `workflow_dispatch`，用于人工验收和上传运行产物，不开启新排程。公开发布仍需要你确认具体来源的再分发许可，工作流不会因为一个复选框就把供应商数据提交到公开仓库。
+
 尚未接入真实A14采集适配器，也没有启用后台。缺少可信盘中源、同刻历史或权限时blocked；测试合成样本只存在测试代码内，不放入公开生产快照。免费源及开源研究依据见 audit/strategy-lab-review.json。手动验证工作流增加本模块测试，但仍只有workflow_dispatch，没有新schedule。
 
 ## 美股规则资格 v2
