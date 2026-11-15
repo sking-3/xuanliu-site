@@ -8,15 +8,6 @@ on:
       - 'copy-config/**'
       - 'tools/copy_plan/**'
       - '.github/workflows/copy-signal-dry-run.yml'
-      - 'research.html'
-      - 'research-integrations.js'
-      - 'research-integrations.css'
-      - 'agent-studio.html'
-      - 'agent-studio.js'
-      - 'agent-studio.css'
-      - 'tools.html'
-      - 'stock-workspace.js'
-      - 'stock-workspace.css'
   workflow_dispatch:
     inputs:
       refresh_scope:
@@ -38,8 +29,7 @@ permissions:
 concurrency:
   group: pages
   queue: max
-  # A newer verified snapshot supersedes obsolete full analytics runs.
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   collect-build:
