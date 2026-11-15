@@ -1,0 +1,61 @@
+name: A-share collector manual run
+
+on:
+  workflow_dispatch:
+    inputs:
+      provider:
+        description: 'Local-compatible provider adapter'
+        type: choice
+        required: true
+        default: akshare
+        options: [akshare, adata, mootdx]
+      mode:
+        description: 'Collect end-of-day data or the 14:00 research batch'
+        type: choice
+        required: true
+        default: eod
+        options: [eod, a14]
+      publish_public:
+        description: 'Reserved for a later reviewed rights attestation'
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install optional adapters
+        run: python -m pip install -r scripts/requirements-a-share.txt
+      - name: Explain the runtime boundary
+        run: |
+          echo 'AKShare, adata, and mootdx run here only for this manual invocation.'
+          echo 'No real order API or trading secret is read.'
+          echo 'No schedule is enabled by this workflow.'
+      - name: Collect A-share data
+        env:
+          PROVIDER: ${{ inputs.provider }}
+          MODE: ${{ inputs.mode }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/a-share"
+          python scripts/collect_a_share.py --provider "$PROVIDER" --mode "$MODE" \
+            --output-dir "$RUNNER_TEMP/a-share"
+      - name: Upload local result as an artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: a-share-${{ inputs.mode }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/a-share
+          if-no-files-found: error
+      - name: Keep public publication disabled
+        if: ${{ inputs.publish_public }}
+        run: |
+          echo 'Public publication is disabled until provider redistribution rights are reviewed.'
+          exit 1
