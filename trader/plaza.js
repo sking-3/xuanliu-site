@@ -656,7 +656,25 @@ function renderPublicExecutions(r,parent){
 }
 function renderBinanceDetail(r,b) {
   const view=binanceView(r);b.replaceChildren();
-  if(r.referenceOnly){if(['analysis','orders'].includes(state.tab))renderPublicExecutions(r,b);else b.append(node('h3',state.tab==='positions'?'当前仓位未公开 · 未取得可验证快照':'持仓变化样本未取得'));b.append(node('p','币安将该带单员的当前仓位标记为不可见。空数组不能解释为空仓，不代表空仓或零订单。页面只展示独立读取的公开操作记录、官方收益和曲线。','detail-method'),sourceLink(r));return;}
+  if(r.referenceOnly){
+    if(state.tab==='analysis'){
+      b.append(node('p',binanceTiming(view,r),'detail-method'));
+      b.append(node('h3','熬鹰资本 · 官方公开表现'));
+      b.append(node('p','以下周期收益、盈亏、回撤和胜率均直接读取币安公开接口。每个周期独立保存采集时间，365D 显示来源返回的一年数据。当前仓位由来源标记为不可见，不能按空数组判定空仓。','detail-method'));
+      renderBinanceCard(r,b,state.window);
+      const rows=[];
+      for(const period of ['7D','30D','90D','180D','365D']){
+        const value=binancePerformance(r,period);
+        rows.push([periodLabel(period),pct(value.roi),compactMoney(value.pnl,'USDT'),pct(value.mdd),pct(value.winRate),value.lastSuccessAt?timeLabel(value.lastSuccessAt):'—']);
+      }
+      binanceTable(b,'完整周期表现',['周期','收益率','盈亏 · USDT','来源回撤','已平仓胜率','采集时间'],rows,'币安 365D 是来源独立返回值；页面不会用 180D 或其他周期补写一年数据。');
+      renderBinanceChartDetails(r,b,state.window);
+      b.append(sourceLink(r));
+      return;
+    }
+    if(['orders'].includes(state.tab))renderPublicExecutions(r,b);else b.append(node('h3',state.tab==='positions'?'当前仓位未公开 · 未取得可验证快照':'持仓变化样本未取得'));
+    b.append(node('p','币安将该带单员的当前仓位标记为不可见。空数组不能解释为空仓，不代表空仓或零订单。页面只展示独立读取的公开操作记录、官方收益和曲线。','detail-method'),sourceLink(r));return;
+  }
   b.append(node('p',binanceTiming(view,r)+(view.lastAttemptAt?' · 来源最近尝试 '+timeLabel(view.lastAttemptAt):''),'detail-method'));
   if(state.tab==='analysis'){
     b.append(node('h3','公开带单组合'),node('p','表现直接采用币安所选周期的来源字段；币安来源回撤与已平仓仓位胜率采用其平台口径，不等同于 Hyperliquid 的采样盈亏回撤或平仓片段胜率。仓位与订单样本不用于推算表现；盈亏曲线按 7D、30D、90D、180D、365D 分别读取币安 PNL 原始采样，统计时间独立。','detail-method'));
