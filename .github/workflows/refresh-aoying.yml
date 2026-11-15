@@ -1,0 +1,53 @@
+name: Refresh Aoying public reference
+
+on:
+  # The public-record observer is already chained every 14 minutes. Use its
+  # successful completion as the durable trigger for the Aoying profile and
+  # performance snapshot, because GitHub schedule delivery is best-effort.
+  workflow_run:
+    workflows: ["Binance public execution watch"]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: aoying-public-reference
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'main')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out the latest main branch
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - name: Validate the public collector
+        run: node --check scripts/collect_aoying.cjs
+
+      - name: Collect Aoying official public reference
+        run: node scripts/collect_aoying.cjs
+
+      - name: Publish the complete Aoying snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add -- trader/aoying-history.js trader/binance/evidence/aoying-analysis-current
+          if git diff --cached --quiet; then
+            echo 'No Aoying source change to publish.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'chore: refresh Aoying public reference [ui-only]'
+          git push origin HEAD:main
