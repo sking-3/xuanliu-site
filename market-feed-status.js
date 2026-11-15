@@ -108,7 +108,7 @@
   function scan() {
     if (suspended) return;
     document.querySelectorAll('.public-feed').forEach((section, index) => {
-      if (states.has(section)) return;
+      if (section.dataset?.localFeed === 'crypto' || states.has(section)) return;
       const area = section.querySelector('.feed-widget-area'), status = section.querySelector('.feed-status');
       const controls = section.querySelector('.feed-controls'), retry = section.querySelector('.feed-retry');
       const configNode = section.querySelector('script[data-feed-config]');
