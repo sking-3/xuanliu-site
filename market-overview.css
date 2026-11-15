@@ -38,3 +38,7 @@
 .market-insight>.insight-cadence{margin-top:auto;padding-top:12px}
 .pulse-host{position:relative}
 .pulse-host[data-pulse-state=loading]::after{content:"正在连接来源…";position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:#fafbfc;color:#758197;font-size:11px;border-radius:4px;pointer-events:none}
+@media(max-width:760px){
+  .pulse-card .pulse-host[data-pulse-state=loading]{height:88px!important}
+  .pulse-card .pulse-host[data-pulse-state=loading]::after{font-size:10px}
+}
