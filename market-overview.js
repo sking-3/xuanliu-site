@@ -97,7 +97,7 @@ function renderCard(doc,host,id,c,now,readFailed){
       metric(signed(d.netMillions/100),'亿美元',d.period.replace('-','年')+'月 · 月度');row('美债净买入',d.treasuryMillions===null?'':signed(d.treasuryMillions/100)+' 亿');row('股票净买入',d.equityMillions===null?'':signed(d.equityMillions/100)+' 亿');
     }else if(id==='active'){
       const list=node(doc,'ol',undefined,'insight-ranking');for(const r of d.items.slice(0,3)){const li=node(doc,'li');const name=node(doc,'strong',r.symbol);
-        if(['BTC','ETH','SOL','USDT'].includes(r.symbol)){const chart=node(doc,'a',r.symbol);chart.href='chart.html?tvwidgetsymbol='+encodeURIComponent('COINBASE:'+r.symbol+'USD');chart.setAttribute('aria-label',r.symbol+' · 查看 Coinbase 美元现货K线');name.replaceChildren(chart);}
+        if(['BTC','ETH','SOL','USDT'].includes(r.symbol)){const chart=node(doc,'a',r.symbol);const pair=r.symbol==='USDT'?'BTCUSDT':r.symbol+'USDT';chart.href='chart.html?tvwidgetsymbol='+encodeURIComponent('BITGET:'+pair);chart.setAttribute('aria-label',r.symbol+' · 查看 Bitget USDT 现货K线');name.replaceChildren(chart);}
         li.append(name,node(doc,'span',compactUsd(r.volumeUsd)));li.setAttribute('title',r.name+'；来源更新 '+dateLabel(r.lastUpdated,true));list.append(li);}body.append(list,node(doc,'p',d.universe,'insight-caption'));
     }else{
       const headline=anchor(doc,employmentHeadline(d.latest.title),d.latest.url,'insight-headline');headline.setAttribute('title',d.latest.title);body.append(headline,node(doc,'p','发布 '+dateLabel(d.latest.publishedAt),'insight-caption'));

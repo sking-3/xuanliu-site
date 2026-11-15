@@ -9,8 +9,8 @@
     ['AAVE-USDT','AAVEUSDT','Aave'],['NEAR-USDT','NEARUSDT','NEAR'],['ATOM-USDT','ATOMUSDT','Cosmos'],
     ['FIL-USDT','FILUSDT','Filecoin'],['XLM-USDT','XLMUSDT','Stellar'],['SHIB-USDT','SHIBUSDT','Shiba Inu'],
     ['SUI-USDT','SUIUSDT','Sui'],['PEPE-USDT','PEPEUSDT','Pepe']
-  ].map(([id, binance, name]) => ({id, binance, name}));
-  const byBinance = new Map(pairs.map(p => [p.binance, p]));
+  ].map(([id, instrument, name]) => ({id, instrument, name}));
+  const byInstrument = new Map(pairs.map(p => [p.instrument, p]));
   const providerLabel = {bitget:'Bitget'};
   let sourceUnavailable = false, lastQuoteAt = 0;
   const mounts = document.querySelectorAll('[data-crypto-feed]');
@@ -53,14 +53,14 @@
   }
   async function fetchBitget(state) {
     const data=await fetchJson('https://api.bitget.com/api/v2/spot/market/tickers?category=SPOT');
-    for(const item of data?.data||[]) { const p=byBinance.get(item.symbol); if(p) apply(state,p,'bitget',item.lastPr,item.openUtc,item.changeUtc24h,item.ts); }
+    for(const item of data?.data||[]) { const p=byInstrument.get(item.symbol); if(p) apply(state,p,'bitget',item.lastPr,item.openUtc,item.changeUtc24h,item.ts); }
   }
   function openWs(url, onMessage, onOpen, onClose) {
     if(typeof WebSocket!=='function') return null;
     const socket=new WebSocket(url); socket.onopen=onOpen; socket.onmessage=event=>{try{onMessage(JSON.parse(event.data));}catch{}}; socket.onerror=()=>{}; socket.onclose=onClose; return socket;
   }
   function connectBitget(state) {
-    const socket=openWs('wss://ws.bitget.com/v2/ws/public', message=>{for(const d of message.data||[]){const p=byBinance.get(d.instId||d.symbol);if(p)apply(state,p,'bitget',d.lastPr,d.openUtc,d.changeUtc24h,d.ts);}},()=>socket?.send(JSON.stringify({op:'subscribe',args:pairs.map(p=>({instType:'SPOT',channel:'ticker',instId:p.binance}))})),()=>{});
+    const socket=openWs('wss://ws.bitget.com/v2/ws/public', message=>{for(const d of message.data||[]){const p=byInstrument.get(d.instId||d.symbol);if(p)apply(state,p,'bitget',d.lastPr,d.openUtc,d.changeUtc24h,d.ts);}},()=>socket?.send(JSON.stringify({op:'subscribe',args:pairs.map(p=>({instType:'SPOT',channel:'ticker',instId:p.instrument}))})),()=>{});
     return socket;
   }
   for(const mount of mounts) {
