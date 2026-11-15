@@ -5,17 +5,25 @@
   const sourceScript = 'https://s3.tradingview.com/external-embedding/embed-widget-market-overview.js';
   const states = new Map(), queue = [];
   let active = 0, suspended = false, pumping = false, viewport = null; const loadTimeoutMs = typeof matchMedia==='function'&&matchMedia('(max-width: 760px)').matches ? 8000 : 15000;
+  const queueTimeoutMs = loadTimeoutMs;
   function phase(s, value) { s.phase = value; s.section.setAttribute('data-feed-state', value); }
   function recovery(s, visible) {
     s.controls.hidden = !visible;
-    if (s.shortcuts) s.shortcuts.hidden = !visible;
+    if (s.shortcuts) { s.shortcuts.hidden = !visible; if (visible) s.shortcuts.open = true; }
   }
   function stopWatching(s) {
-    clearTimeout(s.timer); s.timer = null; s.observer?.disconnect(); s.observer = null;
+    clearTimeout(s.timer); clearTimeout(s.queueTimer); s.timer = null; s.queueTimer = null; s.observer?.disconnect(); s.observer = null;
     if (s.frame && s.onLoad) s.frame.removeEventListener?.('load', s.onLoad);
     s.onLoad = null;
   }
   function release(s) { if (s.loading) { s.loading = false; active--; } }
+  function armQueueTimeout(s) {
+    clearTimeout(s.queueTimer); s.queueTimer = null;
+    if (s.phase !== 'queued' || suspended || document.hidden) return;
+    s.queueTimer = setTimeout(() => {
+      if (s.phase === 'queued' && !suspended && !document.hidden) fail(s, '来源队列等待超时，已显示观察名单。可打开图表或重试。');
+    }, queueTimeoutMs);
+  }
   function embedded(s, message) {
     stopWatching(s); release(s); phase(s, 'embedded');
     s.retry.disabled = false; s.status.textContent = message;
@@ -81,16 +89,19 @@
   function enqueue(s) {
     phase(s, 'queued'); s.retry.disabled = true;
     s.status.textContent = '行情组件等待载入；进入可视区域后连接来源。';
-    recovery(s, false); if (!queue.includes(s)) queue.push(s); pump();
+    recovery(s, false); if (!queue.includes(s)) queue.push(s); armQueueTimeout(s); pump();
   }
   function observe(s) {
-    if (viewport) viewport.observe(s.section);
-    else { s.near = true; pump(); }
+    if (viewport) {
+      const rect = s.section.getBoundingClientRect?.();
+      s.near = !!rect && rect.top < (innerHeight || 0) + 240 && rect.bottom > -240;
+      viewport.observe(s.section); armQueueTimeout(s); pump();
+    } else { s.near = true; armQueueTimeout(s); pump(); }
   }
   function createViewport() {
     if (!window.IntersectionObserver) return;
     viewport = new window.IntersectionObserver(entries => {
-      for (const entry of entries) { const s = states.get(entry.target); if (s) s.near = entry.isIntersecting; }
+      for (const entry of entries) { const s = states.get(entry.target); if (s) { s.near = entry.isIntersecting; armQueueTimeout(s); } }
       pump();
     }, {rootMargin:'240px 0px'});
   }
@@ -102,7 +113,7 @@
       const controls = section.querySelector('.feed-controls'), retry = section.querySelector('.feed-retry');
       const configNode = section.querySelector('script[data-feed-config]');
       if (!area || !status || !controls || !retry || !configNode) return;
-      const s = {section,area,status,controls,retry,shortcuts:section.querySelector('.symbol-shortcuts'),generation:0,timer:null,observer:null,frame:null,onLoad:null,loading:false,near:false,phase:null,
+      const s = {section,area,status,controls,retry,shortcuts:section.querySelector('.symbol-shortcuts'),generation:0,timer:null,queueTimer:null,observer:null,frame:null,onLoad:null,loading:false,near:false,phase:null,
         label:section.querySelector('h2,h3')?.textContent || '市场行情'};
       states.set(section, s);
       if (!area.id) area.id = 'market-feed-area-' + index;
@@ -123,7 +134,7 @@
       else if (name === 'tv-widget-no-data') fail(s, '来源暂无可用数据。没有以零值或示例行情替代，可重试或查看来源。');
     }
   });
-  document.addEventListener?.('visibilitychange', () => { if (!document.hidden) pump(); });
+  document.addEventListener?.('visibilitychange', () => { if (!document.hidden) { for (const s of states.values()) armQueueTimeout(s); pump(); } });
   document.addEventListener?.('toggle', event => { if (event.target?.open) pump(); }, true);
   window.addEventListener('pagehide', () => {
     suspended = true; viewport?.disconnect(); viewport = null;

@@ -103,6 +103,15 @@ test('at most two initializations run and iframe insertion alone does not free a
   assert.doesNotMatch(h.feeds[0].status.textContent, /报价完整|实时行情已就绪|行情已全部/);
   assert.equal(h.feeds[0].controls.hidden, true);
 });
+test('visible queued feeds time out into a usable local fallback', () => {
+  const h = harness(3); h.near(h.feeds); h.frame(h.feeds[0]); h.frame(h.feeds[1]);
+  assert.equal(h.feeds[2].phase(), 'queued');
+  h.advance();
+  assert.equal(h.feeds[2].phase(), 'error');
+  assert.equal(h.feeds[2].controls.hidden, false);
+  assert.equal(h.feeds[2].shortcuts.hidden, false);
+  assert.equal(h.feeds[2].shortcuts.open, true);
+});
 test('hidden documents do not start queued feeds and successful frames survive visibility changes', () => {
   const h = harness(4, {hidden:true}); h.near(h.feeds);
   assert.ok(h.feeds.every(item => !item.script()));
