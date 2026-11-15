@@ -1,0 +1,65 @@
+name: Deploy static Pages
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'trader/feed.json'
+      - 'trader/analytics.json'
+      - 'trader/portfolios.json'
+      - 'trader/binance/snapshot.json'
+      - 'trader/binance/portfolios.json'
+      - 'trader/aoying-history.js'
+      - 'trader/binance/evidence/aoying-analysis-current/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages-static
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Check out the current main branch
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Stage the committed public website
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/books-pages"
+          git archive --format=tar HEAD | tar -x -C "${RUNNER_TEMP}/books-pages"
+          rm -rf "${RUNNER_TEMP}/books-pages/copy-config" "${RUNNER_TEMP}/books-pages/tools/copy_plan" "${RUNNER_TEMP}/books-pages/private-follow"
+          rm -f "${RUNNER_TEMP}/books-pages/trader/"paper-*.js "${RUNNER_TEMP}/books-pages/trader/paper-copy.css
+          test -s "${RUNNER_TEMP}/books-pages/index.html"
+          test -s "${RUNNER_TEMP}/books-pages/research.html"
+          test -s "${RUNNER_TEMP}/books-pages/trader/aoying-history.js"
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: ${{ runner.temp }}/books-pages
+          retention-days: 1
+          include-hidden-files: true
+
+      - name: Deploy validated static website
+        id: deployment
+        uses: actions/deploy-pages@v4
