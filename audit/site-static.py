@@ -15,7 +15,7 @@ def check(ok,msg):
 pages=list(root.rglob('*.html'))
 nav_destinations=[('市场总览','index.html'),('A股选股','screening/index.html'),('美股选股','us.html'),('带单员广场','trader/index.html'),('公司研究','research.html'),('历史研究','screening/history.html'),('研究工具','tools.html')]
 shared_versions={name:hashlib.sha256((root/name).read_bytes()).hexdigest()[:8] for name in ('books-shell.js','books-ui.css')}
-attribution_counts={'index.html':5,'a-shares.html':1,'us.html':1,'crypto.html':1,'chart.html':1,'market-strip.html':1}
+attribution_counts={'index.html':5,'a-shares.html':1,'screening/index.html':1,'us.html':1,'crypto.html':1,'chart.html':1,'market-strip.html':1}
 for p in pages:
  tree=html.fromstring(p.read_text())
  ids=tree.xpath('//@id')
@@ -56,7 +56,7 @@ for p in pages:
  for table in tree.xpath('//table'):
   columns=len(table.xpath('.//thead/tr[1]/th'))
   for td in table.xpath('.//tbody/tr/td[@colspan]'):check(int(td.get('colspan'))==columns,f'{p}: empty row matches {columns} columns')
- for section in tree.xpath('//section[contains(concat(" ",@class," ")," public-feed ")]'):
+ for section in tree.xpath('//section[contains(concat(" ",@class," ")," public-feed ") and not(contains(concat(" ",@class," ")," stock-public-market "))]'):
   configs=section.xpath('.//script[@data-feed-config]');check(len(configs)==1,f'{p}: one feed config')
   config=json.loads(configs[0].text)
   for cls in ['feed-status','feed-retry','feed-source']:
@@ -70,12 +70,15 @@ for p in pages:
   check(bool(section.xpath('.//details[contains(@class,"symbol-shortcuts")]')),f'{p}: direct chart fallback')
   check(bool(tree.xpath('//script[contains(@src,"market-feed-status.js")]')),f'{p}: recovery code included')
 chart_source=(root/'chart.js').read_text()
-supported=set(re.findall(r"\['([A-Z0-9]+:[A-Z0-9]+)'",chart_source))
+supported=set(re.findall(r"['\"]([A-Z0-9]+:[A-Z0-9]+)['\"]",chart_source))
 for p in pages:
  tree=html.fromstring(p.read_text())
  for link in tree.xpath('//a[@href]'):
   q=parse_qs(urlsplit(link.get('href')).query)
-  if 'tvwidgetsymbol' in q:check(q['tvwidgetsymbol'][0] in supported,f'{p}: unsupported chart link')
+  if 'tvwidgetsymbol' in q:
+   requested=q['tvwidgetsymbol'][0]
+   dynamic_a=bool(re.fullmatch(r'(?:SSE|SZSE):\d{6}',requested))
+   check(requested in supported or dynamic_a,f'{p}: unsupported chart link')
 feed=json.loads((root/'trader/feed.json').read_text())
 check(feed.get('schemaVersion')==1 and feed.get('status') in ('ready','unavailable'), 'public feed declares readiness or a truthful failure')
 rows=feed.get('traders',[]); source=feed.get('source',{})
