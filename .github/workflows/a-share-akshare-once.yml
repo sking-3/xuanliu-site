@@ -30,7 +30,7 @@ jobs:
               ("spot_sina", lambda: ak.stock_zh_a_spot_sina()),
               ("daily_em", lambda: ak.stock_zh_a_hist_em(symbol="000001", period="daily", start_date="20260101", end_date="20261115", adjust="qfq")),
               ("daily_sina", lambda: ak.stock_zh_a_hist_sina(symbol="sh000001", period="daily", start_date="20260101", end_date="20261115", adjust="qfq")),
-              ("benchmark", lambda: ak.index_zh_hist_em(symbol="000001", period="daily", start_date="20260101", end_date="20261115")),
+              ("benchmark", lambda: ak.index_zh_hist_em(symbol="000001", period="daily", start_date="20260101", end_date="20261115")),\n              ("benchmark_tx", lambda: ak.index_zh_daily_tx(symbol="sh000001", start_date="20260101", end_date="20261115")),
           ]
           for name, call in checks:
               try:
@@ -46,7 +46,7 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p "$RUNNER_TEMP/a-share/eod"
-          python scripts/collect_a_share.py             --provider akshare             --mode eod             --max-symbols 10             --output-dir "$RUNNER_TEMP/a-share/eod" | tee "$RUNNER_TEMP/eod-result.json"
+          python scripts/collect_a_share.py             --provider akshare             --mode eod             --max-symbols 5             --output-dir "$RUNNER_TEMP/a-share/eod" | tee "$RUNNER_TEMP/eod-result.json"
           python - <<'PY'
           import json
           import os
