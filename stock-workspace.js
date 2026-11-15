@@ -9,7 +9,7 @@ Object.assign(reasons,{us_rules_recompute_required:'旧规则结果保留，候�
 const US_RULES_VERSION='books.stock.us.causal.v2';
 const horizons={long:['长线','基本面、估值、现金流与长期风险'],mid:['中线','板块趋势、相对强弱与盈利修复'],short:['短线','事件、量价突破与盘中触发']};
 const modes={a:{M1:['炸板与缩量回收','待定规则；需要分时封开顺序和真实涨停价。'],M2:['波段回访','待定规则；需要预先固定支撑、容差和失效条件。'],M3:['高标回调','待定规则；需要同日地位与调整窗口。'],M4:['低吸与异常波动风险','待定规则；需要当时监管口径和事件日期。'],M5:['日周期 MACD 120／60','待定规则；指标线、参数与触发尚未冻结。']},us:{U1:['事件形态','跳空、放量和正日收益只是形态；官方公告与开盘前时间证据通过后才可单独成为候选。'],U2:['放量突破','突破前20日高点并满足趋势、流动性与量比；失守突破位时复核。'],U3:['临近突破','在前20日高点附近仅列观察，不作为已突破候选；相对SPY转弱或趋势失效时复核。']}};
-function horizonFor(market,key){if(market==='us')return key==='U1'?'short':key==='U2'||key==='U3'?'mid':'unknown';return ['M1','M2','M3'].includes(key)?'short':['M4'].includes(key)?'mid':['M5'].includes(key)?'mid':'unknown';}
+function horizonFor(market,key){if(market==='us')return key==='U1'?'short':key==='U2'||key==='U3'?'mid':'unknown';return ['M1','M3','M4'].includes(key)?'short':['M2','M5'].includes(key)?'mid':'unknown';}
 function hitLabel(row,key,market){const label=modes[market][key]?.[0]||key;if(market!=='us')return label;return label+(key==='U3'?'（观察）':row.eligibleHits?.includes(key)?'（条件通过）':'（待核）');}
 const symbolOK=(s,m)=>typeof s==='string'&&(m==='a'?/^\d{6}(\.(SH|SZ))?$/:/^[A-Z][A-Z0-9.-]{0,14}$/).test(s);
 const time=s=>typeof s==='string'&&Number.isFinite(Date.parse(s));
