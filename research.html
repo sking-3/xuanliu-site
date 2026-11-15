@@ -19,7 +19,7 @@
     <tr><th scope="row">mootdx</th><td>行情、财务快照</td><td><span class="source-pill source-review">待本机验收</span></td><td>pip install · TCP</td><td>需确认连接稳定性、字段时点和再发布边界</td></tr>
     <tr><th scope="row">腾讯财经</th><td>公开行情、指数</td><td><span class="source-pill source-review">候选</span></td><td>HTTP GET · 无密钥</td><td>频率、字段定义和长期可用性尚未核验</td></tr>
     <tr><th scope="row">AKShare</th><td>研报、新闻、公告适配</td><td><span class="source-pill source-review">候选</span></td><td>pip install · Python</td><td>上游站点和接口经常变化；不等同于数据授权</td></tr>
-    <tr><th scope="row">iWenCai</th><td>自然语言检索、研究候选</td><td><span class="source-pill source-review">待授权</span></td><td>REST API · 需 API Key</td><td>不在公开站保存密钥，不进入公开自动排程</td></tr>
+    <tr><th scope="row">iWenCai</th><td>自然语言检索、研究候选</td><td><span class="source-pill source-review">官方 API 待核验</span></td><td>官方开放平台 / 私人账号</td><td>API 文档当前升级中；免费额度、费用和权限未确认，不在公开站保存密钥或 Cookie</td></tr>
     <tr><th scope="row">Tushare / Ashare</th><td>结构化日线、财务</td><td><span class="source-pill source-off">暂不纳入</span></td><td>Token / 项目接口</td><td>积分、稳定性或项目维护状态不满足当前公开站要求</td></tr>
   </tbody></table></div>
   <p class="research-source-boundary"><strong>接入原则：</strong>先做来源健康检查，再做字段映射和历史时点测试，最后才允许进入选股或异动雷达。任何一层失败都保留失败时间、原因和旧数据时间，不用空值、示例值或其他来源悄悄替换。</p>
