@@ -8,6 +8,15 @@ on:
       - 'copy-config/**'
       - 'tools/copy_plan/**'
       - '.github/workflows/copy-signal-dry-run.yml'
+      - 'research.html'
+      - 'research-integrations.js'
+      - 'research-integrations.css'
+      - 'agent-studio.html'
+      - 'agent-studio.js'
+      - 'agent-studio.css'
+      - 'tools.html'
+      - 'stock-workspace.js'
+      - 'stock-workspace.css'
   workflow_dispatch:
     inputs:
       refresh_scope:
@@ -151,6 +160,7 @@ jobs:
         run: sleep 60
 
       - name: Precompute closing-fill win rates with persistent last-good cache
+        timeout-minutes: 25
         if: steps.refresh-mode.outputs.mode == 'full' && steps.hyperliquid-guard.outputs.allowed == 'true'
         # At most 900 weight/minute; a 403/429 stops the batch. No raw fills are published.
         # A cold batch may take up to 22 minutes; missing/old accounts go first next time.
