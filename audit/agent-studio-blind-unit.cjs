@@ -23,6 +23,7 @@ function shuffle(values,seed){const out=[...values];let x=seed;for(let i=out.len
     for(const role of ['多方研究员','空方研究员','研究经理','风控审查','组合经理'])assert.match(e['agent-cards'].innerHTML,new RegExp(role));
     checked++;
   }
+  const missing=setup();missing.els['agent-evidence'].value='价格和成交量出现变化，但没有来源时间';missing.els['agent-run'].events.click();assert.match(missing.els['agent-cards'].innerHTML,/等待确认/);
   const h=setup(),e=h.els,pending=[];h.context.window.BooksAgentBridge.setAdapter({analyze:req=>new Promise(resolve=>pending.push({req,resolve}))});e['agent-mode'].value='hybrid';e['agent-evidence'].value='旧一代证据';e['agent-run'].events.click();e['agent-evidence'].value='新一代证据';e['agent-run'].events.click();assert.equal(pending.length,2);pending[0].resolve({decision:'进入模拟计划',order:'BUY NOW',roles:{bull:'旧响应'}});await tick();assert.doesNotMatch(e['agent-cards'].innerHTML,/旧响应/);pending[1].resolve({decision:'下单',roles:{bull:'新响应'}});await tick();assert.match(e['agent-cards'].innerHTML,/新响应/);assert.match(e['agent-cards'].innerHTML,/观察/);assert.doesNotMatch(e['agent-cards'].innerHTML,/下单/);
   pending.length=0;e['agent-evidence'].value='恶意文本';e['agent-run'].events.click();assert.equal(pending.length,1);pending[0].resolve({roles:{bull:'<script>alert(1)</script>'},decision:'进入模拟计划'});await tick();assert.doesNotMatch(e['agent-cards'].innerHTML,/<script>/);assert.match(e['agent-cards'].innerHTML,/观察/);
   console.log(`PASS blind multi-run: ${checked} hidden rule fixtures, stale-response isolation and hostile AI output`);

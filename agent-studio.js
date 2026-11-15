@@ -13,23 +13,29 @@
     {id:'risk',name:'风控审查',en:'Risk Officer',tone:'risk',focus:'失效与暴露',body:e=>e?`检查数据新鲜度、事件风险、最大可接受回撤、成交约束和组合相关性；缺少参数时保持观望。`:'尚无数据，风控状态保持未评估。',next:'补齐回撤上限、仓位上限和事件日历。'},
     {id:'portfolio',name:'组合经理',en:'Portfolio Manager',tone:'portfolio',focus:'行动门槛',body:e=>e?`在${labels[fields.horizon.value]}框架下，只允许输出“观察 / 等待确认 / 进入模拟计划”三选一；当前规则结果不会发出订单。`:'没有证据包，组合动作保持空白。',next:'完成证据与风控字段后再进入模拟计划。'}
   ];
-  const standard = {schema:'books.agent.request.v1',version:'rules-v1',freshness:'来源时间必须可见；过期数据降级为待核',evidence:'观点必须绑定事实、来源、时间和覆盖范围',risk:'缺失回撤、流动性或事件参数时保持观望',execution:'规则层和 AI 层都不能产生订单'};
+  const standard = {schema:'books.agent.request.v1',version:'rules-v2',freshness:'来源时间必须可见；过期数据降级为待核',evidence:'观点必须绑定事实、来源、时间和覆盖范围',risk:'缺失回撤、流动性或事件参数时保持观望',execution:'规则层和 AI 层都不能产生订单'};
+  const limits={symbol:80,evidence:20000,unknowns:8000,aiNote:800};
+  const clip=(value,limit)=>String(value??'').slice(0,limit);
+  const safeField=(field,limit)=>clip(field?.value||'',limit);
+  const hasSourceTime=value=>/(来源|原文|公告|财报|时间|日期|20\d{2}|https?:\/\/)/i.test(value);
+  const withTimeout=(promise,ms)=>typeof setTimeout!=='function'?promise:new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(new Error('agent_ai_timeout')),ms);Promise.resolve(promise).then(value=>{clearTimeout(timer);resolve(value);},error=>{clearTimeout(timer);reject(error);});});
   function esc(x){return String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
-  function save(){localStorage.setItem(storageKey,JSON.stringify(Object.fromEntries(Object.entries(fields).map(([k,v])=>[k,v.value]))));saved.textContent='草稿已保存到当前浏览器';}
+  function save(){try{localStorage.setItem(storageKey,JSON.stringify({symbol:safeField(fields.symbol,limits.symbol),horizon:fields.horizon.value,mode:fields.mode.value,evidence:safeField(fields.evidence,limits.evidence),unknowns:safeField(fields.unknowns,limits.unknowns)}));saved.textContent='草稿已保存到当前浏览器';}catch{saved.textContent='本机存储不可用 · 仍可临时推演';}}
   function load(){try{const data=JSON.parse(localStorage.getItem(storageKey)||'{}');for(const [k,v] of Object.entries(data))if(fields[k]&&typeof v==='string')fields[k].value=v;}catch{}}
   function ruleResult(){
-    const evidence=fields.evidence.value.trim(), unknowns=fields.unknowns.value.trim();
-    return {hasEvidence:Boolean(evidence),unknowns:Boolean(unknowns),decision:evidence?(unknowns?'等待确认':'观察'):'未评估',reason:evidence?(unknowns?'存在待核问题，规则层不升级结论':'证据包已建立，但仍需样本外验证'):'没有证据包'};
+    const evidence=safeField(fields.evidence,limits.evidence).trim(), unknowns=safeField(fields.unknowns,limits.unknowns).trim(), sourceTime=hasSourceTime(evidence);
+    const blocked=!evidence?'没有证据包':!sourceTime?'缺少来源或时间锚点':unknowns?'存在待核问题，规则层不升级结论':'';
+    return {hasEvidence:Boolean(evidence),unknowns:Boolean(unknowns),sourceTime,decision:evidence&&!blocked?'观察':evidence?'等待确认':'未评估',reason:blocked||'证据包已建立，但仍需样本外验证'};
   }
-  function request(){return {schema:standard.schema,version:standard.version,symbol:fields.symbol.value.trim()||'未命名标的',horizon:fields.horizon.value, evidence:fields.evidence.value.trim(), unknowns:fields.unknowns.value.trim(), rules:standard, clientMode:fields.mode.value};}
+  function request(){return {schema:standard.schema,version:standard.version,symbol:safeField(fields.symbol,limits.symbol).trim()||'未命名标的',horizon:fields.horizon.value, evidence:safeField(fields.evidence,limits.evidence).trim(), unknowns:safeField(fields.unknowns,limits.unknowns).trim(), rules:standard, clientMode:fields.mode.value};}
   function normalizeAi(result){
     const notes={};
     if(!result || typeof result!=='object' || !result.roles || typeof result.roles!=='object') return notes;
-    for(const id of roleOrder){const value=result.roles[id];if(typeof value==='string'&&value.trim()) notes[id]=value.trim().slice(0,800);}
+    for(const id of roleOrder){const value=result.roles[id];if(typeof value==='string'&&value.trim()) notes[id]=value.trim().slice(0,limits.aiNote);}
     return notes;
   }
   function render(aiNotes={}){
-    const rules=ruleResult(), symbol=fields.symbol.value.trim()||'未命名标的';
+    const rules=ruleResult(), symbol=safeField(fields.symbol,limits.symbol).trim()||'未命名标的';
     state.textContent=rules.hasEvidence?(rules.unknowns?'已完成规则层 · 等待确认':'已完成规则层 · 仍需人工核验'):'等待证据包';
     version.textContent=rules.hasEvidence?'LOCAL-'+new Date().toISOString().slice(0,16).replace(/[-:T]/g,''):'—';
     cards.innerHTML=roles.map((role,index)=>{
@@ -46,12 +52,12 @@
     const adapter=window.BooksAgentAdapter;
     if(!adapter || typeof adapter.analyze!=='function'){updateAiState('AI 接口未连接 · 已回退规则层');return;}
     updateAiState('AI 增强请求中 · 规则结论保持锁定');
-    try { const response=await adapter.analyze(request()); if(token!==runToken)return; render(normalizeAi(response)); updateAiState('AI 增强已返回 · 仅补充解释，未改变规则结论'); }
+    try { const response=await withTimeout(adapter.analyze(request()),8000); if(token!==runToken)return; render(normalizeAi(response)); updateAiState('AI 增强已返回 · 仅补充解释，未改变规则结论'); }
     catch { if(token===runToken)updateAiState('AI 接口失败 · 已回退规则层'); }
   }
   $('agent-run').addEventListener('click',run);
   $('agent-reset').addEventListener('click',()=>{runToken++;Object.values(fields).forEach(field=>field.value='');fields.mode.value='rules';localStorage.removeItem(storageKey);saved.textContent='已清空本机草稿';updateAiState('规则模式运行中 · 未调用 AI');render();});
-  Object.values(fields).forEach(field=>field.addEventListener('input',()=>{if(field===fields.mode)runToken++;save();if(field===fields.mode)render();}));
+  Object.values(fields).forEach(field=>{field.addEventListener('input',()=>{runToken++;save();if(field===fields.mode)render();});field.addEventListener('change',()=>{runToken++;save();if(field===fields.mode)render();});});
   window.BooksAgentBridge={version:'books.agent.bridge.v1',schema:standard.schema,getRequest:request,setAdapter(adapter){window.BooksAgentAdapter=adapter;updateAiState('AI 适配器已注册 · 运行时仍受规则层约束');},run};
   load(); render();
 })();
