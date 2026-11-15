@@ -1,0 +1,5 @@
+# Optional local-only providers.  Nothing here is loaded by GitHub Pages.
+akshare>=1.17,<2
+adata>=2.8,<3
+mootdx>=0.10,<0.11
+pandas>=2.0,<3
