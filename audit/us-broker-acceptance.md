@@ -17,10 +17,10 @@ Verification completed:
 - Official packages were installed in a separate local venv for interface inspection: futu-api 10.12.7208, tigeropen 3.9.1 and longbridge 5.4.0. The production Longbridge adapter no longer needs that SDK. Installing or inspecting packages is not a real quote acceptance test.
 - Actual local HTTP status GET returned no connected providers, background disabled and zero orders. Actual private-network CORS preflight returned 204 for the public Pages origin. A browser actually paired with a credential-free QA service and displayed the real not-connected error on quote requests. No synthetic vendor prices were seeded into the browser.
 - Desktop and 390px mobile layouts were checked. The downloaded ZIP is generated from five explicitly listed source files and excludes all credentials, runtime state, fixtures and installed dependencies.
+- Public HTTPS-to-loopback acceptance passed in the owner's Chrome after the owner explicitly approved Chrome's local-apps/services permission for `sking-3.github.io`. The actual public page displayed “本机组件已配对”; a fresh page was paired again successfully on 2026-11-15. This used only a credential-free QA service, not a broker account. Screenshot: `work/us-broker-review/brokers-desktop.jpg` (local evidence, excluded from the public download). The test pairing was then cleared using “断开本页”.
 
 Still pending:
 
-- Public HTTPS-to-loopback acceptance is still pending: the in-app browser could not complete the request; native Chrome control then reported the Mac was locked. No browser security setting was changed. The localhost preview and real HTTP/PNA preflight successes do not prove this public-browser step.
 - The owner's real platform credentials, eligibility and current free quote entitlements have not been supplied or verified. No authenticated vendor quote, live update or completed-minute baseline has been accepted. An adapter connection is not displayed as verified realtime data.
 - These adapters provide snapshots. Cumulative session volume is never treated as minute volume, and no 10–20 day minute baseline is asserted. Their data is not mixed with the optional legacy IEX workspace.
 - Source code/public page access is separate from permission to redistribute personal market data. No owner quote data or credentials are published as GitHub JSON.
