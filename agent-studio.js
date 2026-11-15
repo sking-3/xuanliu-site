@@ -33,6 +33,24 @@
   function readLayers(){return layerOrder.map(id=>{const text=safeField(layers[id],limits.layer).trim(),meta=layerMeta[id];const status=!text?'missing':!hasSourceTime(text)?'unverified':'ready';const support=text&&meta.support.test(text)?[meta.label+'支持因素']:[];const riskText=text.replace(/无处罚|没有处罚|无诉讼|没有诉讼/g,'');const risk=riskText&&meta.risk.test(riskText)?[meta.label+'反证']:[];return {id,label:meta.label,text,status,support,risk};});}
   function save(){try{localStorage.setItem(storageKey,JSON.stringify({symbol:safeField(fields.symbol,limits.symbol),horizon:fields.horizon.value,mode:fields.mode.value,evidence:safeField(fields.evidence,limits.evidence),unknowns:safeField(fields.unknowns,limits.unknowns),layers:Object.fromEntries(layerOrder.map(id=>[id,safeField(layers[id],limits.layer)]))}));saved.textContent='草稿已保存到当前浏览器';}catch{saved.textContent='本机存储不可用 · 仍可临时推演';}}
   function load(){try{const data=JSON.parse(localStorage.getItem(storageKey)||'{}');for(const [k,v] of Object.entries(data)){if(fields[k]&&typeof v==='string')fields[k].value=v;if(k==='layers'&&v&&typeof v==='object')for(const id of layerOrder)if(layers[id]&&typeof v[id]==='string')layers[id].value=v[id];}}catch{}}
+  function loadCandidateContext(){
+    try{
+      const params=new URLSearchParams(globalThis.location?.search||'');
+      const symbol=clip(params.get('symbol')||'',limits.symbol).trim();
+      const market=params.get('market')==='a'?'A股':params.get('market')==='us'?'美股':'';
+      const horizon=params.get('horizon');
+      const strategy=clip(params.get('strategy')||'',160).trim();
+      const status=clip(params.get('status')||'',80).trim();
+      const reasons=clip(params.get('reasons')||'',800).trim();
+      if(symbol)fields.symbol.value=symbol;
+      if(Object.hasOwn(labels,horizon))fields.horizon.value=horizon;
+      if(symbol&&(market||strategy||status||reasons)){
+        const context=[market&&`候选市场：${market}`,strategy&&`策略：${strategy}`,status&&`批次状态：${status}`,reasons&&`页面证据/待核：${reasons}`].filter(Boolean).join('；');
+        if(context&&!fields.evidence.value)fields.evidence.value=`候选导入（需补来源时间）：${context}`;
+        if(context&&!layers.market.value)layers.market.value=`候选导入（未核验）：${context}`;
+      }
+    }catch{}
+  }
   function ruleResult(){
     const evidence=safeField(fields.evidence,limits.evidence).trim(), unknowns=safeField(fields.unknowns,limits.unknowns).trim(), snapshots=readLayers();
     const blockers=[]; if(!evidence)blockers.push('总体事实为空'); if(!hasSourceTime(evidence))blockers.push('总体事实缺少来源或时间锚点');
@@ -58,5 +76,5 @@
   $('agent-reset').addEventListener('click',()=>{runToken++;inputFields.forEach(field=>field.value='');localStorage.removeItem(storageKey);saved.textContent='已清空本机草稿';updateAiState('规则模式运行中 · 未调用 AI');render();});
   inputFields.forEach(field=>{field.addEventListener('input',()=>{runToken++;save();if(field===fields.mode)render();});field.addEventListener('change',()=>{runToken++;save();if(field===fields.mode)render();});});
   window.BooksAgentBridge={version:'books.agent.bridge.v1',schema:standard.schema,getRequest:request,setAdapter(adapter){window.BooksAgentAdapter=adapter;updateAiState('AI 适配器已注册 · 运行时仍受规则层约束');},run};
-  load();render();
+  load();loadCandidateContext();render();
 })();
