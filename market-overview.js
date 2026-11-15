@@ -69,7 +69,20 @@ function dateLabel(v,time=false){return new Intl.DateTimeFormat('zh-CN',{timeZon
 function decimal(v,n=2){return v.toLocaleString('zh-CN',{minimumFractionDigits:n,maximumFractionDigits:n});}
 function signed(v,n=2){return (v>0?'+':'')+decimal(v,n);}
 function compactUsd(v){return v>=1e8?decimal(v/1e8)+' 亿美元':v>=1e4?decimal(v/1e4)+' 万美元':decimal(v)+' 美元';}
-function eventTitle(t){return ({'Consumer Price Index':'CPI 消费者物价','Producer Price Index':'PPI 生产者物价','Employment Situation':'非农就业报告'})[t]||t;}
+const MACRO_TITLE_LABELS={
+  'Consumer Price Index':'CPI 消费者物价',
+  'Producer Price Index':'PPI 生产者物价',
+  'Employment Situation':'非农就业报告',
+  'Federal Open Market Committee':'美联储 FOMC 利率决议',
+  'Interest Rate Decision':'利率决议',
+  'Retail Sales':'零售销售',
+  'Initial Jobless Claims':'初请失业金人数',
+  'GDP':'国内生产总值 GDP'
+};
+function eventTitle(t){
+  const raw=String(t||'').trim();
+  return MACRO_TITLE_LABELS[raw]||raw.replace(/\b(Advance|Preliminary|Final)\b/gi,'').replace(/\s{2,}/g,' ').trim();
+}
 function employmentHeadline(t){
   const m=t.match(/^Payroll employment (rises|falls) by ([\d,]+) in (\w+); unemployment rate (?:changes little at|is unchanged at|rises to|falls to) ([\d.]+)%\.?$/i);
   const months=['January','February','March','April','May','June','July','August','September','October','November','December'];
@@ -103,8 +116,9 @@ function renderCard(doc,host,id,c,now,readFailed){
       const headline=anchor(doc,employmentHeadline(d.latest.title),d.latest.url,'insight-headline');headline.setAttribute('title',d.latest.title);body.append(headline,node(doc,'p','发布 '+dateLabel(d.latest.publishedAt),'insight-caption'));
       const events=d.events.filter(e=>Date.parse(e.startAt)>=now).slice(0,2);
       for(const e of events){const a=anchor(doc,eventTitle(e.title),e.url,'insight-event');a.append(node(doc,'time',dateLabel(e.startAt,true)+' 北京时间'));body.append(a);}
+      if(!events.length)body.append(node(doc,'p','暂无未来已核验发布，等待下一次官方日历更新','insight-caption'));
     }
-  }
+  }else body.append(node(doc,'p',status==='stale'?'最近一次快照已过期，等待来源恢复':'暂无可核验快照，来源未返回数据','insight-empty'));
   const cadence=node(doc,'p',CADENCE[id]+(c.errorCode?(c.errorCode==='http_403'||c.errorCode==='http_429'?' · 来源访问已停止':' · 本次读取失败，保留旧值'):''),'insight-cadence');
   const foot=node(doc,'footer',undefined,'insight-footer');foot.append(anchor(doc,c.sourceName+' ↗',c.sourceUrl,'insight-source'));
   if(c.asOf){const time=node(doc,'time','截至 '+dateLabel(c.asOf,id==='active'),'insight-asof');time.dateTime=c.asOf;time.setAttribute('title','来源统计时间（北京时间）；采集于 '+dateLabel(c.fetchedAt,true)+(c.sourceUpdatedAt?'；来源更新 '+dateLabel(c.sourceUpdatedAt,true):''));foot.append(time);}
