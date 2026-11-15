@@ -1,0 +1,87 @@
+/* Compact dashboard geometry. Summary cards reserve only the space needed for
+   a decision, while long provider lists remain scrollable inside their card. */
+.books-shell .market-insights {
+  align-items: stretch;
+}
+
+@media (min-width: 761px) {
+  .books-shell .market-insight {
+    height: 402px;
+    min-height: 402px;
+    overflow: hidden;
+  }
+
+  .books-shell .market-insight .insight-body {
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .books-shell .market-insight[data-pulse="active"],
+  .books-shell .market-insight[data-pulse="macro"] {
+    height: 402px;
+    min-height: 402px;
+  }
+
+  .books-shell .market-insight[data-pulse="active"] .pulse-host,
+  .books-shell .market-insight[data-pulse="macro"] .pulse-host {
+    height: 132px;
+  }
+}
+
+/* Keep the three market cards on one grid. The crypto list scrolls inside its
+   card when it contains more rows than an embedded quote widget. */
+.books-shell .market-card-grid {
+  align-items: stretch;
+}
+
+@media (min-width: 761px) {
+  .books-shell .market-card-grid > .feed-card {
+    height: 470px;
+    min-height: 470px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .books-shell .market-card-grid > .feed-card > .feed-widget-area {
+    min-height: 0;
+    height: auto !important;
+    flex: 1 1 auto;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .books-shell .market-card-grid > .feed-card .tradingview-widget-container,
+  .books-shell .market-card-grid > .feed-card .tradingview-widget-container__widget,
+  .books-shell .market-card-grid > .feed-card .crypto-native-feed {
+    height: 100%;
+    min-height: 0;
+    flex: 1 1 auto;
+  }
+
+  .books-shell .market-card-grid > .feed-card .crypto-native-feed {
+    overflow: auto;
+  }
+}
+
+@media (max-width: 760px) {
+  .books-shell .market-insight,
+  .books-shell .market-insight[data-pulse="active"],
+  .books-shell .market-insight[data-pulse="macro"] {
+    min-height: 320px;
+  }
+
+  .books-shell .market-card-grid > .feed-card {
+    height: 430px;
+    min-height: 430px;
+  }
+}
+
+/* The saved macro snapshot is the Chinese, timestamped view. External
+   provider news remains available as an explicit secondary view. */
+.books-shell [data-pulse="macro"] .pulse-switch button[data-view="live"]::after {
+  content: " · 外部";
+  font-size: 9px;
+  color: #8b95a4;
+}
