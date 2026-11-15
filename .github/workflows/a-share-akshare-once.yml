@@ -18,35 +18,67 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install AKShare adapter
-        run: python -m pip install "akshare>=1.17,<2" "pandas>=2.0,<3"
-      - name: Collect end of day data and build anomaly radar
+        run: python -m pip install "akshare>=1.20.65,<2" "pandas>=2.0,<3"
+      - name: Probe AKShare endpoints
         run: |
-          set -euo pipefail
+          python - <<'PY'
+          import akshare as ak
+
+          checks = [
+              ("directory", lambda: ak.stock_info_a_code_name()),
+              ("spot_em", lambda: ak.stock_zh_a_spot_em()),
+              ("spot_sina", lambda: ak.stock_zh_a_spot_sina()),
+              ("daily_em", lambda: ak.stock_zh_a_hist_em(symbol="000001", period="daily", start_date="20260101", end_date="20261115", adjust="qfq")),
+              ("daily_sina", lambda: ak.stock_zh_a_hist_sina(symbol="000001", period="daily", start_date="20260101", end_date="20261115", adjust="qfq")),
+              ("benchmark", lambda: ak.index_zh_hist_em(symbol="000001", period="daily", start_date="20260101", end_date="20261115")),
+          ]
+          for name, call in checks:
+              try:
+                  value = call()
+                  shape = getattr(value, "shape", None)
+                  print(name, "ok", shape or len(value))
+              except Exception as error:
+                  print(name, "failed", type(error).__name__, str(error)[:240])
+          PY
+      - name: Collect end of day data and build anomaly radar
+        id: eod
+        continue-on-error: true
+        run: |
+          set -o pipefail
           mkdir -p "$RUNNER_TEMP/a-share/eod"
           python scripts/collect_a_share.py             --provider akshare             --mode eod             --max-symbols 10             --output-dir "$RUNNER_TEMP/a-share/eod" | tee "$RUNNER_TEMP/eod-result.json"
           python - <<'PY'
           import json
+          import os
           from pathlib import Path
-          snapshot = json.loads((Path("$RUNNER_TEMP") / "a-share/eod/snapshot.json").read_text())
-          market = snapshot.get("markets", {}).get("a", {})
-          print("eod_market_status=", market.get("status"))
-          print("eod_rows=", len(market.get("rows", [])))
-          print("anomaly_radar_alerts=", len(snapshot.get("alerts", [])))
+          root = Path(os.environ["RUNNER_TEMP"])
+          snapshot_path = root / "a-share/eod/snapshot.json"
+          if snapshot_path.exists():
+              snapshot = json.loads(snapshot_path.read_text())
+              market = snapshot.get("markets", {}).get("a", {})
+              print("eod_market_status=", market.get("status"))
+              print("eod_rows=", len(market.get("rows", [])))
+              print("anomaly_radar_alerts=", len(snapshot.get("alerts", [])))
           PY
       - name: Collect 14:00 research batch
+        id: a14
+        if: always()
+        continue-on-error: true
         run: |
-          set -euo pipefail
+          set -o pipefail
           mkdir -p "$RUNNER_TEMP/a-share/a14"
           python scripts/collect_a_share.py             --provider akshare             --mode a14             --max-symbols 10             --output-dir "$RUNNER_TEMP/a-share/a14" | tee "$RUNNER_TEMP/a14-result.json"
-      - name: Summarize 14:00 result
+      - name: Summarize verification
+        if: always()
+        env:
+          EOD_OUTCOME: ${{ steps.eod.outcome }}
+          A14_OUTCOME: ${{ steps.a14.outcome }}
         run: |
-          python - <<'PY'
-          import json
-          from pathlib import Path
-          result = json.loads((Path("$RUNNER_TEMP") / "a-share/a14/books.a14.preselection.json").read_text())
-          print("a14_status=", result.get("status"))
-          print("a14_counts=", result.get("counts"))
-          print("a14_blockers=", result.get("blockers"))
-          PY
+          echo "eod_step=$EOD_OUTCOME"
+          echo "a14_step=$A14_OUTCOME"
+          if [ "$EOD_OUTCOME" != "success" ] || [ "$A14_OUTCOME" != "success" ]; then
+            exit 1
+          fi
       - name: Keep outputs ephemeral
+        if: always()
         run: echo "No provider rows, snapshots, or artifacts are uploaded."
