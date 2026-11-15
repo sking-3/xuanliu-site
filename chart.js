@@ -6,7 +6,7 @@
     ['SSE:600519','贵州茅台'], ['SZSE:000001','平安银行'], ['SZSE:300750','宁德时代'],
     ['NASDAQ:AAPL','Apple'], ['NASDAQ:MSFT','Microsoft'], ['NASDAQ:NVDA','NVIDIA'],
     ['NASDAQ:AMZN','Amazon'], ['NASDAQ:GOOGL','Alphabet'], ['NASDAQ:META','Meta'], ['NASDAQ:TSLA','Tesla'],
-    ['COINBASE:USDTUSD','Tether / USD'], ['COINBASE:BTCUSD','Bitcoin / USD'], ['COINBASE:ETHUSD','Ethereum / USD'], ['COINBASE:SOLUSD','Solana / USD'], ['COINBASE:XRPUSD','XRP / USD'], ['COINBASE:DOGEUSD','Dogecoin / USD'], ['COINBASE:ADAUSD','Cardano / USD'], ['COINBASE:AVAXUSD','Avalanche / USD'], ['COINBASE:LINKUSD','Chainlink / USD'], ['COINBASE:DOTUSD','Polkadot / USD'], ['COINBASE:LTCUSD','Litecoin / USD'], ['COINBASE:BCHUSD','Bitcoin Cash / USD'], ['COINBASE:UNIUSD','Uniswap / USD'], ['COINBASE:AAVEUSD','Aave / USD'], ['COINBASE:NEARUSD','NEAR / USD'], ['COINBASE:ATOMUSD','Cosmos / USD'], ['COINBASE:FILUSD','Filecoin / USD'], ['COINBASE:XLMUSD','Stellar / USD'], ['COINBASE:SHIBUSD','Shiba Inu / USD'], ['COINBASE:SUIUSD','Sui / USD'], ['COINBASE:PEPEUSD','Pepe / USD']
+    ['COINBASE:USDTUSD','Tether / USD'], ['BINANCE:BTCUSDT','Bitcoin / USDT'], ['BINANCE:ETHUSDT','Ethereum / USDT'], ['BINANCE:SOLUSDT','Solana / USDT'], ['BINANCE:XRPUSDT','XRP / USDT'], ['BINANCE:DOGEUSDT','Dogecoin / USDT'], ['BINANCE:ADAUSDT','Cardano / USDT'], ['BINANCE:AVAXUSDT','Avalanche / USDT'], ['BINANCE:LINKUSDT','Chainlink / USDT'], ['BINANCE:DOTUSDT','Polkadot / USDT'], ['BINANCE:LTCUSDT','Litecoin / USDT'], ['BINANCE:BCHUSDT','Bitcoin Cash / USDT'], ['BINANCE:UNIUSDT','Uniswap / USDT'], ['BINANCE:AAVEUSDT','Aave / USDT'], ['BINANCE:NEARUSDT','NEAR / USDT'], ['BINANCE:ATOMUSDT','Cosmos / USDT'], ['BINANCE:FILUSDT','Filecoin / USDT'], ['BINANCE:XLMUSDT','Stellar / USDT'], ['BINANCE:SHIBUSDT','Shiba Inu / USDT'], ['BINANCE:SUIUSDT','Sui / USDT'], ['BINANCE:PEPEUSDT','Pepe / USDT'], ['COINBASE:BTCUSD','Bitcoin / USD'], ['COINBASE:ETHUSD','Ethereum / USD'], ['COINBASE:SOLUSD','Solana / USD'], ['COINBASE:XRPUSD','XRP / USD'], ['COINBASE:DOGEUSD','Dogecoin / USD'], ['COINBASE:ADAUSD','Cardano / USD'], ['COINBASE:AVAXUSD','Avalanche / USD'], ['COINBASE:LINKUSD','Chainlink / USD'], ['COINBASE:DOTUSD','Polkadot / USD'], ['COINBASE:LTCUSD','Litecoin / USD'], ['COINBASE:BCHUSD','Bitcoin Cash / USD'], ['COINBASE:UNIUSD','Uniswap / USD'], ['COINBASE:AAVEUSD','Aave / USD'], ['COINBASE:NEARUSD','NEAR / USD'], ['COINBASE:ATOMUSD','Cosmos / USD'], ['COINBASE:FILUSD','Filecoin / USD'], ['COINBASE:XLMUSD','Stellar / USD'], ['COINBASE:SHIBUSD','Shiba Inu / USD'], ['COINBASE:SUIUSD','Sui / USD'], ['COINBASE:PEPEUSD','Pepe / USD']
   ]);
   const requested = new URLSearchParams(location.search).get('tvwidgetsymbol');
   let symbol = requested && requested.toUpperCase();
@@ -57,7 +57,7 @@
   });
   const marketBack = document.querySelector('.chart-back');
   if (usSymbol) { marketBack.href = 'us.html'; marketBack.textContent = '← 返回美股行情'; }
-  else if (symbol.startsWith('COINBASE:')) { marketBack.href = 'crypto.html'; marketBack.textContent = '← 返回加密行情'; }
+  else if (symbol.startsWith('COINBASE:') || symbol.startsWith('BINANCE:')) { marketBack.href = 'crypto.html'; marketBack.textContent = '← 返回加密行情'; }
   else if (symbol.startsWith('SSE:') || symbol.startsWith('SZSE:')) { marketBack.href = 'a-shares.html'; marketBack.textContent = '← 返回A股行情'; }
   const closeOnly = symbol.startsWith('FRED:');
   const chartKind = closeOnly ? '日终走势' : 'K线';
@@ -69,6 +69,7 @@
     ? 'A股日终数据，非盘中实时。可用性以图表显示为准。'
     : symbol.startsWith('HSI:') ? '恒生指数日终数据，非盘中实时。可用性以图表显示为准。'
     : closeOnly ? '纳斯达克综合指数 · FRED 每日收盘序列，仅绘制收盘走势，不表示盘中K线。更新日期与可用性以来源为准。'
+    : symbol.startsWith('BINANCE:') ? 'Binance 现货 / USDT。报价时间与可用性以图表显示为准。'
     : symbol.startsWith('COINBASE:') ? 'Coinbase 现货 / USD。报价时间与可用性以图表显示为准。'
     : '美股行情可能延迟。报价时间与可用性以图表显示为准。';
   let generation = 0, timer, observer;

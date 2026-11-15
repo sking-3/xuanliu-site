@@ -13,7 +13,7 @@
   const byBinance = new Map(pairs.map(p => [p.binance, p]));
   const byId = new Map(pairs.map(p => [p.id, p]));
   const providerLabel = {binance:'Binance', okx:'OKX', bitget:'Bitget'};
-  let sourceUnavailable = false;
+  let sourceUnavailable = false, lastQuoteAt = 0;
   const mounts = document.querySelectorAll('[data-crypto-feed]');
   if (!mounts.length) return;
   const visiblePairs = mount => mount.dataset.scope === 'full' ? pairs : pairs.slice(0, 8);
@@ -25,22 +25,25 @@
     return l !== null && o ? ((l-o)/o)*100 : null;
   };
   function render(mount, state) {
-    const rows = visiblePairs(mount).map(pair => {
+    const status = [...state.values()].find(Boolean);
+    const host = mount.querySelector('.crypto-quote-list');
+    const unavailable = sourceUnavailable && !status;
+    const stale = Boolean(lastQuoteAt && Date.now() - lastQuoteAt > 30000);
+    mount.dataset.cryptoState = unavailable ? 'error' : stale ? 'stale' : status ? 'ready' : 'loading';
+    const rows = unavailable ? '<div class="crypto-quote-empty"><strong>交易所行情暂未连接</strong><p>Binance、OKX、Bitget 当前都没有返回公开报价。请检查网络后重试。</p><button type="button" data-crypto-retry>重试</button></div>' : visiblePairs(mount).map(pair => {
       const q=state.get(pair.id), price=q?.price, change=q?.change;
       const changeText=change === null || change === undefined ? '--' : `${change >= 0 ? '+' : ''}${change.toFixed(2)}%`;
       const cls=change === null || change === undefined ? '' : change >= 0 ? 'up' : 'down';
       return `<div class="crypto-quote-row"><div><strong>${pair.name}</strong><small>${pair.id}</small></div><div class="crypto-quote-value"><strong>${price === null || price === undefined ? '--' : Number(price).toLocaleString('en-US',{maximumFractionDigits:8})}</strong><span class="${cls}">${changeText}</span></div><small class="crypto-quote-source">${q ? `${providerLabel[q.provider]||q.provider} · ${new Date(q.ts||Date.now()).toLocaleTimeString('zh-CN',{hour12:false})}` : '等待来源'}</small></div>`;
     }).join('');
-    const status = [...state.values()].find(Boolean);
-    const host = mount.querySelector('.crypto-quote-list');
-    if (host) host.innerHTML = rows;
+    if (host) { host.innerHTML = rows; host.querySelector('[data-crypto-retry]')?.addEventListener('click', () => location.reload()); }
     const statusNode=mount.querySelector('[data-crypto-status]');
-    if(statusNode) statusNode.textContent = status ? `来源：${providerLabel[status.provider]||status.provider} · 公开行情 · ${new Date(status.ts||Date.now()).toLocaleTimeString('zh-CN',{hour12:false})}` : sourceUnavailable ? '交易所公开行情暂未连接，请重试或检查网络。' : '正在连接 Binance / OKX / Bitget 公开行情…';
+    if(statusNode) statusNode.textContent = unavailable ? '交易所公开行情暂未连接，请重试或检查网络。' : stale ? `行情暂未更新 · 上次成功 ${new Date(lastQuoteAt).toLocaleTimeString('zh-CN',{hour12:false})}` : status ? `来源：${providerLabel[status.provider]||status.provider} · 公开行情 · ${new Date(status.ts||Date.now()).toLocaleTimeString('zh-CN',{hour12:false})}` : '正在连接 Binance / OKX / Bitget 公开行情…';
   }
   function apply(state, pair, provider, last, open, change, ts) {
     const price=clean(last); if(price===null) return;
     const q={provider,price,change:pct(last,open,change),ts:Number(ts)||Date.now()};
-    sourceUnavailable = false;
+    sourceUnavailable = false; lastQuoteAt = Date.now();
     state.set(pair.id,q);
     for(const mount of mounts) render(mount,state);
   }

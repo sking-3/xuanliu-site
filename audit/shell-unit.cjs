@@ -99,7 +99,7 @@ assert.match(css,/\.books-nav-icon\{display:block;width:21px;height:21px/);
 assert.match(css,/\.books-nav a\{width:100%;min-height:44px;[^}]*flex-direction:row/);
 assert.match(css,/\.books-nav\[hidden\]\{display:none\}/);
 assert.match(css,/@media\(max-width:760px\)\{\s*\.books-shell \.books-sidebar\{[^}]*min-height:82px/);
-assert.match(css,/\.books-shell-preparing \.books-shell \.books-nav\{display:none\}/);
+assert.match(css,/\.books-shell-preparing \.books-shell-enhanced \.books-nav\{display:none\}/);
 assert.match(css,/\.books-shell \.books-nav\{grid-column:1\/-1;display:grid/); // No-JavaScript fallback stays visible.
 assert.match(ticker,/\.books-shell>\.index-ticker\{[^}]*inset:0 0 auto;[^}]*width:100%/);
 assert.match(ticker,/\.books-sidebar\{top:var\(--books-ticker-height\);height:calc\(100dvh - var\(--books-ticker-height\)\)/);
