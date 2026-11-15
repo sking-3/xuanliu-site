@@ -34,7 +34,7 @@ function render(batch,provider,list){
  $('broker-radar-note').textContent='本批为'+names[provider]+'免费报价快照。尚无已验收的同源完成分钟及10–20日基线，不生成放量信号；不会与原IEX或其他平台拼接。';
 }
 async function read(g,monitor){const started=Date.now();try{const p=selected(),list=symbols();const result=await api('/api/quotes',{provider:p,symbols:list},g);if(g!==generation)return false;render(result,p,list);message(monitor?'本页读取中 · '+names[p]+' · '+(p==='tiger'?'每30秒读取延迟快照':'每5秒读取快照'):'本次免费报价已读取，未启动持续读取。');return true;}catch(e){if(!e.cancelled&&g===generation)stop(e.message);return false;}finally{if(active&&g===generation)timer=setTimeout(()=>read(g,true),Math.max(0,(selected()==='tiger'?30000:5000)-(Date.now()-started)));}}
-form.onsubmit=async e=>{e.preventDefault();stop('');const input=$('broker-pair');pair=input.value.trim();input.value='';const g=generation;try{providerState(await api('/api/status',undefined,g));if(g===generation)message('本机组件已配对。请选已连接的平台，添加自选后读取报价。');}catch(error){if(!error.cancelled&&g===generation){pair='';message(error.message);}}};
+form.onsubmit=async e=>{e.preventDefault();stop('');const input=$('broker-pair');pair=input.value.trim();input.value='';message('正在连接本机行情组件…');const g=generation;try{providerState(await api('/api/status',undefined,g));if(g===generation)message('本机组件已配对。请选已连接的平台，添加自选后读取报价。');}catch(error){if(!error.cancelled&&g===generation){pair='';message(error.message);}}};
 $('broker-read').onclick=()=>{window.BooksUsLive?.stop('已选择三平台免费报价');stop('');return read(generation,false);};
 $('broker-start').onclick=()=>{window.BooksUsLive?.stop('已选择三平台免费报价');stop('');active=true;$('broker-stop').disabled=false;$('broker-start').disabled=true;void read(generation,true);};
 $('broker-stop').onclick=()=>stop('本页读取已停止 · 没有后台排程');

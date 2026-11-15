@@ -20,6 +20,7 @@ Verification completed:
 
 Still pending:
 
+- Public HTTPS-to-loopback acceptance is still pending: the in-app browser could not complete the request; native Chrome control then reported the Mac was locked. No browser security setting was changed. The localhost preview and real HTTP/PNA preflight successes do not prove this public-browser step.
 - The owner's real platform credentials, eligibility and current free quote entitlements have not been supplied or verified. No authenticated vendor quote, live update or completed-minute baseline has been accepted. An adapter connection is not displayed as verified realtime data.
 - These adapters provide snapshots. Cumulative session volume is never treated as minute volume, and no 10–20 day minute baseline is asserted. Their data is not mixed with the optional legacy IEX workspace.
 - Source code/public page access is separate from permission to redistribute personal market data. No owner quote data or credentials are published as GitHub JSON.
