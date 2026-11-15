@@ -249,6 +249,19 @@ def _call(module: Any, path: str, *args: Any, **kwargs: Any) -> Any:
         raise ProviderError("provider_request_failed", path) from error
 
 
+def _try_calls(module: Any, calls: Iterable[tuple[str, tuple[Any, ...], dict[str, Any]]]) -> Any:
+    """Try current and alternate provider interfaces, then keep the last safe error."""
+    errors: list[ProviderError] = []
+    for path, args, kwargs in calls:
+        try:
+            return _call(module, path, *args, **kwargs)
+        except ProviderError as error:
+            errors.append(error)
+    if errors:
+        raise errors[-1]
+    raise ProviderError("provider_api_mismatch")
+
+
 class Provider:
     def __init__(self, name: str):
         self.name = name
@@ -257,10 +270,11 @@ class Provider:
 
     def directory(self) -> list[dict[str, Any]]:
         if self.name == "akshare":
-            try:
-                return _records(_call(self.module, "stock_info_a_code_name"))
-            except ProviderError:
-                return _records(_call(self.module, "stock_zh_a_spot_em"))
+            return _records(_try_calls(self.module, (
+                ("stock_info_a_code_name", (), {}),
+                ("stock_zh_a_spot_em", (), {}),
+                ("stock_zh_a_spot_sina", (), {}),
+            )))
         if self.name == "adata":
             stock = getattr(self.module, "stock", None)
             return _records(_call(stock, "info.all_code"))
@@ -269,7 +283,10 @@ class Provider:
 
     def spot(self) -> list[dict[str, Any]]:
         if self.name == "akshare":
-            return _records(_call(self.module, "stock_zh_a_spot_em"))
+            return _records(_try_calls(self.module, (
+                ("stock_zh_a_spot_em", (), {}),
+                ("stock_zh_a_spot_sina", (), {}),
+            )))
         if self.name == "adata":
             stock = getattr(self.module, "stock", None)
             return _records(_call(stock, "market.list_market_current"))
@@ -279,8 +296,20 @@ class Provider:
     def daily(self, code: str, start: str, end: str) -> list[dict[str, Any]]:
         raw_code = code.split(".", 1)[0]
         if self.name == "akshare":
-            return _records(_call(self.module, "stock_zh_a_hist", symbol=raw_code, period="daily",
-                                  start_date=start.replace("-", ""), end_date=end.replace("-", ""), adjust="qfq"))
+            return _records(_try_calls(self.module, (
+                ("stock_zh_a_hist_em", (), {"symbol": raw_code, "period": "daily",
+                                             "start_date": start.replace("-", ""),
+                                             "end_date": end.replace("-", ""), "adjust": "qfq"}),
+                ("stock_zh_a_hist_sina", (), {"symbol": raw_code, "period": "daily",
+                                               "start_date": start.replace("-", ""),
+                                               "end_date": end.replace("-", ""), "adjust": "qfq"}),
+                ("stock_zh_a_hist_tx", (), {"symbol": raw_code, "period": "daily",
+                                             "start_date": start.replace("-", ""),
+                                             "end_date": end.replace("-", ""), "adjust": "qfq"}),
+                ("stock_zh_a_hist", (), {"symbol": raw_code, "period": "daily",
+                                          "start_date": start.replace("-", ""),
+                                          "end_date": end.replace("-", ""), "adjust": "qfq"}),
+            )))
         if self.name == "adata":
             stock = getattr(self.module, "stock", None)
             return _records(_call(stock, "market.get_market", stock_code=raw_code, k_type=1,
@@ -290,7 +319,14 @@ class Provider:
 
     def benchmark(self, start: str, end: str) -> list[dict[str, Any]]:
         if self.name == "akshare":
-            return _records(_call(self.module, "stock_zh_index_daily_em", symbol="sh000001"))
+            return _records(_try_calls(self.module, (
+                ("index_zh_hist_em", (), {"symbol": "000001", "period": "daily",
+                                            "start_date": start.replace("-", ""),
+                                            "end_date": end.replace("-", "")}),
+                ("index_zh_daily_em", (), {"symbol": "sh000001"}),
+                ("index_zh_daily_sina", (), {"symbol": "sh000001"}),
+                ("stock_zh_index_daily_em", (), {"symbol": "sh000001"}),
+            )))
         if self.name == "adata":
             stock = getattr(self.module, "stock", None)
             return _records(_call(stock, "market.get_market", stock_code="000001", k_type=1,
@@ -302,9 +338,14 @@ class Provider:
         """Return minute bars when the installed provider exposes them."""
         raw_code = code.split(".", 1)[0]
         if self.name == "akshare":
-            return _records(_call(self.module, "stock_zh_a_hist_min_em", symbol=raw_code,
-                                  period="1", adjust="", start_date=day+" 09:25:00",
-                                  end_date=day+" 14:00:05"))
+            return _records(_try_calls(self.module, (
+                ("stock_zh_a_hist_min_em", (), {"symbol": raw_code, "period": "1", "adjust": "",
+                                                 "start_date": day+" 09:25:00",
+                                                 "end_date": day+" 14:00:05"}),
+                ("stock_zh_a_hist_min_sina", (), {"symbol": raw_code, "period": "1", "adjust": "",
+                                                   "start_date": day+" 09:25:00",
+                                                   "end_date": day+" 14:00:05"}),
+            )))
         if self.name == "adata":
             stock = getattr(self.module, "stock", None)
             return _records(_call(stock, "market.get_market_min", stock_code=raw_code))
