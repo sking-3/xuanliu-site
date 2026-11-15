@@ -325,6 +325,9 @@ class Provider:
                                             "end_date": end.replace("-", "")}),
                 ("index_zh_daily_em", (), {"symbol": "sh000001"}),
                 ("index_zh_daily_sina", (), {"symbol": "sh000001"}),
+                ("index_zh_daily_tx", (), {"symbol": "sh000001",
+                                             "start_date": start.replace("-", ""),
+                                             "end_date": end.replace("-", "")}),
                 ("stock_zh_index_daily_em", (), {"symbol": "sh000001"}),
             )))
         if self.name == "adata":
