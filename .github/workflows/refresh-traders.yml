@@ -27,7 +27,7 @@ permissions:
 
 # Use the same group for every Pages deployment. Never interrupt a live deploy.
 concurrency:
-  group: pages-v2
+  group: pages
   queue: max
   cancel-in-progress: false
 
