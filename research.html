@@ -29,6 +29,15 @@
   <div class="integration-pipeline" aria-label="研究数据处理链路"><div><b>本机采集</b><span>adata / 公开源 / 私有券商适配</span></div><div><b>统一快照</b><span>来源、时间、覆盖和失败原因</span></div><div><b>三线策略</b><span>长线、中线、短线分别验收</span></div><div><b>五代理审查</b><span>多空、经理、风控、组合</span></div><div><b>模拟复盘</b><span>只记录纸面结果，不发订单</span></div></div>
   <div class="integration-controls"><label for="integration-filter">筛选落点<select id="integration-filter" data-integrations-filter><option value="all">全部</option><option value="adapt">可提取能力</option><option value="private">私有适配</option><option value="reference">仅作参考</option><option value="A股数据">A股数据</option><option value="策略与回测">策略与回测</option><option value="研究分析">研究分析</option></select></label><strong>许可证和上游数据条款分别核验</strong></div>
   <div class="integration-grid" data-integrations-grid></div>
-  <p class="research-source-boundary"><strong>当前落地：</strong>五代理规则台、三线策略草稿、收盘筛选、盘中自选、异动雷达和熬鹰公开监控已经有独立入口；开源仓库只提供架构和算法参考，不把未授权代码、密钥或原始行情直接放进公开仓库。</p>
+  <section class="research-setup-desk" id="private-adapter-checklist" aria-labelledby="private-adapter-title">
+  <header class="research-integration-heading"><div><span class="research-kicker">PRIVATE ADAPTER / 03</span><h2 id="private-adapter-title">后续准备清单</h2><p>公开仓库已经部署可直接运行的研究与模拟功能。以下项目只在你准备账号或本机环境后启用，凭证不会进入 GitHub 或浏览器。</p></div><span class="research-source-status">实盘关闭</span></header>
+  <div class="research-setup-grid">
+    <article class="research-setup-card"><span class="setup-state is-ready">公开可用</span><h3>现在可以直接使用</h3><ul><li>五层证据研究台</li><li>五代理规则分析和盲测</li><li>长线、中线、短线策略草稿</li><li>公开行情快照、异动和模拟回放</li></ul></article>
+    <article class="research-setup-card"><span class="setup-state is-private">需要账号</span><h3>TigerOpen</h3><ul><li>老虎开放平台账户</li><li>Tiger ID、License、Private Key</li><li>对应市场行情权限</li><li>本机 Java/Python 运行环境</li></ul></article>
+    <article class="research-setup-card"><span class="setup-state is-private">需要本机</span><h3>Level-2 与 A 股采集</h3><ul><li>大智慧 365 账号和 Level-2 权限</li><li>Windows 客户端或虚拟机</li><li>Mac Python 环境用于 adata、tick-stock-panel</li><li>本地缓存、来源时间和字段映射</li></ul></article>
+    <article class="research-setup-card"><span class="setup-state is-optional">可选接口</span><h3>AI 增强分析</h3><ul><li>规则模式无需 AI 账号</li><li>接入时只保存本机 AI API Key</li><li>AI 只能补充解释，不能生成订单</li><li>模拟跟单和实盘接口继续分离</li></ul></article>
+  </div>
+</section>
+<p class="research-source-boundary"><strong>当前落地：</strong>五代理规则台、三线策略草稿、收盘筛选、盘中自选、异动雷达和熬鹰公开监控已经有独立入口；开源仓库只提供架构和算法参考，不把未授权代码、密钥或原始行情直接放进公开仓库。</p>
 </section>
 <p class="research-boundary">当前公开站没有正式公司档案批次，也没有自动排程。接入 iFinD、Choice 或个人日终 ETL 后，再按来源许可决定哪些字段可以公开展示。</p><nav class="research-links" aria-label="研究入口"><a href="screening/index.html">A股研究与选股</a><a href="us.html">美股研究与选股</a><a href="screening/history.html">历史证据</a></nav></section></main></body></html>
