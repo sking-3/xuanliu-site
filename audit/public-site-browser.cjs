@@ -553,10 +553,19 @@ async function actualChart(page) {
   }
   const src=new URL(await host.locator('iframe').getAttribute('src'),base);
   assert.ok(/(^|\.)tradingview(-widget)?\.com$/.test(src.hostname));
-  const usable=await frame.locator('canvas:visible').evaluateAll(nodes=>nodes.some(canvas=>{
-    const box=canvas.getBoundingClientRect();return box.width>=130 && box.height>=90;
-  }));
-  assert.ok(usable,'chart canvas has a usable plotted area');
+  // On WebKit the legend can paint and the quote socket can settle before the plot canvas is sized.
+  await frame.locator('body').evaluate(async body=>{
+    const deadline=performance.now()+20000;
+    let sizes;
+    do {
+      sizes=[...body.querySelectorAll('canvas')].map(canvas=>{
+        const {width,height}=canvas.getBoundingClientRect();return [width,height];
+      });
+      if(sizes.some(([width,height])=>width>=130 && height>=90))return;
+      await new Promise(resolve=>setTimeout(resolve,150));
+    } while(performance.now()<deadline);
+    throw new Error('Chart plot did not reach 130 × 90 pixels: '+JSON.stringify(sizes));
+  });
   let proof;
   if(actual) {
     const bars=actual.bars.slice(-3);
