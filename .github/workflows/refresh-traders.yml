@@ -75,7 +75,8 @@ jobs:
           node audit/home-trader-data-unit.cjs
           node audit/home-ranking-ui-unit.cjs
           node audit/binance-period-returns-unit.cjs
-          node --test audit/okx-periods-unit.cjs
+          node --test audit/okx-periods-unit.cjs audit/bitget-periods-unit.cjs
+          node --test audit/aoying-archive-unit.cjs audit/public-executions-unit.cjs audit/aoying-public-archive-unit.cjs audit/okx-trades-unit.cjs
           node --check books-shell.js
           node audit/shell-unit.cjs
           node audit/market-live-unit.cjs
@@ -127,6 +128,29 @@ jobs:
         if: steps.refresh-mode.outputs.mode == 'full'
         continue-on-error: true
         run: node scripts/collect_okx_periods.cjs
+
+      - name: Archive Aoying public execution history
+        if: steps.refresh-mode.outputs.mode != 'skip'
+        continue-on-error: true
+        shell: bash
+        run: |
+          curl --fail --silent --show-error --location --max-time 20 https://raw.githubusercontent.com/sking-3/xuanliu-site/binance-public-orders-state/monitor-state/5075281354358777856.json --output "$RUNNER_TEMP/aoying-public-checkpoint.json"
+          node scripts/archive_aoying_records.cjs "$RUNNER_TEMP/aoying-public-checkpoint.json"
+
+      - name: Refresh verified OKX public position history
+        if: steps.refresh-mode.outputs.mode == 'full'
+        continue-on-error: true
+        run: node scripts/collect_okx_trades.cjs
+
+      - name: Refresh verified Bitget public trader records
+        if: steps.refresh-mode.outputs.mode == 'full'
+        continue-on-error: true
+        run: node scripts/collect_bitget_periods.cjs
+
+      - name: Refresh Aoying public reference archive
+        if: steps.refresh-mode.outputs.mode == 'full'
+        continue-on-error: true
+        run: node scripts/collect_aoying_public_archive.cjs
 
       - name: Check persisted Hyperliquid source refusals
         id: hyperliquid-guard
@@ -252,7 +276,7 @@ jobs:
             echo '::error::main changed during collection. Skipping this deployment; a later run will use the new version.'
             exit 1
           fi
-          git add -- trader/feed.json trader/analytics.json trader/portfolios.json trader/binance/snapshot.json trader/binance/portfolios.json trader/aoying-history.js trader/binance/evidence/aoying-analysis-current trader/binance/period-returns.json trader/binance/evidence/performance-v1 trader/okx
+          git add -- trader/feed.json trader/analytics.json trader/portfolios.json trader/binance/snapshot.json trader/binance/portfolios.json trader/aoying-history.js trader/binance/evidence/aoying-analysis-current trader/binance/period-returns.json trader/binance/evidence/performance-v1 trader/okx trader/bitget trader/replay-seed.js trader/binance/aoying-public-archive.json
           if ! git diff --cached --quiet; then
             git config user.name 'github-actions[bot]'
             git config user.email '41898282+github-actions[bot]@users.noreply.github.com'

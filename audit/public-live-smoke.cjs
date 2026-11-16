@@ -113,7 +113,7 @@ async function main() {
   const browser=await ({chromium,webkit})[engine].launch();
   try {
     const context=await browser.newContext(engine==='webkit' ? devices['iPhone 13'] : {viewport:{width:1440,height:900}});
-    for (const [route,check] of [['index.html',home],['screening/index.html',aShares],['research.html',disclosures],['tools.html',tools],['crypto.html',crypto],['company-dossier.html',require('./company-dossier-browser.cjs')]]) {
+    for (const [route,check] of [['index.html',home],['trader/index.html',page=>require('./public-trader-detail-browser.cjs')(page,site)],['screening/index.html',aShares],['research.html',disclosures],['tools.html',tools],['crypto.html',crypto],['company-dossier.html',require('./company-dossier-browser.cjs')]]) {
       const page=await context.newPage();
       page.setDefaultTimeout(15000);
       const record={route};

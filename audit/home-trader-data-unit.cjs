@@ -111,4 +111,18 @@ test('OKX public futures returns use each chart window and case-sensitive offici
    }
  }
 });
+test('Bitget homepage retains USD valuation and independent 30D and 90D returns without annual substitution',()=>{
+ const bitgetPeriods=API.validateBitgetPeriods(JSON.parse(fs.readFileSync(path.join(__dirname,'../trader/bitget/period-returns.json'),'utf8')));
+ for(const period of ['30D','90D']){
+  const view=API.rank({bitgetPeriods},period,Date.now(),Infinity);
+  assert.equal(view.eligibleCount,bitgetPeriods.accounts.length);
+  for(const row of view.rows){
+   assert.equal(row.currency,'USD');
+   assert.equal(row.roi,bitgetPeriods.accounts.find(a=>a.portfolioId===row.accountId).performance[period].roi);
+   const link=new URL(API.accountHref(row.accountId,period,'Bitget'),'https://example.invalid');
+   assert.equal(link.searchParams.get('currency'),'USD');assert.equal(link.searchParams.get('account'),row.accountId);
+  }
+ }
+ assert.equal(API.rank({bitgetPeriods},'365D').eligibleCount,0);
+});
 console.log('PASS '+tests+' homepage trader data checks. No source requests.');

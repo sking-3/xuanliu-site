@@ -7,12 +7,14 @@
   const status = document.getElementById('evidence-status');
   const empty = document.getElementById('evidence-empty');
   const refresh = document.getElementById('evidence-refresh');
+  const more = document.getElementById('evidence-more');
   const formatter = new Intl.DateTimeFormat('zh-CN', {
     timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
   });
   let snapshot = reader.last();
   let note = '已保存记录';
+  let visible = 20;
   function draw() {
     const all = snapshot?.allRows || [];
     const selection = select.value;
@@ -21,7 +23,7 @@
     if ([...select.options].some(option => option.value === selection)) select.value = selection;
     const matching = all.filter(row => !select.value || row.symbol === select.value);
     rows.replaceChildren();
-    for (const row of matching.slice(0, 20)) {
+    for (const row of matching.slice(0, visible)) {
       const tr = document.createElement('tr');
       tr.dataset.id = row.id;
       const when = document.createElement('time');
@@ -39,7 +41,8 @@
       rows.append(tr);
     }
     const checked = snapshot?.checkedAt ? ' · 核验于 ' + formatter.format(new Date(snapshot.checkedAt)) : '';
-    status.textContent = [note, matching.length + ' 条匹配'].join(' · ') + checked;
+    status.textContent = note + ' · 已显示 ' + Math.min(visible,matching.length) + ' / ' + matching.length + ' 条匹配' + checked;
+    more.hidden = visible >= matching.length;
     empty.hidden = matching.length !== 0;
     empty.textContent = all.length ? '这个合约没有匹配记录。' : '暂无可读取的公开成交记录，可核对币安原页。';
   }
@@ -55,7 +58,8 @@
       refresh.disabled = false;
     }
   }
-  select.addEventListener('change', draw);
+  select.addEventListener('change', () => { visible = 20; draw(); });
+  more.addEventListener('click', () => { visible += 20; draw(); });
   refresh.addEventListener('click', read);
   draw();
   read();

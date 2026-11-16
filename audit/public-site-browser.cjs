@@ -175,7 +175,8 @@ async function annualReturn(page) {
   await open(page,'index.html');
   const longPeriods=await require('./long-ranking-browser.cjs')(page);
   const okx=await require('./okx-period-browser.cjs').check(page,base.href);
-  return {longPeriods,okx};
+  const publicDetails=await require('./public-trader-detail-browser.cjs')(page,base.href);
+  return {longPeriods,okx,publicDetails};
 }
 
 async function publicExecutions(page) {

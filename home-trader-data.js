@@ -132,29 +132,30 @@ function binanceObservations(input,period,now){
  return rows;
 }
 function okxAdapter(){return typeof module==='object'&&module.exports?require('./trader/okx-period-data.js'):globalThis.BooksOKXPeriodData;}
-function okxObservations(input,period,now){
- if(!input?.okxPeriods)return [];
- const adapter=okxAdapter(),rows=[];
- for(const record of input.okxPeriods.accounts){
+function bitgetAdapter(){return typeof module==='object'&&module.exports?require('./trader/bitget-period-data.js'):globalThis.BooksBitgetPeriodData;}
+function publicPeriodObservations(input,key,adapter,period,now){
+ if(!input?.[key])return [];
+ const rows=[];
+ for(const record of input[key].accounts){
    const v=adapter.performance(record,period,now);
    if(!v||!Number.isFinite(v.roi)||!['ready','stale'].includes(v.status))continue;
-   const r=adapter.trader(record),stale=v.status==='stale'||!!input.failures?.okxPeriods;
-   rows.push({id:r.id,accountId:r.accountId,name:r.name,exchange:'OKX',currency:'USDT',roi:v.roi,pnl:v.pnl,
+   const r=adapter.trader(record),stale=v.status==='stale'||!!input.failures?.[key];
+   rows.push({id:r.id,accountId:r.accountId,name:r.name,exchange:r.exchange,currency:r.currency,roi:v.roi,pnl:v.pnl,
      mdd:v.mdd,winRate:v.winRate,roiMethod:'source',performanceAsOf:v.sourceAsOf||null,performanceFetchedAt:v.lastSuccessAt,
      accountAgeDays:v.accountAgeDays,fullPeriod:v.fullPeriod,evidencePath:v.evidencePath,performanceStale:stale,stale});
  }
  return rows;
 }
 function rank(input,period,now=Date.now(),limit=3){
- const rows=observations(input,period,now).concat(binanceObservations(input,period,now),okxObservations(input,period,now)).filter(row=>Number.isFinite(row.roi));
+ const rows=observations(input,period,now).concat(binanceObservations(input,period,now),publicPeriodObservations(input,'okxPeriods',okxAdapter(),period,now),publicPeriodObservations(input,'bitgetPeriods',bitgetAdapter(),period,now)).filter(row=>Number.isFinite(row.roi));
  rows.sort((a,b)=>b.roi-a.roi||a.id.localeCompare(b.id));
  const long=period==='90D'||period==='365D';
- const eligible=rows.filter(row=>!long||!['Binance','OKX'].includes(row.exchange)||row.fullPeriod===true);
- const short=long?rows.filter(row=>['Binance','OKX'].includes(row.exchange)&&row.fullPeriod===false&&Number.isFinite(row.accountAgeDays)):[];
+ const eligible=rows.filter(row=>!long||!['Binance','OKX','Bitget'].includes(row.exchange)||row.fullPeriod===true);
+ const short=long?rows.filter(row=>['Binance','OKX','Bitget'].includes(row.exchange)&&row.fullPeriod===false&&Number.isFinite(row.accountAgeDays)):[];
  const top=eligible.slice(0,limit);
  return {period,rows:top,short,eligibleCount:eligible.length,stale:top.some(r=>r.stale),
    asOf:top.length&&top.every(r=>r.performanceAsOf)?top.map(r=>r.performanceAsOf).sort((a,b)=>Date.parse(a)-Date.parse(b))[0]:null,
-   scope:'本站收录的币安、OKX 与 Hyperliquid 公开账户',note:'按近'+parseInt(period,10)+'天收益率排序，各平台单独计算。'};
+   scope:'本站收录的币安、OKX、Bitget 与 Hyperliquid 公开账户',note:'按近'+parseInt(period,10)+'天收益率排序，各平台单独计算。'};
 }
 function accountHref(id,period,exchange='Hyperliquid',periodOnly=false){
  if(!PERIODS.includes(period))fail();
@@ -166,10 +167,13 @@ function accountHref(id,period,exchange='Hyperliquid',periodOnly=false){
  }else if(exchange==='OKX'){
   if(typeof id!=='string'||!/^(?:[0-9a-zA-Z]{16}|[0-9a-zA-Z]{18})$/.test(id))fail();
   account=id;
+ }else if(exchange==='Bitget'){
+  if(!bitgetAdapter().validId(id))fail();
+  account=id;
  }else if(exchange==='Hyperliquid')account=address(typeof id==='string'&&id.startsWith('hl-')?id.slice(3):id);
  else fail();
- const params=new URLSearchParams({account,period,exchange,source:'public',sort:'roi',currency:exchange==='Hyperliquid'?'USD':'USDT',q:account});
+ const params=new URLSearchParams({account,period,exchange,source:'public',sort:'roi',currency:['Hyperliquid','Bitget'].includes(exchange)?'USD':'USDT',q:account});
  return 'trader/index.html?'+params.toString();
 }
-return {PERIODS,LIMITS,validateFeed,validatePortfolios,validateAnalytics,validateBinance,validateReference,validatePeriodReturns:(raw,now)=>binanceAdapter().parsePeriodReturns(raw,now),validateOKXPeriods:(raw,now)=>okxAdapter().parse(raw,now),observations,rank,accountHref};
+return {PERIODS,LIMITS,validateFeed,validatePortfolios,validateAnalytics,validateBinance,validateReference,validatePeriodReturns:(raw,now)=>binanceAdapter().parsePeriodReturns(raw,now),validateOKXPeriods:(raw,now)=>okxAdapter().parse(raw,now),validateBitgetPeriods:(raw,now)=>bitgetAdapter().parse(raw,now),observations,rank,accountHref};
 });
