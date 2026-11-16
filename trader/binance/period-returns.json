@@ -5,6 +5,7 @@
     {
       "portfolioId": "4186437056735338496",
       "name": "RideTheWave",
+      "avatarUrl": "https://public.bnbstatic.com/image/avatar/202407/2c9afc125575ec65173077265394d208.jpg",
       "startTime": 1727489493797,
       "positionShow": false,
       "profileSourceUrl": "https://www.binance.com/bapi/futures/v1/friendly/future/copy-trade/lead-portfolio/detail?portfolioId=4186437056735338496",
@@ -70,6 +71,7 @@
     {
       "portfolioId": "4286775714676474369",
       "name": "小小的躺赢",
+      "avatarUrl": "https://public.bnbstatic.com/image/pgc/202308/72f251cd896b87a73b0fe9cc3dc68081.png",
       "startTime": 1733470143823,
       "positionShow": true,
       "profileSourceUrl": "https://www.binance.com/bapi/futures/v1/friendly/future/copy-trade/lead-portfolio/detail?portfolioId=4286775714676474369",
@@ -135,6 +137,7 @@
     {
       "portfolioId": "4532994172262753536",
       "name": "Sky株式会社",
+      "avatarUrl": "https://public.bnbstatic.com/image/pgc/202602/210d3e8e55423eb494ac23a4411b1033.jpg",
       "startTime": 1748145907528,
       "positionShow": false,
       "profileSourceUrl": "https://www.binance.com/bapi/futures/v1/friendly/future/copy-trade/lead-portfolio/detail?portfolioId=4532994172262753536",
@@ -200,6 +203,7 @@
     {
       "portfolioId": "4566696155639181057",
       "name": "Eenis的绝对盘感",
+      "avatarUrl": "https://public.bnbstatic.com/image/avatar/202610/5fecfbd64efd9b0cc3f77f95c00ff488.jpg",
       "startTime": 1750154702270,
       "positionShow": false,
       "profileSourceUrl": "https://www.binance.com/bapi/futures/v1/friendly/future/copy-trade/lead-portfolio/detail?portfolioId=4566696155639181057",
@@ -265,6 +269,7 @@
     {
       "portfolioId": "4664928038467820544",
       "name": "币圈大佬之加仓小魔女",
+      "avatarUrl": "https://public-1306379396.file.myqcloud.com/image/pgc/202507/7b09409a8ef0e543c4a68469ba320e6f.png",
       "startTime": 1756009778753,
       "positionShow": true,
       "profileSourceUrl": "https://www.binance.com/bapi/futures/v1/friendly/future/copy-trade/lead-portfolio/detail?portfolioId=4664928038467820544",
@@ -330,6 +335,7 @@
     {
       "portfolioId": "4708220152086930177",
       "name": "风雪哥",
+      "avatarUrl": "https://public.bnbstatic.com/image/pgc/202508/4b2167e0b9d174d7d84d38c2bb878bbd.png",
       "startTime": 1758590189813,
       "positionShow": true,
       "profileSourceUrl": "https://www.binance.com/bapi/futures/v1/friendly/future/copy-trade/lead-portfolio/detail?portfolioId=4708220152086930177",
@@ -395,6 +401,7 @@
     {
       "portfolioId": "4751838302089254401",
       "name": "Btc星辰",
+      "avatarUrl": "https://public-1306379396.file.myqcloud.com/image/pgc/202508/2f23c0599b19307dd784d570f4b6a229.png",
       "startTime": 1761190034148,
       "positionShow": false,
       "profileSourceUrl": "https://www.binance.com/bapi/futures/v1/friendly/future/copy-trade/lead-portfolio/detail?portfolioId=4751838302089254401",
@@ -460,6 +467,7 @@
     {
       "portfolioId": "4753185532199309057",
       "name": "用数学赚钱就是稳-广西数学哥",
+      "avatarUrl": "https://public.bnbstatic.com/image/avatar/202601/8ffbaece9e9a8a18b14b3182041620dd.jpg",
       "startTime": 1761270335305,
       "positionShow": false,
       "profileSourceUrl": "https://www.binance.com/bapi/futures/v1/friendly/future/copy-trade/lead-portfolio/detail?portfolioId=4753185532199309057",
@@ -525,6 +533,7 @@
     {
       "portfolioId": "5139646755272846081",
       "name": "0xEggg",
+      "avatarUrl": "https://public.bnbstatic.com/image/pgc/202503/63e709b3b5697b03b23c4b0649349591.png",
       "startTime": 1784305219123,
       "positionShow": true,
       "profileSourceUrl": "https://www.binance.com/bapi/futures/v1/friendly/future/copy-trade/lead-portfolio/detail?portfolioId=5139646755272846081",
@@ -590,6 +599,7 @@
     {
       "portfolioId": "5156287639231681792",
       "name": "爱喝快乐肥宅水",
+      "avatarUrl": "https://public.bnbstatic.com/image/avatar/202608/2da5ad4f66f54ace20a51b3ca33d2a2e.jpg",
       "startTime": 1785297093237,
       "positionShow": false,
       "profileSourceUrl": "https://www.binance.com/bapi/futures/v1/friendly/future/copy-trade/lead-portfolio/detail?portfolioId=5156287639231681792",
@@ -655,6 +665,7 @@
     {
       "portfolioId": "5178595252342363392",
       "name": "FaribaFinance",
+      "avatarUrl": "https://public.bnbstatic.com/image/pgc/20260831/7f258b83a6f14db197b072c5a488aff5.jpg",
       "startTime": 1786626730585,
       "positionShow": true,
       "profileSourceUrl": "https://www.binance.com/bapi/futures/v1/friendly/future/copy-trade/lead-portfolio/detail?portfolioId=5178595252342363392",

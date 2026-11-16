@@ -48,11 +48,11 @@ module.exports=async function checkLeadDetails(page,base){
       assert.equal(await body.locator('tbody tr').count(),sections.positions.rows.length);
       if(exchange==='Bitget')assert.ok((await body.innerText()).includes('延迟约 1 小时'));
     }else{
-      assert.ok(!await current.isVisible());
+      assert.ok(await current.isVisible());assert.ok(await current.isDisabled());
       await dialog.locator('[data-tab="analysis"]').click();
       assert.ok((await body.innerText()).includes('策略保护'));
     }
-    assert.ok(!await dialog.locator('[data-tab="orders"]').isVisible(),'position summaries are not fills');
+    assert.ok(await dialog.locator('[data-tab="orders"]').isDisabled(),'position summaries are not fills');
     report.push({exchange,name:row.name,period,positions:sections.positions.rows.length,history:sections.history.rows.length});
   }
   return report;

@@ -20,10 +20,12 @@ module.exports=async function checkAoying(page,base){
     refreshes++;
     await route.fulfill({status:200,contentType:'application/json',headers:{'access-control-allow-origin':'*'},body:JSON.stringify(rolling)});
   });
-  await page.goto(trader.href,{waitUntil:'domcontentloaded'});
-  await page.getByRole('link',{name:'熬鹰资本 · 历史流水'}).click();
+  const directory=new URL(trader.href);directory.search=new URLSearchParams({exchange:'Binance',period:'30D'});
+  await page.goto(directory.href,{waitUntil:'domcontentloaded'});
+  await page.locator('#leaders h3').getByRole('button',{name:/查看 熬鹰资本 的研究详情/}).click();
   const dialog=page.locator('#detail[open]');
   await dialog.waitFor({timeout:30000});
+  await dialog.locator('[data-tab="orders"]').click();
   await dialog.locator('.ta-table tbody tr').first().waitFor();
   assert.equal(await dialog.locator('#detail-title').innerText(),'熬鹰资本');
   assert.equal(await dialog.locator('.ta-table > tbody > tr').count(),ids.length);

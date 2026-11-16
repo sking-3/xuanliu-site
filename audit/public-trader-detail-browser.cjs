@@ -38,7 +38,7 @@ module.exports=async function checkPublicTraderDetails(page,base){
   async function checkRows(tab,section,kind){
     const button=dialog.locator('[data-tab="'+tab+'"]');
     if(!section.rows.length){
-      assert.equal(await button.isVisible(),false);
+      assert.equal(await button.isVisible(),true);assert.equal(await button.isDisabled(),true);
       const text=await body.innerText();
       if(section.hiddenCount)assert.ok(text.includes('来源隐藏了 '+section.hiddenCount+' 条明细'));
       else if(section.status==='restricted')assert.ok(text.includes('策略保护'));
@@ -90,15 +90,76 @@ module.exports=async function checkPublicTraderDetails(page,base){
       }
       const history=await checkRows('positions',activity.history,'history');
       const positions=await checkRows('live',activity.positions,'positions');
-      assert.equal(await dialog.locator('[data-tab="orders"]').isVisible(),false,'aggregate positions must not appear as fills');
+      assert.equal(await dialog.locator('[data-tab="orders"]').isDisabled(),true,'aggregate positions must not appear as fills');
       totals[exchange].accounts++;totals[exchange].history+=history;totals[exchange].positions+=positions;
       details.push({exchange,id,name:a.name,history,positions,hidden:activity.positions.hiddenCount||0,status:activity.positions.status});
     }
   }
+  const binanceDirectory=await json('binance/period-returns.json');
+  const wanted=new Set([official.portfolioId,...binanceDirectory.accounts.map(a=>a.portfolioId)]);
+  const directory=new URL(trader.href);directory.search=new URLSearchParams({exchange:'Binance',period:'30D',sort:'roi'});
+  await page.goto(directory.href,{waitUntil:'domcontentloaded'});
+  await page.waitForFunction(n=>document.querySelectorAll('#leaders .card h3 button').length===n,wanted.size);
+  const nameStyle=await page.locator('#leaders h3 button').first().evaluate(button=>{
+    const css=getComputedStyle(button),edges=['Top','Right','Bottom','Left'];
+    return {background:css.backgroundColor,borders:edges.map(edge=>parseFloat(css['border'+edge+'Width'])),padding:edges.map(edge=>parseFloat(css['padding'+edge]))};
+  });
+  assert.ok(['transparent','rgba(0, 0, 0, 0)'].includes(nameStyle.background),nameStyle.background);
+  assert.deepEqual(nameStyle.borders,[0,0,0,0]);assert.deepEqual(nameStyle.padding,[0,0,0,0]);
+  const cards=await page.locator('#leaders .card').evaluateAll(nodes=>nodes.map(card=>({
+    name:card.querySelector('h3').textContent,roi:card.querySelector('.roi')?.textContent??null,
+    id:card.querySelector('.platform-id').textContent.replace(/^组合 ID /,''),
+    links:[...card.querySelectorAll('.card-links :is(a,button)')].map(a=>({label:a.textContent,href:a.getAttribute('href'),tag:a.tagName})),text:card.innerText
+  })));
+  const actual=new Set(),values=[],actionsReady=cards[0].links[0].tag==='A';let missingSeen=false;
+  for(const card of cards){
+    assert.deepEqual(card.links.map(link=>link.label),['模拟','跟单']);
+    actual.add(card.id);
+    for(const [i,link] of card.links.entries()){
+      assert.equal(link.tag,actionsReady?'A':'BUTTON');
+      if(!actionsReady){assert.equal(link.href,null);continue;}
+      const u=new URL(link.href);assert.equal(u.origin,'https://books-private-follow.rr7jp4d56w.chatgpt.site');assert.equal(u.pathname,'/');
+      assert.equal(u.searchParams.get('exchange'),'Binance');assert.equal(u.searchParams.get('name'),card.name);
+      assert.equal(u.searchParams.get('mode'),i?'follow':'paper');assert.deepEqual([...u.searchParams.keys()].sort(),['exchange','mode','name','sourceAccountId']);
+      assert.equal(u.searchParams.get('sourceAccountId'),card.id);
+    }
+    if(card.roi===null){missingSeen=true;assert.ok(card.text.includes('暂无已核实收益率'));}
+    else{assert.equal(missingSeen,false,'measured ROI precedes unknown performance');values.push(Number(card.roi.replace(/[%％,，]/g,'').replace('−','-')));}
+  }
+  assert.deepEqual(actual,wanted);assert.deepEqual(values,[...values].sort((a,b)=>b-a));
+  if(!actionsReady){
+    const currentUrl=page.url();
+    for(const [index,label] of [[0,'模拟'],[1,'跟单']]){
+      const control=page.locator('#leaders .card').nth(index).getByRole('button',{name:label+' · '+cards[index].name,exact:true});
+      await control.click();
+      const notice=page.getByRole('dialog',{name:cards[index].name+' · '+label,exact:true});
+      assert.equal(await notice.locator('p').innerText(),'账户设置暂不可用，请稍后重试。');
+      if(index)await notice.getByRole('button',{name:'关闭'}).click();else await page.keyboard.press('Escape');
+      await notice.waitFor({state:'detached'});assert.equal(page.url(),currentUrl);
+      assert.equal(await control.evaluate(button=>button===document.activeElement),true);
+    }
+  }
+  const hl=(await json('feed.json')).traders.find(t=>t.exchange==='Hyperliquid');assert.ok(hl);
+  await open('Hyperliquid',hl.accountId,'30D');
+  for(const selectedTab of ['positions','live','orders','points','analysis']){
+    const controls=dialog.locator('#tabs button[data-tab]');
+    assert.equal(await controls.count(),5);for(const control of await controls.all())assert.ok(await control.isVisible());
+    const target=dialog.locator('[data-tab="'+selectedTab+'"]');assert.ok(await target.isEnabled());await target.click();assert.equal(await target.getAttribute('aria-pressed'),'true');
+  }
   const minOfficial=Object.keys(official.records).length;
   await open('Binance',official.portfolioId,'90D');
   await body.locator('.ta-archive-switch button[aria-pressed="true"]').filter({hasText:'本站官方归档'}).waitFor();
-  assert.ok((await body.innerText()).includes('来源未公开 · 仓位未知'));
+  await dialog.locator('#detail-overview .overview-position-state').filter({hasText:'NVDAUSDT'}).waitFor();
+  await body.locator('.ta-account-facts').filter({hasText:'AlphaFox'}).waitFor();
+  const layout=await dialog.evaluate(root=>{
+    const bounds=root.getBoundingClientRect();
+    return {viewport:innerWidth,left:bounds.left,right:bounds.right,inside:root.scrollWidth-root.clientWidth,
+      tabs:root.querySelectorAll('#tabs button[data-tab]:not([hidden])').length,title:parseFloat(getComputedStyle(root.querySelector('#detail-title')).fontSize),
+      metric:parseFloat(getComputedStyle(root.querySelector('.ta-metric>strong')).fontSize)};
+  });
+  assert.equal(layout.tabs,5);
+  if(layout.viewport<=640)assert.ok(layout.left>=-1&&layout.right<=layout.viewport+1&&layout.inside<=1,'mobile detail overflow '+JSON.stringify(layout));
+  else assert.ok(layout.title<=20&&layout.metric<=24,'desktop detail type sizes '+JSON.stringify(layout));
   await dialog.locator('[data-tab="orders"]').click();
   const status=body.locator('.ta-status'),all=body.locator('.ta-table tbody tr');
   const officialCounts=async()=>{

@@ -135,7 +135,7 @@
             ||raw.profileEvidencePath!==base+'profile-'+raw.profileEvidenceSha256+'.json')throw Error('BINANCE_PERIOD_EVIDENCE');
         Object.assign(part,{sourceUrl:url,evidencePath:raw.evidencePath,profileEvidencePath:raw.profileEvidencePath});
       }
-      return {portfolioId:id,name:row.name.trim(),startTime:row.startTime,positionShow:row.positionShow,
+      return {portfolioId:id,name:row.name.trim(),avatarUrl:avatarUrl(row.avatarUrl),startTime:row.startTime,positionShow:row.positionShow,
         profileEvidencePath:row.profileEvidencePath,profileEvidenceSha256:row.profileEvidenceSha256,
         profileSourceUrl:row.profileSourceUrl,performance:parsed};
     });
@@ -150,7 +150,7 @@
   function periodTrader(row) {
     const id=row.portfolioId;
     return {id:'binance-'+id,accountId:id,name:row.name,currency:'USDT',exchange:'Binance',sourceKind:'copy_trade',
-      sourceUrl:SOURCE_BASE+id,sourceName:row.name,periodOnly:true,periodRecord:row,
+      sourceUrl:SOURCE_BASE+id,sourceName:row.name,avatarUrl:avatarUrl(row.avatarUrl),periodOnly:true,periodRecord:row,
       observedAt:null,featured:false,paid:false,windows:{},positions:[],points:[],orders:[],binance:null};
   }
   function parseChart(value) {
@@ -319,5 +319,5 @@
     });
     return rows;
   }
-  return Object.freeze({ PORTFOLIOS, REFERENCE_PORTFOLIOS, MAX_AGE, PERFORMANCE_MAX_AGE, CHART_MAX_AGE, parseCollection, parsePeriodReturns, periodCoverage, recordedPeriod, periodTrader, toTraders, detail, performance, chart });
+  return Object.freeze({ PORTFOLIOS, REFERENCE_PORTFOLIOS, MAX_AGE, PERFORMANCE_MAX_AGE, CHART_MAX_AGE, avatarUrl, parseCollection, parsePeriodReturns, periodCoverage, recordedPeriod, periodTrader, toTraders, detail, performance, chart });
 });
