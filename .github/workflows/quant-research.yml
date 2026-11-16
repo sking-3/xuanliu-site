@@ -1,0 +1,124 @@
+name: Update quantitative research
+
+on:
+  schedule:
+    # Check several times daily so schedule delays don't miss the 24-hour gate.
+    - cron: '17 1,7,13,19 * * *'
+  workflow_dispatch:
+  push:
+    branches: [main, ui/quant-web-research]
+    paths:
+      - '.github/workflows/quant-research.yml'
+      - 'quant-research/collect-public.mjs'
+      - 'quant-research/collect-public.test.mjs'
+      - 'quant-research/engine.mjs'
+      - 'quant-research/engine.test.mjs'
+      - 'quant-research/app.mjs'
+      - 'quant-research/index.html'
+      - 'quant-research/style.css'
+
+permissions: {}
+
+concurrency:
+  group: books-quant-research
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - run: node --test quant-research/collect-public.test.mjs quant-research/engine.test.mjs
+      - run: node --check quant-research/app.mjs
+  research:
+    needs: validate
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    outputs:
+      digest: ${{ steps.publish.outputs.digest }}
+      changed: ${{ steps.publish.outputs.changed }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 1
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Collect public data and calculate research
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/quant-research"
+          if [[ -f quant-research/data/latest.json ]]; then
+            cp quant-research/data/latest.json "$RUNNER_TEMP/quant-research/latest.json"
+          fi
+          node quant-research/collect-public.mjs --output-dir "$RUNNER_TEMP/quant-research"
+          test -s "$RUNNER_TEMP/quant-research/latest.json"
+      - name: Save only the public research snapshot
+        id: publish
+        shell: bash
+        run: |
+          set -euo pipefail
+          snapshot=quant-research/data/latest.json
+          original=$(git rev-parse "HEAD:$snapshot" 2>/dev/null || printf 'absent')
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          changed=false
+          for attempt in 1 2 3; do
+            git fetch --no-tags --depth=1 origin main
+            git checkout --detach FETCH_HEAD
+            current=$(git rev-parse "HEAD:$snapshot" 2>/dev/null || printf 'absent')
+            if [[ "$current" != "$original" ]]; then
+              echo '::error::The public research snapshot changed during collection; refusing to overwrite it.'
+              exit 1
+            fi
+            mkdir -p quant-research/data
+            cp "$RUNNER_TEMP/quant-research/latest.json" "$snapshot"
+            git add -- "$snapshot"
+            if git diff --cached --quiet; then break; fi
+            git commit -m 'data: update public quantitative research [skip ci]'
+            if git push origin HEAD:main; then changed=true; break; fi
+            if [[ $attempt == 3 ]]; then exit 1; fi
+          done
+          echo "digest=$(sha256sum "$snapshot" | cut -d ' ' -f1)" >> "$GITHUB_OUTPUT"
+          echo "changed=$changed" >> "$GITHUB_OUTPUT"
+          node -e 'const d=require("./quant-research/data/latest.json");console.log(`研究状态: ${d.status}; 最近尝试: ${d.lastAttempt||"无"}; 最新完成日线: ${d.latestClosedAt||"无"}`)' >> "$GITHUB_STEP_SUMMARY"
+  deploy:
+    needs: research
+    if: needs.research.outputs.changed == 'true'
+    uses: ./.github/workflows/deploy-static-pages.yml
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+  verify:
+    needs: [research, deploy]
+    if: needs.research.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify the snapshot served by Pages
+        env:
+          EXPECTED: ${{ needs.research.outputs.digest }}
+        run: |
+          set -euo pipefail
+          url="https://sking-3.github.io/xuanliu-site/quant-research/data/latest.json?v=$EXPECTED"
+          for attempt in {1..12}; do
+            if curl --silent --show-error --fail --max-time 8 "$url" -o public.json &&
+                echo "$EXPECTED  public.json" | sha256sum --check --status; then
+              exit 0
+            fi
+            sleep 10
+          done
+          echo '::error::The research snapshot was not available from Pages.'
+          exit 1
