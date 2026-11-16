@@ -47,7 +47,8 @@ jobs:
                           xs=[(line.split(',')[0],float(line.split(',')[1])) for line in raw.decode().splitlines()[1:] if line.split(',')[-1] not in ('','.')]
                       xs=sorted((d,v) for d,v in xs if d<=datetime.datetime.now(datetime.timezone.utc).date().isoformat() and v>0 and math.isfinite(v))
                       if len(xs)<2 or xs[-1][0]==xs[-2][0]:raise ValueError('missing daily pair')
-                      return dict(symbol=sym,title=name,date=xs[-1][0],close=xs[-1][1],previousClose=xs[-2][1],previousDate=xs[-2][0],source=src,url=url)
+                      q=entry.get('qt',{}).get(code,[]) if src=='腾讯行情' else []
+                      return dict(symbol=sym, ticker=code, fields={i:q[i] for i in (1,2,3,4,30,31,32) if len(q)>i},bar=xs[-1],prev=xs[-2])
                   except Exception as e:print('attempt',sym,src,str(e)[:160],flush=True)
               return dict(symbol=sym,error='unavailable')
           with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool: rows=list(pool.map(bars,items))
