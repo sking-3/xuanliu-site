@@ -1,0 +1,27 @@
+name: Check research provider connectivity
+on:
+  push:
+    branches: [ui/research-evidence-desk]
+permissions: {}
+jobs:
+  sources:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Inspect single-symbol anonymous requests and browser access
+        shell: python
+        run: |
+          import urllib.request, urllib.error, json
+          urls = ['https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=sh600519,day,,,60,qfq','https://proxy.finance.qq.com/ifzqgtimg/appstock/app/fqkline/get?param=sh600519,day,,,60,qfq','https://ifzq.gtimg.cn/appstock/app/fqkline/get?param=sh600519,day,,,60,qfq','https://fuyao.aicubes.cn/api/a-share/valuations/snapshot?thscodes=600519.SH']
+          for u in urls:
+            for method in (['GET','OPTIONS'] if 'aicubes' in u else ['GET']):
+              headers={'Origin':'https://sking-3.github.io'}
+              if method=='OPTIONS': headers.update({'Access-Control-Request-Headers':'x-api-key','Access-Control-Request-Method':'GET'})
+              try:
+                try: res=urllib.request.urlopen(urllib.request.Request(u,method=method,headers=headers),timeout=8)
+                except urllib.error.HTTPError as e: res=e
+                print(method,u.split('/')[2], res.status, res.headers.get('Access-Control-Allow-Origin'),res.headers.get('Access-Control-Allow-Headers'))
+                if method=='GET':
+                  data=json.load(res)
+                  print('api code',data.get('code'), 'records',len((data.get('data') or {}).get('sh600519',{}).get('qfqday',[])))
+              except Exception as e: print(type(e).__name__,str(e)[:140])
