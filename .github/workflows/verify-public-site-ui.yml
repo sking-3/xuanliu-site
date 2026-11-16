@@ -1,7 +1,7 @@
 name: Verify public research site
 on:
   push:
-    branches: [ui/public-site-review-20261116, ui/research-evidence-desk, ui/a-share-stock-selection, ui/home-ticker-ranking-fit, ui/verified-long-period-roi, ui/okx-verified-lead-traders, ui/trader-history-bitget, ui/trader-deeplink-recovery]
+    branches: [ui/public-site-review-20261116, ui/research-evidence-desk, ui/a-share-stock-selection, ui/home-ticker-ranking-fit, ui/verified-long-period-roi, ui/okx-verified-lead-traders, ui/trader-history-bitget, ui/trader-deeplink-recovery, ui/trade-chart-zoom]
   workflow_dispatch:
   workflow_run:
     workflows: [Deploy static Pages]
@@ -41,6 +41,7 @@ jobs:
           node --test audit/aoying-archive-unit.cjs audit/public-executions-unit.cjs audit/aoying-public-archive-unit.cjs audit/okx-trades-unit.cjs
           node audit/trader-refresh-mode-unit.cjs
           node audit/trader-linked-account-unit.cjs
+          node --test audit/trade-chart-unit.cjs
           python3 -m http.server 8789 --bind 127.0.0.1 > "$RUNNER_TEMP/public-ui-http.log" 2>&1 &
           server_pid=$!
           trap 'kill "$server_pid"' EXIT
