@@ -21,6 +21,7 @@ import os
 from pathlib import Path
 import re
 import signal
+import subprocess
 import tempfile
 import time
 import urllib.error
@@ -291,6 +292,7 @@ def validate_positions(payload, checked_at):
     if not isinstance(positions, list) or len(positions) > 1000:
         raise SourceError('invalid_position_state')
     coins = set()
+    visible = []
     for item in positions:
         if not isinstance(item, dict) or not isinstance(item.get('position'), dict):
             raise SourceError('invalid_position_state')
@@ -313,8 +315,18 @@ def validate_positions(payload, checked_at):
             if coin in coins:
                 raise SourceError('duplicate_position_coin')
             coins.add(coin)
-    return {'scope': POSITION_SCOPE, 'checkedAt': checked_at,
-            'sourceTime': iso(source_time), 'count': len(coins)}
+            side = 'long' if size > 0 else 'short'
+            visible.append({'key': coin + ':' + side, 'symbol': coin, 'side': side,
+                'quantity': format(abs(Decimal(str(position['szi']))), 'f'), 'quantityUnit': coin,
+                'entryPrice': positive(position.get('entryPx'), nullable=True),
+                'notional': positive(position['positionValue']), 'unrealizedPnl': number(position['unrealizedPnl']),
+                'marginUsed': positive(position['marginUsed']), 'leverage': positive(leverage['value']), 'currency': 'USDC'})
+    state = {'scope': POSITION_SCOPE, 'checkedAt': checked_at, 'sourceTime': iso(source_time),
+             'count': len(coins), 'positions': visible}
+    margin = payload.get('marginSummary')
+    if isinstance(margin, dict) and margin.get('accountValue') is not None:
+        state['equity'] = {'value': number(margin['accountValue']), 'currency': 'USDC'}
+    return state
 
 
 def fetch_position_state(address):
@@ -334,7 +346,9 @@ def fetch_position_state(address):
             raw = response.read(MAX_POSITION_BYTES + 1)
             if len(raw) > MAX_POSITION_BYTES:
                 raise SourceError('position_response_too_large')
-            return validate_positions(decode(raw), iso(datetime.now(UTC)))
+            state = validate_positions(decode(raw), iso(datetime.now(UTC)))
+            state['evidenceSha256'] = hashlib.sha256(raw).hexdigest()
+            return state
     except urllib.error.HTTPError as exc:
         raise SourceError('http_' + str(exc.code)) from exc
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
@@ -454,7 +468,7 @@ def qualify_positions(candidates, results, completed_at, stop_code=None):
         if check['count'] == 0:
             empty += 1
             continue
-        row['positionCheck'] = copy.deepcopy(check)
+        row['positionCheck'] = {key: check[key] for key in ('scope', 'checkedAt', 'sourceTime', 'count')}
         rows.append(row)
     if successful == 0:
         raise SourceError(stop_code or 'positions_unavailable')
@@ -474,6 +488,23 @@ def qualify_positions(candidates, results, completed_at, stop_code=None):
         source['positionVerification']['stopCode'] = stop_code
     validate_feed(qualified)
     return qualified
+
+
+def observations_from_checks(checks, completed_at):
+    observations = []
+    for address, (status, result) in checks.items():
+        base = {'exchange': 'Hyperliquid', 'accountId': address, 'scope': POSITION_SCOPE, 'sourceUrl': INFO_URL}
+        if status == 'ok':
+            if len(result['positions']) != result['count']:
+                raise SourceError('invalid_position_check')
+            base.update(status='complete', observedAt=result['checkedAt'], sourceTime=result['sourceTime'], positions=result['positions'])
+            for key in ('equity', 'evidenceSha256'):
+                if key in result:
+                    base[key] = result[key]
+        else:
+            base.update(status='unavailable', observedAt=completed_at, positions=[], errorCode=result)
+        observations.append(base)
+    return observations
 
 
 def read_position_captures(rows, directory):
@@ -590,7 +621,6 @@ def fetch_source():
 
 
 def verify_committed_stops():
-    import subprocess
     guard = Path(__file__).resolve().with_name('hyperliquid_run_guard.cjs')
     result = subprocess.run(['node', str(guard)], capture_output=True, text=True, timeout=15)
     if result.returncode or result.stdout.strip() != 'allowed=true':
@@ -599,7 +629,9 @@ def verify_committed_stops():
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--output',type=Path,default=Path(__file__).resolve().parents[1]/'trader'/'feed.json')
+    default_root = Path(__file__).resolve().parents[1] / 'trader'
+    parser.add_argument('--output',type=Path,default=default_root/'feed.json')
+    parser.add_argument('--history-root', type=Path, help='Directory for the permanent public observation archive (automatic for the deployed feed).')
     parser.add_argument('--input',type=Path,help='Use an already captured, verified response; no network request.')
     parser.add_argument('--metadata',type=Path,help='Probe metadata required with --input.')
     parser.add_argument('--positions-dir',type=Path,help='Required with --input: offline JSON position captures; never makes network requests.')
@@ -609,6 +641,8 @@ def main():
     if not args.input:
         verify_committed_stops()
     previous=read_previous(args.output)
+    checks = {}
+    completed_at = None
     try:
         if args.input:
             if args.input.stat().st_size>MAX_SOURCE_BYTES:raise SourceError('source_too_large')
@@ -623,11 +657,17 @@ def main():
             checks=read_position_captures(candidates['traders'],args.positions_dir); stop_code=None
         else:
             checks,stop_code=collect_position_checks(candidates['traders'])
-        result=qualify_positions(candidates,checks,iso(datetime.now(UTC)),stop_code)
+        completed_at=iso(datetime.now(UTC))
+        result=qualify_positions(candidates,checks,completed_at,stop_code)
     except SourceError as exc:
         result=failed_snapshot(previous,iso(datetime.now(UTC)),str(exc))
     except (OSError,KeyError,ValueError,TypeError):
         result=failed_snapshot(previous,iso(datetime.now(UTC)),'invalid_capture_or_storage')
+    history_root = args.history_root or (default_root if args.output.resolve() == default_root/'feed.json' else None)
+    if history_root and checks and completed_at:
+        batch = observations_from_checks(checks, completed_at)
+        subprocess.run(['node', str(Path(__file__).with_name('archive_positions.cjs')), '--stdin', str(history_root)],
+                       input=json.dumps(batch, allow_nan=False), text=True, check=True)
     atomic_write(args.output,result)
     print(json.dumps({'status':result['source']['status'],'accounts':len(result['traders']),
         'fetchedAt':result['source']['fetchedAt'],'snapshotAt':result['source']['snapshotAt'],

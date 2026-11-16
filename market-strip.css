@@ -15,17 +15,12 @@ body { margin: 0; }
 .tape-change[data-direction=up] { color: #08725a; }
 .tape-change[data-direction=down] { color: #b23946; }
 .tape-stamp { grid-column: 1 / -1; color: #617581; font-size: 10px; }
-.tape-toggle { flex: none; width: 34px; padding: 0; background: #fff; border: 0; border-inline-start: 1px solid #dfe6ea; color: #546977; cursor: pointer; }
-.tape-toggle[hidden] { display: none; }
-.tape-toggle svg { display: block; width: 14px; height: 14px; fill: currentColor; margin: auto; }
-.tape-toggle[aria-pressed=false] .play-icon, .tape-toggle[aria-pressed=true] .pause-icon { display: none; }
-.tape-toggle:focus-visible, .tape-item:focus-visible { outline: 2px solid #a74613; outline-offset: -2px; }
+.tape-item:focus-visible { outline: 2px solid #a74613; outline-offset: -2px; }
 .tape-item:hover .tape-name { text-decoration: underline; }
-[data-paused] .tape-track { animation-play-state: paused; }
 .tape:not([data-loop]) .tape-window, .tape-window:has(a:focus-visible) { overflow-x: auto; }
 .tape-window:has(a:focus-visible) .tape-track { animation: none; }
 @media (prefers-reduced-motion: reduce) {
   [data-loop] .tape-track { animation: none; }
-  [data-tape-group][aria-hidden=true], .tape-toggle { display: none; }
+  [data-tape-group][aria-hidden=true] { display: none; }
   .tape-window { overflow-x: auto; }
 }

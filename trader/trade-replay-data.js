@@ -21,7 +21,10 @@ function create(env){
    if(!res.ok)throw Error('source_http_'+res.status);
    const chunks=[],reader=res.body.getReader();let size=0;
    while(true){const x=await reader.read();if(x.done)break;size+=x.value.byteLength;if(size>2500000){await reader.cancel();throw Error('source_too_large');}chunks.push(x.value);}
-   return JSON.parse(await new Blob(chunks).text());
+   const payload=new Uint8Array(size);let offset=0;
+   for(const chunk of chunks){payload.set(chunk,offset);offset+=chunk.byteLength;}
+   const decoded=new TextDecoder('utf-8',{fatal:true}).decode(payload);
+   return JSON.parse(decoded);
   }finally{clearTimeout(timer);}
  }
  async function fills(address,force=false){

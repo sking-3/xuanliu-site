@@ -41,7 +41,8 @@ function positions(payload, now = Date.now()) {
       leverage:{type:leverage.type,value:positive(leverage.value)}};
   }).filter(r => r.signedSize !== 0);
   const seen = new Set(); for (const r of rows) { if (seen.has(r.coin)) invalid(); seen.add(r.coin); }
-  return {rows,sourceTime};
+  const accountValue=numeric(payload.marginSummary?.accountValue,true);
+  return {rows,sourceTime,...(accountValue===null?{}:{accountValue})};
 }
 function order(raw, now = Date.now()) {
   object(raw); const price = positive(raw.limitPx), quantity = positive(raw.sz);
@@ -161,7 +162,7 @@ function create(options={}) {
     try {
       const payload=await request(type,token);if(!valid(token))return;
       const fetchedAt=now();
-      if(name==='positions'){const parsed=positions(payload,fetchedAt);state.positions={status:'ready',...parsed,fetchedAt,error:null};}
+      if(name==='positions'){const parsed=positions(payload,fetchedAt);state.positions={status:'ready',...parsed,fetchedAt,error:null};(options.positionArchive||globalThis.BooksPositionObservations?.local)?.record(state.address,state.positions,'rest');}
       else if(name==='orders'){state.orders={status:'ready',rows:orders(payload,fetchedAt),fetchedAt,sourceTime:null,error:null};}
       else {const parsed=fills(payload,state.address,fetchedAt);state.fills={...state.fills,status:'ready',rows:merge(state.fills.rows,parsed,now()),receivedCount:parsed.length,fetchedAt,error:null};}
     } catch(error) {

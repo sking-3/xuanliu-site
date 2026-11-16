@@ -6,6 +6,7 @@ async function tape(page, scope, {motion}) {
   const body=scope.locator('body');
   const charts=scope.locator('[data-tape-group]:first-child a[data-symbol]');
   await charts.first().waitFor({state:'attached'});
+  assert.equal(await scope.locator('.tape-toggle').count(),0,'top quote strip pause button removed');
   const symbols=await charts.evaluateAll(anchors=>[...new Set(anchors.map(anchor=>new URL(anchor.href).searchParams.get('tvwidgetsymbol')))]);
   assert.equal(await body.getAttribute('data-strip-mode'),'native');
   assert.equal(symbols.length,6);

@@ -311,10 +311,10 @@ th{color:#728098;font-weight:500;background:#fbfcfe}
 
 .ranking-boundary{margin:8px 0 0;color:#68788e;font-size:11px;line-height:1.7;max-width:760px}
 
-#detail .period-switch { display:flex; flex-wrap:wrap; gap:8px; margin:12px 0 18px; }
-#detail .period-switch button { min-height:38px; width:auto; padding:6px 13px; border:1px solid #d5dfe0; border-radius:7px; background:#fff; color:#4a6065; }
-#detail .period-switch button[aria-pressed=true] { background:#9f410f; border-color:#9f410f; color:white; font-weight:650; }
-#detail .period-switch button:disabled { background:#f3f5f5; color:#737f82; border-color:#e2e7e7; cursor:default; }
+#detail :is(.period-switch,.lead-metric-switch) { display:flex; flex-wrap:wrap; gap:8px; margin:12px 0 18px; }
+#detail :is(.period-switch,.lead-metric-switch) button { min-height:38px; width:auto; padding:6px 13px; border:1px solid #d5dfe0; border-radius:7px; background:#fff; color:#4a6065; }
+#detail :is(.period-switch,.lead-metric-switch) button[aria-pressed=true] { background:#9f410f; border-color:#9f410f; color:white; font-weight:650; }
+#detail :is(.period-switch,.lead-metric-switch) button:disabled { background:#f3f5f5; color:#737f82; border-color:#e2e7e7; cursor:default; }
 .lead-curve { margin:16px 0; }
 .lead-curve h4 { margin:0 0 8px; }
 .lead-curve small { display:inline-block; margin:6px 12px 0 0; color:#657882; }
@@ -322,3 +322,17 @@ th{color:#728098;font-weight:500;background:#fbfcfe}
 .lead-detail-metrics { display:flex; flex-wrap:wrap; gap:10px 32px; padding-block:10px; }
 .lead-detail-metrics :is(small,strong) { display:block; }
 .lead-detail-metrics small { color:#657882; margin-bottom:3px; }
+.detail-overview,.detail-history{margin:16px 0;padding:14px 16px;border:1px solid #dce4e7;border-radius:8px;background:#fafcfc}
+.overview-heading,.overview-figures{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 24px}.overview-heading{justify-content:space-between}
+.overview-position-state,.lead-card-coverage{margin:6px 0;color:#506572;font-size:12px;line-height:1.6}
+.overview-figures{margin-top:12px}.overview-figures small,.overview-figures strong{display:block}.overview-figures small{color:#657882}.overview-figures strong{font-variant-numeric:tabular-nums}
+.detail-history summary{cursor:pointer;font-weight:650;min-height:28px}.detail-history select{width:auto;min-height:38px}
+.detail-history table{font-variant-numeric:tabular-nums}
+.history-plot svg{display:block;width:100%;height:104px;max-width:640px;color:#217d78;background:#f1f5f6}
+.history-plot circle{fill:currentColor}.history-plot small{color:#627783}
+.lead-sample-analysis{margin:20px 0}.lead-sample-analysis h4,.lead-sample-analysis h5{margin:8px 0}
+.sample-contract-list{max-width:540px}.sample-contract-list>div{display:grid;grid-template-columns:minmax(100px,1fr) minmax(45px,2fr) auto;align-items:center;gap:12px;margin:5px 0}
+.sample-contract-list progress{width:100%;height:7px;accent-color:#3b8880}.sample-contract-list span{font-size:12px;font-variant-numeric:tabular-nums}
+.history-observation select{max-width:100%}.history-digest{display:block;overflow-wrap:anywhere;color:#667b85}
+.reference-positions{margin-top:12px;padding-top:5px;border-top:1px solid #dce4e7}.reference-positions .binance-data-section{margin-top:6px}
+.lead-capital{margin:20px 0}.lead-capital summary{cursor:pointer;min-height:38px}.lead-capital .source-link{font-size:12px}

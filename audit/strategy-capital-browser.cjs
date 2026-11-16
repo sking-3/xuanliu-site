@@ -1,0 +1,32 @@
+'use strict';
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const path=require('node:path');
+module.exports=async function checkStrategyCapital(page,base){
+ const account='0x77375a8c9d13bf79afb2a87f1b0ac1dfd5f5bf66',relative='trader/strategy/'+account+'/30D.json';
+ const report=JSON.parse(fs.readFileSync(path.join(__dirname,'..',relative),'utf8'));
+ assert.equal(report.status,'ready');assert.equal(report.scope,'all_account');
+ const url=new URL('trader/',base);url.search=new URLSearchParams({exchange:'Hyperliquid',account,period:'30D'});
+ await page.goto(url.href,{waitUntil:'domcontentloaded'});
+ const dialog=page.locator('#detail[open]');await dialog.waitFor({timeout:30000});
+ assert.equal(await dialog.locator('#detail-title').innerText(),'mk4');
+ const analysis=dialog.locator('.strategy-analysis');await analysis.locator('.sa-metrics').waitFor();
+ const metric=await analysis.locator('.sa-metrics dd').allTextContents();
+ const number=x=>Number(x.replace(/[,，%％\s]/g,'').replace('−','-'));
+ assert.ok(Math.abs(number(metric[0])-report.summary.strategyReturnPct)<=0.0051);
+ assert.ok(Math.abs(number(metric[1])+report.summary.sampledMddPct)<=0.0051);
+ assert.ok(Math.abs(number(metric[2])-report.summary.pnl)<=0.0051);
+ assert.ok(Math.abs(number(metric[3])-report.summary.balanceChangePct)<=0.0051);
+ const source=await analysis.locator('.sa-status').innerText();assert.ok(source.includes('现货 + 合约'));assert.ok(source.includes('官方 Hyperliquid')||source.includes('保留上次已读分析'));
+ const chart=analysis.locator('.sa-chart');
+ for(const label of ['余额对照','盈亏金额','策略收益']){await chart.getByRole('button',{name:label,exact:true}).click();assert.equal(await chart.getByRole('button',{name:label,exact:true}).getAttribute('aria-pressed'),'true');assert.equal(await chart.locator('svg path').count(),1);}
+ assert.equal(await analysis.locator('.sa-flows tbody tr').count(),report.cashflows.length);
+ await analysis.getByRole('combobox',{name:'资金流水类型'}).selectOption('in');
+ assert.equal(await analysis.locator('.sa-flows tbody tr').count(),report.cashflows.filter(x=>x.value>0).length,'inbound cashflow filter');
+ await analysis.getByRole('combobox',{name:'资金流水类型'}).selectOption('out');
+ assert.equal(await analysis.locator('.sa-flows tbody tr').count(),report.cashflows.filter(x=>x.value<0).length);
+ const links=await analysis.locator('.sa-flows a').evaluateAll(es=>es.map(e=>e.href));for(const flow of report.cashflows.filter(x=>x.value<0))assert.ok(links.includes('https://app.hyperliquid.xyz/explorer/tx/'+flow.hash));
+ const idb=await require('./position-observations-idb.cjs').check(page);assert.equal(idb.snapshots,4);assert.equal(idb.events,4);
+ await dialog.getByRole('button',{name:'关闭详情',exact:true}).click();await page.locator('.strategy-analysis').waitFor({state:'detached'});assert.equal(await page.locator('#detail[open]').count(),0,'closed account dialog');assert.equal(await page.locator('.strategy-analysis').count(),0,'disposed account analysis');
+ return {account,period:'30D',scope:report.scope,samples:report.summary.sampleCount,cashflows:report.cashflows.length,estimatedReturn:report.summary.strategyReturnPct,sampledDrawdown:report.summary.sampledMddPct,indexedDB:idb};
+};

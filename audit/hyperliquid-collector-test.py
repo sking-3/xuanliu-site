@@ -202,6 +202,23 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(verification['maxAgeMinutes'],60)
         c.validate_feed(feed)
 
+    def test_public_archive_preserves_successful_empty_and_full_rows_without_guessing_an_unread_wallet(self):
+        source = state('-0.125000000000001')
+        source['marginSummary'] = {'accountValue':'735.9'}
+        observed = c.validate_positions(source, CHECKED)
+        checks = {account(1)['ethAddress']:('ok', observed),
+                  account(2)['ethAddress']:('ok', c.validate_positions(state(None), CHECKED)),
+                  account(3)['ethAddress']:('error','network_error')}
+        held, flat, failed = c.observations_from_checks(checks, COMPLETED)
+        self.assertEqual((held['positions'][0]['quantity'], held['positions'][0]['side']),('0.125000000000001','short'))
+        self.assertEqual(held['equity'], {'value':735.9, 'currency':'USDC'})
+        self.assertEqual((flat['status'], flat['positions']),('complete', []))
+        self.assertNotIn('equity', flat)
+        self.assertEqual((failed['status'], failed['errorCode']), ('unavailable', 'network_error'))
+        candidates = c.normalize(payload(account(1), account(2), account(3)), NOW)
+        feed = c.qualify_positions(candidates, checks, COMPLETED)
+        self.assertEqual(set(feed['traders'][0]['positionCheck']), {'checkedAt','sourceTime','count','scope'})
+
     def test_successful_all_empty_is_ready_but_all_failed_is_failure(self):
         candidates=c.normalize(payload(),NOW);address=account()['ethAddress']
         empty=c.qualify_positions(candidates,{address:('ok',c.validate_positions(state(None),CHECKED))},COMPLETED)

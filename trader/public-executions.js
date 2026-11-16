@@ -56,7 +56,10 @@ function reader(env){
     if(!response.ok)throw Error('checkpoint_read_failed');
     const stream=response.body.getReader(),chunks=[];let size=0;
     while(true){const {done,value}=await stream.read();if(done)break;size+=value.byteLength;if(size>900000){await stream.cancel();throw Error('checkpoint_too_large');}chunks.push(value);}
-    const raw=JSON.parse(await new Blob(chunks).text()),next=parse(raw);
+    const payload=new Uint8Array(size);let offset=0;
+    for(const chunk of chunks){payload.set(chunk,offset);offset+=chunk.byteLength;}
+    const decoded=new TextDecoder('utf-8',{fatal:true}).decode(payload);
+    const raw=JSON.parse(decoded),next=parse(raw);
     last=merge(last,next);
     if(last.checkedAt===next.checkedAt)try{env.localStorage.setItem(cacheKey,JSON.stringify({schemaVersion:1,portfolioId:ID,scope:'public_execution_records_only',hiddenPositionsRequested:false,stopped:raw.stopped,errorCode:raw.errorCode||null,lastSuccessAt:raw.lastSuccessAt,records:raw.records}));}catch{}
     loadedAt=Date.now();return last;

@@ -48,7 +48,7 @@ function create(options){
       const s=m.data?.subscription;if(m.data?.method!=='subscribe'||s?.type!=='clearinghouseState'||s.user?.toLowerCase()!==address||s.dex!=='')throw Error('invalid_position_stream');return;
      }
      if(m.channel!=='clearinghouseState')return;
-     const value=snapshot(m,address,normalize,now());last=sample(last,value);accepted=true;reconnects=0;if(wait!==null)clear(wait);wait=null;status='live';reason=null;options.onPositions?.(last);emit();
+     const value=snapshot(m,address,normalize,now());env.BooksPositionObservations?.local.record(address,value,'websocket');last=sample(last,value);accepted=true;reconnects=0;if(wait!==null)clear(wait);wait=null;status='live';reason=null;options.onPositions?.(last);emit();
      if(ping===null)ping=set(heartbeat,5000);
     }catch(err){stop(err.message==='stale_position_stream'?'stale_position_stream':'invalid_position_stream');}
    };

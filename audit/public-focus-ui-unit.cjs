@@ -14,7 +14,7 @@ ids.period.value='30D';document.getElementById('search');
 let calls=0,failed=false,gate=null,clients=[];
 let snapshot={schemaVersion:1,address:Focus.identity().accountId,scope:'default_perp_dex',fetchedAt:new Date().toISOString(),sourceTime:new Date(Date.now()-1000).toISOString(),accountValue:0,positions:[]};
 const location={href:'https://example.test/trader/index.html'};
-const context={document,location,URL,Date,Blob,AbortController,setTimeout,clearTimeout,BooksPublicFocus:Focus,
+const context={document,location,URL,Date,Blob,TextDecoder,AbortController,setTimeout,clearTimeout,BooksPublicFocus:Focus,
   BooksAccountLive:{create(options){const c={options,starts:[],stops:0,start(address){this.starts.push(address);},stop(){this.stops++;}};clients.push(c);return c;}},
   fetch:async url=>{assert.equal(url,'public-focus.json');calls++;if(gate)await gate;if(failed)throw Error('offline');return new Response(JSON.stringify(snapshot));}};
 const raw=fs.readFileSync(path.join(__dirname,'../trader/plaza.js'),'utf8').split("for(const id of controls)$(id).addEventListener")[0];

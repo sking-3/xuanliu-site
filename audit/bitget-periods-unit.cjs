@@ -20,15 +20,26 @@ for (const row of snapshot.accounts) {
   const profile=evidence(row.profileEvidence);
   assert.equal(profile.publicDetail.portfolioId,row.portfolioId);
   assert.equal(profile.publicDetail.tradingDays,row.leadDays);
+  if(row.balance) {
+    assert.equal(profile.publicDetail.showBalance,true);
+    assert.equal(row.balance.value,Number(evidence(row.balance).totalEquity));
+  }
+  if(row.transfers) {
+    const matches=row.transfers.pages.flatMap(p=>evidence(p).rows.map(r=>({
+      time:new Date(r.transferTime).toISOString(),kind:r.transferType===0?'in':'out',amount:Number(r.transferAmount),
+      currency:r.tokenName,from:r.fromAccountType,to:r.toAccountType,evidencePath:p.evidencePath})));
+    for(const r of row.transfers.rows)assert.ok(matches.some(m=>JSON.stringify(r)===JSON.stringify(m)));
+  }
   for (const [period,part] of Object.entries(row.performance)) {
     const raw=evidence(part);
     assert.equal(part.roi,Number(raw.roi));
     assert.equal(part.pnl,Number(raw.profit));
     if(raw.winRate!=null)assert.ok(Math.abs(100*Number(raw.winRate)-part.winRate)<0.000001);
     if(raw.maxDrawDown!=null)assert.ok(Math.abs(100*Number(raw.maxDrawDown)-part.mdd)<0.000001);
-    const curve=evidence({evidencePath:part.curveEvidencePath,evidenceSha256:part.curveEvidenceSha256}).roiRows;
+    const evidenceCurve=evidence({evidencePath:part.curveEvidencePath,evidenceSha256:part.curveEvidenceSha256}),curve=evidenceCurve.roiRows;
     assert.equal(curve.dataCycle,model.days[period]);
     assert.deepEqual(part.curve,curve.rows.map(point=>({time:new Date(point.dataTime).toISOString(),value:Number(point.amount)})));
+    if(part.pnlCurve)assert.deepEqual(part.pnlCurve,evidenceCurve.pnlRows.rows.map(p=>({time:new Date(p.dataTime).toISOString(),value:Number(p.amount)})));
     assert.equal(model.performance(row,period,asOf).status,'ready');
     assert.equal(model.performance(row,period,asOf+86400001).status,'stale');
   }
@@ -49,6 +60,13 @@ for (const row of snapshot.accounts) {
     assert.ok(raw);
     assert.equal(position.realizedPnl,Number(raw.positionPnl));
     assert.equal(position.closedAt,new Date(raw.closeTime).toISOString());
+    if(Object.hasOwn(position,'grossPnl')) {
+      assert.equal(position.grossPnl,Number(raw.pnl));
+      assert.equal(position.openFee,Number(raw.openFee));
+      assert.equal(position.closeFee,Number(raw.closeFee));
+      assert.equal(position.fundingFee,Number(raw.capitalFeeTotal));
+      assert.equal(position.stockDividend,raw.stockId?Number(raw.scdTotal):null);
+    }
   });
   // A subsequent page may contain only the newest records. Preserve every earlier ID and its evidence.
   const first=history.pages[0],tail={...history,rows:history.rows.filter(r=>r.evidencePath===first.evidencePath),

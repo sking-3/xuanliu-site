@@ -75,7 +75,7 @@ jobs:
           node audit/home-trader-data-unit.cjs
           node audit/home-ranking-ui-unit.cjs
           node audit/binance-period-returns-unit.cjs
-          node --test audit/okx-periods-unit.cjs audit/bitget-periods-unit.cjs
+          node --test audit/okx-periods-unit.cjs audit/bitget-periods-unit.cjs audit/position-lifecycle-unit.cjs
           node --test audit/aoying-archive-unit.cjs audit/public-executions-unit.cjs audit/aoying-public-archive-unit.cjs audit/okx-trades-unit.cjs
           node --check books-shell.js
           node audit/shell-unit.cjs
@@ -201,7 +201,7 @@ jobs:
         shell: bash
         run: |
           sleep 60
-          node scripts/refresh_trader_positions.cjs --not-before "$BOOKS_COLLECTION_STARTED_AT"
+          node scripts/refresh_trader_positions.cjs --not-before "$BOOKS_COLLECTION_STARTED_AT" --history-root trader
 
       - name: Select the latest Python Binance source checkpoint
         id: binance-peer-select
@@ -267,6 +267,10 @@ jobs:
         # Anonymous read-only sample. Access refusal is persisted; halted sources are not retried.
         run: node scripts/collect_binance.cjs
 
+      - name: Keep verified position observations and historical changes
+        if: steps.refresh-mode.outputs.mode != 'skip'
+        run: node scripts/archive_positions.cjs --bundled
+
       - name: Save the snapshot without overwriting concurrent edits
         id: snapshot
         shell: bash
@@ -277,7 +281,7 @@ jobs:
             echo '::error::main changed during collection. Skipping this deployment; a later run will use the new version.'
             exit 1
           fi
-          git add -- trader/feed.json trader/analytics.json trader/portfolios.json trader/binance/snapshot.json trader/binance/portfolios.json trader/aoying-history.js trader/binance/evidence/aoying-analysis-current trader/binance/period-returns.json trader/binance/evidence/performance-v1 trader/okx trader/bitget trader/replay-seed.js trader/binance/aoying-public-archive.json
+          git add -- trader/feed.json trader/analytics.json trader/portfolios.json trader/binance/snapshot.json trader/binance/portfolios.json trader/aoying-history.js trader/binance/evidence/aoying-analysis-current trader/binance/period-returns.json trader/binance/evidence/performance-v1 trader/okx trader/bitget trader/replay-seed.js trader/binance/aoying-public-archive.json trader/position-history trader/strategy
           if ! git diff --cached --quiet; then
             git config user.name 'github-actions[bot]'
             git config user.email '41898282+github-actions[bot]@users.noreply.github.com'

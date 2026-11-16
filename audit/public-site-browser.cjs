@@ -6,6 +6,7 @@ const path = require('node:path');
 const {execFileSync}=require('node:child_process');
 const {chromium, webkit, devices} = require('playwright');
 const selection = require('./selection-browser.cjs');
+const {observeScans} = require('./screener-scan-proof.cjs');
 const layout = require('./home-layout-browser.cjs');
 
 const root = path.resolve(__dirname,'..');
@@ -52,7 +53,7 @@ async function check(context,label,action) {
   } catch(error) {
     failures.push(label+': '+error.message);
     report.checks.push({name:label,status:'failed',reason:error.message});
-    console.error('FAIL',label,error.message);
+    console.error('FAIL',label,error.stack||error.message);
     await page.screenshot({path:path.join(out,'failed-'+slug(label)+'.png'),timeout:7000}).catch(()=>{});
   } finally { await page.close(); }
 }
@@ -176,7 +177,8 @@ async function annualReturn(page) {
   const longPeriods=await require('./long-ranking-browser.cjs')(page);
   const okx=await require('./okx-period-browser.cjs').check(page,base.href);
   const publicDetails=await require('./public-trader-detail-browser.cjs')(page,base.href);
-  return {longPeriods,okx,publicDetails};
+  const strategyCapital=await require('./strategy-capital-browser.cjs')(page,base.href);
+  return {longPeriods,okx,publicDetails,strategyCapital};
 }
 
 async function publicExecutions(page) {
@@ -286,16 +288,7 @@ async function liveCrypto(page) {
 }
 
 async function liveUS(page) {
-  const scans=[];
-  page.on('response',async res=>{
-    try {
-      const url=new URL(res.url());
-      if(url.hostname!=='scanner.tradingview.com' || !url.pathname.includes('/america/scan') || !res.ok())return;
-      const query=res.request().postDataJSON(), payload=await res.json();
-      const idx=query?.columns?.indexOf('change');
-      if(idx>=0 && Array.isArray(payload?.data))scans.push(Object.fromEntries(payload.data.map(row=>[row.s,row.d[idx]])));
-    } catch {}
-  });
+  const verifyScan=observeScans(page);
   await open(page,'index.html');
   const cardGeometry=await marketCardGeometry(page,'online');
   const board=page.locator('.radar-stocks [data-mover-market=us]');
@@ -316,19 +309,9 @@ async function liveUS(page) {
       item.pct=numeric(item.change);
       assert.ok(sign*item.pct>0 && Number.isFinite(item.pct),'US '+direction+' direction');
     }
-    const match=()=>scans.find(batch=>values.every(item=>Number.isFinite(batch[item.symbol]) && Math.abs(batch[item.symbol]-item.pct)<=.0051));
-    for(let retry=0;!match() && retry<5;retry++)await page.waitForTimeout(200);
-    let independent=match();
-    if(!independent){
-      // Compare with a new, read-only symbol query from the same provider, recording cross-tick drift.
-      const url='https://scanner.tradingview.com/america/scan';
-      const evidence=await page.request.post(url,{data:{symbols:{tickers:values.map(item=>item.symbol)},columns:['change']},timeout:15000});
-      assert.ok(evidence.ok(),'independent TradingView symbol check HTTP '+evidence.status());
-      const payload=await evidence.json();
-      independent=Object.fromEntries(payload.data.map(row=>[row.s,row.d[0]]));
-      for(const item of values) assert.ok(Number.isFinite(independent[item.symbol]) && Math.abs(independent[item.symbol]-item.pct)<=0.10,'US quote drift exceeds 0.10 percentage point for '+item.symbol);
-    }
-    observed.push({direction,source:src.origin,values,verifiedChanges:values.map(item=>independent[item.symbol])});
+    const owner=await board.locator('iframe').elementHandle();
+    const proof=await verifyScan(values,await owner.contentFrame());
+    observed.push({direction,source:src.origin,values,proof});
     if(sign>0) await board.screenshot({path:path.join(out,'real-us-gainers.png')});
   }
   const tape=await layout.tape(page,page.frameLocator('#index-ticker iframe'),{motion:false});
@@ -371,6 +354,7 @@ async function readScreenerPixels(feed,symbols) {
 }
 
 async function usQuotesPage(page) {
+  const verifyScan=observeScans(page);
   await open(page,'us.html');
   await page.locator('.research-jumps a[href="#public-market-title"]').click();
   await page.locator('#public-market-title').waitFor();
@@ -424,17 +408,9 @@ async function usQuotesPage(page) {
     quotes.push({symbol,price,pct});
   }
   assert.ok(/(^|\.)tradingview(-widget)?\.com$/.test(source.hostname));
-  const reference=await page.request.post('https://scanner.tradingview.com/america/scan',{data:{symbols:{tickers:symbols},columns:['close','change']},timeout:15000});
-  assert.ok(reference.ok(),'independent overview reference HTTP '+reference.status());
-  const input=(await reference.json()).data;
-  for(const quote of quotes) {
-    const ticks=input.find(entry=>entry.s===quote.symbol)?.d;
-    assert.ok(ticks?.every(Number.isFinite) && ticks[0]>0 && Math.abs(ticks[0]-quote.price)<=Math.max(0.10,ticks[0]*0.0015) && Math.abs(ticks[1]-quote.pct)<=0.15,
-      'delayed quote and current reference differ outside the observation tolerance: '+JSON.stringify({quote,reference:ticks}));
-    quote.reference=ticks;
-  }
+  const proof=await verifyScan(quotes,tableRoot && tableRoot!==feed ? tableRoot : null);
   await feed.screenshot({path:path.join(out,'real-us-quote-page.png')});
-  return {scope:'US page primary public screener',measurement:tableRoot?'provider table cells':'rendered primary screenshot OCR',source:source.origin,comparison:reference.url(),quotes};
+  return {scope:'US page primary public screener',measurement:tableRoot?'provider table cells':'rendered primary screenshot OCR',source:source.origin,proof,quotes};
 }
 
 async function researchFiles(page) {

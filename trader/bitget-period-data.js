@@ -26,13 +26,13 @@
     const url=profileUrl(id)+'/current';
     check(part.status==='ready' && part.sourceUrl===url && Array.isArray(part.rows));
     if (!part.pages) {check(part.rows.length<=10);return;} // Earlier published snapshots contain one page.
-    check(Array.isArray(part.pages) && part.pages.length>=1 && part.pages.length<=10 && part.pagesFetched===part.pages.length
+    check(Array.isArray(part.pages) && part.pages.length>=1 && part.pages.length<=20 && part.pagesFetched===part.pages.length
       && part.pages[0].evidencePath===part.evidencePath && part.truncated===part.hasMore
       && part.hasMore===part.pages[part.pages.length-1].hasMore);
     const pages=new Map();
     for (const page of [...part.pages,...(part.priorPages||[])]) {
       const body=page.postedBody, n=body?.pageNo;
-      check(body?.portfolioId===id && body.pageSize===10 && whole(n) && n>=1 && n<=10
+      check(body?.portfolioId===id && body.pageSize===10 && whole(n) && n>=1 && n<=20
         && page.requestUrl==='https://www.bitget.com/v1/trigger/public/uta/historyPosition' && page.method==='POST'
         && typeof page.hasMore==='boolean' && whole(page.rowCount) && page.rowCount<=10 && !pages.has(page.evidencePath));
       evidence(page,id+'-closed'+(n===1?'':'-'+n),now);
@@ -61,6 +61,29 @@
       check(row.sourceUrl === profileUrl(id) && whole(row.leadDays) && row.leadDays >= 90
         && whole(row.copyTraderNum) && row.copyTraderNum > 0 && row.performance?.['90D']?.roi > 0);
       evidence(row.profileEvidence,id+'-profile',end);
+      if(row.balance) {
+        const value=row.balance,period=row.performance[value.sourcePeriod];
+        check(period && value.sourceUrl===row.sourceUrl && value.evidencePath===period.evidencePath
+          && value.fetchedAt===period.fetchedAt && value.currency==='USD' && number(value.value));
+        evidence(value,id+'-p'+days[value.sourcePeriod],end);
+      }
+      if(row.transfers) {
+        const t=row.transfers;
+        check(t.sourceUrl===row.sourceUrl+'/balance' && t.sourceWindowDays===180 && timestamp(t.fetchedAt,end)
+          && Array.isArray(t.pages) && t.pages.length>=1 && t.pages.length<=10 && Array.isArray(t.rows)
+          && t.status===(t.rows.length?'ready':'empty') && t.truncated===t.pages.at(-1).hasMore);
+        const receipts=new Map();
+        for(const [i,p] of t.pages.entries()) {
+          const n=i+1;check(p.method==='POST' && p.requestUrl==='https://www.bitget.com/v1/trigger/public/uta/getTransferHistory'
+            && p.postedBody?.portfolioId===id && p.postedBody.pageNo===n && p.postedBody.pageSize===10);
+          evidence(p,id+'-transfers'+(n===1?'':'-'+n),end);receipts.set(p.evidencePath,p);
+        }
+        for(const r of t.rows) {
+          const p=receipts.get(r.evidencePath);
+          check(p && timestamp(r.time,Date.parse(p.fetchedAt)) && ['in','out'].includes(r.kind) && number(r.amount) && r.amount>0
+            && /^[A-Z0-9]{2,12}$/.test(r.currency) && typeof r.from==='string' && typeof r.to==='string');
+        }
+      }
       for (const [period,part] of Object.entries(row.performance)) {
         check(Object.hasOwn(days,period) && part.sourcePeriod === period && part.sourceUrl === row.sourceUrl
           && part.currency === 'USD' && part.sourceAsOf === null && part.lastSuccessAt === part.fetchedAt);
@@ -69,6 +92,8 @@
         check(Array.isArray(part.curve) && part.curve.length>0 && part.curve.length<=days[period]+1
           && part.curve.every((point,i)=>number(point.value) && timestamp(point.time,Date.parse(part.curveFetchedAt))
             && (!i || part.curve[i-1].time<point.time)));
+        check(part.pnlCurve===undefined || Array.isArray(part.pnlCurve) && part.pnlCurve.length===part.curve.length
+          && part.pnlCurve.every((p,i)=>number(p.value) && p.time===part.curve[i].time));
         check(number(part.roi) && number(part.pnl) && (part.mdd === null || number(part.mdd) && part.mdd >= 0)
           && (part.winRate === null || number(part.winRate) && part.winRate >= 0 && part.winRate <= 100));
       }
@@ -83,6 +108,9 @@
             && ['long','short'].includes(trade.side) && timestamp(trade.openedAt,Date.parse(part.fetchedAt))
             && number(trade.entryPrice) && trade.entryPrice > 0 && number(trade.quantity) && trade.quantity > 0
             && (trade.leverage === null || number(trade.leverage) && trade.leverage > 0));
+          check(trade.marginMode==null || ['cross','isolated'].includes(trade.marginMode));
+          for(const field of ['openFee','closeFee','fundingFee','stockDividend','grossPnl','margin','unrealizedPnl','notional'])
+            check(trade[field]==null || number(trade[field]));
           if (key === 'history') check(timestamp(trade.closedAt,Date.parse(part.fetchedAt)) && trade.openedAt <= trade.closedAt
             && validId(trade.id) && number(trade.exitPrice) && trade.exitPrice > 0
             && number(trade.realizedPnl) && /^[A-Z0-9]{2,12}$/.test(trade.currency));

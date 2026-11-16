@@ -15,7 +15,7 @@ function fixture(id,replies){
     elements.set(key,{options:entries.map(value=>({value})),value:'',after(el){elements.set(el.id,el);}});
   }
   const context=vm.createContext({document:{getElementById:k=>elements.get(k)||null,createElement:()=>({setAttribute(){},set textContent(s){notices.push(s);}})},
-    BinanceData,URL,AbortController,Blob,location:{href:'https://example.org/trader/index.html?exchange=Binance&period=365D&account='+id},
+    BinanceData,URL,AbortController,Blob,TextDecoder,location:{href:'https://example.org/trader/index.html?exchange=Binance&period=365D&account='+id},
     setTimeout:(fn,ms)=>{if(ms===450)queueMicrotask(fn);return 1;},clearTimeout(){},opened,
     async fetch(url){requested.push(url);const reply=replies.shift();assert.ok(reply,'unexpected extra request');return new Response(reply.body||'',{status:reply.status});}});
   vm.runInContext(code,context);

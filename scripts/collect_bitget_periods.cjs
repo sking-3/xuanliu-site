@@ -66,9 +66,18 @@ function activity(source,history,sourceUrl) {
     expect(row.holdSide===1 || row.holdSide===2,'invalid Bitget position side');
     const record={symbol:row.symbolDisplayName || String(row.symbolId).split('_')[0],side:row.holdSide===1?'long':'short',
       openedAt:iso(row.openTime),entryPrice:number(row.averageOpenPrice),quantity:number(row.total),leverage:optional(row.lever)};
-    if (!history) return {...record,markPrice:optional(row.markPrice)};
+    const linear=typeof row.symbolId==='string' && /^[A-Z0-9]+USDT_UMCBL$/.test(row.symbolId);
+    Object.assign(record,{marginMode:({1:'isolated',2:'cross'})[row.marginMode]||null,
+      unit:linear?record.symbol.slice(0,-4):null,openFee:optional(row.openFee),closeFee:optional(row.closeFee),
+      fundingFee:optional(row.capitalFeeTotal),stockDividend:row.stockId?optional(row.scdTotal):null});
+    if (!history) {
+      const markPrice=optional(row.markPrice),calculatedFromMark=linear && markPrice!==null;
+      return {...record,markPrice,margin:optional(row.margin),currency:linear?'USDT':null,calculatedFromMark,
+        notional:calculatedFromMark?Number((markPrice*record.quantity).toFixed(10)):null,
+        unrealizedPnl:calculatedFromMark?Number(((markPrice-record.entryPrice)*record.quantity*(record.side==='long'?1:-1)).toFixed(10)):null};
+    }
     return {...record,id:row.id,closedAt:iso(row.closeTime),exitPrice:number(row.averageClosePrice),
-      realizedPnl:number(row.positionPnl),currency:row.tokenName};
+      grossPnl:optional(row.pnl),realizedPnl:number(row.positionPnl),currency:row.tokenName};
   });
   return {...ref(source),sourceUrl:sourceUrl+'/current',status:restricted?'restricted':rows.length?'ready':'empty',
     rows,...(history?{hasMore:data.nextFlag===true}:{publicDelayMinutes:60})};
@@ -84,7 +93,7 @@ function withPage(trade,page,sourceUrl) {
 async function historyPages(readPart,id,sourceUrl) {
   const pages=[],records=new Map();
   let first;
-  for (let pageNo=1;pageNo<=10;pageNo++) {
+  for (let pageNo=1;pageNo<=20;pageNo++) {
     const suffix=pageNo===1?'closed':'closed-'+pageNo;
     const source=await readPart(suffix,'historyPosition',{pageNo,pageSize:10});
     expect(typeof source.data.nextFlag==='boolean','missing Bitget history pagination');
@@ -102,6 +111,26 @@ async function historyPages(readPart,id,sourceUrl) {
   const last=pages.at(-1);
   return {...first,rows:[...records.values()].sort(recentFirst),pages,pagesFetched:pages.length,hasMore:last.hasMore,truncated:last.hasMore,
     fetchedAt:pages.map(p=>p.fetchedAt).sort().at(-1)};
+}
+async function transferPages(readPart,id,sourceUrl) {
+  const pages=[],rows=[],identities=new Set();
+  for(let pageNo=1;pageNo<=10;pageNo++) {
+    const name=pageNo===1?'transfers':'transfers-'+pageNo,body={pageNo,pageSize:10};
+    const source=await readPart(name,'getTransferHistory',body);
+    const data=source.data;
+    expect(typeof data.nextFlag==='boolean' && Array.isArray(data.rows) && data.rows.length<=10,'invalid Bitget transfer page');
+    pages.push({...ref(source),requestUrl:endpoint('getTransferHistory'),method:'POST',postedBody:{portfolioId:id,...body},hasMore:data.nextFlag});
+    for(const r of data.rows) {
+      expect((r.transferType===0 || r.transferType===1) && number(r.transferAmount)>0,'unexpected Bitget transfer');
+      const item={time:iso(r.transferTime),kind:r.transferType===0?'in':'out',amount:number(r.transferAmount),currency:r.tokenName,
+        from:r.fromAccountType,to:r.toAccountType,evidencePath:source.evidencePath};
+      const key=JSON.stringify([item.time,item.kind,item.amount,item.currency,item.from,item.to]);
+      if(!identities.has(key)){rows.push(item);identities.add(key);}
+    }
+    if(!data.nextFlag)break;
+  }
+  return {status:rows.length?'ready':'empty',rows,pages,truncated:pages.at(-1).hasMore,sourceUrl:sourceUrl+'/balance',
+    fetchedAt:pages.map(p=>p.fetchedAt).sort().at(-1),sourceWindowDays:180};
 }
 function normalizeLegacyHistory(part,id) {
   if(part.pages)return part;
@@ -122,22 +151,29 @@ function normalizePerformance(source,charts,n,sourceUrl) {
   const d=source.data,series=charts.data.roiRows;
   expect(series?.dataCycle===n && Array.isArray(series.rows) && series.rows.length>0 && series.rows.length<=n+1,'invalid Bitget daily ROI curve');
   const curve=series.rows.map(row=>({time:iso(row.dataTime),value:number(row.amount)}));
+  const pnl=charts.data.pnlRows?.rows;
+  expect(Array.isArray(pnl) && pnl.length===curve.length,'invalid Bitget daily PnL curve');
+  const pnlCurve=pnl.map((row,i)=>{
+    const time=iso(row.dataTime);expect(time===curve[i].time,'mismatched Bitget PnL and ROI time');
+    return {time,value:number(row.amount)};
+  });
   expect(curve.every((point,i)=>Date.parse(point.time)<=Date.parse(charts.fetchedAt) && (!i || point.time>curve[i-1].time)),'invalid Bitget curve date');
   const mdd=optional(d.maxDrawDown),win=optional(d.winRate);
   return {...ref(source),sourcePeriod:n+'D',sourceUrl,currency:'USD',sourceAsOf:null,lastSuccessAt:source.fetchedAt,
     roi:number(d.roi),pnl:number(d.profit),mdd:mdd===null?null:Number((100*mdd).toFixed(6)),
     winRate:win===null?null:Number((100*win).toFixed(6)),totalTrades:optional(d.totalTrades),winningTrades:optional(d.profitTrades),
     lastOrderTime:d.lastOrderTime ? iso(d.lastOrderTime) : null,
-    curve,curveEvidencePath:charts.evidencePath,curveEvidenceSha256:charts.evidenceSha256,curveFetchedAt:charts.fetchedAt};
+    curve,pnlCurve,curveEvidencePath:charts.evidencePath,curveEvidenceSha256:charts.evidenceSha256,curveFetchedAt:charts.fetchedAt};
 }
-async function collect(read) {
+async function collect(read,readActivity=read) {
   const rank=await read('leaders-aum','traderView',rankBody),accounts=[],archive=[rank];
   for (const candidate of select(rank.data)) {
     if (accounts.length===6) break;
     const id=candidate.portfolioId,sourceUrl=model.profileUrl(id),sources=[];
     const readPart=async (key,route,params)=>{
-      const res=await read(id+'-'+key,route,{portfolioId:id,...params});
-      expect(res.fetchedAt.slice(0,10)===rank.fetchedAt.slice(0,10)
+      const activityRoute=['currentPosition','historyPosition','getTransferHistory'].includes(route);
+      const res=await (activityRoute?readActivity:read)(id+'-'+key,route,{portfolioId:id,...params});
+      if(!(activityRoute && readActivity!==read))expect(res.fetchedAt.slice(0,10)===rank.fetchedAt.slice(0,10)
         && Math.abs(Date.parse(res.fetchedAt)-Date.parse(rank.fetchedAt))<3600000,'Bitget mixed capture times');
       sources.push(res);return res;
     };
@@ -146,17 +182,21 @@ async function collect(read) {
     if (number(detail.tradingDays)<90 || number(detail.curFollowCount)<1 || number(detail.aum)<25000) continue;
     const history=await historyPages(readPart,id,sourceUrl);
     if (!history.rows.length) continue;
-    const performance={};
+    const performance={};let balance=null;
     for (const n of [90,30]) {
       const summary=await readPart('p'+n,'performance',{cycleTime:n});
       if (n===90 && number(summary.data.roi)<=0) break;
       const chart=await readPart('curve'+n,'cycleChartData',{cycleTime:n});
       performance[n+'D']=normalizePerformance(summary,chart,n,sourceUrl);
+      if(detail.showBalance===true && summary.data.totalEquity!=null && (!balance || balance.fetchedAt<summary.fetchedAt)) {
+        balance={...ref(summary),sourcePeriod:n+'D',value:number(summary.data.totalEquity),currency:'USD',sourceUrl};
+      }
     }
     if (!performance['90D']) continue;
     const positions=activity(await readPart('open','currentPosition',{pageNo:1,pageSize:10}),false,sourceUrl);
     accounts.push({portfolioId:id,name:profile.data.displayName.trim(),sourceUrl,leadDays:detail.tradingDays,copyTraderNum:detail.curFollowCount,
-      profileEvidence:ref(profile),performance,activity:{positions,history}});
+      profileEvidence:ref(profile),performance,balance,transfers:detail.showBalance===true?await transferPages(readPart,id,sourceUrl):null,
+      activity:{positions,history}});
     archive.push(...sources);
   }
   const generatedAt=archive.map(s=>s.fetchedAt).sort().at(-1);
@@ -198,11 +238,12 @@ async function publish(dir,{bundle,archive}) {
 async function main(args) {
   const options=new Map();
   for (let i=0;i<args.length;i+=2) {
-    expect(['--out','--receipts'].includes(args[i]) && !options.has(args[i]) && args[i+1],'invalid Bitget collector argument');
+    expect(['--out','--receipts','--activity-receipts'].includes(args[i]) && !options.has(args[i]) && args[i+1],'invalid Bitget collector argument');
     options.set(args[i],args[i+1]);
   }
   const dir=options.get('--receipts');
-  const result=await collect(dir?stored(dir):fetchReceipt);
+  const read=dir?stored(dir):fetchReceipt;
+  const result=await collect(read,options.has('--activity-receipts')?stored(options.get('--activity-receipts')):read);
   await publish(options.get('--out')||path.resolve(__dirname,'../trader/bitget'),result);
   console.log('Bitget verified '+result.bundle.accounts.length+' public portfolios with 30D/90D returns and position history');
 }
