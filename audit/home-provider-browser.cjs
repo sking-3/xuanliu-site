@@ -3,9 +3,44 @@ const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 
+async function compareChinaSources(browser) {
+  const candidates = [
+    ['SSE','hotlists',{exchange:'SSE',showChart:false}],
+    ['SZSE','hotlists',{exchange:'SZSE',showChart:false}],
+    ['china','hotlists',{exchange:'CHINA',showChart:false}],
+    ['china-all','screener',{market:'china',defaultScreen:'most_capitalized',defaultColumn:'overview',showToolbar:false}],
+    ['china-list','market-overview',{showChart:false,showSymbolLogo:false,tabs:[{title:'沪深',symbols:[{s:'SSE:600519',d:'贵州茅台'},{s:'SZSE:000858',d:'五粮液'}]}]}],
+    ['dapan','frame',{}]
+  ];
+  await Promise.all(candidates.map(async ([id,widget,settings]) => {
+    const page=await browser.newPage();
+    try {
+      await page.route('http://127.0.0.1:8784/provider-test', route=>route.fulfill({contentType:'text/html',body:'<!doctype html><meta charset=utf-8><div id="host" style="height:400px;width:640px"></div>'}));
+      await page.goto('http://127.0.0.1:8784/provider-test');
+      await page.evaluate(({widget,settings})=>{
+        const host=document.querySelector('#host');
+        if(widget==='frame'){
+          const frame=document.createElement('iframe');frame.src='https://dapan.app/?market=all&period=day&borders=off';host.append(frame);return;
+        }
+        host.className='tradingview-widget-container';
+        const inner=document.createElement('div');inner.className='tradingview-widget-container__widget';host.append(inner);
+        const script=document.createElement('script');script.src='https://s3.tradingview.com/external-embedding/embed-widget-'+widget+'.js';
+        script.textContent=JSON.stringify({width:'100%',height:350,locale:'zh_CN',colorTheme:'light',...settings});host.append(script);
+      },{widget,settings});
+      await page.waitForTimeout(11500);
+      for(const frame of page.frames().slice(1,3)) {
+        const body=await frame.locator('body').innerText({timeout:4000});
+        console.log('China candidate',id,new URL(frame.url()).pathname,body.replace(/\s+/g,' ').slice(0,510));
+      }
+    } catch(error){console.log('China candidate',id,error.message.slice(0,160));}
+    finally{await page.close();}
+  }));
+}
+
 async function check() {
   const browser = await chromium.launch();
   try {
+    await compareChinaSources(browser);
     const page = await browser.newPage({viewport:{width:1440,height:900}});
     page.on('requestfailed', request => {
       const url = new URL(request.url());
