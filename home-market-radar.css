@@ -1,6 +1,6 @@
 /* Market desk. Summaries share one row; full quote views share the next. */
 .books-shell .home-grid { grid-template-columns: minmax(0, 2.65fr) minmax(248px, 1fr); }
-.books-shell .home-securities { padding: 0; min-width: 0; }
+.books-shell .home-securities { padding: 0; min-width: 0; scroll-margin-block-start: 76px; }
 [data-home-radar] {
   --ink: #223547; --muted: #546779; --rule: #dde4e8; --fine: #e8edf0;
   --link: #176562; --up: #00755c; --down: #ac3747;
@@ -76,7 +76,7 @@
   .radar-stocks > section + section, .radar-minute-market + .radar-minute-market { border-left: 0; border-top: 1px solid var(--rule); }
   .radar-section-heading a, .radar-mover-sources a, .radar-rules summary, .radar-minute-market > a { display: inline-flex; align-items: center; min-height: 32px; }
   .radar-rules summary { display: list-item; padding-top: 12px; }
-  .radar-mover-tabs button { min-height: 40px; min-width: 44px; }
+  .radar-mover-tabs button { min-height: 44px; min-width: 44px; }
   .radar-quote-toolbar { min-height: 44px; }
   .radar-equity-watch[data-watch-mode=compact] .radar-mover-stage { height: 335px; }
   .radar-minute-market { padding: 4px 12px 8px; align-items: center; }
