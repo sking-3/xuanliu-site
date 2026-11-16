@@ -806,36 +806,54 @@ function mergeRows() {
   }
   state.rows=[...retainedPublicRows().map(r=>({...r,_local:false})),...known.values(),...leads,...state.localRows.map(r=>({...r,_local:true}))];
 }
-async function readPeriodFile(url,parse,old){
+async function fetchPeriodText(url){
   const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),10000);
   try{
     const response=await fetch(url,{cache:'no-cache',credentials:'omit',redirect:'error',signal:controller.signal});
-    if(!response.ok||Number(response.headers.get('content-length'))>1048576)fail();
-    const body=await response.text();if(new Blob([body]).size>1048576)fail();
-    const fresh=parse(JSON.parse(body));
-    if(old&&Date.parse(fresh.generatedAt)<Date.parse(old.generatedAt))fail();
-    const previous=new Map((old?.accounts||[]).map(row=>[row.portfolioId||row.uniqueCode,row.performance]));
-    for(const row of fresh.accounts){
-      const prior=previous.get(row.portfolioId||row.uniqueCode);
-      const incoming=row.performance?.byPeriod||row.performance;
-      for(const [period,part] of Object.entries(prior?.byPeriod||prior||{})){
-        if(part.lastSuccessAt&&!(Date.parse(incoming[period]?.lastSuccessAt)>=Date.parse(part.lastSuccessAt)))fail();
-      }
+    if(!response.ok){
+      const error=Error('HTTP '+response.status);
+      error.retryable=[404,408,425,429].includes(response.status)||response.status>=500;
+      throw error;
     }
-    return fresh;
+    if(Number(response.headers.get('content-length'))>1048576)fail();
+    const body=await response.text();if(new Blob([body]).size>1048576)fail();
+    return body;
   }finally{clearTimeout(timer);}
+}
+async function readPeriodFile(url,parse,old,exchange){
+  let body;
+  try{body=await fetchPeriodText(url);}catch(e){
+    if(!exchange||!(e.retryable||e.name==='TypeError'||e.name==='AbortError'))throw e;
+    if(linkedAccount&&$('exchange').value===exchange)linkedStatus('正在重试读取'+exchange+'账户资料…');
+    await new Promise(resolve=>setTimeout(resolve,450));
+    body=await fetchPeriodText(url);
+  }
+  const fresh=parse(JSON.parse(body));
+  if(old&&Date.parse(fresh.generatedAt)<Date.parse(old.generatedAt))fail();
+  const previous=new Map((old?.accounts||[]).map(row=>[row.portfolioId||row.uniqueCode,row.performance]));
+  for(const row of fresh.accounts){
+    const prior=previous.get(row.portfolioId||row.uniqueCode);
+    const incoming=row.performance?.byPeriod||row.performance;
+    for(const [period,part] of Object.entries(prior?.byPeriod||prior||{})){
+      if(part.lastSuccessAt&&!(Date.parse(incoming[period]?.lastSuccessAt)>=Date.parse(part.lastSuccessAt)))fail();
+    }
+  }
+  return fresh;
+}
+function tryCatalogLink(){
+  if(linkedAccount){mergeRows();openLinkedAccount();}
 }
 async function refreshPeriodReturns(){
   const jobs=[];
   if(globalThis.BinanceData?.parsePeriodReturns)jobs.push(
-    readPeriodFile('binance/period-returns.json',BinanceData.parsePeriodReturns,periodReturns)
-      .then(data=>{periodReturns=data;periodReturnsFailed=false;},()=>{periodReturnsFailed=true;}));
+    readPeriodFile('binance/period-returns.json',BinanceData.parsePeriodReturns,periodReturns,'Binance')
+      .then(data=>{periodReturns=data;periodReturnsFailed=false;tryCatalogLink();},()=>{periodReturnsFailed=true;}));
   if(globalThis.BooksOKXPeriodData)jobs.push(
-    readPeriodFile('okx/period-returns.json',BooksOKXPeriodData.parse,okxReturns)
-      .then(data=>{okxReturns=data;okxReturnsFailed=false;},()=>{okxReturnsFailed=true;}));
+    readPeriodFile('okx/period-returns.json',BooksOKXPeriodData.parse,okxReturns,'OKX')
+      .then(data=>{okxReturns=data;okxReturnsFailed=false;tryCatalogLink();},()=>{okxReturnsFailed=true;}));
   if(globalThis.BooksBitgetPeriodData)jobs.push(
-    readPeriodFile('bitget/period-returns.json',BooksBitgetPeriodData.parse,bitgetReturns)
-      .then(data=>{bitgetReturns=data;bitgetReturnsFailed=false;},()=>{bitgetReturnsFailed=true;}));
+    readPeriodFile('bitget/period-returns.json',BooksBitgetPeriodData.parse,bitgetReturns,'Bitget')
+      .then(data=>{bitgetReturns=data;bitgetReturnsFailed=false;tryCatalogLink();},()=>{bitgetReturnsFailed=true;}));
   if(globalThis.BooksOKXTrades)jobs.push(
     readPeriodFile('okx/trades.json',BooksOKXTrades.parse,okxTrades)
       .then(data=>{okxTrades=data;},()=>{}));
@@ -999,17 +1017,34 @@ function readURL() {
   const rawAccount=p.get('account')||'',account=p.get('exchange')==='OKX'?rawAccount:rawAccount.toLowerCase();
   const okxCode=p.get('exchange')==='OKX'&&/^(?:[A-Za-z0-9]{16}|[A-Za-z0-9]{18})$/.test(account);
   linkedAccount=/^(?:0x[0-9a-f]{40}|\d{19})$/.test(account)||okxCode?account:null;
+  linkedStatus(linkedAccount?'正在读取链接所指的账户资料…':'');
   state.explicitPeriod=periods.includes(p.get('period'));
   for(const id of controls) { const el=$(id); el.value=[...el.options].some(o=>o.value===p.get(id))?p.get(id):defaults[id]; }
   $('search').value=(p.get('q')||'').slice(0,100); const page=Number(p.get('page')); state.page=Number.isSafeInteger(page)&&page>0?page:1;
+}
+function linkedStatus(message){
+  let status=$('linked-account-status');
+  if(!message&&!status)return;
+  if(!status){status=node('p');status.id='linked-account-status';status.setAttribute('role','status');$('status').after(status);}
+  status.hidden=!message;status.textContent=message;
+}
+function linkedSourceFailed(exchange){
+  const failed={Binance:periodReturnsFailed||state.binanceReadFailed,OKX:okxReturnsFailed,Bitget:bitgetReturnsFailed,Hyperliquid:state.lastReadFailed};
+  return Object.hasOwn(failed,exchange)?failed[exchange]:Object.values(failed).some(Boolean);
 }
 function openLinkedAccount(finalRead=false) {
   if(!linkedAccount)return false;
   // The URL can select only an already validated public account. It cannot
   // supply a profile, external destination or a new account to fetch.
   const row=publicFocus.record?.accountId===linkedAccount?publicFocus.record:state.rows.find(r=>(isPublicAccount(r)||isBinanceTrader(r)||isPublicLead(r))&&r.accountId===linkedAccount&&(!['OKX','Bitget','Binance','Hyperliquid'].includes($('exchange').value)||r.exchange===$('exchange').value));
-  if(!row){if(finalRead)linkedAccount=null;return false;}
-  linkedAccount=null;
+  if(!row){
+    if(finalRead){
+      if(linkedSourceFailed($('exchange').value))linkedStatus('账户资料暂未读到。可点击刷新重试，读取成功后会打开详情。');
+      else {linkedStatus('在已核实的公开账户中没有找到这个账户。');linkedAccount=null;}
+    }
+    return false;
+  }
+  linkedAccount=null;linkedStatus('');
   const view=new URL(location.href).searchParams.get('view');openDetail(row,$('period').value);
   if(['positions','points','orders','live'].includes(view))activateDetailTab(view);
   return true;
@@ -1299,6 +1334,7 @@ function activateDetailTab(tab) {
   if(state.tab==='live')stopLive();state.tab=tab;renderDetail();
 }
 function openDetail(r,p) {
+  linkedAccount=null;linkedStatus('');
   globalThis.BooksTradeAnalysis?.dispose();
   stopLive();state.detail=r;state.window=p;state.requestedDetailPeriod=p;state.tab='analysis';renderDetailIdentity(r);
   renderDetail();$('detail').showModal();$('close').focus();
