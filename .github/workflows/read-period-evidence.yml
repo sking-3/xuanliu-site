@@ -16,16 +16,43 @@ jobs:
         shell: node {0}
         run: |
           (async()=>{
-            const indices=['5156287639231681792','5139646755272846081','5178595252342363392'];const base='https://www.binance.com/bapi/futures/v1/';
-            for (const id of indices) {
-              for (const p of ['profile','90D','365D']) {
-                const path=p==='profile'?'friendly/future/copy-trade/lead-portfolio/detail?portfolioId='+id:'public/future/copy-trade/lead-portfolio/performance?portfolioId='+id+'&timeRange='+p;
-                const url=base+path;
-                let res; try{res=await fetch(url,{headers:{accept:'application/json'},signal:AbortSignal.timeout(16000),redirect:'error'});}catch(e){console.log('FAIL '+id+' '+p+' '+e.message);continue;}
-                const data=Buffer.from(await res.arrayBuffer()),receivedAt=new Date().toISOString();
-                console.log('PERIOD_RECORD '+JSON.stringify({id,p,url,receivedAt,status:res.status,bytes:data.length,raw:data.length<32000&&res.status===200?data.toString('base64'):null}));
-                if([202,401,403,418,429,451].includes(res.status)){console.log('SOURCE_STOP '+res.status);process.exit(0);}
-                await new Promise(f=>setTimeout(f,400));
-              }
+            const base='https://www.binance.com/bapi/futures/v1/',path='friendly/future/copy-trade/home-page/query-list';
+            const wait=()=>new Promise(r=>setTimeout(r,450));let stop=false;const candidates=new Map();
+            async function read(url,post){
+             const opts=post?{method:'POST',headers:{accept:'application/json','content-type':'application/json'},body:JSON.stringify(post)}:{headers:{accept:'application/json'}};
+             const res=await fetch(url,{...opts,redirect:'error',signal:AbortSignal.timeout(15000)});const bytes=Buffer.from(await res.arrayBuffer()),receivedAt=new Date().toISOString();
+             if([202,401,403,418,429,451].includes(res.status)) {stop=true; console.log('STOP '+res.status);return null;}
+             if(res.status!==200){console.log('UNAVAILABLE '+res.status);return null;}
+             let body;try{body=JSON.parse(bytes);}catch{return null;}if(body.code!=='000000'||body.success!==true){console.log('REASON '+JSON.stringify([body.code,body.message]));return null;}
+             return {data:body.data,bodyBase64:bytes.toString('base64'),receivedAt};
             }
+            for(let pageNumber=1;pageNumber<=2&&!stop;pageNumber++){
+             const val=await read(base+path,{pageNumber,pageSize:50,timeRange:'365D',dataType:'PNL',favoriteOnly:false,hideFull:false,order:'DESC',userAsset:0,portfolioType:'PUBLIC'});
+             const lst=val?.data?.list??val?.data?.rows;if(!Array.isArray(lst)){console.log('NO_LIST '+JSON.stringify(Object.keys(val?.data??{})));break;}
+             if(!lst.length)break;
+             if(pageNumber===1)console.log('KEYS '+JSON.stringify(Object.keys(lst[0])));
+             for(const row of lst){
+              const id=row.leadPortfolioId??row.portfolioId??row.portfolio?.leadPortfolioId??row.id;
+              if(typeof id!=='string'||!/^\d{12,22}$/.test(id)||candidates.has(id))continue;
+              candidates.set(id,row);
+             }
+             console.log('GOT '+pageNumber+' '+lst.length+' '+candidates.size);await wait();
+            }
+            const vals=[...candidates];for(const [id,x] of vals.slice(0,3))console.log('SAMPLE '+JSON.stringify({id,name:x.nickname||x.nickName,days:x.leadDays,time:x.startTime,keys:Object.fromEntries(Object.entries(x).filter(([k])=>/day|time/i.test(k)&&k!=='roiData'))}).slice(0,580));
+            const possible=vals.filter(([id,x])=>x.leadDays==null||Number(x.leadDays)>=365).slice(0,32);
+            let n=0;
+            for(const [id,x] of possible){
+             if(n>=8||stop) break;
+             const url=base+'friendly/future/copy-trade/lead-portfolio/detail?portfolioId='+id;
+             const item=await read(url);await wait();const d=item?.data;
+             if(!d||d.leadPortfolioId!==id||d.status!=='ACTIVE'||!Number.isFinite(Number(d.startTime))||Number(d.startTime)<=0||Date.parse(item.receivedAt)-Number(d.startTime)<365*86400000)continue;
+             console.log('PERIOD_RECORD '+JSON.stringify({id,p:'profile',url,receivedAt:item.receivedAt,status:200,raw:item.bodyBase64}));
+             for(const p of ['90D','365D']){
+               const url=base+'public/future/copy-trade/lead-portfolio/performance?portfolioId='+id+'&timeRange='+p;
+               const m=await read(url);if(stop) break;
+               if(m&&m.data.timeRange===p&&Number.isFinite(m.data.roi))console.log('PERIOD_RECORD '+JSON.stringify({id,p,url,receivedAt:m.receivedAt,status:200,raw:m.bodyBase64}));
+               await wait();
+             }
+             n++;
+            }console.log('MATCHING '+n);
           })().catch(e=>{console.error(e);process.exitCode=1;});
