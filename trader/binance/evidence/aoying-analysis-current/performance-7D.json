@@ -4,10 +4,10 @@
   "messageDetail": null,
   "data": {
     "timeRange": "7D",
-    "roi": 75.41089631,
-    "pnl": 156341.39668627,
+    "roi": 79.75549377,
+    "pnl": 165348.58885634,
     "mdd": 0,
-    "copierPnl": 2429205.65217596,
+    "copierPnl": 2448400.39164309,
     "winRate": 75,
     "winOrders": 6,
     "totalOrder": 8,
