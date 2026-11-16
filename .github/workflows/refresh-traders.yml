@@ -33,7 +33,7 @@ concurrency:
 
 jobs:
   collect-build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     # Serialize Binance requests with the Python watch. UI-only publications
     # never request a source and keep their own unique job group.
@@ -316,7 +316,7 @@ jobs:
 
   deploy:
     needs: collect-build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
