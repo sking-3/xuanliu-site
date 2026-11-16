@@ -46,9 +46,6 @@
   function moverConfig(market, direction = 'gainers') {
     const common = {width:'100%', height:'100%', locale:'zh_CN', colorTheme:'light'};
     const china = 'https://www.tradingview.com/markets/stocks-china/';
-    if (market === 'a') return {
-      label:'沪深市场涨跌分布', source:'https://dapan.app/', frame:'https://dapan.app/?market=all&period=day&borders=off'
-    };
     if (market === 'watch') return {
       label:'沪深观察', script:'market-overview', source:china,
       widget:{...common, showChart:false, showSymbolLogo:false, tabs:[{title:'沪深观察', symbols:[
@@ -96,7 +93,7 @@
     const rules = el('details', null, 'radar-rules');
     rules.append(el('summary', '异动计算规则'),
       el('p', '加密现货比较最新价格与约 60 秒前的价格（允许相差 5 秒）。涨跌达到 ±1% 时，按涨跌绝对值列出最多 3 对。积累样本期间或没有触发时，展示滚动 24 小时涨跌绝对值最大的 3 对。'),
-      el('p', '股票分钟成交额达到过去同一交易时段、同一分钟成交额中位数的 3 倍，标记为放量观察。最多取最近 20 个有效交易日，至少需 10 天。同时一分钟涨跌达到 ±1%，标记为量价异动。沪深热力图、日终观察和美股日榜分别标明行情口径。'));
+      el('p', '股票分钟成交额达到过去同一交易时段、同一分钟成交额中位数的 3 倍，标记为放量观察。最多取最近 20 个有效交易日，至少需 10 天。同时一分钟涨跌达到 ±1%，标记为量价异动。A 股日榜按同一批公开快照的日涨跌幅分别降序、升序排列，涨榜和跌榜各取 3 只，同幅按代码升序。仅纳入有有效价格和涨跌幅的证券。'));
     host.replaceChildren(header,crypto,stocks,rules);
 
     function mountQuotePanel(panel, market) {
@@ -141,8 +138,7 @@
         const config = moverConfig(market,direction);
         for (const [kind, button] of buttons) button.setAttribute('aria-pressed',String(kind === direction));
         source.href = config.source;
-        source.textContent = market === 'us' ? config.label + '原榜 ↗' :
-          market === 'a' ? '大盘云图 ↗' : '中国股票行情 ↗';
+        source.textContent = market === 'us' ? config.label + '原榜 ↗' : '中国股票行情 ↗';
         if (market === 'us') {
           const opposite = moverConfig('us', direction === 'gainers' ? 'losers' : 'gainers');
           alternate.href = opposite.source;
@@ -183,15 +179,6 @@
         }
         cleanup = dispose;
         timer = setTimeout(unavailable,15000);
-        if (config.frame) {
-          const frame = el('iframe');
-          frame.title = config.label;
-          frame.referrerPolicy = 'no-referrer';
-          frame.src = config.frame;
-          observeFrame(frame);
-          stage.replaceChildren(frame);
-          return;
-        }
         const wrapper = el('div',null,'tradingview-widget-container');
         const target = el('div',null,'tradingview-widget-container__widget');
         const credit = el('div',null,'tradingview-widget-copyright');
@@ -222,22 +209,99 @@
       });
       load(true);
     }
+    function mountDailyBoard(panel) {
+      const path = 'wenyuanw/a-share-heatmap/main/src/lib/data/market-heatmap-fallback.json';
+      const source = link('快照来源 ↗', 'https://github.com/' + path.replace('/main/', '/blob/main/'));
+      source.target = '_blank'; source.rel = 'noopener';
+      const footer = el('div', null, 'radar-mover-sources');
+      const info = el('p', '正在读取最近收盘榜…', 'radar-cadence');
+      const distribution = el('div', null, 'radar-day-lists');
+      const refreshStatus = el('span', '', 'radar-cadence');
+      footer.append(source, refreshStatus);
+      panel.append(info, distribution, footer);
+      const cacheKey = 'books-home-daily-ranks-v1';
+      let current, origin, polling = false, lastCheck = 0;
+      function show(data, nextOrigin) {
+        if (!data || !Number.isFinite(Date.parse(data.asOf)) || Date.parse(data.asOf) > Date.now() + 300000 || !Number.isInteger(data.priced) || data.priced < 1) return;
+        if (!['gainers','losers'].every(key => Array.isArray(data[key]) && data[key].length <= 3 &&
+          data[key].every(row => row && /^\d{6}$/.test(row.code) && typeof row.name === 'string'))) return;
+        if (current && (Date.parse(current.asOf) > Date.parse(data.asOf) ||
+          (Date.parse(current.asOf) === Date.parse(data.asOf) && origin === 'upstream'))) return;
+        current = data;
+        origin = nextOrigin;
+        if (origin === 'upstream') {
+          refreshStatus.textContent = '';
+          try { env.localStorage.setItem(cacheKey, JSON.stringify(data)); } catch {}
+        }
+        info.dataset.dailyOrigin = origin;
+        const when = el('time', new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Shanghai'}).format(new Date(data.asOf)));
+        when.dateTime = data.asOf;
+        when.dataset.dailyAsof = '';
+        info.replaceChildren(when, ' 收盘快照 · ' + data.priced.toLocaleString('zh-CN') + ' 只有效报价');
+        distribution.replaceChildren();
+        for (const [key,title] of [['gainers','涨幅前三'],['losers','跌幅前三']]) {
+          const group = el('section');
+          group.dataset.dailySide = key;
+          group.append(el('h4',title));
+          const list = el('ol');
+          for (const row of data[key]) {
+            const item = el('li');
+            item.dataset.code = row.code;
+            item.append(el('strong',row.name),el('span',row.code));
+            list.append(item);
+          }
+          if (list.childElementCount) group.append(list);
+          else group.append(el('p','本批无符合方向的股票','radar-cadence'));
+          distribution.append(group);
+        }
+      }
+      async function json(url, signal) {
+        const response = await env.fetch(url, {credentials:'omit',referrerPolicy:'no-referrer',cache:'no-cache',signal});
+        if (!response.ok) throw Error('行情来源无法读取');
+        return response.json();
+      }
+      async function refresh() {
+        if (doc.hidden || polling || Date.now() - lastCheck < 15 * minute) return;
+        polling = true;
+        lastCheck = Date.now();
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(),15000);
+        try {
+          const snapshot = await json('https://raw.githubusercontent.com/' + path,controller.signal);
+          show(env.BooksDailyMovers.summarize(snapshot), 'upstream');
+        } catch {
+          refreshStatus.textContent = '上游本次未能刷新';
+        } finally {
+          polling = false;
+          clearTimeout(timer);
+        }
+      }
+      try { show(JSON.parse(env.localStorage.getItem(cacheKey)), 'cached'); } catch {}
+      json('research-data/a-daily-movers.json').then(data => show(data,'bundled')).catch(() => {
+        if (!current) info.textContent = '本站快照暂不可用，可打开快照来源。';
+      });
+      refresh();
+      setInterval(refresh, 15 * minute);
+      doc.addEventListener('visibilitychange',refresh);
+    }
     function mountStockBoard(market, href) {
       const board = el('section', null, 'radar-stock-board');
       board.dataset.moverMarket = market;
       const heading = el('div', null, 'radar-section-heading');
-      heading.append(el('h3', market === 'a' ? 'A 股行情' : '美股日涨跌榜'), link('行情筛选 →', href));
+      heading.append(el('h3', market === 'a' ? 'A 股收盘涨跌榜' : '美股日涨跌榜'), link('行情筛选 →', href));
       const primary = el('div', null, 'radar-main-body');
-      board.append(heading, el('p', market === 'a' ? '当日涨跌分布 · 更新时间见图内' :
+      board.append(heading, el('p', market === 'a' ? '按日涨跌幅排序 · 含沪深北' :
         '按交易日涨跌幅排序 · 行情可能延迟', 'radar-cadence'), primary);
       stocks.append(board);
-      mountQuotePanel(primary, market);
       if (market === 'a') {
+        mountDailyBoard(primary);
         const watch = el('section', null, 'radar-equity-watch');
         watch.dataset.equityWatch = '';
         watch.append(el('h4', '沪深观察'), el('p', '8 只固定观察股 · 日终', 'radar-cadence'));
         board.append(watch);
         mountQuotePanel(watch, 'watch');
+      } else {
+        mountQuotePanel(primary, 'us');
       }
       const intraday = market === 'a' ?
         link('盘口异动 ↗', 'https://quote.eastmoney.com/changes/') :

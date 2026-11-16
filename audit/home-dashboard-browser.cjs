@@ -8,7 +8,7 @@ const engine = process.env.HOME_BROWSER_ENGINE || 'chromium';
 const site = new URL(process.env.HOME_BROWSER_URL || 'http://127.0.0.1:8784/');
 const output = path.join(__dirname, 'browser-output/home-dashboard');
 const viewports = [{width:1440,height:900}, {width:390,height:844}];
-const heatmapUrl = 'https://dapan.app/?market=all&period=day&borders=off';
+const heatmapRepo = 'https://github.com/wenyuanw/a-share-heatmap';
 const intradaySources = {
   a: 'https://quote.eastmoney.com/changes/',
   us: 'https://www.nasdaqtrader.com/trader.aspx?id=TradeHalts',
@@ -21,7 +21,9 @@ async function checkLinks(page) {
     const url = new URL(href);
     if(url.origin!==site.origin){
       assert.equal(url.protocol,'https:');
-      if (Object.values(intradaySources).includes(url.href) || ['https://dapan.app/',heatmapUrl].includes(url.href)) continue;
+      if (Object.values(intradaySources).includes(url.href) || url.href === 'https://dapan.app/' ||
+          url.href === heatmapRepo || url.href === heatmapRepo+'/' ||
+          /^https:\/\/(?:raw\.githubusercontent\.com\/wenyuanw\/a-share-heatmap\/|github\.com\/wenyuanw\/a-share-heatmap\/blob\/)(?:main|[a-f0-9]{40})\/src\/lib\/data\/market-heatmap-fallback\.json$/.test(url.href)) continue;
       assert.ok(['www.tradingview.com','cn.tradingview.com'].includes(url.hostname),href);
       assert.ok(url.pathname === '/markets/stocks-china/' ||
         /^\/markets\/stocks-(?:china|usa)\/market-movers-(?:gainers|losers|active)\/$/.test(url.pathname),href);
@@ -51,8 +53,8 @@ async function inspect(browser, viewport) {
     if(url.origin===site.origin && url.pathname==='/home-widget-test.html'){
       return route.fulfill({contentType:'text/html',body:'<!doctype html><title>Test chart</title><p>Controlled chart frame</p>'});
     }
-    if (url.href === heatmapUrl) {
-      return route.fulfill({contentType:'text/html',body:'<!doctype html><title>Controlled heatmap</title><p data-heatmap-proof>Heatmap response</p>'});
+    if (url.hostname === 'raw.githubusercontent.com' && url.pathname.includes('/wenyuanw/a-share-heatmap/')) {
+      return route.abort();
     }
     if (url.origin === site.origin) return route.continue();
     if(url.href==='https://s3.tradingview.com/external-embedding/embed-widget-mini-symbol-overview.js'){
@@ -94,23 +96,41 @@ async function inspect(browser, viewport) {
     us:page.locator('.radar-stocks [data-mover-market="us"]'),
   };
   const boards = {
-    heatmap: panels.a.locator('.radar-main-body'),
+    daily: panels.a.locator('.radar-main-body'),
     watch: panels.a.locator('[data-equity-watch]'),
     us: panels.us,
   };
+  async function inspectDaily() {
+    const panel = boards.daily;
+    assert.equal(await panel.locator('iframe').count(),0,'native A-share daily lists');
+    const asOf = panel.locator('[data-daily-asof]');
+    await asOf.waitFor();
+    const date = await asOf.innerText();
+    assert.match(date,/20\d{2}[-/.年]\d{1,2}[-/.月]\d{1,2}/,'daily snapshot date is visible');
+    const evidence = {date};
+    for (const side of ['gainers','losers']) {
+      const rows = panel.locator('[data-daily-side="'+side+'"] li');
+      await rows.first().waitFor();
+      const texts = await rows.allInnerTexts();
+      assert.ok(texts.length >= 1 && texts.length <= 3,side+' shows up to three securities');
+      const codes = texts.map((row, index) => {
+        const code = row.match(/\d{6}/)?.[0];
+        assert.ok(code,'stock code at rank '+(index+1)+' in '+side);
+        assert.match(row,/\p{Script=Han}/u,'stock name at rank '+(index+1)+' in '+side);
+        assert.doesNotMatch(row,/\d\s*[%％]/,'bundled rank has no copied quote percentage');
+        return code;
+      });
+      assert.equal(new Set(codes).size,texts.length,'no duplicate ranks in '+side);
+      evidence[side] = codes;
+    }
+    return evidence;
+  }
   async function inspectBoard(key, direction='gainers') {
     const board = boards[key];
     const frames = board.locator('.radar-mover-stage iframe');
     await frames.waitFor({state:'visible'});
     assert.equal(await frames.count(),1);
     const src = await frames.getAttribute('src');
-    if (key === 'heatmap') {
-      assert.equal(src,heatmapUrl);
-      // The response fixture is served on the real approved origin. This checks
-      // browser navigation through the page's own CSP, without reading the provider.
-      await frames.contentFrame().locator('[data-heatmap-proof]').waitFor();
-      return frames.evaluate(frame => frame.dataset.testInstance ||= crypto.randomUUID());
-    }
     const params = new URL(src,site).searchParams;
     const config = JSON.parse(params.get('config'));
     if (key === 'watch') {
@@ -132,12 +152,13 @@ async function inspect(browser, viewport) {
   try {
     await page.goto(new URL('index.html', site).href, {waitUntil:'domcontentloaded'});
     const initial = {};
-    for (const board of ['heatmap','watch','us']) initial[board] = await inspectBoard(board);
+    initial.daily = await inspectDaily();
+    for (const board of ['watch','us']) initial[board] = await inspectBoard(board);
     for (const market of ['a','us']) {
       const actualSources = await panels[market].locator('a').evaluateAll(links => links.map(link => link.href));
       assert.ok(actualSources.includes(intradaySources[market]),'market-specific intraday source for '+market);
     }
-    console.log(engine,viewport.width,'A-share heatmap, eight Shanghai/Shenzhen stocks and US gainers loaded before interaction');
+    console.log(engine,viewport.width,'native daily lists, eight Shanghai/Shenzhen stocks and US gainers loaded before interaction',initial.daily);
     await page.locator('#insight-macro').getByText(/国家统计局/).first().waitFor();
     await page.locator('.radar-crypto .radar-rows').getByText('BTC-USDT').waitFor();
     assert.ok(tickerSocket, 'Bitget socket connected');
@@ -198,36 +219,28 @@ async function inspect(browser, viewport) {
     for (const kind of ['gainers','losers']) {
       await panels.us.locator('.radar-mover-sources a[href$="/stocks-usa/market-movers-'+kind+'/"]').waitFor();
     }
-    assert.equal(await inspectBoard('heatmap'),initial.heatmap);
+    assert.deepEqual(await inspectDaily(),initial.daily);
     assert.equal(await inspectBoard('watch'),initial.watch);
     await panels.us.locator('.radar-retry').click();
     await inspectBoard('us','losers');
-    assert.equal(await inspectBoard('heatmap'),initial.heatmap);
+    assert.deepEqual(await inspectDaily(),initial.daily);
     assert.equal(await inspectBoard('watch'),initial.watch);
     await page.locator('.radar-stocks').screenshot({path:prefix+'-stock-radar.png'});
     await checkLinks(page);
 
-    // Test the native heatmap's iframe-error path explicitly. An HTTP error document
-    // can still emit load, so treating a blocked network request as an iframe error
-    // would give a misleading result about what the parent can observe.
+    // The remote daily snapshot is still blocked. An independent outage in
+    // the quote widget must leave the dated on-site lists readable.
     failWatch = true;
     await page.reload({waitUntil:'domcontentloaded'});
-    await inspectBoard('heatmap');
-    const nativeFrame = boards.heatmap.locator('.radar-mover-stage iframe');
-    await nativeFrame.dispatchEvent('error');
-    await boards.heatmap.locator('.radar-retry').waitFor();
     await boards.watch.locator('.radar-retry').waitFor();
+    assert.deepEqual(await inspectDaily(),initial.daily);
     const usOnReload = await inspectBoard('us');
     failWatch = false;
-    await boards.heatmap.locator('.radar-retry').click();
-    const recoveredHeatmap = await inspectBoard('heatmap');
-    assert.equal(await boards.watch.locator('.radar-mover-stage iframe').count(),0);
-    assert.equal(await inspectBoard('us'),usOnReload);
     await boards.watch.locator('.radar-retry').click();
     await inspectBoard('watch');
-    assert.equal(await inspectBoard('heatmap'),recoveredHeatmap);
+    assert.deepEqual(await inspectDaily(),initial.daily);
     assert.equal(await inspectBoard('us'),usOnReload);
-    console.log(engine,viewport.width,'heatmap, watchlist and US boards recover independently');
+    console.log(engine,viewport.width,'native lists survive remote outage and both quote widgets recover independently');
 
     const ranking = page.locator('#home-trader-ranking');
     await ranking.scrollIntoViewIfNeeded();

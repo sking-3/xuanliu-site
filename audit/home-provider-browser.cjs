@@ -8,6 +8,7 @@ const output = 'audit/browser-output/home-dashboard';
 const home = process.env.HOME_PROVIDER_URL || 'http://127.0.0.1:8784/index.html';
 const percentage = /[+−-]?\d[\d,]*(?:\.\d+)?\s*%/;
 const price = /\d/;
+const dailySource = 'https://raw.githubusercontent.com/wenyuanw/a-share-heatmap/main/src/lib/data/market-heatmap-fallback.json';
 const watchSymbols = {
   SSE: new Set(['SSE:600519','SSE:601398','SSE:600036','SSE:601318']),
   SZSE: new Set(['SZSE:000858','SZSE:000333','SZSE:002594','SZSE:300750'])
@@ -39,49 +40,45 @@ async function watchRows(panel, exchange) {
   return values;
 }
 
-async function heatmap(page) {
-  const embed = page.locator('[data-mover-market="a"] .radar-main-body iframe');
-  await embed.waitFor({timeout});
-  const frame = await (await embed.elementHandle()).contentFrame();
-  assert.ok(frame, 'A-share heatmap iframe is missing');
-  try {
-    await frame.waitForURL(url => url.hostname === 'dapan.app' && url.searchParams.get('market') === 'all'
-      && url.searchParams.get('period') === 'day', {timeout,waitUntil:'domcontentloaded'});
-    const data = await frame.waitForFunction(() => {
-      const labels = Array.from(document.querySelectorAll('p'));
-      const count = label => {
-        const text = labels.find(node => node.textContent.trim() === label)?.nextElementSibling?.textContent?.trim();
-        return text && /^[\d,]+$/.test(text) ? Number(text.replace(/,/g,'')) : NaN;
-      };
-      const rising = count('上涨'), flat = count('平盘'), falling = count('下跌');
-      const coverage = rising + flat + falling;
-      if (!(coverage > 1000 && rising + falling > 0)) return false;
-      // The provider paints an archive before real quotes arrive.
-      if (/当前为样本快照|样本数据|正在加载实时数据/.test(document.body.innerText)) return false;
-      if (labels.some(node => node.textContent.trim() === '当前为样本快照')) return false;
-      const canvas = document.querySelector('canvas[aria-label="A 股市场热力图画布"]');
-      if (!canvas || canvas.clientWidth < 100 || canvas.clientHeight < 80) return false;
-      const small = document.createElement('canvas');
-      small.width = 64;
-      small.height = 40;
-      const context = small.getContext('2d');
-      context.drawImage(canvas,0,0,64,40);
-      const {data} = context.getImageData(0,0,64,40);
-      let red = 0, green = 0;
-      for (let i=0; i<data.length; i+=4) {
-        const [r,g,b,alpha] = data.subarray(i,i+4);
-        if (alpha < 128) continue;
-        if (r > g + 20 && r > b + 12) red++;
-        if (g > r + 15 && g > b + 5) green++;
-      }
-      if (red + green < 60 || (rising > 0 && falling > 0 && !(red && green))) return false;
-      return {rising,flat,falling,coverage,red,green};
-    },null,{timeout,polling:500});
-    console.log('Live China market breadth and painted heatmap', await data.jsonValue());
-  } catch (error) {
-    const status = await frame.locator('body').innerText({timeout:3000}).catch(()=>'No response body');
-    const chart = await frame.locator('canvas').count().catch(()=>0);
-    throw Error('Heatmap failed: '+frame.url()+' | canvas='+chart+' | '+status.replace(/\s+/g,' ').slice(0,800)+' | '+error.message);
+function shanghaiDay(value) {
+  if (!value || !Number.isFinite(Date.parse(value))) throw new Error('Invalid snapshot date: ' + value);
+  return new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(value));
+}
+
+async function chinaDaily(page) {
+  const response = await page.request.get(dailySource,{timeout});
+  assert.ok(response.ok(), 'Upstream closing archive HTTP ' + response.status());
+  const source = await response.json();
+  assert.ok(Array.isArray(source.stocks) && source.stocks.length === source.stockCount && source.stockCount > 1000,
+    'Unexpected upstream stock universe');
+  const candidates = source.stocks.filter(stock => Number.isFinite(stock.price) && stock.price > 0 && Number.isFinite(stock.changePct))
+    .map(stock => ({code:stock.code.split('.')[0],name:stock.name,change:stock.changePct}));
+  const board = page.locator('[data-mover-market="a"] .radar-main-body');
+  const asof = board.locator('[data-daily-asof]');
+  const expectedDay = shanghaiDay(source.updatedAt);
+  await asof.waitFor({timeout});
+  await page.waitForFunction(expected => {
+    const value = document.querySelector('[data-mover-market="a"] .radar-main-body [data-daily-asof]')?.getAttribute('datetime');
+    if (!value || !Number.isFinite(Date.parse(value))) return false;
+    return new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(value)) === expected;
+  }, expectedDay, {timeout});
+  await board.locator('[data-daily-origin="upstream"]').waitFor({timeout});
+  const origin = 'upstream';
+  assert.equal(shanghaiDay(await asof.getAttribute('datetime')),expectedDay);
+  for (const [side,sign] of [['gainers',1],['losers',-1]]) {
+    const expected = candidates.filter(stock => sign * stock.change > 0)
+      .sort((a,b) => sign * (b.change - a.change) || a.code.localeCompare(b.code)).slice(0,3);
+    assert.equal(expected.length,3);
+    const rows = board.locator('[data-daily-side="' + side + '"] li[data-code]:visible');
+    await rows.nth(2).waitFor({timeout});
+    const actual = await rows.evaluateAll(nodes => nodes.map(node => ({code:node.dataset.code,text:node.innerText})));
+    assert.deepEqual(actual.map(row=>row.code),expected.map(stock=>stock.code),side + ' rank order differs from the dated archive');
+    for (const [index,row] of actual.entries()) {
+      assert.match(row.code,/^\d{6}$/);
+      assert.ok(expected[index].name && row.text.includes(expected[index].name) && row.text.includes(row.code),
+        'Missing display name/code: ' + JSON.stringify(row));
+    }
+    console.log('Verified China closing rank',expectedDay,origin,side,actual.map(row => row.text.replace(/\s+/g,' ')));
   }
 }
 
@@ -123,19 +120,19 @@ async function check() {
     const page = await browser.newPage({viewport:{width:1440,height:900}});
     page.on('requestfailed', request => {
       const url = new URL(request.url());
-      if (url.hostname === 'dapan.app' || url.hostname.endsWith('tradingview.com') || url.hostname.endsWith('tradingview-widget.com'))
+      if (url.origin + url.pathname === dailySource || url.hostname.endsWith('tradingview.com') || url.hostname.endsWith('tradingview-widget.com'))
         console.log('Source request failed', url.origin+url.pathname, request.failure()?.errorText);
     });
     page.on('response', response => {
       const url = new URL(response.url());
-      if (url.hostname === 'dapan.app' && response.status() >= 400)
-        console.log('Heatmap source HTTP',response.status(),url.pathname);
+      if (url.origin + url.pathname === dailySource && response.status() >= 400)
+        console.log('Closing archive HTTP',response.status());
     });
     await page.goto(home, {waitUntil:'domcontentloaded'});
     const board = page.locator('.radar-stocks');
     await board.scrollIntoViewIfNeeded();
     const failures = [];
-    for (const verify of [heatmap,chinaWatch,us]) {
+    for (const verify of [chinaDaily,chinaWatch,us]) {
       try { await verify(page); }
       catch (error) { failures.push(verify.name + ': ' + error.message); }
     }

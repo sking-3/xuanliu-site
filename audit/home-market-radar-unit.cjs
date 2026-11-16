@@ -35,12 +35,8 @@ test('future and historical alerts do not count as active signals', () => {
   const a = stockView(data,'a',now);
   assert.deepEqual(a.alerts.map(item=>item.symbol),['000001']);assert.equal(a.last,now);
 });
-test('A-share board opens the day map and an eight-stock Shanghai and Shenzhen watchlist', () => {
+test('A-share quote widget has four Shanghai and four Shenzhen stocks', () => {
   const {moverConfig} = require('../home-market-radar.js');
-  const map = new URL(moverConfig('a').frame);
-  assert.equal(map.origin,'https://dapan.app');
-  assert.equal(map.searchParams.get('market'),'all');
-  assert.equal(map.searchParams.get('period'),'day');
   const watch = moverConfig('watch');
   assert.equal(watch.script,'market-overview');
   const codes = watch.widget.tabs[0].symbols.map(row=>row.s);

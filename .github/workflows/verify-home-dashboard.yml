@@ -9,6 +9,8 @@ on:
       - 'home*.css'
       - 'audit/home-dashboard-browser.cjs'
       - 'audit/home-provider-browser.cjs'
+      - 'research-data/a-daily-movers.json'
+      - 'audit/home-daily-movers-unit.cjs'
       - '.github/workflows/verify-home-dashboard.yml'
 permissions:
   contents: read
@@ -39,14 +41,22 @@ jobs:
           site_pid=$!
           trap 'kill "$site_pid" || true' EXIT
           curl --fail --retry 5 --retry-connrefused -s -o /dev/null http://127.0.0.1:8784/index.html
+          node --test audit/home-market-radar-unit.cjs audit/home-daily-movers-unit.cjs
           NODE_PATH="$RUNNER_TEMP/home-browser/node_modules" node audit/home-dashboard-browser.cjs
-      - name: Verify the market heatmap and actual China and US stock rows
+      - name: Verify the closing ranks and actual China and US quotes
         if: matrix.engine == 'chromium'
         run: |
           python3 -m http.server 8784 --bind 127.0.0.1 > "$RUNNER_TEMP/home-live-http.log" 2>&1 &
           site_pid=$!
           trap 'kill "$site_pid" || true' EXIT
           curl --fail --retry 5 --retry-connrefused -s -o /dev/null http://127.0.0.1:8784/index.html
+          public_home="https://sking-3.github.io/xuanliu-site/index.html?verify=$GITHUB_SHA"
+          if curl --fail --silent --show-error --max-time 10 "$public_home" -o "$RUNNER_TEMP/public-home.html" && cmp -s index.html "$RUNNER_TEMP/public-home.html"; then
+            export HOME_PROVIDER_URL="$public_home"
+            echo "Checking this revision on GitHub Pages"
+          else
+            echo "Checking this revision on the local HTTP server"
+          fi
           NODE_PATH="$RUNNER_TEMP/home-browser/node_modules" node audit/home-provider-browser.cjs
       - uses: actions/upload-artifact@v4
         if: always()
