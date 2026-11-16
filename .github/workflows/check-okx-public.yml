@@ -24,12 +24,9 @@ jobs:
              const data=zip.gzipSync(raw).toString('base64');for(let i=0;i<data.length;i+=4000)console.log('OKX_RAW '+JSON.stringify([name,data.slice(i,i+4000)]));
              return body.data;
             }
-            const ranks=(await read('leaders','public-lead-traders?instType=SWAP&sortType=pnl_ratio&minLeadDays=3&page=1&limit=20'))?.[0]?.ranks;
-            if(!Array.isArray(ranks)||stopped)return;
-            console.log('LEADERS '+JSON.stringify(ranks.map(r=>[r.uniqueCode,r.nickName,r.leadDays,r.pnlRatio,r.copyTraderNum,r.winRatio,r.ccy])));
-            const final=ranks.filter(x=>Number(x.leadDays)>=90&&Number(x.pnlRatio)>0&&Number(x.copyTraderNum)>0&&/^[A-Za-z0-9]{8,32}$/.test(x.uniqueCode)).sort((a,b)=>Number(b.pnlRatio)-Number(a.pnlRatio)||a.uniqueCode.localeCompare(b.uniqueCode)).slice(0,6);
-            for(const x of final){if(stopped)break;
-             for (const p of (Number(x.leadDays)>=365?[3,4]:[3])){await new Promise(f=>setTimeout(f,650));const data=await read(x.uniqueCode+'-'+p,'public-pnl?instType=SWAP&uniqueCode='+x.uniqueCode+'&lastDays='+p);
-             if(stopped)break;console.log('CURVE '+JSON.stringify([x.uniqueCode,p,data?.length,data?.[0],data?.at(-1)]));}
+            for (const id of ['811846999954962957','CB312175A85C9B68','807517291536749293','7E27C9B14BB5D378','D442CF34E4AEEAF1','A83A52C0C7F33A43']) {
+              if(stopped)break;
+              await new Promise(f=>setTimeout(f,650));
+              await read(id+'-2','public-pnl?instType=SWAP&uniqueCode='+id+'&lastDays=2');
             }
           })().catch(e=>{console.error(e);process.exitCode=1;});
