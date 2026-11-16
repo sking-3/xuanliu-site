@@ -17,7 +17,7 @@
   function check(ok) {if (!ok) throw Error('Invalid AlphaFox public archive');}
   function parse(raw,now=Date.now()) {
     const fields=['schemaVersion','sourceId','sourceUrl','portfolioId','sourceBodySha256','projection','polledAt','fetchedAt',
-      'eventPnlAvailable','latestOrders','closedPositions','archiveReceipts'];
+      'eventPnlAvailable','latestOrders','closedPositions','archiveReceipts','positionSnapshots'];
     check(only(raw,fields) && raw.schemaVersion===1 && raw.projection==='public-historical-records-v1'
       && raw.sourceId===sourceId && raw.portfolioId===portfolioId && raw.sourceUrl===sourceUrl && raw.eventPnlAvailable===false
       && typeof raw.sourceBodySha256==='string' && /^[a-f0-9]{64}$/.test(raw.sourceBodySha256));
@@ -36,6 +36,35 @@
       }
       const last=receipts[receipts.length-1];
       check(last.sourceBodySha256===raw.sourceBodySha256 && last.polledAt===raw.polledAt && last.fetchedAt===raw.fetchedAt);
+    }
+    if(Object.hasOwn(raw,'positionSnapshots')) {
+      const timeframe=new Map((raw.archiveReceipts||[raw]).map(r=>[r.sourceBodySha256,r]));
+      check(Array.isArray(raw.positionSnapshots));let last=0;
+      for(const s of raw.positionSnapshots){
+        const receipt=timeframe.get(s.sourceBodySha256),at=Date.parse(s.polledAt);
+        check(only(s,['sourceUrl','sourceBodySha256','polledAt','fetchedAt','sourceTime','status','sourcePositionShow','rows','totals','quote','official'])
+          && receipt && s.sourceUrl===sourceUrl && s.official===false && s.quote==='USDT' && at>last
+          && receipt.polledAt===s.polledAt && receipt.fetchedAt===s.fetchedAt
+          && (s.sourceTime===null||timestamp(Date.parse(s.sourceTime),at+5000))
+          && ['reported','reported_empty','hidden','unavailable'].includes(s.status)
+          && (s.sourcePositionShow===null||typeof s.sourcePositionShow==='boolean') && Array.isArray(s.rows)
+          && s.rows.length<=1000 && (s.status==='reported')===(s.rows.length>0)
+          && (s.status!=='reported_empty'||s.sourcePositionShow===true));
+        const totals=['marginBalance','notional','unrealizedPnl','effectiveLeverage'];
+        check(only(s.totals,totals)&&totals.every(k=>s.totals[k]===null||Number.isFinite(s.totals[k])));
+        const ids=new Set();
+        for(const r of s.rows){
+          check(only(r,['symbol','baseAsset','side','quantity','entryPrice','markPrice','notional','unrealizedPnl','leverage','sourceOpenedAt','origin'])
+            && symbol(r.symbol)&&typeof r.baseAsset==='string'&&/^[A-Z0-9_]{1,40}$/.test(r.baseAsset)
+            && ['long','short'].includes(r.side)&&positive(r.quantity)
+            && [r.entryPrice,r.markPrice,r.leverage].every(x=>x===null||positive(x))
+            && (r.notional===null||Number.isFinite(r.notional)&&r.notional>=0)&&(r.unrealizedPnl===null||Number.isFinite(r.unrealizedPnl))
+            && (r.sourceOpenedAt===null||timestamp(Date.parse(r.sourceOpenedAt),at+5000))
+            && typeof r.origin==='string'&&/^[A-Za-z0-9_-]{1,60}$/.test(r.origin));
+          const key=[r.symbol,r.side,r.sourceOpenedAt,r.origin].join(':');check(!ids.has(key));ids.add(key);
+        }
+        last=at;
+      }
     }
     check(Array.isArray(raw.closedPositions) && raw.closedPositions.length>0 && raw.closedPositions.length<=10000
       && Array.isArray(raw.latestOrders) && raw.latestOrders.length>0 && raw.latestOrders.length<=25000);

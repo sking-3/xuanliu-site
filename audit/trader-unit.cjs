@@ -377,7 +377,7 @@ await test('the first mixed page includes all four Binance identities and retain
 await test('retained stale Hyperliquid cards and Binance cards never add foreground analytics targets',()=>{
  const before=[analyticsCalls.portfolios.length,analyticsCalls.wins.length];unifiedSetup();a.state.portfolioCacheAttempted=true;a.state.portfolioCache={};a.render();
  assert.deepEqual([analyticsCalls.portfolios.length,analyticsCalls.wins.length],before);assert.equal(a.state.analyticsTargets.length,0);assert.ok(a.state.rows.some(a.isPublicAccount));
- for(const r of a.state.binanceRows){assert.equal(a.canReadLive(r),false);a.openDetail(r,'30D');a.activateDetailTab('live');assert.equal(a.state.tab,'analysis');assert.equal(a.state.liveClient,null);}
+ for(const r of a.state.binanceRows){assert.equal(a.canReadLive(r),false);a.openDetail(r,'30D');a.activateDetailTab('live');assert.equal(a.state.tab,a.binanceView(r).observedAt?'live':'analysis');assert.equal(a.state.liveClient,null);}
  assert.deepEqual([analyticsCalls.portfolios.length,analyticsCalls.wins.length],before);
 });
 await test('platform switches, search and numeric sorting share the same grid without inventing Binance metrics',()=>{
@@ -606,7 +606,7 @@ await test('public cards expose research and source only, including legacy Follo
  a.openDetail(r,'30D');for(const tab of ['paper','follow','api']){a.activateDetailTab(tab);assert.equal(a.state.tab,'analysis');}
 });
 await test('cards omit repeated position warnings while the source notice preserves stale state',()=>{
- const before={source:a.state.source,lastReadFailed:a.state.lastReadFailed,positionExclusions:a.state.positionExclusions};try{const f=qualify(published,Date.now()-3700000),rows=a.validate(f);a.state.source=a.validateSource(f,rows);a.state.lastReadFailed=false;a.state.positionExclusions={};const r=rows[0];assert.doesNotMatch(content(a.card(r,'7D')),/当前仓位未知|上次持仓|核验时持仓|快照过期|北京时间/);a.renderSource();assert.match(ids['position-notice'].textContent,/核验已过期.*当前仓位未知/);assert.match(ids['position-notice'].textContent,/详情查看/);assert.equal(a.currentHolding(r),false);a.state.lastReadFailed=true;assert.doesNotMatch(content(a.card(r,'7D')),/快照读取失败|当前仓位未知/);a.renderSource();assert.match(ids['position-notice'].textContent,/快照读取失败/);}finally{Object.assign(a.state,before);}
+ const before={source:a.state.source,lastReadFailed:a.state.lastReadFailed,positionExclusions:a.state.positionExclusions};const exchange=ids.exchange.value;ids.exchange.value='Hyperliquid';try{const f=qualify(published,Date.now()-3700000),rows=a.validate(f);a.state.source=a.validateSource(f,rows);a.state.lastReadFailed=false;a.state.positionExclusions={};const r=rows[0];assert.doesNotMatch(content(a.card(r,'7D')),/当前仓位未知|上次持仓|核验时持仓|快照过期|北京时间/);a.renderSource();assert.match(ids['position-notice'].textContent,/核验已过期.*当前仓位未知/);assert.match(ids['position-notice'].textContent,/详情查看/);assert.equal(a.currentHolding(r),false);a.state.lastReadFailed=true;assert.doesNotMatch(content(a.card(r,'7D')),/快照读取失败|当前仓位未知/);a.renderSource();assert.match(ids['position-notice'].textContent,/快照读取失败/);}finally{ids.exchange.value=exchange;Object.assign(a.state,before);}
 });
 await test('published Bitget and OKX details retain real windows, records, and hidden-position states',async()=>{
  const read=rel=>JSON.parse(fs.readFileSync(path.resolve(__dirname,'../trader',rel),'utf8'));
@@ -616,7 +616,10 @@ await test('published Bitget and OKX details retain real windows, records, and h
  const bg=bitget.parse(read('bitget/period-returns.json')),ox=okx.parse(read('okx/period-returns.json'));
  const real=(r,adapter,group)=>({...adapter.trader(r),activity:group,windows:{},positions:[],points:[],orders:[]});
  const visible=bg.accounts.find(r=>r.activity.positions.rows.length),b=real(visible,bitget,visible.activity);
+ a.selectPlatform('Bitget');assert.ok(ids['position-notice'].hidden);assert.doesNotMatch(content(ids.status),/Hyperliquid/);assert.ok(ids['source-summary'].hidden);
+ const shown=a.card(b,'30D');assert.match(content(shown),/同期盈亏 USD/);assert.match(content(shown),/来源回撤/);assert.match(content(shown),/每日收益率/);assert.match(content(shown),/历史仓位/);
  a.openDetail(b,'365D');assert.equal(a.state.window,'90D');assert.match(content(ids['detail-body']),/365D 暂无可核实收益/);assert.match(content(ids['detail-body']),/Bitget 90D 收益率/);assert.match(content(ids['detail-body']),/官方每日收益率/);
+ assert.match(content(ids['detail-body']),/已平仓样本分析/);assert.match(content(ids['detail-overview']),/Bitget.*持仓快照/);
  a.activateDetailTab('positions');assert.match(content(ids['detail-body']),new RegExp(visible.activity.history.rows[0].symbol));assert.match(content(ids['detail-body']),/已平仓仓位/);
  a.activateDetailTab('live');assert.match(content(ids['detail-body']),new RegExp(visible.activity.positions.rows[0].symbol));assert.match(content(ids['detail-body']),/延迟约 1 小时/);
  a.activateDetailTab('orders');assert.equal(a.state.tab,'live');
@@ -624,12 +627,59 @@ await test('published Bitget and OKX details retain real windows, records, and h
  a.openDetail(real(shielded,bitget,shielded.activity),'30D');assert.match(content(ids['detail-body']),/策略保护/);a.activateDetailTab('live');assert.equal(a.state.tab,'analysis');
  const hidden=activity.accounts.find(a=>a.activity.positions.hiddenCount&&!a.activity.positions.rows.length);
  const record=ox.accounts.find(r=>r.uniqueCode===hidden.uniqueCode);
- a.openDetail(real(record,okx,hidden.activity),'90D');assert.match(content(ids['detail-body']),/来源隐藏了/);a.activateDetailTab('positions');assert.match(content(ids['detail-body']),new RegExp(hidden.activity.history.rows[0].symbol));
+ a.selectPlatform('OKX');assert.ok(ids['position-notice'].hidden);assert.match(ids.status.textContent,/OKX/);
+ a.openDetail(real(record,okx,hidden.activity),'90D');assert.match(content(ids['detail-overview']),/来源隐藏了/);assert.doesNotMatch(content(ids['detail-overview']),/敞口.*0/);assert.match(content(ids['detail-body']),/来源隐藏了/);a.activateDetailTab('positions');assert.match(content(ids['detail-body']),new RegExp(hidden.activity.history.rows[0].symbol));
  delete context.BooksBitgetPeriodData;delete context.BooksOKXPeriodData;
+});
+await test('official OKX and Bitget ROI and PnL controls use their source series; Bitget capital stays in its own units',async()=>{
+ const read=pathName=>fs.readFileSync(path.join(__dirname,'../trader',pathName));
+ const bitget=require('../trader/bitget-period-data.js'),okx=require('../trader/okx-period-data.js');
+ const saved=context.fetch;context.crypto=require('node:crypto').webcrypto;context.TextDecoder=TextDecoder;
+ const find=(element,predicate)=>{if(predicate(element))return element;for(const item of element.children||[]){const child=find(item,predicate);if(child)return child;}};
+ try{
+   context.BooksBitgetPeriodData=bitget;context.BooksOKXPeriodData=okx;
+   context.fetch=async url=>{const bytes=read(url);return {ok:true,headers:{get:()=>String(bytes.length)},arrayBuffer:async()=>bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength)};};
+   for(const [exchange,adapter] of [['bitget',bitget],['okx',okx]]){
+     const row=adapter.parse(JSON.parse(read(exchange+'/period-returns.json'))).accounts[0];
+     const r={...adapter.trader(row),activity:row.activity,windows:{},positions:[],points:[],orders:[]};a.openDetail(r,'30D');
+     const view=find(ids['detail-body'],x=>x.className==='lead-curve');
+     if(exchange==='okx')for(let i=0;i<40&&!find(view,x=>x.textContent==='盈亏');i++)await new Promise(res=>setTimeout(res,2));
+     const pnl=find(view,x=>x.textContent==='盈亏');assert.ok(pnl);pnl.click();assert.match(content(view),/官方每日盈亏/);
+     const svg=find(view,x=>x.attrs?.role==='img');assert.ok(svg.attrs['aria-label'].includes(r.currency));
+     if(exchange==='bitget'){
+       assert.match(content(ids['detail-body']),/组合资产与资金调拨/);assert.match(content(ids['detail-body']),/组合净值.*USD/);
+       assert.match(content(ids['detail-body']),/USDT/);assert.match(content(ids['detail-body']),/调拨凭证/);
+     }
+   }
+ }finally{context.fetch=saved;delete context.BooksBitgetPeriodData;delete context.BooksOKXPeriodData;}
+});
+await test('Aoying displays the dated independent NVDA observation alongside a hidden official position',async()=>{
+ const raw=fs.readFileSync(path.join(__dirname,'../trader/binance/aoying-public-archive.json'),'utf8'),receipt=JSON.parse(raw);
+ const adapter=require('../trader/aoying-public-archive.js'),before=context.fetch;
+ try{
+   context.BooksAoyingPublicArchive=adapter;context.BooksReferenceData=require('../trader/reference-data.js');
+   vm.runInContext(fs.readFileSync(path.join(__dirname,'../trader/aoying-history.js'),'utf8'),context);
+   context.fetch=async(name)=>{assert.equal(name,'binance/aoying-public-archive.json');return {ok:true,headers:{get:()=>String(raw.length)},text:async()=>raw};};
+   const r=a.state.binanceRows.find(r=>r.accountId==='5075281354358777856');a.openDetail(r,'30D');
+   await new Promise(resolve=>setImmediate(resolve));
+   assert.equal(a.binanceView(r).currentPositionCount,null);
+   const reference=receipt.positionSnapshots.filter(p=>p.rows.length).at(-1),position=reference.rows[0];
+   const text=content(ids['detail-overview']);
+   assert.match(text,/币安未公开当前仓位/);assert.match(text,/AlphaFox 最后观测到的仓位/);
+   assert.ok(text.includes(position.symbol)&&text.includes(a.value(position.quantity))&&text.includes(a.value(position.entryPrice)));
+   assert.ok(text.includes('第三方公开档案'));assert.match(text,/快照实际杠杆/);
+ }finally{context.fetch=before;delete context.BooksAoyingPublicArchive;delete context.BooksReferenceData;}
+});
+await test('mk4 opens via its verified research address without joining the ranked or live portfolio set',()=>{
+ const address='0x77375a8c9d13bf79afb2a87f1b0ac1dfd5f5bf66';
+ location.href='https://example.com/trader/?exchange=Hyperliquid&account='+address+'&period=30D';
+ a.readURL();a.openLinkedAccount(true);assert.equal(a.state.detail.name,'mk4');assert.equal(a.state.detail.accountId,address);assert.ok(a.canReadLive(a.state.detail));
+ assert.equal(a.state.detail.windows['30D'],undefined);assert.ok(!a.state.rows.some(r=>r.id==='research-'+address));
 });
 console.log(`${passed} logic and DOM-model tests passed. Synthetic fixtures stay local; the published feed is checked separately.`);
 })().catch(e=>{console.error(e);process.exitCode=1;});
 
+require('./position-history-view-unit.cjs');
 require('./paper-ui-unit.cjs');
 require('./follow-privacy-unit.cjs');
 require('./floating-pnl-unit.cjs');

@@ -108,14 +108,6 @@
   for (const a of copy.querySelectorAll('a')) a.tabIndex = -1;
   track.append(copy);
   tape.dataset.loop = '';
-  const toggle = tape.querySelector('.tape-toggle');
-  toggle.hidden = false;
-  toggle.addEventListener('click', () => {
-    const paused = tape.toggleAttribute('data-paused');
-    toggle.setAttribute('aria-pressed', String(paused));
-    toggle.setAttribute('aria-label', paused ? '继续滚动行情' : '暂停滚动行情');
-    toggle.title = toggle.getAttribute('aria-label');
-  });
   function measure() {
     if (parent !== window) parent.postMessage({type:'books-market-strip-size',height:tape.getBoundingClientRect().height+1},location.origin);
   }

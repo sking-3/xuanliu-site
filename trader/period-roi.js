@@ -164,5 +164,5 @@ function forDisplay(w) {
     return {...w,...unavailable('history_unverified')};
   return w;
 }
-return {calculate,validateWindow,forDisplay,REASONS,METHOD,TOLERANCE};
+return {calculate,validateWindow,forDisplay,REASONS,METHOD,TOLERANCE,normalizeFlow:flow,normalizeLedger:ledgerInput};
 });

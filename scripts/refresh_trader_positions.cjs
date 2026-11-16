@@ -89,9 +89,10 @@ async function readBounded(file,maxBytes,io=fs){
 async function main(args=process.argv.slice(2),dependencies={}) {
   const root=path.resolve(__dirname,'..');
   const files={feed:path.join(root,'trader/feed.json'),portfolios:path.join(root,'trader/portfolios.json'),analytics:path.join(root,'trader/analytics.json')};
-  let notBefore=null;
+  let notBefore=null,historyRoot=null;
   for(let i=0;i<args.length;i++){
     if(args[i]==='--not-before'&&args[i+1])notBefore=args[++i];
+    else if(args[i]==='--history-root'&&args[i+1])historyRoot=path.resolve(args[++i]);
     else if(['--feed','--portfolios','--analytics'].includes(args[i])&&args[i+1])files[args[i].slice(2)]=path.resolve(args[++i]);
     else fail('invalid_arguments');
   }
@@ -100,7 +101,9 @@ async function main(args=process.argv.slice(2),dependencies={}) {
   const guard=guardSnapshots({feed,portfolios,analytics,notBefore,now:now()});
   if(!guard.allowed){const result={status:'skipped',reason:guard.reason,blockedStage:guard.blockedStage};log(JSON.stringify(result));return result;}
   const launched=now();
-  await run('python3',['-B',path.join(__dirname,'collect_hyperliquid.py'),'--output',files.feed],{
+  const input=['-B',path.join(__dirname,'collect_hyperliquid.py'),'--output',files.feed];
+  if(historyRoot)input.push('--history-root',historyRoot);
+  await run('python3',input,{
     cwd:root,shell:false,timeout:LIMITS.processTimeoutMs,killSignal:'SIGTERM',maxBuffer:1024*1024,encoding:'utf8'});
   const updated=await readBounded(files.feed,LIMITS.feedBytes,io);
   validateFeed(updated,{since:launched,now:now()});

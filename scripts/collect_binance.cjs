@@ -361,6 +361,9 @@ async function main(){
  const out=await collectAll(previous,{stopBeforeRequest:process.env.BINANCE_PREVIOUS_RUN_UNVERIFIED==='1'});
  await fs.mkdir(path.dirname(file),{recursive:true});
  const save=async(name,value)=>{const temp=name+'.tmp';await fs.writeFile(temp,JSON.stringify(value,null,2)+'\n');await fs.rename(temp,name);};
+ const archive=require('./archive_positions.cjs');
+ const {persistSnapshots}=require('./position_lifecycle.cjs');
+ await persistSnapshots(path.dirname(path.dirname(file)),[...archive.snapshotsFromBinance(previous||out),...archive.snapshotsFromBinance(out)]);
  await save(file,out);
  await save(path.join(path.dirname(file),'snapshot.json'),out.portfolios.find(p=>p.portfolioId===DEFAULT_ID));
  console.log(JSON.stringify({batch:out.source,portfolios:out.portfolios.map(p=>({id:p.portfolioId,name:p.profile.name,status:p.source.status,refreshStopped:p.source.refreshStopped,errorCode:p.source.errorCode,lastSuccessAt:p.source.lastSuccessAt,positions:p.snapshot?.positions.length??null,orders:p.history.orders.rows.length,closedPositions:p.history.closedPositions.rows.length}))}));

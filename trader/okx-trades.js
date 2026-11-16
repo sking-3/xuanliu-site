@@ -38,6 +38,9 @@
       requireField(['long','short'].includes(row.side)&&['long','short','net'].includes(row.sourceSide));
       requireField(time(row.openedAt)&&Date.parse(row.openedAt)<=Date.parse(page.receivedAt)+300000&&Number.isFinite(row.quantity)&&row.quantity>0&&Number.isFinite(row.entryPrice)&&row.entryPrice>0);
       requireField(row.leverage===null||Number.isFinite(row.leverage)&&row.leverage>0);
+      requireField(row.margin==null||Number.isFinite(row.margin)&&row.margin>=0);
+      requireField(row.marginMode==null||['cross','isolated'].includes(row.marginMode));
+      requireField(row.pnlRatioPct==null||Number.isFinite(row.pnlRatioPct));
       if(kind==='history')requireField(time(row.closedAt)&&Date.parse(row.closedAt)>=Date.parse(row.openedAt)&&Date.parse(row.closedAt)<=Date.parse(page.receivedAt)+300000&&Number.isFinite(row.exitPrice)&&row.exitPrice>0&&(row.realizedPnl===null||Number.isFinite(row.realizedPnl)));
       else requireField((row.markPrice===null||Number.isFinite(row.markPrice)&&row.markPrice>0)&&(row.unrealizedPnl===null||Number.isFinite(row.unrealizedPnl)));
     }

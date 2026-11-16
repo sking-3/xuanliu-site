@@ -9,6 +9,20 @@ function expect(value,message) {if(!value)throw Error(message);}
 function keep(row,keys) {
   return Object.fromEntries(keys.filter(key=>Object.hasOwn(row,key)).map(key=>[key,row[key]]));
 }
+function publicPositionSnapshot(input,raw){
+  const state=input.positionState;
+  if(!state||typeof state!=='object')return null; // old history-only captures
+  const hasRows=Array.isArray(input.positions),visible=typeof state.positionShow==='boolean'?state.positionShow:null;
+  const number=v=>typeof v==='number'&&Number.isFinite(v)?v:null;
+  const rows=(hasRows?input.positions:[]).map(r=>({symbol:r.symbol,baseAsset:r.baseAsset,side:String(r.side).toLowerCase(),quantity:r.absQty,
+    entryPrice:number(r.avgPrice),markPrice:number(r.markPrice),notional:number(r.notional),unrealizedPnl:number(r.unrealizedPnl),leverage:number(r.leverage),
+    sourceOpenedAt:Number.isSafeInteger(r.openTime)&&r.openTime>0?new Date(r.openTime).toISOString():null,origin:r.origin}));
+  const empty=hasRows&&visible===true&&state.exchangeCount===0&&state.replayCount===0;
+  const status=rows.length?'reported':empty?'reported_empty':visible===false?'hidden':'unavailable';
+  const value=k=>rows.length||empty?number(input[k]):null;
+  return {sourceUrl:model.sourceUrl,...captureReceipt(raw),sourceTime:state.syncedAt||null,status,sourcePositionShow:visible,rows,
+    totals:{marginBalance:value('marginBalance'),notional:value('totalNotional'),unrealizedPnl:value('totalUnrealizedPnl'),effectiveLeverage:value('effectiveLeverage')},quote:'USDT',official:false};
+}
 function project(bytes,fetchedAt,now=Date.now()) {
   expect(bytes.length>0 && bytes.length<=8_000_000,'invalid AlphaFox response size');
   const reply=JSON.parse(bytes);
@@ -25,6 +39,7 @@ function project(bytes,fetchedAt,now=Date.now()) {
       data.fingerprint=sha(JSON.stringify([model.sourceId,...model.orderFields.map(key=>data[key])]));
       return data;
     })};
+  const observed=publicPositionSnapshot(input,raw);if(observed)raw.positionSnapshots=[observed];
   return model.parse(raw,now);
 }
 function mergeRecords(previous,latest,key) {
@@ -45,9 +60,15 @@ async function publish(file,raw) {
     expect(!current || Date.parse(raw.polledAt)>=Date.parse(current.polledAt),'older AlphaFox snapshot rejected');
     if(current && Date.parse(current.polledAt)===Date.parse(raw.polledAt)) {
       expect(current.sourceBodySha256===raw.sourceBodySha256,'conflicting AlphaFox snapshot timestamp');
-      return current;
+      const incoming=raw.positionSnapshots?.[0];
+      if(!incoming||current.positionSnapshots?.some(s=>s.sourceBodySha256===incoming.sourceBodySha256))return current;
+      // Reproject the previously acknowledged identical source body with the
+      // original receipt; this is not a second observation of the position.
+      const same=model.parse({...current,positionSnapshots:[...(current.positionSnapshots||[]),{...incoming,...captureReceipt(current)}]});
+      await fs.writeFile(tmp,JSON.stringify(same)+'\n',{flag:'wx'});await fs.rename(tmp,file);return same;
     }
     const archive=model.parse(current?{...raw,
+      positionSnapshots:[...(current.positionSnapshots||[]),...(raw.positionSnapshots||[])],
       archiveReceipts:[...(current.archiveReceipts||[captureReceipt(current)]),captureReceipt(raw)],
       closedPositions:mergeRecords(current.closedPositions,raw.closedPositions,'lifecycleId'),
       latestOrders:mergeRecords(current.latestOrders,raw.latestOrders,'fingerprint')

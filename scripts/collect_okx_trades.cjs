@@ -27,7 +27,10 @@ function row(raw,id,kind,p){
   const side=raw.posSide==='net'?(quantity<0?'short':'long'):raw.posSide;
   const r={id:raw.subPosId,symbol:raw.instId,side,sourceSide:raw.posSide,quantity:Math.abs(quantity),unit:'张',
     currency:raw.ccy,leverage:n(raw.lever),openedAt:iso(raw.openTime),entryPrice:n(raw.openAvgPx),
+    margin:n(raw.margin),marginMode:['cross','isolated'].includes(raw.mgnMode)?raw.mgnMode:null,
     sourceUrl:p.sourceUrl,evidencePath:p.evidencePath};
+  const ratio=n(kind==='history'?raw.pnlRatio:raw.uplRatio);
+  r.pnlRatioPct=ratio===null?null:Number((ratio*100).toFixed(10));
   if(kind==='history')Object.assign(r,{closedAt:iso(raw.closeTime),exitPrice:n(raw.closeAvgPx),realizedPnl:n(raw.pnl)});
   else Object.assign(r,{markPrice:n(raw.markPx),unrealizedPnl:n(raw.upl)});
   return r;
@@ -139,7 +142,7 @@ async function publish(out,bundle,archive){
   const temp=destination+'.'+randomUUID()+'.tmp';
   try{await fs.writeFile(temp,JSON.stringify(bundle)+'\n');await fs.rename(temp,destination);}
   finally{await fs.rm(temp,{force:true});}
-  for(const file of await fs.readdir(dir))if(/^[a-zA-Z0-9]+-(history|positions)-[a-f0-9]{64}\.json$/.test(file)&&!wanted.has(file))await fs.rm(path.join(dir,file));
+  // Retain earlier content-addressed evidence for durable observations when a position disappears.
 }
 async function main(args){
   const opts=new Map();

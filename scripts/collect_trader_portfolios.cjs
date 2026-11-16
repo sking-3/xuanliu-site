@@ -8,6 +8,7 @@ const path = require('node:path');
 const {performance} = require('node:perf_hooks');
 const analytics = require('../trader/account-analytics.js');
 const periodROI = require('../trader/period-roi.js');
+const strategyAnalytics = require('../trader/strategy-analytics.js');
 const shared = require('./collect_trader_analytics.cjs');
 const INFO = 'https://api.hyperliquid.xyz/info';
 const METHOD_VERSION = 'portfolio-periods-v2';
@@ -154,7 +155,7 @@ async function readLedger(request,address,range,now,budget) {
   }
   fail('invalid_response');
 }
-async function collect({feed,previous=null,fetch:fetcher=globalThis.fetch,now=Date.now,clock=()=>performance.now(),
+async function collect({feed,previous=null,onStrategy=null,fetch:fetcher=globalThis.fetch,now=Date.now,clock=()=>performance.now(),
   sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms)),setTimer=setTimeout,clearTimer=clearTimeout,limits={}}={}) {
   const config={...LIMITS,...limits};
   // Test configuration can tighten bounds, never raise the production ceilings.
@@ -203,6 +204,12 @@ async function collect({feed,previous=null,fetch:fetcher=globalThis.fetch,now=Da
         for(const row of segment.rows)merged.set(stableJSON(row),row);
         const events={...segment,rows:[...merged.values()].sort((a,b)=>a.time-b.time),queryEndAt:ranges[0].end};
         const values=periodROI.calculate(raw,events,address,now());
+        // Reuse this already queried ledger and raw paired samples. This adds no
+        // API calls and never changes the existing portfolio/ROI contract.
+        if(onStrategy)for(const period of Object.keys(strategyAnalytics.PERIODS)){
+          let report;try{report=strategyAnalytics.calculate(raw,events,address,period,now());}catch(_){continue;}
+          if(report.summary.startAt&&Date.parse(report.summary.startAt)>=range.start)onStrategy(report);
+        }
         // Earlier extensions cannot invalidate a separately verified shorter
         // window. Each published value retains its own ledger evidence/time.
         for(const key of Object.keys(DAYS))if(portfolio.windows[key]&&!verifiedWindows.has(key)&&time(portfolio.windows[key].startAt)>=range.start&&values[key]){
@@ -304,12 +311,19 @@ async function main(args=process.argv.slice(2),dependencies={}) {
   for(let i=0;i<args.length;i++){if(args[i]==='--feed'&&args[i+1])feedPath=path.resolve(args[++i]);else if(args[i]==='--output'&&args[i+1])outputPath=path.resolve(args[++i]);else fail('invalid_arguments');}
   const io=dependencies.io||fs,feed=await readFileJson(feedPath,io);let previous=null;
   try{previous=await readFileJson(outputPath,io);}catch(error){if(!['ENOENT'].includes(error.code)&&!(error instanceof SyntaxError)&&error.message!=='cache_file_too_large')throw error;}
-  const result=await collect({feed,previous,...dependencies});
+  const reports=new Map();
+  const result=await collect({feed,previous,...dependencies,onStrategy:report=>{const key=report.accountId+'/'+report.period;const prior=reports.get(key);if(!prior||report.status==='ready'||prior.status!=='ready')reports.set(key,report);dependencies.onStrategy?.(report);}});
   // A failed scope migration must not replace a live legacy snapshot with an empty v2 file.
   // Keep the previous file byte-for-byte and stop the workflow before later API stages.
   if(plain(previous)&&previous.methodVersion!==METHOD_VERSION&&result.source.accounts>0&&result.source.available===0)
     fail('migration_no_verified_portfolios');
   await atomicWrite(outputPath,result,io);
+  for(const report of reports.values()){
+    const file=path.join(path.dirname(outputPath),'strategy',report.accountId,report.period+'.json');
+    let previousReport=null;try{previousReport=strategyAnalytics.validate(await readFileJson(file,io),report.accountId,report.period);}catch(_){/* No prior validated analysis. */}
+    if(previousReport&&(Date.parse(previousReport.fetchedAt)>Date.parse(report.fetchedAt)||previousReport.status==='ready'&&report.status!=='ready'))continue;
+    await atomicWrite(file,report,io);
+  }
   (dependencies.log||console.log)(JSON.stringify(result.source));return result;
 }
 module.exports={collect,main,selectAccounts,validatedCache,validPortfolio,compactPortfolio,readJsonResponse,atomicWrite,readFileJson,blockedByFeed,failureReport,LIMITS,METHOD_VERSION};

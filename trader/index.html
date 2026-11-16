@@ -7,15 +7,15 @@
   <meta name="referrer" content="no-referrer">
   <meta name="robots" content="noindex,nofollow">
   <title>Books · 带单员广场</title>
-  <link rel="stylesheet" href="plaza.css?v=1bb021a5">
-  <script defer src="source-policy.js?v=533f3992"></script><script defer src="account-live.js?v=b283995c"></script>
+  <link rel="stylesheet" href="plaza.css?v=b755e497">
+  <script defer src="source-policy.js?v=533f3992"></script><script defer src="position-observations.js?v=8e23968f"></script><script defer src="account-live.js?v=09103774"></script>
   <script defer src="public-focus.js?v=29aabec1"></script>
-  <script defer src="period-roi.js?v=a01c8451"></script>
+  <script defer src="period-roi.js?v=2c2af217"></script>
   <script defer src="account-analytics.js?v=b27b43ff"></script>
   <script defer src="binance-data.js?v=5bbea14a"></script><script defer src="okx-period-data.js?v=fd467983"></script>
-  <script defer src="okx-trades.js"></script><script defer src="bitget-period-data.js"></script>
+  <script defer src="okx-trades.js?v=cf035980"></script><script defer src="bitget-period-data.js?v=7914fc78"></script>
   <script defer src="replay-seed.js"></script>
-  <script defer src="aoying-history.js"></script><script defer src="aoying-public-archive.js"></script>
+  <script defer src="aoying-history.js"></script><script defer src="aoying-public-archive.js?v=f68b986e"></script>
   <script defer src="reference-data.js?v=8cc44459"></script>
   <script defer src="public-executions.js?v=75ab9c33"></script>
   <script defer src="../vendor/lightweight-charts-5.3.0/lightweight-charts.standalone.production.js"></script>
@@ -23,17 +23,20 @@
   <script defer src="trade-replay-data.js?v=b8099704"></script>
   <script defer src="trade-chart.js?v=10e75d2a"></script>
   <script defer src="position-market.js?v=cc260b84"></script>
-  <script defer src="floating-pnl.js?v=188f80ce"></script>
+  <script defer src="floating-pnl.js?v=b926db80"></script>
+  <script defer src="position-history-view.js?v=ef26e4c4"></script>
+  <script defer src="strategy-analytics.js?v=68e6ea04"></script><script defer src="strategy-analysis-view.js?v=daf1a80e"></script>
   <script defer src="trade-analysis.js?v=27c17077"></script>
-  <script defer src="plaza.js?v=05bba353"></script>
+  <script defer src="plaza.js?v=4c111d08"></script>
   <link rel="stylesheet" href="../books-ui.css?v=089506ce">
+  <link rel="stylesheet" href="strategy-analysis.css?v=72e6e8d3">
   <link rel="stylesheet" href="trade-analysis.css?v=bcad7798">
   <link rel="stylesheet" href="../index-ticker.css?v=d6459a25">
   <script defer src="../index-ticker.js?v=c49031ee"></script>
   <script src="../books-shell.js?v=35acfa43"></script>
 <link rel="stylesheet" href="../desk-skin.css?v=8bbcb084"></head>
 <body class="books-shell trader-page">
-  <section class="index-ticker" id="index-ticker" aria-label="全球指数行情"><iframe src="../market-strip.html?v=045f06a8" title="全球指数行情"></iframe></section>
+  <section class="index-ticker" id="index-ticker" aria-label="全球指数行情"><iframe src="../market-strip.html?v=268b12c7" title="全球指数行情"></iframe></section>
   <a class="skip" href="#main">跳至内容</a>
   <aside class="books-sidebar" aria-label="研究导航">
     <a class="books-brand" href="../index.html">Books<span>RESEARCH STUDIO</span></a>
@@ -58,7 +61,7 @@
     <p id="local-feedback" class="local-feedback" role="status" aria-live="polite"></p>
     <section class="summary-strip" aria-label="资料概览">
       <div><span>收录账户</span><strong id="total-count">0</strong></div>
-      <div><span>有效持仓账户</span><strong id="current-count">0</strong></div>
+      <div><span id="current-count-label">有效持仓账户</span><strong id="current-count">0</strong></div>
       <div><span>有表现记录</span><strong id="coverage-count">0</strong></div>
     </section>
     <section id="featured-section" class="featured-section" hidden>
@@ -68,7 +71,7 @@
     <section class="plaza" aria-labelledby="plaza-title">
       <div class="heading">
         <div><h2 id="plaza-title">研究名单</h2><p id="count" aria-live="polite">0 个研究账户</p></div>
-        <div class="actions"><a class="evidence-entry" href="?exchange=Binance&amp;account=5075281354358777856&amp;view=orders">熬鹰资本 · 历史流水</a><a class="evidence-entry" href="exchange.html">公开成交证据</a><button id="reset" type="button">重置筛选</button><button id="refresh" type="button">刷新</button></div>
+        <div class="actions"><a class="evidence-entry" href="?exchange=Hyperliquid&amp;account=0x77375a8c9d13bf79afb2a87f1b0ac1dfd5f5bf66&amp;period=30D">mk4 · 策略分析</a><a class="evidence-entry" href="?exchange=Binance&amp;account=5075281354358777856&amp;view=orders">熬鹰资本 · 历史流水</a><a class="evidence-entry" href="exchange.html">公开成交证据</a><button id="reset" type="button">重置筛选</button><button id="refresh" type="button">刷新</button></div>
       </div>
       <nav class="platform-switch" aria-label="选择账户平台"><button type="button" id="platform-all" aria-pressed="true">全部平台</button><button type="button" id="platform-hl" aria-pressed="false">Hyperliquid</button><button type="button" id="platform-binance" aria-pressed="false">币安</button><button type="button" id="platform-okx" aria-pressed="false">OKX</button><button type="button" id="platform-bitget" aria-pressed="false">Bitget</button></nav>
       <div class="filters">
@@ -108,7 +111,10 @@
     <p id="detail-meta"></p>
     <p id="detail-data-status" class="detail-stale" role="status" aria-live="polite" hidden></p>
     <div id="tabs" class="tabs" aria-label="详情视图"><button type="button" data-tab="analysis" aria-pressed="true">交易分析</button><button type="button" data-tab="live" aria-pressed="false" hidden>实时交易</button><button type="button" data-tab="positions" aria-pressed="false">仓位历史</button><button type="button" data-tab="points" aria-pressed="false">交易点位</button><button type="button" data-tab="orders" aria-pressed="false">订单流水</button></div>
+    <section id="detail-overview" class="detail-overview" aria-label="账户持仓概览" hidden></section>
+    <section id="detail-ledger" hidden></section>
     <div id="detail-body"></div>
+    <section id="detail-history" class="detail-history" hidden></section>
   </dialog>
   <dialog id="record-editor" aria-labelledby="record-editor-title">
     <div class="dialog-head"><div><p class="eyebrow">MY RESEARCH</p><h2 id="record-editor-title">添加带单员</h2></div><button id="editor-close" type="button" class="icon-button" aria-label="关闭资料编辑">✕</button></div>
