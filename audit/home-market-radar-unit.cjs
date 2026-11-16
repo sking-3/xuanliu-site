@@ -35,13 +35,21 @@ test('future and historical alerts do not count as active signals', () => {
   const a = stockView(data,'a',now);
   assert.deepEqual(a.alerts.map(item=>item.symbol),['000001']);assert.equal(a.last,now);
 });
-test('each stock leaderboard uses the corresponding market, day direction and fallback URL', () => {
+test('Shanghai loads the exchange hotlist, Shenzhen loads the four observation stocks', () => {
   const {moverConfig} = require('../home-market-radar.js');
-  for (const market of ['a','us']) for (const direction of ['gainers','losers']) {
-    const list = moverConfig(market,direction);
-    assert.equal(list.widget.market,market === 'a' ? 'china' : 'america');
+  const sh = moverConfig('a'), sz = moverConfig('sz');
+  assert.equal(sh.script,'hotlists');
+  assert.equal(sh.widget.exchange,'SSE');
+  assert.equal(sz.script,'market-overview');
+  assert.deepEqual(sz.widget.tabs[0].symbols.map(row=>row.s),['SZSE:000858','SZSE:000333','SZSE:002594','SZSE:300750']);
+});
+test('US gainers and losers map to the proper screen and original list', () => {
+  const {moverConfig} = require('../home-market-radar.js');
+  for (const direction of ['gainers','losers']) {
+    const list = moverConfig('us',direction);
+    assert.equal(list.widget.market,'america');
     assert.equal(list.widget.defaultScreen,'top_'+direction);
-    assert.equal(list.source,'https://www.tradingview.com/markets/stocks-'+(market === 'a' ? 'china' : 'usa')+'/market-movers-'+direction+'/');
+    assert.equal(list.source,'https://www.tradingview.com/markets/stocks-usa/market-movers-'+direction+'/');
   }
   assert.throws(()=>moverConfig('unrecognised','gainers'));
 });

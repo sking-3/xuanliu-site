@@ -43,15 +43,26 @@
     return {last, count:new Set(recent.map(row => row.symbol)).size, alerts};
   }
 
-  const markets = {a:{id:'china', path:'china', name:'A 股'}, us:{id:'america', path:'usa', name:'美股'}};
-  function moverConfig(market, direction) {
-    const spec = markets[market];
-    if (!spec || !['gainers','losers'].includes(direction)) throw Error('未知榜单');
+  function moverConfig(market, direction = 'gainers') {
+    const common = {width:'100%', height:'100%', locale:'zh_CN', colorTheme:'light'};
+    const china = 'https://www.tradingview.com/markets/stocks-china/';
+    if (market === 'a') return {
+      label:'沪市活跃与涨跌榜', script:'hotlists', source:china + 'market-movers-active/',
+      widget:{...common, exchange:'SSE', showChart:false, showSymbolLogo:false, showFloatingTooltip:false}
+    };
+    if (market === 'sz') return {
+      label:'深市观察', script:'market-overview', source:china,
+      widget:{...common, showChart:false, showSymbolLogo:false, tabs:[{title:'深市观察', symbols:[
+        {s:'SZSE:000858',d:'五粮液'}, {s:'SZSE:000333',d:'美的集团'},
+        {s:'SZSE:002594',d:'比亚迪'}, {s:'SZSE:300750',d:'宁德时代'}
+      ]}]}
+    };
+    if (market !== 'us' || !['gainers','losers'].includes(direction)) throw Error('未知榜单');
     return {
-      label:spec.name + (direction === 'gainers' ? '涨幅榜' : '跌幅榜'),
-      source:'https://www.tradingview.com/markets/stocks-' + spec.path + '/market-movers-' + direction + '/',
-      widget:{market:spec.id,defaultScreen:'top_' + direction,defaultColumn:'overview',
-        width:'100%',height:'100%',showToolbar:false,locale:'zh_CN',colorTheme:'light'}
+      label:direction === 'gainers' ? '美股涨幅榜' : '美股跌幅榜', script:'screener',
+      source:'https://www.tradingview.com/markets/stocks-usa/market-movers-' + direction + '/',
+      widget:{...common, market:'america', defaultScreen:'top_' + direction,
+        defaultColumn:'overview', showToolbar:false}
     };
   }
 
@@ -84,46 +95,33 @@
     const rules = el('details', null, 'radar-rules');
     rules.append(el('summary', '异动计算规则'),
       el('p', '加密现货比较最新价格与约 60 秒前的价格（允许相差 5 秒）。涨跌达到 ±1% 时，按涨跌绝对值列出最多 3 对。积累样本期间或没有触发时，展示滚动 24 小时涨跌绝对值最大的 3 对。'),
-      el('p', '股票分钟成交额达到过去同一交易时段、同一分钟成交额中位数的 3 倍，标记为放量观察。最多取最近 20 个有效交易日，至少需 10 天。同时一分钟涨跌达到 ±1%，标记为量价异动。下方交易日涨跌榜由 TradingView 提供。'));
+      el('p', '股票分钟成交额达到过去同一交易时段、同一分钟成交额中位数的 3 倍，标记为放量观察。最多取最近 20 个有效交易日，至少需 10 天。同时一分钟涨跌达到 ±1%，标记为量价异动。交易日榜单和深市观察行情由 TradingView 提供。'));
     host.replaceChildren(header,crypto,stocks,rules);
 
-    function mountStockBoard(market, name, href) {
-      const board = el('section', null, 'radar-stock-board');
-      board.dataset.moverMarket = market;
-      board.setAttribute('aria-label', name + '日涨跌榜与分钟异动');
-      const heading = el('div', null, 'radar-section-heading');
-      heading.append(el('h3', name + '日涨跌榜'), link('行情筛选 →', href));
-      const cadence = market === 'a' ? '按交易日涨跌幅排序 · 沪深日终行情' :
-        '按交易日涨跌幅排序 · 报价可能延迟';
+    function mountQuotePanel(panel, market) {
       const tabs = el('div', null, 'radar-mover-tabs');
       tabs.setAttribute('role','group');
-      tabs.setAttribute('aria-label', name + '榜单方向');
+      tabs.setAttribute('aria-label', '美股榜单方向');
       const stage = el('div', null, 'radar-mover-stage');
       const source = link('', '');
       source.target = '_blank'; source.rel = 'noopener nofollow';
       const alternate = link('', '');
       alternate.hidden = true; alternate.target = '_blank'; alternate.rel = 'noopener nofollow';
-      const intraday = market === 'a' ?
-        link('盘口异动 ↗', 'https://quote.eastmoney.com/changes/') :
-        link('停复牌公告 ↗', 'https://www.nasdaqtrader.com/trader.aspx?id=TradeHalts');
-      intraday.target = '_blank'; intraday.rel = 'noopener';
       const sources = el('div', null, 'radar-mover-sources');
-      sources.append(source, alternate, intraday);
+      sources.append(source, alternate);
       const feedback = el('p', '', 'radar-mover-feedback');
       feedback.setAttribute('role','status');
       const retry = el('button', '重新连接', 'radar-retry');
       retry.type = 'button'; retry.hidden = true;
       const recovery = el('div', null, 'radar-recovery');
       recovery.append(feedback, retry);
-      const status = el('p','正在读取分钟记录…','radar-status');
-      const list = el('ul',null,'radar-rows');
-      board.append(heading, el('p', cadence, 'radar-cadence'), tabs, stage, recovery, sources, status, list);
-      stocks.append(board);
-      stockNodes[market] = {status, list};
+      if (market === 'us') panel.append(tabs);
+      panel.append(stage, recovery, sources);
 
       let direction = 'gainers', cleanup, retryTimer, lastFailure = 0;
       const buttons = new Map();
-      for (const [kind, label] of [['gainers','涨幅'],['losers','跌幅']]) {
+      const choices = market === 'us' ? [['gainers','涨幅'],['losers','跌幅']] : [];
+      for (const [kind, label] of choices) {
         const button = el('button',label);
         button.type = 'button';
         button.dataset.kind = kind;
@@ -142,10 +140,13 @@
         const config = moverConfig(market,direction);
         for (const [kind, button] of buttons) button.setAttribute('aria-pressed',String(kind === direction));
         source.href = config.source;
-        source.textContent = config.label + '原榜 ↗';
-        const opposite = moverConfig(market, direction === 'gainers' ? 'losers' : 'gainers');
-        alternate.href = opposite.source;
-        alternate.textContent = opposite.label + '原榜 ↗';
+        source.textContent = market === 'us' ? config.label + '原榜 ↗' :
+          market === 'a' ? '中国活跃股原榜 ↗' : '中国股票行情 ↗';
+        if (market === 'us') {
+          const opposite = moverConfig('us', direction === 'gainers' ? 'losers' : 'gainers');
+          alternate.href = opposite.source;
+          alternate.textContent = opposite.label + '原榜 ↗';
+        }
         alternate.hidden = true;
         retry.hidden = true;
         stage.hidden = false;
@@ -187,7 +188,7 @@
           stage.hidden = true;
           stage.setAttribute('aria-busy','false');
           lastFailure = Date.now();
-          alternate.hidden = false;
+          alternate.hidden = market !== 'us';
           feedback.textContent = config.label + (autoRetry ? '连接失败，稍后自动重试。' : '暂时无法加载，可查看来源原榜。');
           retry.hidden = false;
           if (autoRetry) retryTimer = setTimeout(() => { if (!doc.hidden) load(false); }, 20000);
@@ -195,7 +196,7 @@
         cleanup = dispose;
         observer.observe(wrapper, {subtree:true,childList:true});
         const script = el('script');
-        script.src = 'https://s3.tradingview.com/external-embedding/embed-widget-screener.js';
+        script.src = 'https://s3.tradingview.com/external-embedding/embed-widget-' + config.script + '.js';
         script.async = true;
         script.textContent = JSON.stringify(config.widget);
         script.addEventListener('error',unavailable,{once:true});
@@ -208,6 +209,34 @@
         if (!doc.hidden && lastFailure && Date.now()-lastFailure >= 20000) load(true);
       });
       load(true);
+    }
+    function mountStockBoard(market, name, href) {
+      const board = el('section', null, 'radar-stock-board');
+      board.dataset.moverMarket = market;
+      const heading = el('div', null, 'radar-section-heading');
+      heading.append(el('h3', market === 'a' ? 'A 股行情' : '美股日涨跌榜'), link('行情筛选 →', href));
+      const primary = el('div', null, 'radar-main-body');
+      board.append(heading, el('p', market === 'a' ? '沪市活跃股与涨跌榜 · 日终' :
+        '按交易日涨跌幅排序 · 行情可能延迟', 'radar-cadence'), primary);
+      stocks.append(board);
+      mountQuotePanel(primary, market);
+      if (market === 'a') {
+        const shenzhen = el('section', null, 'radar-shenzhen');
+        shenzhen.dataset.shenzhenWatch = '';
+        shenzhen.append(el('h4', '深市观察'), el('p', '4 只固定观察股 · 日终', 'radar-cadence'));
+        board.append(shenzhen);
+        mountQuotePanel(shenzhen, 'sz');
+      }
+      const intraday = market === 'a' ?
+        link('盘口异动 ↗', 'https://quote.eastmoney.com/changes/') :
+        link('停复牌公告 ↗', 'https://www.nasdaqtrader.com/trader.aspx?id=TradeHalts');
+      intraday.target = '_blank'; intraday.rel = 'noopener';
+      const status = el('p','正在读取分钟记录…','radar-status');
+      const list = el('ul',null,'radar-rows');
+      const foot = el('div', null, 'radar-section-heading');
+      foot.append(status, intraday);
+      board.append(foot, list);
+      stockNodes[market] = {status, list};
     }
     mountStockBoard('a','A 股','screening/index.html#public-market-title');
     mountStockBoard('us','美股','us.html#public-market-title');

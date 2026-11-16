@@ -39,3 +39,6 @@
   [data-home-radar] .radar-stock-board + .radar-stock-board { border-top: 1px solid #dce2e8; padding-top: 12px; }
   [data-home-radar] .radar-mover-tabs button { min-height: 40px; min-width: 48px; }
 }
+[data-home-radar] .radar-shenzhen { margin: 8px 0; padding-top: 8px; border-top: 1px solid #e6ebef; }
+[data-home-radar] .radar-shenzhen h4 { margin: 0; font-size: .88rem; }
+[data-home-radar] .radar-shenzhen .radar-mover-stage { height: 225px; }
