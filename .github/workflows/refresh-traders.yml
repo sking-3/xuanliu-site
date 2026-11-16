@@ -91,6 +91,7 @@ jobs:
           node audit/trader-portfolio-collector-unit.cjs
           node --check scripts/resolve_trader_refresh_mode.cjs
           node audit/trader-refresh-mode-unit.cjs
+          node audit/trader-linked-account-unit.cjs
           node --check scripts/hyperliquid_run_guard.cjs
           node audit/hyperliquid-run-guard-unit.cjs
           node --check scripts/refresh_trader_positions.cjs
