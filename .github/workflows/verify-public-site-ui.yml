@@ -29,6 +29,7 @@ jobs:
         run: |
           npm install --prefix "$RUNNER_TEMP/public-ui-browser" --no-audit --no-fund --ignore-scripts playwright@1.56.1
           "$RUNNER_TEMP/public-ui-browser/node_modules/.bin/playwright" install --with-deps "${{ matrix.browser }}"
+          sudo apt-get -qq install -y tesseract-ocr tesseract-ocr-eng python3-pil
       - name: Verify navigation, real source values and outages
         env:
           UI_BROWSER: ${{ matrix.browser }}

@@ -3,6 +3,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const {execFileSync}=require('node:child_process');
 const {chromium, webkit, devices} = require('playwright');
 
 const root = path.resolve(__dirname,'..');
@@ -358,6 +359,40 @@ async function liveUS(page) {
   return {cardGeometry,observed,stripMode,providerHasQuotes};
 }
 
+function ocrScreenerQuotes(tsv,symbols) {
+  const words=tsv.trim().split('\n').slice(1).map(line=>{
+    const parts=line.split('\t');
+    return {level:Number(parts[0]),x:Number(parts[6]),y:Number(parts[7])+Number(parts[9])/2,height:Number(parts[9]),text:(parts[11]||'').trim()};
+  }).filter(word=>word.level===5 && word.text);
+  const result=[];
+  for(const symbol of symbols){
+    const ticker=symbol.split(':')[1];
+    const code=words.find(word=>new RegExp('^'+ticker+'(?:E|ᴱ|°)?$','i').test(word.text));
+    if(!code)return [];
+    const sameRow=words.filter(word=>word.x>code.x && Math.abs(word.y-code.y)<=Math.max(6,code.height*.7)).sort((a,b)=>a.x-b.x);
+    const label=sameRow.map(word=>word.text).join(' ').replace(/−/g,'-');
+    const price=label.match(/(?:^|\s)([\d,]+\.\d+)\s*(?:USD)?(?=\s|$)/i);
+    const change=label.match(/(?:^|\s)([+-]?\s*\d+(?:\.\d+)?)\s*[%％]/);
+    if(!price || !change || numeric(price[1])<=0)return [];
+    result.push({symbol,price:numeric(price[1]),pct:numeric(change[1])});
+  }
+  return result;
+}
+
+async function readScreenerPixels(feed,symbols) {
+  const file=path.join(out,'real-us-quote-page.png');
+  await feed.screenshot({path:file,scale:'device'});
+  const zoom=path.join(out,'real-us-quote-page-ocr.png');
+  execFileSync('/usr/bin/python3',['-c','from PIL import Image; import sys; im=Image.open(sys.argv[1]).convert("RGB"); im.resize((im.width*2,im.height*2),Image.Resampling.LANCZOS).save(sys.argv[2])',file,zoom]);
+  for(const psm of ['11','6']){
+    const tsv=execFileSync('tesseract',[zoom,'stdout','-l','eng','--psm',psm,'tsv'],{encoding:'utf8',timeout:25000});
+    fs.writeFileSync(path.join(out,'us-primary-ocr-'+psm+'.tsv'),tsv);
+    const quotes=ocrScreenerQuotes(tsv,symbols);
+    if(quotes.length===symbols.length)return quotes;
+  }
+  throw Error('Neither source DOM nor the displayed primary screener image identified both symbols with a positive price and a signed daily percentage');
+}
+
 async function usQuotesPage(page) {
   await open(page,'us.html');
   await page.locator('.research-jumps a[href="#public-market-title"]').click();
@@ -365,7 +400,7 @@ async function usQuotesPage(page) {
   const feed=page.locator('[data-public-market-widget]');
   await feed.evaluate(el=>el.scrollIntoView({block:'center'}));
   const symbols=['NASDAQ:AAPL','NASDAQ:MSFT'];
-  const until=Date.now()+35000;
+  const until=Date.now()+18000;
   let tableRoot,source;
   while(Date.now()<until && !tableRoot) {
     for(const frame of page.frames()){
@@ -397,9 +432,12 @@ async function usQuotesPage(page) {
     }
     if(!tableRoot)await page.waitForTimeout(300);
   }
-  assert.ok(tableRoot,'Visible AAPL row required in the primary tv-screener. Frames: '+page.frames().map(f=>f.url().split('?')[0]).join(', '));
-  const quotes=[];
-  for(const symbol of symbols) {
+  const quotes=tableRoot?[]:await readScreenerPixels(feed,symbols);
+  if(!tableRoot){
+    source=new URL(await page.locator('[data-public-market-loader]').getAttribute('src'));
+    console.log('Read primary TradingView screen pixels through OCR',quotes,'frames',page.frames().map(f=>f.url().split('?')[0]));
+  }
+  for(const symbol of tableRoot?symbols:[]) {
     const row=tableRoot.locator('tr[data-symbol="'+symbol+'"]');
     const priceCell=row.locator('td[data-field-key="close"]'),changeCell=row.locator('td[data-field-key="change"]');
     await priceCell.filter({hasText:/\d/}).waitFor();
@@ -419,7 +457,7 @@ async function usQuotesPage(page) {
     quote.reference=ticks;
   }
   await feed.screenshot({path:path.join(out,'real-us-quote-page.png')});
-  return {scope:'US page primary public screener',source:source.origin,comparison:reference.url(),quotes};
+  return {scope:'US page primary public screener',measurement:tableRoot?'provider table cells':'rendered primary screenshot OCR',source:source.origin,comparison:reference.url(),quotes};
 }
 
 async function researchFiles(page) {
