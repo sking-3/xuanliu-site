@@ -12,7 +12,7 @@ test('adapter is read-only and has no credential or order path',()=>{
 });
 test('homepage copy names the single active crypto source',()=>{
   assert.match(home,/加密 · USDT/);
-  assert.match(home,/加密行情仅接入 Bitget 公共现货源/);
+  assert.match(home,/Bitget USDT 现货/);
   assert.doesNotMatch(home,/三家交易所|多交易所|Binance|OKX|Coinbase/);
 });
 test('homepage and full page mount the native feed',()=>{

@@ -1,0 +1,47 @@
+name: Verify homepage in browsers
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'index.html'
+      - 'home*.js'
+      - 'home*.css'
+      - 'audit/home-dashboard-browser.cjs'
+      - '.github/workflows/verify-home-dashboard.yml'
+permissions:
+  contents: read
+jobs:
+  browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [chromium, webkit]
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Install Playwright and the test browser
+        run: |
+          npm install --prefix "$RUNNER_TEMP/home-browser" --no-audit --no-fund --ignore-scripts playwright@1.56.1
+          "$RUNNER_TEMP/home-browser/node_modules/.bin/playwright" install --with-deps "${{ matrix.engine }}"
+      - name: Exercise the committed homepage on desktop and phone viewports
+        env:
+          HOME_BROWSER_ENGINE: ${{ matrix.engine }}
+        run: |
+          python3 -m http.server 8784 --bind 127.0.0.1 > "$RUNNER_TEMP/home-http.log" 2>&1 &
+          site_pid=$!
+          trap 'kill "$site_pid" || true' EXIT
+          curl --fail --retry 5 --retry-connrefused -s -o /dev/null http://127.0.0.1:8784/index.html
+          NODE_PATH="$RUNNER_TEMP/home-browser/node_modules" node audit/home-dashboard-browser.cjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: homepage-${{ matrix.engine }}
+          path: audit/browser-output/home-dashboard/
+          retention-days: 7

@@ -24,6 +24,9 @@
     const marketName=card.querySelector('.pulse-market-name'),pause=card.querySelector('.pulse-pause');
     const host=card.querySelector('.pulse-host'),state=card.querySelector('.pulse-state'),buttons=card.querySelectorAll('[data-view]');
     const markets=Object.keys(spec.symbols||{});
+    const drawer=card.closest?.('details');
+    const inactive=()=>document.hidden || (drawer && !drawer.open);
+    let onUnavailable;
     let marketIndex=1,paused=false,rotationTimer=null,nextRotationAt=null,remaining=rotationMs;
     let selected=card.dataset.defaultView||'live',observer=null,timer=null,generation=0,failed=false,frameLoaded=false;
     const currentMarket=()=>markets[marketIndex];
@@ -32,9 +35,9 @@
     function stopRotation(){clearTimeout(rotationTimer);rotationTimer=null;}
     function rotateLater(){
       stopRotation();
-      if(markets.length<2||paused||failed||selected!=='live'||document.hidden)return;
+      if(markets.length<2||paused||failed||selected!=='live'||inactive())return;
       if(nextRotationAt===null)nextRotationAt=Date.now()+remaining;
-      progress();rotationTimer=setTimeout(()=>{if(document.hidden||selected!=='live'){stopRotation();return;}marketIndex=(marketIndex+1)%markets.length;nextRotationAt=Date.now()+rotationMs;remaining=rotationMs;clear();show();},Math.max(0,nextRotationAt-Date.now()));
+      progress();rotationTimer=setTimeout(()=>{if(inactive()||selected!=='live'){stopRotation();return;}marketIndex=(marketIndex+1)%markets.length;nextRotationAt=Date.now()+rotationMs;remaining=rotationMs;clear();show();},Math.max(0,nextRotationAt-Date.now()));
     }
     function clear() {
       generation++;clearTimeout(timer);stopRotation();observer?.disconnect();host.replaceChildren();frameLoaded=false;
@@ -44,10 +47,10 @@
       live.hidden=selected!=='live';saved.hidden=selected==='live';
       for(const b of buttons)b.setAttribute('aria-pressed',String(b.dataset.view===selected));
       // Keep pending provider scripts attached; removing their host does not cancel async initialization.
-      if(document.hidden){clearTimeout(timer);timer=null;stopRotation();return;}if(live.hidden){stopRotation();return;}
+      if(inactive()){clearTimeout(timer);timer=null;stopRotation();return;}if(live.hidden){stopRotation();return;}
       if(markets.length>1&&!paused&&nextRotationAt!==null&&Date.now()>=nextRotationAt){const steps=1+Math.floor((Date.now()-nextRotationAt)/rotationMs);marketIndex=(marketIndex+steps)%markets.length;nextRotationAt+=steps*rotationMs;clear();}
       if(marketName)marketName.textContent=spec.names[currentMarket()];
-      if(host.firstChild){if(host.querySelector('iframe')){if(!frameLoaded&&timer===null)timer=setTimeout(unavailable,loadTimeoutMs);rotateLater();}else if(timer===null)timer=setTimeout(unavailable,loadTimeoutMs);return;}
+      if(host.firstChild){if(host.querySelector('iframe')){if(!frameLoaded&&timer===null)timer=setTimeout(onUnavailable,loadTimeoutMs);rotateLater();}else if(timer===null)timer=setTimeout(onUnavailable,loadTimeoutMs);return;}
       if(failed)return;
       const stamp=++generation;
       const container=document.createElement('div'),slot=document.createElement('div');
@@ -60,6 +63,7 @@
         const notice=card.querySelector('.pulse-failure');notice.hidden=false;
         buttons[0].disabled=true;if(pause)pause.disabled=true;
       }
+      onUnavailable=unavailable;
       observer=new MutationObserver(()=>{
         const frame=container.querySelector('iframe');
         if(stamp!==generation||!frame)return;
@@ -69,7 +73,7 @@
           frameLoaded=true;
           clearTimeout(timer);
           host.setAttribute('data-pulse-state','embedded');
-          state.textContent='组件已载入，内容与时效以来源显示为准。'+(spec.notes?.[currentMarket()]||spec.note);
+          state.textContent=spec.notes?.[currentMarket()]||spec.note;
           rotateLater();
         },{once:true});
         frame.addEventListener('error',unavailable,{once:true});        rotateLater();
@@ -81,15 +85,17 @@
       timer=setTimeout(unavailable,loadTimeoutMs);container.append(script);
     }
     const notice=document.createElement('p');notice.className='pulse-state pulse-failure';
-    notice.hidden=true;notice.textContent='动态来源未加载，显示保存的快照。';card.append(notice);
+    notice.hidden=true;notice.textContent='动态来源未加载，显示保存的快照。';
+    if(card.insertBefore)card.insertBefore(notice,saved);else card.append(notice);
     for(const b of buttons)b.addEventListener('click',()=>{selected=b.dataset.view;show();});
     pause?.addEventListener('click',()=>{
       if(!paused)remaining=nextRotationAt===null?rotationMs:Math.max(0,nextRotationAt-Date.now());else nextRotationAt=Date.now()+remaining;
       paused=!paused;pause.setAttribute('aria-pressed',String(paused));pause.textContent=paused?'继续轮播':'暂停轮播';progress();
       if(paused)stopRotation();else rotateLater();
     });
+    drawer?.addEventListener('toggle',show);
     document.addEventListener('visibilitychange',show);
-    if(markets.length>1)setInterval(()=>{if(!document.hidden&&selected==='live')progress();},1000);
+    if(markets.length>1)setInterval(()=>{if(!inactive()&&selected==='live')progress();},1000);
     show();
   }
 })();

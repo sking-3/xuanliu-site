@@ -2,7 +2,7 @@
 (function(root,factory){const api=factory();if(typeof module==='object'&&module.exports)module.exports=api;else root.HomeTraderData=api;})(typeof globalThis==='undefined'?this:globalThis,function(){
 'use strict';
 const PERIODS=['30D','90D','365D'],ALL_PERIODS=['7D','30D','90D','180D','365D','ALL'];
-const LIMITS={feed:2097152,portfolios:4194304,analytics:2097152};
+const LIMITS={feed:2097152,portfolios:4194304,analytics:2097152,binance:2097152,reference:2097152};
 const HOUR=3600000,DAY=86400000,ADDRESS=/^0x[0-9a-f]{40}$/;
 
 function fail(){throw Error('Invalid home trader snapshot');}
@@ -90,14 +90,58 @@ function observations(input,period,now=Date.now()){
  }
  return rows;
 }
+function binanceAdapter(){return typeof module==='object'&&module.exports?require('./trader/binance-data.js'):globalThis.BinanceData;}
+function referenceAdapter(){return typeof module==='object'&&module.exports?require('./trader/reference-data.js'):globalThis.BooksReferenceData;}
+function validateBinance(raw,now=Date.now()){
+ const data=binanceAdapter().parseCollection(decode(raw,'binance'));
+ stamp(data.generatedAt,now);
+ return data;
+}
+function validateReference(raw,now=Date.now()){
+ const data=decode(raw,'reference');
+ if(!Object.hasOwn(binanceAdapter().REFERENCE_PORTFOLIOS,data.portfolioId)||data.scope!=='official_historical_positions_only'||![1,2].includes(data.schemaVersion))fail();
+ stamp(data.latestPublicFetchAt||data.fetchedAt,now);
+ return data;
+}
+function binanceObservations(input,period,now){
+ if(!input?.binance&&!input?.reference)return [];
+ const adapter=binanceAdapter(),rows=[];
+ function add(accountId,name,performance,readFailed){
+  if(!['ready','stale'].includes(performance.status)||!Number.isFinite(performance.roi)||Date.parse(performance.lastSuccessAt)>now+5000)return;
+  const stale=performance.status==='stale'||!!readFailed;
+  rows.push({accountId,id:'binance-'+accountId,name,exchange:'Binance',currency:'USDT',roiMethod:'source',
+   roi:performance.roi,pnl:performance.pnl,mdd:performance.mdd,winRate:performance.winRate,
+   performanceAsOf:performance.sourceAsOf,performanceFetchedAt:performance.lastSuccessAt,performanceStale:stale,stale});
+ }
+ for(const feed of input.binance?.portfolios||[]){
+  const performance=adapter.performance(feed,period,{now,requestFailed:input.failures?.binance,batchStopped:input.binance.source.refreshStopped});
+  add(feed.portfolioId,adapter.PORTFOLIOS[feed.portfolioId],performance,input.failures?.binance);
+ }
+ if(input.reference){
+  const id=input.reference.portfolioId;
+  add(id,adapter.REFERENCE_PORTFOLIOS[id].name,referenceAdapter().performance(input.reference,id,period,{now}),input.failures?.reference);
+ }
+ return rows;
+}
 function rank(input,period,now=Date.now()){
- const rows=observations(input,period,now).filter(row=>Number.isFinite(row.roi));
+ const rows=observations(input,period,now).concat(binanceObservations(input,period,now)).filter(row=>Number.isFinite(row.roi));
  rows.sort((a,b)=>b.roi-a.roi||a.id.localeCompare(b.id));
  const top=rows.slice(0,3);
- return {period,rows:top,eligibleCount:rows.length,stale:!input?.feed||!!input.failures?.feed||top.some(r=>r.stale),
-   asOf:top.length?top.map(r=>r.performanceAsOf).sort((a,b)=>Date.parse(a)-Date.parse(b))[0]:null,
-   scope:'Hyperliquid · '+(input?.feed?.source?.selection||'本站已收录账户')+' · 非全市场',note:'按同期收益率降序。仅纳入有可核验收益率的账户。'};
+ return {period,rows:top,eligibleCount:rows.length,stale:top.some(r=>r.stale),
+   asOf:top.length&&top.every(r=>r.performanceAsOf)?top.map(r=>r.performanceAsOf).sort((a,b)=>Date.parse(a)-Date.parse(b))[0]:null,
+   scope:'本站收录的币安与 Hyperliquid 公开账户',note:'按近'+parseInt(period,10)+'天收益率排序，各平台单独计算。'};
 }
-function accountHref(id,period){if(!PERIODS.includes(period))fail();const account=address(typeof id==='string'&&id.startsWith('hl-')?id.slice(3):id);const params=new URLSearchParams({account,period,exchange:'Hyperliquid',source:'public',sort:'roi',currency:'USD',q:account});return 'trader/index.html?'+params.toString();}
-return {PERIODS,LIMITS,validateFeed,validatePortfolios,validateAnalytics,observations,rank,accountHref};
+function accountHref(id,period,exchange='Hyperliquid'){
+ if(!PERIODS.includes(period))fail();
+ let account;
+ if(exchange==='Binance'){
+  const adapter=binanceAdapter();
+  if(!Object.hasOwn(adapter.PORTFOLIOS,id)&&!Object.hasOwn(adapter.REFERENCE_PORTFOLIOS,id))fail();
+  account=id;
+ }else if(exchange==='Hyperliquid')account=address(typeof id==='string'&&id.startsWith('hl-')?id.slice(3):id);
+ else fail();
+ const params=new URLSearchParams({account,period,exchange,source:'public',sort:'roi',currency:exchange==='Binance'?'USDT':'USD',q:account});
+ return 'trader/index.html?'+params.toString();
+}
+return {PERIODS,LIMITS,validateFeed,validatePortfolios,validateAnalytics,validateBinance,validateReference,observations,rank,accountHref};
 });

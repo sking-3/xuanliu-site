@@ -1,160 +1,148 @@
-/* Compact dashboard geometry. Summary cards reserve only the space needed for
-   a decision, while long provider lists remain scrollable inside their card. */
+/* Homepage layout. Only the quote lists have fixed viewports. */
+.books-shell .books-page-heading {
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  margin-bottom: 12px;
+}
+.books-shell .books-page-heading h1 { font-size: 25px; line-height: 1.25; }
+.books-page-heading .index-labels { align-items: center; flex-wrap: wrap; padding: 0; gap: 4px 14px; }
+.books-page-heading .index-labels a { padding: 6px 0; }
+.books-page-heading .index-labels span { font-size: 11px; color: #667388; }
+
 .books-shell .market-insights {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   align-items: stretch;
+  gap: 1px;
+  background: #e4e8ee;
+  border-radius: 9px;
+  margin: 0;
 }
-
-@media (min-width: 761px) {
-  .books-shell .market-insight {
-    height: 332px;
-    min-height: 332px;
-    max-height: 332px;
-    overflow: hidden;
-  }
-
-  .books-shell .market-insight .insight-body {
-    min-height: 0;
-    overflow: hidden;
-  }
-
-  .books-shell .market-insight[data-pulse="active"],
-  .books-shell .market-insight[data-pulse="macro"] {
-    height: 332px;
-    min-height: 332px;
-    max-height: 332px;
-  }
-
-  .books-shell .market-insight[data-pulse="active"] .pulse-host,
-  .books-shell .market-insight[data-pulse="macro"] .pulse-host {
-    height: 98px !important;
-    min-height: 98px;
-    max-height: 98px;
-  }
+.books-shell .market-insights > .market-insight {
+  grid-column: auto;
+  border: 0;
+  padding: 12px 14px;
+  background: white;
 }
-
-/* Keep the three market cards on one grid. The crypto list scrolls inside its
-   card when it contains more rows than an embedded quote widget. */
-.books-shell .market-card-grid {
-  align-items: stretch;
-}
-
-@media (min-width: 761px) {
-  .books-shell .market-card-grid > .feed-card {
-    height: 452px !important;
-    min-height: 452px !important;
-    max-height: 452px !important;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-  }
-
-  .books-shell .market-card-grid > .feed-card > .feed-widget-area {
-    min-height: 0;
-    height: auto !important;
-    flex: 1 1 auto;
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-  }
-
-  .books-shell .market-card-grid > .feed-card .tradingview-widget-container,
-  .books-shell .market-card-grid > .feed-card .tradingview-widget-container__widget,
-  .books-shell .market-card-grid > .feed-card .crypto-native-feed {
-    height: 100%;
-    min-height: 0;
-    flex: 1 1 auto;
-  }
-
-  .books-shell .market-card-grid > .feed-card .crypto-native-feed {
-    overflow: auto;
-  }
-}
-
-@media (max-width: 760px) {
-  .books-shell .market-insight,
-  .books-shell .market-insight[data-pulse="active"],
-  .books-shell .market-insight[data-pulse="macro"] {
-    height: 292px;
-    min-height: 292px;
-    max-height: 292px;
-    overflow: hidden;
-  }
-
-  .books-shell .market-card-grid > .feed-card {
-    height: 382px !important;
-    min-height: 382px !important;
-    max-height: 382px !important;
-  }
-}
-
-/* The saved macro snapshot is the Chinese, timestamped view. External
-   provider news remains available as an explicit secondary view. */
-.books-shell [data-pulse="macro"] .pulse-switch button[data-view="live"]::after {
-  content: " · 外部";
-  font-size: 9px;
-  color: #8b95a4;
-}
-
-/* The overview is a decision surface, not a full chart page. Keep the live
-   preview inside its reserved slot so it cannot cover the timestamp or note. */
-.books-shell .market-insight > h2,
-.books-shell .market-insight .insight-heading h2 {
-  font-size: 16px !important;
-  line-height: 1.3;
-}
-
-.books-shell .books-page-heading h1 {
-  font-size: 30px !important;
-  line-height: 1.2;
-}
-
-.books-shell .market-insight[data-pulse] {
+.books-shell .market-insight h2 { font-size: 15px; line-height: 1.4; }
+.books-shell .market-insight .insight-scope { margin: 3px 0 8px; }
+.books-shell .market-insight .insight-body {
+  display: flex;
+  flex-direction: column;
   min-height: 0;
+  gap: 4px;
 }
+.books-shell .market-insight .insight-metric { min-height: 0; }
+.books-shell .market-insight .insight-metric strong { font-size: 24px; }
+.books-shell .market-insight .insight-cadence { margin: auto 0 0; padding: 8px 0 4px; }
+.books-shell .market-insight .insight-footer, .pulse-source {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 3px 8px;
+  flex-wrap: wrap;
+  margin: 0;
+  border-top: 1px solid #e6e9ef;
+  padding-top: 6px;
+  font-size: 11px;
+  line-height: 1.45;
+}
+.books-shell .market-insight .pulse-saved,
+.books-shell .market-insight .pulse-live { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.books-shell .market-insight [hidden] { display: none !important; }
+.books-shell .pulse-switch { margin: 4px 0; }
+.books-shell .pulse-saved .insight-heading { min-height: 0; }
+.books-shell .pulse-saved .insight-scope { margin: 3px 0; }
+.books-shell .market-insight .pulse-host,
+.books-shell .market-insight .pulse-host > .tradingview-widget-container,
+.books-shell .market-insight .pulse-host .tradingview-widget-container__widget,
+.books-shell .market-insight .pulse-host iframe {
+  width: 100%;
+  height: 180px !important;
+  min-height: 180px;
+  max-height: none;
+}
+.pulse-source { margin-top: auto; color: #526d9e; }
+.pulse-source .pulse-state { margin: 0; color: #69778a; }
+.home-quote-detail { border-bottom: 1px solid #dfe5eb; margin-bottom: 14px; }
+.home-quote-detail summary { width: fit-content; cursor: pointer; font-size: 12px; color: #485e78; padding: 10px 2px; }
+.home-quote-detail .pulse-card { border: 1px solid #dfe5eb; background: #fff; border-radius: 8px; padding: 10px 14px; margin: 0 0 10px; }
+.home-quote-detail .pulse-live { max-width: 660px; }
+.home-quote-detail .pulse-source { margin-top: 4px; }
+.home-quote-detail .pulse-saved { max-width: 660px; }
+.home-quote-detail .sr-only { position: absolute; width: 1px; height: 1px; clip-path: inset(50%); overflow: hidden; white-space: nowrap; }
 
-.books-shell .market-insight[data-pulse] > .pulse-live,
-.books-shell .market-insight[data-pulse] > .pulse-saved {
+.books-shell .market-card-grid { align-items: stretch; }
+.books-shell .market-card-grid > .feed-card {
+  --quote-card-height: 390px;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  height: var(--quote-card-height) !important;
   min-height: 0;
-  overflow: hidden;
+  max-height: none;
+  overflow: auto;
 }
-
-.books-shell .market-insight[data-pulse="active"] .pulse-host,
-.books-shell .market-insight[data-pulse="macro"] .pulse-host {
-  overflow: hidden;
-  border-radius: 5px;
+.books-shell .market-card-grid .feed-widget-area:not([hidden]) {
+  display: flex;
+  flex-direction: column;
+  flex: 1 0 0;
+  height: auto !important;
+  min-height: 0 !important;
+  overflow: auto;
 }
-
-.books-shell .market-insight[data-pulse="active"] .pulse-state,
-.books-shell .market-insight[data-pulse="macro"] .pulse-state {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  overflow: hidden;
+.books-shell .market-card-grid .feed-widget-area[hidden] { display: none !important; }
+.books-shell .market-card-grid .feed-widget-area .tradingview-widget-container,
+.books-shell .market-card-grid .feed-widget-area .tradingview-widget-container__widget,
+.books-shell .market-card-grid .feed-widget-area .crypto-native-feed {
+  height: 100%;
+  min-height: 0;
+  box-sizing: border-box;
 }
-
-.books-shell .market-insight[data-pulse="active"] .pulse-rotation-note {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.books-shell .market-card-grid .crypto-native-feed { overflow: auto; }
+.books-shell .home-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.65fr) minmax(280px, 1fr);
+  align-items: start;
+  gap: 12px;
 }
+.books-shell .home-grid > .home-panel { grid-column: auto; grid-row: auto; order: 0; }
+.books-shell .home-securities { padding: 0 16px 12px; }
+.books-shell .home-securities .radar-head,
+.books-shell #home-trader-ranking > header { min-height: 44px; align-items: center; padding: 0; }
+.research-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  margin: 14px 0;
+  padding: 8px 14px;
+  background: #fff;
+  border: 1px solid #dfe5eb;
+  border-radius: 8px;
+}
+.research-actions h2 { margin: 0; font-size: 15px; }
+.research-actions a { padding: 7px 0; color: #365c82; font-size: 13px; }
+.research-actions a:hover, .index-labels a:hover { text-decoration: underline; }
+.research-actions a:focus-visible, .home-quote-detail summary:focus-visible,
+.index-labels a:focus-visible { outline: 2px solid #486a95; outline-offset: 2px; }
 
+@media (max-width: 1050px) {
+  .books-shell .market-insights { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 @media (max-width: 760px) {
-  .books-shell > main {
-    padding: 16px 12px 26px;
-  }
-
-  .books-shell .books-page-heading {
-    margin-bottom: 12px;
-  }
-
-  .books-shell .books-page-heading h1 {
-    font-size: 26px !important;
-  }
-
-  .books-shell .market-insight[data-pulse="active"] .pulse-host,
-  .books-shell .market-insight[data-pulse="macro"] .pulse-host {
-    height: 82px !important;
-    min-height: 82px;
-    max-height: 82px;
-  }
+  .books-shell > main { padding: 14px 12px 20px; }
+  .books-shell .books-page-heading { align-items: flex-start; gap: 2px; }
+  .books-page-heading .index-labels { gap: 0 12px; }
+  .books-shell .market-insights > .market-insight { padding: 10px; }
+  .books-shell .market-card-grid > .feed-card { --quote-card-height: 370px; }
+  .books-shell .home-grid { grid-template-columns: minmax(0, 1fr); }
+  .research-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 8px; }
+  .research-actions h2 { grid-column: 1 / -1; padding: 5px 0; }
+  .research-actions a, .books-page-heading .index-labels a,
+  .home-quote-detail summary { display: inline-flex; align-items: center; min-height: 44px; }
+  .home-quote-detail summary { display: list-item; align-content: center; }
+}
+@media (max-width: 359px) {
+  .books-shell .market-insights { grid-template-columns: minmax(0, 1fr); }
 }

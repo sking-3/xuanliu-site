@@ -6,9 +6,9 @@ class Element{
  addEventListener(name,fn){this.events[name]=fn;}setAttribute(k,v){this.attributes[k]=v;}
  querySelector(q){const cls=q[0]==='.'?q.slice(1):null;for(const e of this.children){if(cls?e.className.split(' ').includes(cls):e.tag===q)return e;const nested=e.querySelector(q);if(nested)return nested;}return null;}
 }
-function setup(){
+function setup(drawer=null){
  const timers=new Map(),observers=[],events={};let sequence=0,now=1794496000000;
- const card=new Element();card.dataset.pulse='active';
+ const card=new Element();card.dataset.pulse='active';card.closest=()=>drawer;
  const parts=Object.fromEntries(['pulse-live','pulse-saved','pulse-host','pulse-state','pulse-market-name','pulse-pause'].map(k=>[k,Object.assign(new Element(),{className:k})]));
  const buttons=['live','saved'].map(view=>Object.assign(new Element('button'),{dataset:{view}}));
  card.append(...Object.values(parts),...buttons);card.querySelectorAll=()=>buttons;
@@ -18,7 +18,7 @@ function setup(){
  return {parts,card,document,timers,buttons,config:()=>JSON.parse(host.querySelector('script').textContent),ready(){const f=new Element('iframe');host.firstChild.append(f);for(const o of observers)if(o.active)o.fn();return f;},advance(ms){now+=ms;},fire(ms){now+=ms;const items=[...timers].filter(([,t])=>t.ms===ms);for(const [id,t]of items){timers.delete(id);t.fn();}return items.length;},visibility(hidden){document.hidden=hidden;events.visibilitychange();}};
 }
 let passed=0;function test(name,fn){fn();passed++;console.log('ok '+name);}
-test('an inserted iframe remains loading until its real load event without claiming complete quotes',()=>{const h=setup(),host=h.parts['pulse-host'];assert.equal(host.attributes['data-pulse-state'],'loading');const frame=h.ready();assert.equal(host.attributes['data-pulse-state'],'loading');assert.match(h.parts['pulse-state'].textContent,/正在连接来源/);frame.events.load();assert.equal(host.attributes['data-pulse-state'],'embedded');assert.match(h.parts['pulse-state'].textContent,/组件已载入.*以来源显示为准/);assert.doesNotMatch(h.parts['pulse-state'].textContent,/报价完整|行情已全部|实时行情已就绪/);h.fire(180000);assert.equal(host.attributes['data-pulse-state'],'loading');frame.events.load();assert.equal(host.attributes['data-pulse-state'],'loading');});
+test('an inserted iframe remains loading until its real load event without claiming complete quotes',()=>{const h=setup(),host=h.parts['pulse-host'];assert.equal(host.attributes['data-pulse-state'],'loading');const frame=h.ready();assert.equal(host.attributes['data-pulse-state'],'loading');assert.match(h.parts['pulse-state'].textContent,/正在连接来源/);frame.events.load();assert.equal(host.attributes['data-pulse-state'],'embedded');assert.match(h.parts['pulse-state'].textContent,/可能延迟.*来源未提供逐笔时间/);assert.doesNotMatch(h.parts['pulse-state'].textContent,/报价完整|行情已全部|实时行情已就绪/);h.fire(180000);assert.equal(host.attributes['data-pulse-state'],'loading');frame.events.load();assert.equal(host.attributes['data-pulse-state'],'loading');});
 test('rotates the provider symbol every three minutes after mounting, without a selector',()=>{const h=setup();assert.equal(h.config().symbol,'NASDAQ:AAPL');h.ready();for(const symbol of ['BITGET:BTCUSDT','SSE:000001','NASDAQ:AAPL']){assert.equal(h.fire(180000),1);assert.equal(h.config().symbol,symbol);h.ready();}assert.match(h.parts['pulse-market-name'].textContent,/美股/);});
 test('pause preserves the live quote and resume starts a new rotation timer',()=>{const h=setup(),p=h.parts['pulse-pause'];h.ready();const first=h.parts['pulse-host'].firstChild;p.events.click();assert.equal(h.fire(180000),0);assert.equal(h.parts['pulse-host'].firstChild,first);assert.equal(p.attributes['aria-pressed'],'true');p.events.click();assert.equal(h.fire(180000),1);assert.equal(h.config().symbol,'BITGET:BTCUSDT');});
 test('a hidden page retains its frame and stops site-created rotation until return',()=>{const h=setup(),host=h.parts['pulse-host'];const frame=h.ready(),first=host.firstChild;h.advance(120000);h.visibility(true);assert.equal(host.firstChild,first);assert.equal(host.querySelector('iframe'),frame);h.advance(70000);assert.equal(h.timers.size,0);h.visibility(false);assert.equal(h.config().symbol,'BITGET:BTCUSDT');h.ready();assert.equal(h.fire(170000),1);assert.equal(h.config().symbol,'SSE:000001');});
@@ -29,5 +29,17 @@ test('hidden pending script survives a quick return without rebuilding its conta
 test('a ready frame survives a quick background round trip and resumes its remaining rotation',()=>{const h=setup(),host=h.parts['pulse-host'],frame=h.ready(),first=host.firstChild;h.advance(60000);h.visibility(true);h.advance(10000);h.visibility(false);assert.equal(host.firstChild,first);assert.equal(host.querySelector('iframe'),frame);assert.equal(h.fire(110000),1);assert.equal(h.config().symbol,'BITGET:BTCUSDT');});
 test('switching to saved during initialization retains the source and reuses it on live return',()=>{const h=setup(),host=h.parts['pulse-host'],first=host.firstChild,script=host.querySelector('script');h.buttons[1].events.click();assert.equal(h.parts['pulse-live'].hidden,true);assert.equal(host.firstChild,first);h.buttons[0].events.click();assert.equal(host.querySelector('script'),script);const frame=h.ready();h.buttons[1].events.click();h.buttons[0].events.click();assert.equal(host.querySelector('iframe'),frame);assert.equal(host.firstChild,first);});
 test('homepage has no manual market choice and public focus follows the research list',()=>{const home=fs.readFileSync('index.html','utf8'),plaza=fs.readFileSync('trader/index.html','utf8');assert.doesNotMatch(home,/class="pulse-market"|选择观察市场/);assert.match(home,/每 3 分钟自动切换/);assert.ok(plaza.indexOf('id="public-focus-section"')>plaza.indexOf('id="leaders"'));assert.ok(plaza.indexOf('id="public-focus-section"')<plaza.indexOf('<details class="method">'));});
+test('closed quote details defer the provider and a resumed timeout falls back cleanly',()=>{
+ const drawer=new Element('details');drawer.open=false;
+ const h=setup(drawer),host=h.parts['pulse-host'];
+ assert.equal(host.firstChild,undefined);
+ drawer.open=true;drawer.events.toggle();
+ assert.ok(host.firstChild);
+ drawer.open=false;drawer.events.toggle();
+ assert.equal(h.timers.size,0);
+ drawer.open=true;drawer.events.toggle();
+ assert.equal(h.fire(15000),1);
+ assert.equal(h.parts['pulse-saved'].hidden,false);
+});
 console.log(`${passed} market rotation checks passed`);
 // Public rotation fixture is pinned to the single Bitget crypto source.

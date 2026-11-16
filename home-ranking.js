@@ -2,7 +2,7 @@
 'use strict';
 const PERIODS=['30D','90D','365D'];
 const LABELS={'30D':'月度','90D':'季度','365D':'年度'};
-const FILES={feed:{url:'trader/feed.json',limit:2097152,validate:'validateFeed'},portfolios:{url:'trader/portfolios.json',limit:4194304,validate:'validatePortfolios'},analytics:{url:'trader/analytics.json',limit:2097152,validate:'validateAnalytics'}};
+const FILES={feed:{url:'trader/feed.json',limit:2097152,validate:'validateFeed'},portfolios:{url:'trader/portfolios.json',limit:4194304,validate:'validatePortfolios'},analytics:{url:'trader/analytics.json',limit:2097152,validate:'validateAnalytics'},binance:{url:'trader/binance/portfolios.json',limit:2097152,validate:'validateBinance'},reference:{url:'trader/aoying-history.js',limit:2097152,validate:'validateReference',wrapped:true}};
 function dataAPI(){return typeof module!=='undefined'&&module.exports?require('./home-trader-data.js'):global.HomeTraderData;}
 function fail(){throw Error('Invalid ranking snapshot');}
 function decimal(value,digits=2){return value.toLocaleString('zh-CN',{minimumFractionDigits:digits,maximumFractionDigits:digits});}
@@ -10,11 +10,12 @@ function amount(value){if(!Number.isFinite(value))return '—';const prefix=valu
 function percent(value,signed=false){return Number.isFinite(value)?(signed&&value>0?'+':'')+decimal(value)+'%':'—';}
 function time(value,full=false){if(!value||!Number.isFinite(Date.parse(value)))return '—';return new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',...(full?{year:'numeric'}:{}),month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}).format(new Date(value));}
 function day(value,year=false){return new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',...(year?{year:'numeric'}:{}),month:'2-digit',day:'2-digit'}).format(new Date(value));}
-function moreHref(period){if(!PERIODS.includes(period))period='30D';return 'trader/index.html?'+new URLSearchParams({period,exchange:'Hyperliquid',source:'public',sort:'roi',currency:'USD'}).toString();}
+function moreHref(period){if(!PERIODS.includes(period))period='30D';return 'trader/index.html?'+new URLSearchParams({period,exchange:'all',source:'public',sort:'roi',currency:'all'}).toString();}
 function node(doc,tag,text,cls){const el=doc.createElement(tag);if(text!==undefined)el.textContent=text;if(cls)el.className=cls;return el;}
 function title(el,text){el.setAttribute('title',text);return el;}
 function metric(doc,label,value,description,cls=''){const box=node(doc,'div',undefined,'home-rank-metric');box.append(node(doc,'span',label),title(node(doc,'strong',value,cls),description));return box;}
 function roiDescription(row,period){
+  if(row.exchange==='Binance')return '币安公布的近'+parseInt(period,10)+'天收益率。';
   if(period==='30D')return Number.isFinite(row.roi)?'来源公布的同期收益率。':'来源未提供同期收益率，不以收益额代替。';
   const e=row.roiEvidence;
   if(Number.isFinite(row.roi)&&e)return `自算收益率 = 区间盈亏 ÷ max(100 USD，期初权益 + 区间最大累计净入金) × 100%；公开资金流水与权益逐段对账，资金基准 ${decimal(e.capitalBase)} USD。实际区间 ${time(e.startAt,true)} 至 ${time(e.endAt,true)}；流水采集 ${time(e.ledgerFetchedAt,true)}。非 TWR、非官方直接值；仅核验返回的公开流水与采样，不承诺完整账户历史。`;
@@ -24,17 +25,24 @@ function roiDescription(row,period){
 function renderRow(doc,row,index,period,Data){
   const el=node(doc,'article',undefined,'home-rank-row');el.setAttribute('role','listitem');el.setAttribute('data-stale',String(!!row.stale));
   const top=node(doc,'div',undefined,'home-rank-top'),identity=node(doc,'a',undefined,'home-rank-identity');
-  identity.href=Data.accountHref(row.accountId,period);identity.setAttribute('aria-label',`查看 ${row.name} 的${LABELS[period]}详情`);
+  identity.href=Data.accountHref(row.accountId,period,row.exchange);identity.setAttribute('aria-label',`查看 ${row.name} 的${LABELS[period]}详情`);
   identity.append(node(doc,'span',String(index+1),'home-rank-number'),title(node(doc,'span',row.name,'home-rank-name'),row.name));
   const headline=title(node(doc,'strong',percent(row.roi,true),row.roi<0?'home-rank-negative':'home-rank-positive'),roiDescription(row,period));
   const value=node(doc,'div',undefined,'home-rank-profit');value.append(headline);
   top.append(identity,value);
   const metrics=node(doc,'div',undefined,'home-rank-metrics');
-  if(Number.isFinite(row.pnl))metrics.append(metric(doc,'同期盈亏 · USD',amount(row.pnl),decimal(row.pnl)+' USD；收益截至 '+time(row.performanceAsOf,true)+'；采集 '+time(row.performanceFetchedAt,true)+'。',row.pnl<0?'home-rank-negative':'home-rank-positive'));
+  const binance=row.exchange==='Binance',currency=binance?'USDT':'USD';
+  if(Number.isFinite(row.pnl))metrics.append(metric(doc,'同期盈亏 · '+currency,amount(row.pnl),decimal(row.pnl)+' '+currency+' · 采集 '+time(row.performanceFetchedAt,true),row.pnl<0?'home-rank-negative':'home-rank-positive'));
+  if(binance){
+    if(Number.isFinite(row.mdd))metrics.append(metric(doc,'同期最大回撤',percent(row.mdd),'币安在所选周期公布的最大回撤。'));
+    if(Number.isFinite(row.winRate))metrics.append(metric(doc,'同期胜率',percent(row.winRate),'币安在所选周期公布的胜率。'));
+  }else{
   if(Number.isFinite(row.mdd))metrics.append(metric(doc,'采样盈亏回撤',percent(row.mdd),'基于来源盈亏及权益采样，可能超过100%；不是资金流调整净值最大回撤。采样截至 '+time(row.mddAsOf,true)+'；采集 '+time(row.mddFetchedAt,true)+'。'+(row.mddStale?' 历史采样，等待更新。':'')));
   if(Number.isFinite(row.winRate))metrics.append(metric(doc,'近期片段胜率',percent(row.winRate),`${row.winCount}个近期永续平仓片段；样本 ${time(row.winStart,true)} 至 ${time(row.winEnd,true)}；采集 ${time(row.winFetchedAt,true)}。已扣平仓手续费，未计开仓手续费及资金费；独立于所选周期，不参与排行。${row.winStale?' 历史样本，等待更新。':''}`));
-  const meta=node(doc,'p','收益截至 '+time(row.performanceAsOf,true)+(row.performanceStale?' · 历史快照':''),'home-rank-timing');
-  title(meta,(row.startAt&&row.endAt?'实际采样区间 '+time(row.startAt,true)+' 至 '+time(row.endAt,true)+'；':'')+'收益采集 '+time(row.performanceFetchedAt,true)+'；持仓核验 '+time(row.positionCheckedAt,true)+'。'+(!row.currentHolding?'当前仓位未知。':'')+'各项更新时间独立，刷新页面不会刷新来源数据。');
+  }
+  const timing=row.performanceAsOf?'收益截至 '+time(row.performanceAsOf,true):'采集于 '+time(row.performanceFetchedAt,true);
+  const meta=node(doc,'p',(binance?'币安':'Hyperliquid')+' · '+timing+(row.performanceStale?' · 历史快照':''),'home-rank-timing');
+  title(meta,binance?'币安周期统计 · 来源未标明统计截止时刻。':(row.startAt&&row.endAt?'实际采样区间 '+time(row.startAt,true)+' 至 '+time(row.endAt,true)+'；':'')+'收益采集 '+time(row.performanceFetchedAt,true)+'；持仓核验 '+time(row.positionCheckedAt,true)+'。');
   el.append(top);if(metrics.children.length)el.append(metrics);el.append(meta);return el;
 }
 function render(doc,view,period,Data,pending=false){
@@ -48,7 +56,8 @@ function render(doc,view,period,Data,pending=false){
   if(!view){list.append(node(doc,'p',pending?'正在读取榜单…':'暂未取得可用榜单','home-rank-empty'));status.textContent=pending?'正在读取广场快照…':'榜单暂不可用';note.textContent='与带单员广场共用公开数据快照。';return;}
   if(view.rows.length){view.rows.forEach((row,index)=>list.append(renderRow(doc,row,index,period,Data)));}
   else list.append(node(doc,'p',pending?'正在读取当前周期数据…':'该周期缺少可核验的收益率，暂无排名。','home-rank-empty'));
-  status.textContent=(view.stale?'历史快照 · ':'')+(view.rows.length?'近'+parseInt(period,10)+'天收益率前'+Math.min(3,view.rows.length)+'名':'当前周期暂无符合条件排名')+(view.eligibleCount?' · '+view.eligibleCount+'个符合条件账户':'');
+  const sample=view.eligibleCount===1?'仅 1 个账户有同期收益率':view.rows.length?'收益率前 '+view.rows.length+' 名 · '+view.eligibleCount+' 个账户可比较':'当前周期暂无符合条件排名';
+  status.textContent=(view.stale?'历史快照 · ':'')+'近 '+parseInt(period,10)+' 天 · '+sample;
   note.textContent=[view.scope,view.note].filter(Boolean).join(' · ');
   if(focusedHref){const replacement=[...list.querySelectorAll('a')].find(a=>a.href===focusedHref);replacement?.focus();}
 }
@@ -61,7 +70,24 @@ function rejectOlder(kind,next,before){
     const old=new Map((before.traders||[]).map(row=>[row.accountId,row]));
     for(const row of next.traders||[]){const previous=old.get(row.accountId);if(previous)compare(row.positionCheck?.checkedAt,previous.positionCheck?.checkedAt);}
   }else{
+    if(kind==='reference'){
+      compare(next.latestPublicFetchAt||next.fetchedAt,before.latestPublicFetchAt||before.fetchedAt);
+      for(const p of PERIODS){
+        const incoming=p==='30D'?next.performance:next.performanceByPeriod?.[p];
+        const prior=p==='30D'?before.performance:before.performanceByPeriod?.[p];
+        if(incoming?.fetchedAt&&prior?.fetchedAt)compare(incoming.fetchedAt,prior.fetchedAt);
+      }
+      return;
+    }
     compare(next.generatedAt,before.generatedAt);
+    if(kind==='binance'){
+      for(const item of next.portfolios){
+        const old=before.portfolios.find(feed=>feed.portfolioId===item.portfolioId);
+        const current=item.performance?.byPeriod?.['30D'];
+        if(item.profile.visibility==='public'&&current?.lastSuccessAt)compare(current.lastSuccessAt,old?.performance?.byPeriod?.['30D']?.lastSuccessAt);
+      }
+      return;
+    }
     for(const [address,row]of Object.entries(next.accounts||{})){const old=before.accounts?.[address];if(old?.fetchedAt)compare(row.fetchedAt,old.fetchedAt);}
   }
 }
@@ -69,10 +95,19 @@ async function readJSON(fetcher,spec){
   const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),10000);
   try{
     const response=await fetcher(spec.url,{cache:'no-cache',credentials:'omit',redirect:'error',signal:controller.signal});
-    if(!response.ok||!/application\/(?:[\w.+-]*\+)?json(?:;|$)/i.test(response.headers.get('content-type')||'')||Number(response.headers.get('content-length'))>spec.limit)fail();
+    const contentType=response.headers.get('content-type')||'';
+    const appropriateType=spec.wrapped?/^(?:application|text)\/(?:x-)?javascript(?:;|$)/i.test(contentType):/application\/(?:[\w.+-]*\+)?json(?:;|$)/i.test(contentType);
+    if(!response.ok||!appropriateType||Number(response.headers.get('content-length'))>spec.limit)fail();
     const reader=response.body.getReader(),chunks=[];let bytes=0;
     for(;;){const {done,value}=await reader.read();if(done)break;bytes+=value.byteLength;if(bytes>spec.limit){await reader.cancel();fail();}chunks.push(value);}
-    return JSON.parse(await new Blob(chunks).text());
+    let body=await new Blob(chunks).text();
+    if(spec.wrapped){
+      // The existing collector publishes a single JS assignment. Read its JSON as data only.
+      const match=/^\s*(?:\/\*[\s\S]*?\*\/\s*)?globalThis\.BooksAoyingHistory\s*=\s*(\{[\s\S]*\})\s*;?\s*$/.exec(body);
+      if(!match)fail();
+      body=match[1];
+    }
+    return JSON.parse(body);
   }finally{clearTimeout(timer);}
 }
 function mount(doc,options={}){
@@ -80,9 +115,9 @@ function mount(doc,options={}){
   for(const id of ['home-ranking-list','home-ranking-status','home-ranking-note','home-ranking-more'])if(!doc.getElementById(id))return null;
   const Data=options.data||dataAPI();if(!Data)return null;
   const now=options.now||Date.now,fetcher=options.fetch||global.fetch.bind(global);
-  const snapshots={feed:null,portfolios:null,analytics:null},raw={feed:null,portfolios:null,analytics:null},failures={feed:false,portfolios:false,analytics:false};
+  const snapshots={},raw={},failures={};
   let period='30D',inflight=null,destroyed=false,pending=false;
-  const view=()=>snapshots.feed?Data.rank({...snapshots,failures:{...failures}},period,now()):null;
+  const view=()=>snapshots.feed||snapshots.binance||snapshots.reference?Data.rank({...snapshots,failures:{...failures}},period,now()):null;
   function draw(){if(!destroyed)render(doc,view(),period,Data,pending);}
   async function revalidate(){
     pending=true;draw();
