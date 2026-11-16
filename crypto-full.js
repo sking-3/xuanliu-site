@@ -25,7 +25,7 @@
     if (mostRecent) {
       const status = mount.querySelector('[data-crypto-status]');
       const prefix = mount.dataset.cryptoState === 'stale' ? '来源暂未更新 · 最近报价 ' : 'Bitget 最近报价 ';
-      status.textContent = prefix + timeFormat.format(mostRecent) + ' 北京时间';
+      if (mount.dataset.cryptoState !== 'partial-stale') status.textContent = prefix + timeFormat.format(mostRecent) + ' 北京时间';
     }
     for (const row of mount.querySelectorAll('.crypto-quote-row')) {
       const name = row.querySelector('div:first-child strong');
@@ -42,7 +42,7 @@
       if (quote) {
         const time = document.createElement('time');
         time.dateTime = new Date(quote.ts).toISOString();
-        time.textContent = timeFormat.format(quote.ts);
+        time.textContent = timeFormat.format(quote.ts) + (row.dataset.quoteState === 'stale' ? ' · 报价已过期' : '');
         time.title = new Date(quote.ts).toLocaleString('zh-CN', {timeZone:'Asia/Shanghai'}) + ' 北京时间';
         row.querySelector('.crypto-quote-source').replaceChildren(time);
       }

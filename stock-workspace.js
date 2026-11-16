@@ -35,15 +35,39 @@ function validate(v){
 }
 function chartSymbol(r,market){const e=r.exchange;if(market==='a')return ['SSE','SZSE'].includes(e)?e+':'+r.symbol.slice(0,6):null;return ['NASDAQ','NYSE','AMEX'].includes(e)?e+':'+r.symbol:null;}
 function summary(data,market){const x=data?.markets[market];if(!x)return {label:labels.not_configured,counts:null};const known=['ready','partial','stale'].includes(x.status)&&!!x.asOf;return {label:labels[x.status],counts:known?{covered:x.rows.length,candidates:x.rows.filter(r=>r.status==='candidate').length,pending:x.rows.filter(r=>r.status==='pending').length}:null};}
+function verifyStopStorage(storage,stopKey){
+ const probe=stopKey+'.storage-check',value='http_429';
+ storage.setItem(probe,value);
+ if(storage.getItem(probe)!==value)throw Error('停止记录写入未能读回');
+ storage.removeItem(probe);
+ if(storage.getItem(probe)!==null)throw Error('停止记录探针未能清除');
+}
 function mount(host,env){
  const doc=env.document,market=host.dataset.stockWorkspace,overview=market==='overview',base=new URL(host.dataset.base||'./',env.location.href),feed=new URL('research-data/snapshot.json',base);if(feed.origin!==env.location.origin)return;
  const n=(tag,text,cls)=>{const e=doc.createElement(tag);if(text!==undefined)e.textContent=text;if(cls)e.className=cls;return e;},button=(text,fn,cls)=>{const b=n('button',text,cls);b.type='button';b.onclick=fn;return b;},date=x=>x&&time(x)?new Date(x).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',hour12:false}):'—',num=(x,d=2)=>finite(x)?x.toLocaleString('zh-CN',{maximumFractionDigits:d}):'—';
  const money=(x,c)=>finite(x)?num(x>=1e8?x/1e8:x>=1e4?x/1e4:x)+(x>=1e8?' 亿':x>=1e4?' 万':'')+' '+c:'—';
- const state={data:null,view:'daily',filter:'',horizon:'',strategy:'',query:'',loading:false,controller:null,stopped:false};
+ const state={data:null,view:'daily',filter:'',horizon:'',strategy:'',query:'',loading:false,controller:null,stopped:false,storageUnavailable:false,readError:null};
  const stopKey='books.stock.published-source-stop.v1',watchKey='books.stock.watchlist.v1';
  host.classList.add('stock-workspace');host.replaceChildren();
  const toolbar=n('div',undefined,'sr-toolbar'),sourceState=n('strong','公开策略结果尚未发布'),sourceTime=n('span','收盘、盘中与异动的数据时效分别标注'),refresh=button('刷新发布结果',()=>read());toolbar.append(sourceState,sourceTime,refresh);host.append(toolbar);
  const notice=n('p','正在读取研究工作台…','sr-notice');notice.setAttribute('role','status');host.append(notice);const readiness=n('details',undefined,'sr-definitions sr-readiness'),readinessList=n('ul');readiness.append(n('summary','数据就绪检查'),readinessList);host.append(readiness);
+ function publishReadState(){
+  const data=state.data?.markets[market];
+  const status=state.storageUnavailable?'unavailable':state.stopped?'restricted':state.readError?'unavailable':state.loading||!state.data?'loading':overview?'overview':data.status;
+  const label=state.storageUnavailable?'本机存储不可用 · 已停止读取':state.stopped?'来源拒绝或限流 · 已停止读取':state.readError?(state.data?'读取失败 · 保留历史结果':'批次状态暂不可用'):status==='loading'?'正在读取发布结果…':overview?'市场异动与选股':summary(state.data,market).label;
+  sourceState.textContent=label;
+  host.dataset.publishedState=status;host.dataset.publishedLabel=label;host.dataset.publishedAsOf=data?.asOf||'';
+ }
+ function assertSourceAllowed(verifyWritable=false){
+  const storageFailure=()=>{state.stopped=true;state.storageUnavailable=true;throw Error('无法可靠保存来源停止记录，已停止发布结果读取；保留已载入的历史证据。请先恢复浏览器本机存储，再重新加载。');};
+  if(state.storageUnavailable)storageFailure();
+  if(state.stopped)throw Error('发布来源曾拒绝或限流，已停止读取；刷新页面不会解除');
+  let storage,saved;
+  try{storage=env.localStorage;saved=storage.getItem(stopKey);}catch{storageFailure();}
+  if(saved){state.stopped=true;throw Error('发布来源曾拒绝或限流，已停止读取；刷新页面不会解除');}
+  // Check on every request: storage can become full after the initial read.
+  if(verifyWritable)try{verifyStopStorage(storage,stopKey);}catch{storageFailure();}
+ }
  function links(){const nav=n('nav',undefined,'sr-links');for(const [label,path]of [['A股选股','screening/index.html'],['美股选股','us.html']]){const a=n('a',label+' →');a.href=new URL(path,base).href;nav.append(a);}return nav;}
  if(overview)host.append(links());
  const ownerEntry=n('details',undefined,'sr-definitions'),ownerContent=n('p',undefined,'sr-links'),ownerLink=n('a',overview?'打开本人行情工作台 →':market==='us'?'打开本人真实日终数据 →':'打开本人数据接入 →');ownerLink.href='https://books-private-follow.rr7jp4d56w.chatgpt.site/research'+(overview?'':market==='us'?'#market-us':'#market-a');ownerLink.rel='noopener noreferrer';ownerContent.append(ownerLink,n('span','本人登录后可查看个人研究数据'));ownerEntry.append(n('summary','本人研究数据'),ownerContent);
@@ -85,12 +109,42 @@ function mount(host,env){
  }else{radarNote=n('p',undefined,'sr-note');body.append(radarNote);radarBody=table(body,['来源时间','证券','1分钟涨跌','分钟成交额','同刻放量','级别','传输延迟']);}
  function renderReadiness(data){const keys=overview?['a','us']:[market],configured=keys.every(key=>['ready','partial','stale'].includes(data?.markets?.[key]?.status)&&data.markets[key].asOf);const rows=[['收盘批次',configured?'已取得可展示批次，仍需按状态查看':'未配置；没有真实全市场候选可展示'],['实时行情','只读取本人自选，覆盖和延迟以来源时间为准'],['自动排程','关闭；启用前需要本人单独确认'],['实盘与下单','关闭；本页只做研究和只读报价']];readinessList.replaceChildren(...rows.map(([label,value])=>{const li=n('li');li.append(n('strong',label+'：'),n('span',value));return li;}));readiness.dataset.state=configured?'partial':'not_configured';}
  function update(){renderStrategyLab();metrics.replaceChildren();const relevant=overview?['a','us']:[market];for(const key of relevant){const x=state.data?.markets[key],s=summary(state.data,key),groups=overview?[[key==='a'?'A股收盘筛选':'美股收盘筛选',s.label],['数据日期',x?.asOf||'—']]:[['交易日',x?.asOf||'—'],['覆盖证券',s.counts?String(s.counts.covered):'—'],['规则候选',s.counts?String(s.counts.candidates):'—'],['待核记录',s.counts?String(s.counts.pending):'—']];for(const [l,v]of groups){const d=n('div');d.append(n('span',l),n('strong',v));metrics.append(d);}}
- const data=state.data?.markets[market];renderReadiness(state.data);sourceState.textContent=overview?'市场异动与选股':summary(state.data,market).label;sourceTime.textContent=overview?'收盘全市场筛选 · 盘中自选 · 异动雷达':data?.source?(data.source.name||data.source.id||'来源待核')+' · 数据日期 '+(data.asOf||'—')+' · 读取 '+date(data.source.receivedAt):'公开结果来源待配置';if(!state.loading)notice.textContent=overview?'公开策略结果与来源行情分开展示；完整收盘和覆盖未核验时不展示正式候选。':!data||data.status==='not_configured'?'数据链尚未闭合：缺少已授权的全市场证券目录、完整日终行情和可公开许可；长线、中线、短线均不生成候选。先完成手动来源验收，再发布批次；不会用空列表、零值或示例价格代替结果。':data?.status==='ready'?'本批次通过完整收盘与覆盖检查；候选仍需核对触发和失效条件。':'当前仅供复核；权限、日期或覆盖未齐时不发布为全市场合格选股。';renderDaily();renderWatch();renderRadar();}
- async function read(){if(state.loading||doc.hidden)return;try{if(env.localStorage.getItem(stopKey)){state.stopped=true;throw Error('发布来源曾拒绝或限流，已停止自动读取');}state.loading=true;refresh.disabled=true;notice.textContent='正在读取已发布研究结果…';state.controller=new AbortController();const timer=setTimeout(()=>state.controller.abort(),10000);try{const r=await env.fetch(feed.href,{credentials:'omit',cache:'no-store',redirect:'error',signal:state.controller.signal});if([403,429].includes(r.status)){env.localStorage.setItem(stopKey,'http_'+r.status);state.stopped=true;throw Error('来源拒绝或限流，后续读取已停止');}if(!r.ok)throw Error('结果文件暂不可用');const text=await r.text();if(text.length>8_000_000)throw Error('结果文件过大');const next=validate(JSON.parse(text));if(state.data&&Date.parse(next.publishedAt)<Date.parse(state.data.publishedAt))throw Error('检测到较旧版本，保留当前结果');state.data=next;}finally{clearTimeout(timer);}state.loading=false;update();}catch(e){state.loading=false;notice.textContent=e.name==='AbortError'?'读取中断，保留已载入结果。':e.message;}finally{refresh.disabled=state.stopped;}}
+ const data=state.data?.markets[market];renderReadiness(state.data);publishReadState();sourceTime.textContent=overview?'收盘全市场筛选 · 盘中自选 · 异动雷达':data?.source?(data.source.name||data.source.id||'来源待核')+' · 数据日期 '+(data.asOf||'—')+' · 读取 '+date(data.source.receivedAt):'公开结果来源待配置';if(!state.loading&&!state.readError&&!state.stopped)notice.textContent=overview?'公开策略结果与来源行情分开展示；完整收盘和覆盖未核验时不展示正式候选。':!data||data.status==='not_configured'?'数据链尚未闭合：缺少已授权的全市场证券目录、完整日终行情和可公开许可；长线、中线、短线均不生成候选。先完成手动来源验收，再发布批次；不会用空列表、零值或示例价格代替结果。':data?.status==='ready'?'本批次通过完整收盘与覆盖检查；候选仍需核对触发和失效条件。':'当前仅供复核；权限、日期或覆盖未齐时不发布为全市场合格选股。';renderDaily();renderWatch();renderRadar();}
+ async function read(){
+  if(state.loading||doc.hidden)return;
+  try{
+   assertSourceAllowed(true);state.loading=true;state.readError=null;refresh.disabled=true;
+   notice.textContent='正在读取已发布研究结果…';publishReadState();
+   state.controller=new AbortController();const timer=setTimeout(()=>state.controller.abort(),10000);
+   try{
+    const r=await env.fetch(feed.href,{credentials:'omit',cache:'no-store',redirect:'error',signal:state.controller.signal});
+    if([401,403,429].includes(r.status)){
+     state.stopped=true;
+     try{env.localStorage.setItem(stopKey,'http_'+r.status);}catch{}
+     throw Error('来源拒绝或限流，后续读取已停止；可查看已载入的历史证据');
+    }
+    assertSourceAllowed();
+    if(!r.ok)throw Error('结果文件暂不可用');
+    const text=await r.text();if(text.length>8_000_000)throw Error('结果文件过大');
+    const next=validate(JSON.parse(text));
+    assertSourceAllowed(); // A stop from another tab while parsing also outranks a late 200.
+    if(state.data&&Date.parse(next.publishedAt)<Date.parse(state.data.publishedAt))throw Error('检测到较旧版本，保留当前结果');
+    state.data=next;
+   }finally{clearTimeout(timer);}
+   state.loading=false;update();
+  }catch(e){state.loading=false;state.readError=e.name==='AbortError'?'读取中断，保留已载入结果。':e.message;notice.textContent=state.readError;publishReadState();}
+  finally{refresh.disabled=state.stopped;}
+ }
+ env.addEventListener('storage',event=>{
+  if(event.key!==stopKey||!event.newValue)return;
+  state.stopped=true;state.controller?.abort();refresh.disabled=true;
+  notice.textContent='发布来源已停止读取；保留已有历史证据。';publishReadState();
+ });
+
  const legacy=doc.querySelector('.stock-legacy');if(legacy?.querySelector('[data-feed-config]'))legacy.addEventListener('toggle',()=>{if(legacy.open&&!legacy.dataset.feedStarted){legacy.dataset.feedStarted='true';const script=n('script');script.src=new URL('market-feed-status.js',base).href;doc.head.append(script);}});
  host.append(ownerEntry);
  update();read();const timer=setInterval(()=>{if(!doc.hidden&&!state.stopped)read();},60000);doc.addEventListener('visibilitychange',()=>{if(doc.hidden)state.controller?.abort();else if(!state.stopped)read();});env.addEventListener('pagehide',()=>{clearInterval(timer);state.controller?.abort();});
  return {refresh:read};
 }
-return {validate,summary,chartSymbol,hitLabel,mount};
+return {validate,summary,chartSymbol,hitLabel,mount,verifyStopStorage};
 });

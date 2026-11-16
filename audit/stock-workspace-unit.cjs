@@ -20,3 +20,23 @@ test('public pages mount only official no-key quote widgets and retain station c
 test('US candidate requires current rules and a confirmed non-watch branch',()=>{for(const change of [v=>delete v.markets.us.rulesVersion,v=>delete v.markets.us.rows[0].eligibleHits,v=>{v.markets.us.rows[0].hits=['U3'];v.markets.us.rows[0].eligibleHits=['U3'];}]){const v=full();change(v);assert.throws(()=>api.validate(v),/新版已核验分支/);}const v=full();v.markets.us.rows[0].hits=['U1','U2'];v.markets.us.rows[0].pending=['U1'];assert.equal(api.validate(v).markets.us.rows[0].status,'candidate');});
 test('mixed strategy hits distinguish the independently qualified branch from pending shape and watch',()=>{const row={eligibleHits:['U2'],pending:['U1','U3']};assert.equal(api.hitLabel(row,'U1','us'),'事件形态（待核）');assert.equal(api.hitLabel(row,'U2','us'),'放量突破（条件通过）');assert.equal(api.hitLabel(row,'U3','us'),'临近突破（观察）');});
 test('strategy lab keeps custom factors local and preview-only',()=>{const script=fs.readFileSync(path.join(root,'stock-workspace.js'),'utf8');assert.match(script,/books\.stock\.strategy-lab\.v1/);assert.match(script,/保存本机草稿/);assert.match(script,/推演只检查因子是否有可用字段/);assert.match(script,/trend.*momentum.*liquidity/);assert.doesNotMatch(script,/strategyState\.draft[^;\n]*fetch/);});
+
+test('stop persistence preflight rejects readable storage whose writes exceed quota',()=>{
+ const key='books.stock.published-source-stop.v1',values=new Map([['fixture','readable']]);let writes=0;
+ const storage={getItem:k=>values.get(k)??null,setItem(){writes++;throw Object.assign(Error('Quota exceeded'),{name:'QuotaExceededError'});},removeItem:k=>values.delete(k)};
+ assert.equal(storage.getItem('fixture'),'readable');
+ assert.throws(()=>api.verifyStopStorage(storage,key),{name:'QuotaExceededError'});assert.equal(writes,1);
+ assert.equal(storage.getItem(key),null);
+});
+test('stop persistence preflight verifies read-back and removal instead of trusting silent writes',()=>{
+ const key='books.stock.published-source-stop.v1';
+ assert.throws(()=>api.verifyStopStorage({getItem:()=>null,setItem(){},removeItem(){}},key),/未能读回/);
+ let value=null;
+ assert.throws(()=>api.verifyStopStorage({getItem:()=>value,setItem(k,v){value=v;},removeItem(){}},key),/未能清除/);
+});
+test('stop persistence preflight preserves an existing stop record and fails if storage fills later',()=>{
+ const key='books.stock.published-source-stop.v1',values=new Map([[key,'http_403']]);let full=false;
+ const storage={getItem:k=>values.get(k)??null,setItem(k,v){if(full)throw Object.assign(Error('Quota exceeded'),{name:'QuotaExceededError'});values.set(k,v);},removeItem:k=>values.delete(k)};
+ api.verifyStopStorage(storage,key);assert.deepEqual([...values],[[key,'http_403']]);
+ full=true;assert.throws(()=>api.verifyStopStorage(storage,key),{name:'QuotaExceededError'});assert.equal(storage.getItem(key),'http_403');
+});

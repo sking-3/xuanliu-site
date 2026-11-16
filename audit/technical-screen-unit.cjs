@@ -4,7 +4,10 @@ const {test} = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
-const {run} = require('../screening/technical-screen.js');
+const {createClient} = require('../screening/technical-screen.js');
+function memoryStorage(){const map=new Map();return {getItem:k=>map.get(k)||null,setItem:(k,v)=>map.set(k,v),removeItem:k=>map.delete(k)};}
+let run;
+test.beforeEach(()=>{run=createClient({fetch:(...args)=>globalThis.fetch(...args),now:()=>Date.now(),localStorage:memoryStorage()}).run;});
 
 const day = '2026-11-13';
 const closing = day + 'T07:00:00Z';
@@ -50,11 +53,11 @@ test('adjusted closes, not intraday highs, produce source MA offsets and turtle 
   assert.equal(request.mock.calls.length,1);
 });
 
-test('a failed primary transport can use the second host; a day-only response supports an unadjusted security',async t=>{
+test('a failed primary transport can use the second host with explicit adjusted bars',async t=>{
   let attempts=0;
   const request=call(t,null,async()=>{
     if (attempts++===0) throw Error('network down');
-    return succeed({day:rows(Array(60).fill(10))});
+    return succeed({qfqday:rows(Array(60).fill(10))});
   });
   const result=await run(stock,day);
   assert.deepEqual(request.mock.calls.map(c=>c.arguments[0].hostname),endpointHosts);
@@ -137,5 +140,42 @@ test('caller aborts the in-flight fetch and does not start a fallback',async t=>
 test('honor an explicit access or rate limit response',async t=>{
   const request=call(t,null,async()=>({ok:false,status:429}));
   const result=await run(stock,day);
-  assert.match(result.reason,/限制/);assert.equal(request.mock.calls.length,1);
+  assert.match(result.reason,/停止访问/);assert.equal(request.mock.calls.length,1);
+});
+
+ test('day-only history cannot establish forward-adjustment evidence',async t=>{
+  call(t,{day:rows(sequence)});
+  const result=await run(stock,day);
+  assert.equal(result.status,'unavailable');assert.match(result.reason,/前复权口径未确认/);assert.equal(result.turtle,undefined);
+ });
+
+const frozenNow=()=>Date.parse('2026-11-16T08:00:00Z');
+test('401, 403 and 429 persist across repeated calls and a new client without any fallback',async()=>{
+ for(const status of [401,403,429]){
+  const storage=memoryStorage();let requests=0;
+  const env={localStorage:storage,now:frozenNow,fetch:async()=>{requests++;return {ok:false,status}}};
+  const first=createClient(env);
+  for(let i=0;i<2;i++){const r=await first.run(stock,day);assert.equal(r.sourceStopped,true);assert.match(r.reason,/停止访问/);}
+  const afterReload=createClient(env);assert.equal((await afterReload.run(stock,day)).sourceStopped,true);
+  assert.equal(requests,1);assert.equal(afterReload.sourceState().record.httpStatus,status);
+  assert.equal(first.clearStop,undefined,'no one-click bypass');
+ }
+});
+test('concurrent late success loses to a source denial',async()=>{
+ const storage=memoryStorage();let requests=0,resolveLate;
+ const client=createClient({localStorage:storage,now:frozenNow,fetch:async()=>{
+  requests++;return requests===1?new Promise(resolve=>resolveLate=resolve):{ok:false,status:429};
+ }});
+ const late=client.run(stock,day);const denied=await client.run(stock,day);assert.equal(denied.sourceStopped,true);
+ resolveLate(succeed({qfqday:rows(sequence)}));assert.equal((await late).sourceStopped,true);
+ await client.run(stock,day);assert.equal(requests,2);
+});
+test('storage that cannot preserve a stop fails closed before any source request',async()=>{
+ let requests=0;const client=createClient({now:frozenNow,fetch:async()=>{requests++},localStorage:{getItem:()=>null,setItem(){throw Error('quota')},removeItem(){}}});
+ assert.equal((await client.run(stock,day)).sourceStopped,true);assert.equal(requests,0);assert.equal(client.sourceState().status,'unavailable');
+});
+test('existing or malformed stop records cannot be silently cleared',async()=>{
+ const storage=memoryStorage();storage.setItem('books.screening.tencent-source-stop.v1','unparseable');let requests=0;
+ const client=createClient({localStorage:storage,now:frozenNow,fetch:async()=>{requests++}});
+ assert.equal((await client.run(stock,day)).sourceStopped,true);assert.equal(requests,0);assert.match(client.sourceState().reason,/人工核对/);
 });

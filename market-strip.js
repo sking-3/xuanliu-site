@@ -8,6 +8,7 @@
     'HSI:HSI': ['hkHSI', 'hkfqkline', 'Asia/Hong_Kong', '161000'],
     'FRED:NDQCOM': ['us.IXIC', 'usfqkline', 'America/New_York', '160000']
   };
+  const calendar = typeof module === 'object' && module.exports ? require('./market-calendar.js') : globalThis.BooksMarketCalendar;
   const hosts = ['https://web.ifzq.gtimg.cn', 'https://proxy.finance.qq.com/ifzqgtimg'];
 
   function validDay(value) {
@@ -38,19 +39,14 @@
   }
 
   function inSession(zone, clock) {
-    const weekday = new Date(clock.date+'T12:00:00Z').getUTCDay();
-    if (weekday === 0 || weekday === 6) return false;
-    const t = clock.time;
-    if (zone==='America/New_York') return t>='093000' && t<'160000';
-    const hk = zone==='Asia/Hong_Kong';
-    return t>='093000' && t<(hk?'120000':'113000') || t>='130000' && t<(hk?'161000':'150000');
+    return calendar?.inSession(zone,clock) === true;
   }
 
   const seconds = time => Number(time.slice(0,2))*3600 + Number(time.slice(2,4))*60 + Number(time.slice(4,6));
   function quote(symbol, payload, now = new Date()) {
     const feed = feeds[symbol];
     if (!feed || ![0,'0'].includes(payload?.code)) return null;
-    const [ticker, , zone, closeTime] = feed;
+    const [ticker, , zone] = feed;
     const entry = payload.data?.[ticker];
     const rows = entry?.qfqday ?? entry?.day;
     if (!Array.isArray(rows)) return null;
@@ -63,10 +59,14 @@
     const stampToday = (code===expected || code===ticker.toUpperCase())
       && /^\d{8}(?:[01]\d|2[0-3])(?:[0-5]\d){2}$/.test(stamp) && stamp.slice(0,8) === today.replaceAll('-','');
     const quoteTime = stamp.slice(8);
-    const closedToday = stampToday && clock.time>=closeTime && quoteTime>=closeTime && quoteTime<=clock.time;
+    const session = calendar?.session(zone,today);
+    const closeTime = session?.close;
+    const closedToday = session?.verified && session.open && stampToday && clock.time>=closeTime && quoteTime>=closeTime && quoteTime<=clock.time;
     const closes = [];
     for (const row of rows) {
       if (!Array.isArray(row) || !validDay(row[0])) return null;
+      const daySession = calendar?.session(zone,row[0]);
+      if (daySession?.verified && !daySession.open) continue;
       if (row[0] > today || row[0] === today && !closedToday) continue;
       if (!positive(row[2])) return null;
       closes.push({date:row[0],close:Number(row[2])});
@@ -79,7 +79,8 @@
     const closing = {...closes.at(-1),previousClose:closes.at(-2).close,previousDate:closes.at(-2).date};
     let delayed = null;
     const age = seconds(clock.time) - seconds(quoteTime);
-    if (stampToday && inSession(zone,clock) && inSession(zone,{date:today,time:quoteTime})
+    const expectedClose = calendar?.latestClosed(zone,now);
+    if (expectedClose?.date === closing.date && stampToday && inSession(zone,clock) && inSession(zone,{date:today,time:quoteTime})
         && age>=0 && age<=1800 && positive(qt[3]) && positive(qt[4])
         && closing.date<today && Math.abs(Number(qt[4])-closing.close)<=0.015) {
       delayed = {date:today, instant:new Date(Math.floor(now.getTime()/1000)*1000-age*1000).toISOString(),
@@ -89,12 +90,12 @@
   }
 
   function fresh(symbol, row, closing, now = new Date()) {
-    if (!row || !positive(row.price) || !positive(row.previousClose) || !validDay(row.date)
+    if (!feeds[symbol] || !closing || !row || !positive(row.price) || !positive(row.previousClose) || !validDay(row.date)
         || row.previousDate!==closing.date || row.date<=closing.date || Math.abs(row.previousClose-closing.close)>0.015) return false;
     const age = now.getTime()-Date.parse(row.instant);
     if (!Number.isFinite(age) || age<0 || age>30*60*1000) return false;
     const zone=feeds[symbol][2], stamp=marketTime(zone,new Date(row.instant)), current=marketTime(zone,now);
-    return stamp.date===row.date && current.date===stamp.date && inSession(zone,current) && inSession(zone,stamp);
+    return calendar?.latestClosed(zone,now)?.date===closing.date && stamp.date===row.date && current.date===stamp.date && inSession(zone,current) && inSession(zone,stamp);
   }
 
   const change = (value,previous) => (value / previous - 1) * 100;
@@ -132,6 +133,8 @@
         || data.date>marketTime(feeds[symbol][2],new Date()).date || data.date<closing[symbol].date
         || !positive(data.close) || !positive(data.previousClose)) return false;
     if (!hosts.some(host=>endpoint(host,feeds[symbol])===data.url)) return false;
+    const session=calendar?.session(feeds[symbol][2],data.date);
+    if(session?.verified && !session.open)return false;
     closing[symbol]=data;
     return true;
   }
@@ -150,7 +153,9 @@
     const live = fresh(symbol,delayed[symbol],base) ? delayed[symbol] : null;
     const data = live || base, value = live ? live.price : base.close;
     const pct = change(value, data.previousClose);
-    const label = live?'延时报价':'收盘';
+    const latest=calendar?.latestClosed(feeds[symbol][2]);
+    const state=live?'delayed':!latest?'calendar-unverified':base.date<latest.date?'stale-close':'close';
+    const label=live?'延时报价':!latest?'收盘 · 日历待核验':state==='stale-close'?'历史收盘':'收盘';
     let asOf = data.date;
     if (live) {
       const t = marketTime(feeds[symbol][2],new Date(live.instant)).time;
@@ -166,12 +171,13 @@
       time.textContent = asOf;
       item.querySelector('.tape-kind').textContent = label;
       item.dataset.quoteKind = live?'delayed':'close';
+      item.dataset.quoteFreshness = state;
       item.dataset.price = String(value);
       item.dataset.close = String(base.close);
       item.dataset.previousClose = String(data.previousClose);
       item.dataset.previousDate = data.previousDate;
       item.dataset.sourceUrl = base.url;
-      item.title = '腾讯行情 · 市场当地 '+asOf+' '+label+' · 前收 '+number.format(data.previousClose);
+      item.title = '腾讯行情 · 市场当地 '+asOf+' '+label+' · 前收 '+number.format(data.previousClose)+(state==='stale-close'?' · 最近已收盘交易日 '+latest.date:'');
     }
   }
 

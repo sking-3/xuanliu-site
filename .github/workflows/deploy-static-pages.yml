@@ -18,13 +18,15 @@ permissions:
   contents: read
 
 concurrency:
-  group: pages-static
-  cancel-in-progress: true
+  group: pages
+  queue: max
+  cancel-in-progress: false
 
 jobs:
   deploy:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 25
     permissions:
       contents: read
       pages: write
@@ -34,25 +36,25 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Check out the current main branch
+        id: checkout
         uses: actions/checkout@v6
         with:
           ref: main
           fetch-depth: 1
 
+      - uses: ./.github/actions/setup-public-release
+
+      - name: Gate this exact checkout on offline unit, static and browser checks
+        run: node scripts/verify_public_release.cjs
+
       - name: Configure Pages
         uses: actions/configure-pages@v5
 
       - name: Stage the committed public website
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p "${RUNNER_TEMP}/books-pages"
-          git archive --format=tar HEAD | tar -x -C "${RUNNER_TEMP}/books-pages"
-          rm -rf "${RUNNER_TEMP}/books-pages/copy-config" "${RUNNER_TEMP}/books-pages/tools/copy_plan" "${RUNNER_TEMP}/books-pages/private-follow"
-          rm -f "${RUNNER_TEMP}/books-pages/trader/"paper-*.js "${RUNNER_TEMP}/books-pages/trader/paper-copy.css"
-          test -s "${RUNNER_TEMP}/books-pages/index.html"
-          test -s "${RUNNER_TEMP}/books-pages/research.html"
-          test -s "${RUNNER_TEMP}/books-pages/trader/aoying-history.js"
+        env:
+          BOOKS_STAGE_DIR: ${{ runner.temp }}/books-pages
+          EXPECTED_SHA: ${{ steps.checkout.outputs.commit }}
+        run: node scripts/stage_public_release.cjs
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v4
@@ -61,6 +63,31 @@ jobs:
           retention-days: 1
           include-hidden-files: true
 
+      - name: Reject an obsolete release before deployment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_SHA: ${{ steps.checkout.outputs.commit }}
+          BOOKS_REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual_sha=$(gh api "repos/$BOOKS_REPOSITORY/git/ref/heads/main" --jq '.object.sha')
+          test "$actual_sha" = "$EXPECTED_SHA" || { echo '::error::main advanced; this artifact will not deploy.'; exit 1; }
+
       - name: Deploy validated static website
         id: deployment
         uses: actions/deploy-pages@v4
+
+      - name: Verify the published revision, assets and browser behavior
+        env:
+          EXPECTED_SHA: ${{ steps.checkout.outputs.commit }}
+          RELEASE_BASE_URL: https://sking-3.github.io/xuanliu-site/
+        run: node scripts/verify_public_release.cjs --live
+
+      - name: Preserve failed release evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-failure-${{ github.run_id }}-${{ github.job }}
+          path: audit/browser-output/release/
+          retention-days: 7
