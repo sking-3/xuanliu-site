@@ -32,15 +32,32 @@ for (const row of snapshot.accounts) {
     assert.equal(model.performance(row,period,asOf).status,'ready');
     assert.equal(model.performance(row,period,asOf+86400001).status,'stale');
   }
-  const open=evidence(row.activity.positions),history=evidence(row.activity.history);
+  const open=evidence(row.activity.positions),history=row.activity.history;
   if(open.strategySafe)assert.equal(row.activity.positions.status,'restricted');
   assert.equal(row.activity.positions.rows.length,open.rows.length);
-  assert.equal(row.activity.history.rows.length,Math.min(10,history.rows.length));
-  row.activity.history.rows.forEach((position,i)=>{
-    assert.equal(position.id,history.rows[i].id);
-    assert.equal(position.realizedPnl,Number(history.rows[i].positionPnl));
-    assert.equal(position.closedAt,new Date(history.rows[i].closeTime).toISOString());
+  const sourcePages=new Map();
+  for(const page of [...history.pages,...(history.priorPages||[])]) {
+    const data=evidence(page);
+    assert.equal(page.rowCount,data.rows.length);
+    assert.equal(page.hasMore,data.nextFlag);
+    sourcePages.set(page.evidencePath,new Map(data.rows.map(r=>[r.id,r])));
+  }
+  assert.equal(history.pagesFetched,history.pages.length);
+  assert.equal(history.truncated,history.pages.at(-1).hasMore);
+  history.rows.forEach(position=>{
+    const raw=sourcePages.get(position.evidencePath).get(position.id);
+    assert.ok(raw);
+    assert.equal(position.realizedPnl,Number(raw.positionPnl));
+    assert.equal(position.closedAt,new Date(raw.closeTime).toISOString());
   });
+  // A subsequent page may contain only the newest records. Preserve every earlier ID and its evidence.
+  const first=history.pages[0],tail={...history,rows:history.rows.filter(r=>r.evidencePath===first.evidencePath),
+    pages:[first],pagesFetched:1,hasMore:first.hasMore,truncated:first.hasMore};
+  const merged=collector.mergeHistory(tail,history,row.portfolioId);
+  assert.deepEqual(merged.rows.map(r=>r.id),history.rows.map(r=>r.id));
+  assert.ok(history.pages.slice(1).every(p=>merged.priorPages.some(ref=>ref.evidencePath===p.evidencePath)));
+  const proof=structuredClone(snapshot);proof.accounts.find(x=>x.portfolioId===row.portfolioId).activity.history=merged;
+  model.parse(proof,asOf);
 }
 const invalid=structuredClone(snapshot);
 invalid.accounts[0].performance['365D']=invalid.accounts[0].performance['90D'];
