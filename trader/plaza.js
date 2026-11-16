@@ -1446,8 +1446,8 @@ async function okxEvidenceCurve(part){
 }
 function renderLeadCurve(r,b,part){
   if(!part||r.exchange!=='OKX'&&!part.curve?.length)return;
-  const section=node('section',undefined,'lead-curve'),plot=node('div'),controls=node('div',undefined,'period-switch'),heading=node('h4','官方每日收益率');
-  controls.setAttribute('aria-label','官方日线指标');section.append(heading,controls,plot);b.append(section);
+  const section=node('section',undefined,'lead-curve'),plot=node('div'),controls=node('div',undefined,'lead-metric-switch'),heading=node('h4','官方每日收益率');
+  controls.setAttribute('role','group');controls.setAttribute('aria-label','官方日线指标');section.append(heading,controls,plot);b.append(section);
   const draw=curves=>{
     function select(metric){
       const data=curves[metric];if(!data||data.length<2)return;
@@ -1536,7 +1536,7 @@ function renderLeadDetail(r,b){
   const available=candidates.filter(period=>Number.isFinite(detailPeriod(r,period)?.roi));
   if(!available.includes(state.window))state.window=available.includes('90D')?'90D':available[0]||state.window;
   if(state.requestedDetailPeriod!==state.window)b.append(node('p',periodLabel(state.requestedDetailPeriod)+' 暂无可核实收益，已显示近 '+parseInt(state.window,10)+' 天。','detail-method'));
-  const buttons=node('div',undefined,'period-switch');buttons.setAttribute('aria-label','收益统计周期');
+  const buttons=node('div',undefined,'period-switch');buttons.setAttribute('role','group');buttons.setAttribute('aria-label','收益统计周期');
   for(const period of candidates){
     const has=available.includes(period);
     const control=button('近 '+parseInt(period,10)+' 天'+(has?'':' · 暂缺'),()=>{state.window=period;state.requestedDetailPeriod=period;renderDetail();},'detail-button');
