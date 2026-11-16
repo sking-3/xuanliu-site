@@ -167,6 +167,7 @@
     for (const b of document.querySelectorAll('#finance-form button,#report-form button')) b.disabled=true;
     return;
   }
+  text('vibe-command','python3 .agents/skills/data-access/scripts/fetch_estimates.py --symbol '+symbol.code+' --out-dir .local/dossier');
   title(); text('finance-status','待查询');text('value-status','待查询');
   el('fy').value = today().slice(0,4);
   el('finance-form').addEventListener('submit',async event=>{
@@ -222,7 +223,7 @@
     el(id).addEventListener('input',()=>{
       if (imported) {
         imported='';
-        el('estimate-source').value='';
+        if (id!=='estimate-source') el('estimate-source').value='';
         text('vibe-status','预测输入已手动修改，请重新填写出处。');
       }
     });

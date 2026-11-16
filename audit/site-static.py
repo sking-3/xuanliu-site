@@ -52,7 +52,12 @@ for p in pages:
  check(bool(tree.xpath('//a[contains(@class,"skip")]')),f'{p}: keyboard bypass exists')
  check(bool(tree.xpath('//meta[@http-equiv="Content-Security-Policy"]')),f'{p}: CSP retained')
  frames=tree.xpath('//*[@id="index-ticker"]/iframe')
- check(len(frames)==1 and (p.parent/urlsplit(frames[0].get('src')).path).resolve()==root/'market-strip.html',f'{p}: one shared local ticker')
+ if p.name=='company-dossier.html':
+  check(not tree.xpath('//iframe | //script[starts-with(@src,"http")]'), 'personal API key page only runs local code')
+  links=tree.xpath('//nav[@id="index-ticker"]/a/@href')
+  check(len(links)==4 and all(urlsplit(link).path=='chart.html' for link in links),'personal API key page has four local index chart links')
+ else:
+  check(len(frames)==1 and (p.parent/urlsplit(frames[0].get('src')).path).resolve()==root/'market-strip.html',f'{p}: one shared local ticker')
  for table in tree.xpath('//table'):
   columns=len(table.xpath('.//thead/tr[1]/th'))
   for td in table.xpath('.//tbody/tr/td[@colspan]'):check(int(td.get('colspan'))==columns,f'{p}: empty row matches {columns} columns')

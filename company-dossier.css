@@ -32,3 +32,10 @@
 .dossier pre {white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;font-size:14px;line-height:1.75;padding:12px;background:var(--desk-canvas)}
 .dossier .credits a {color:var(--desk-accent)}
 @media(max-width:620px){.dossier .two-col,.dossier .expectations{grid-template-columns:minmax(0,1fr)}.dossier form:not(#report-form) label{width:100%}.dossier form:not(#report-form) input{flex:1;width:120px}}
+
+.dossier-indices {display:flex;align-items:center;gap:clamp(4px,2vw,24px);padding-inline:10px;box-sizing:border-box;font-size:13px;white-space:nowrap}
+.dossier-indices span {color:var(--desk-muted);font-size:12px}
+.dossier-indices a {display:inline-flex;align-items:center;min-height:44px;color:var(--desk-ink);text-decoration:none}
+.dossier-indices a:hover {text-decoration:underline}
+
+#vibe-command {display:block;white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;color:var(--desk-muted)}
