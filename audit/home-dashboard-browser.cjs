@@ -76,17 +76,24 @@ async function inspect(browser, viewport) {
         const dailyChanges=${JSON.stringify(compactChanges)};
         customElements.define('tv-ticker-pill',class extends HTMLElement {
           connectedCallback() {
-            if (this.shadowRoot) return;
-            this.attachShadow({mode:'open'}).innerHTML='<span class="name"></span><span class="change"></span>';
+            const root=this.attachShadow({mode:'closed'});
+            root.innerHTML='<span class="name"></span><span class="change"></span>';
             const symbol=this.getAttribute('symbol');
-            this.shadowRoot.querySelector('.name').textContent=symbol.split(':')[1];
-            this.shadowRoot.querySelector('.change').textContent=(${JSON.stringify(failTags)} === 'partial' && symbol === 'SZSE:300750') ? '—' : dailyChanges[symbol];
+            const missing=(${JSON.stringify(failTags)} === 'partial' && symbol === 'SZSE:300750');
+            root.querySelector('.name').textContent=symbol.split(':')[1];
+            root.querySelector('.change').textContent=missing ? '—' : dailyChanges[symbol];
+            for (const dataType of ['quote/chp','symbolInfo/name']) {
+              const id=Symbol(dataType);
+              this.dispatchEvent(new CustomEvent('data-request',{bubbles:true,composed:true,detail:{dataType,consumerId:id}}));
+              this.dispatchEvent(new CustomEvent('loading-status-changed',{bubbles:true,composed:true,detail:{
+                requestId:id,status:missing && dataType === 'quote/chp' ? 'error' : 'completed'
+              }}));
+            }
           }
         });
         customElements.define('tv-ticker-tag',class extends HTMLElement {
           connectedCallback() {
-            if (this.shadowRoot) return;
-            const root=this.attachShadow({mode:'open'}), pill=document.createElement('tv-ticker-pill');
+            const root=this.attachShadow({mode:'closed'}), pill=document.createElement('tv-ticker-pill');
             pill.setAttribute('symbol',this.getAttribute('symbol'));
             root.append(pill);
           }
@@ -199,7 +206,9 @@ async function inspect(browser, viewport) {
       assert.match(await row.innerText(),/\p{Script=Han}/u);
       const stockURL = new URL(await row.locator('a.stock').getAttribute('href'),site);
       assert.equal(stockURL.searchParams.get('tvwidgetsymbol'),symbol);
-      await row.locator('tv-ticker-tag .change').filter({hasText:compactChanges[symbol]}).waitFor();
+      const tag = row.locator('tv-ticker-tag');
+      assert.equal(await tag.getAttribute('symbol'),symbol);
+      assert.ok(await tag.evaluate(element=>element.shadowRoot===null),'closed vendor component');
     }
     assert.equal(await boards.watch.getAttribute('data-watch-mode'),'compact');
     return frame;

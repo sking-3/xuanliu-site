@@ -199,7 +199,7 @@
         if (compact) {
           const frame = el('iframe');
           frame.title = '沪深八股日涨跌';
-          frame.src = 'home-watch-quotes.html?v=785767ef';
+          frame.src = 'home-watch-quotes.html?v=aafdcaf0';
           const useFullQuotes = () => { if (active) load(autoRetry,true); };
           messageListener = event => {
             if (!active || event.origin !== env.location.origin || event.source !== frame.contentWindow ||

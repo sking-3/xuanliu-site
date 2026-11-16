@@ -83,6 +83,38 @@ async function chinaDaily(page, upstream) {
   }
 }
 
+// Chromium's post-layout snapshot includes the provider's closed shadow trees.
+// Count only rendered change text belonging to the named stock row in the watch frame.
+function renderedChanges(snapshot, frameURL) {
+  const {strings,documents} = snapshot;
+  const document = documents.find(entry=>strings[entry.documentURL] === frameURL);
+  if (!document) return new Map();
+  const {nodes,layout} = document;
+  const symbols = [], tags = [], changes = [];
+  for (let index=0; index<nodes.nodeName.length; index++) {
+    const parent = nodes.parentIndex[index];
+    const attributes = nodes.attributes[index] || [];
+    symbols[index] = symbols[parent];
+    tags[index] = tags[parent] || strings[nodes.nodeName[index]].toLowerCase() === 'tv-ticker-tag';
+    changes[index] = changes[parent];
+    for (let field=0; field<attributes.length; field+=2) {
+      const name=strings[attributes[field]], value=strings[attributes[field+1]];
+      if (name === 'data-watch-symbol') symbols[index]=value;
+      if (name === 'class' && value.split(/\s+/).includes('change')) changes[index]=true;
+    }
+  }
+  const result = new Map();
+  for (let index=0; index<layout.nodeIndex.length; index++) {
+    const node=layout.nodeIndex[index], symbol=symbols[node];
+    const text=strings[layout.text[index]]?.trim();
+    if (!text || !symbol || !tags[node] || !changes[node]) continue;
+    const [, ,width,height] = layout.bounds[index];
+    if (width<=0 || height<=0 || strings[layout.styles[index][0]] === 'hidden') continue;
+    result.set(symbol,(result.get(symbol)||'')+text);
+  }
+  return result;
+}
+
 async function compactWatch(page) {
   const board = page.locator('.radar-stocks > [data-equity-watch]');
   await page.waitForFunction(() => window.watchWidgetEvents.length > 0 || document.querySelector('[data-equity-watch]')?.dataset.watchMode === 'fallback',null,{timeout});
@@ -94,21 +126,29 @@ async function compactWatch(page) {
   const symbols = [...watchSymbols.SSE,...watchSymbols.SZSE];
   assert.deepEqual((await watch.locator('[data-watch-symbol]').evaluateAll(rows=>rows.map(row=>row.dataset.watchSymbol))).sort(),symbols.sort());
   assert.ok(await watch.locator('html').evaluate(el=>el.scrollWidth<=el.clientWidth+1),'no horizontal overflow inside the compact frame');
-  const values = [];
+  const iframeURL = await watch.locator('html').evaluate(()=>location.href);
+  const session = await page.context().newCDPSession(page);
+  let values;
+  try {
+    const deadline=Date.now()+8000;
+    do {
+      const tree=await session.send('DOMSnapshot.captureSnapshot',{computedStyles:['visibility']});
+      values=renderedChanges(tree,iframeURL);
+      if (symbols.every(symbol=>percentage.test(values.get(symbol)||'')) || Date.now()>=deadline) break;
+      await page.waitForTimeout(300);
+    } while (true);
+  } finally { await session.detach(); }
   for (const symbol of symbols) {
     const row = watch.locator('[data-watch-symbol="'+symbol+'"]');
-    const change = row.locator('tv-ticker-tag tv-ticker-pill .change').filter({hasText:percentage});
-    await change.waitFor({timeout});
     assert.match(await row.innerText(),/\p{Script=Han}/u,'named stock '+symbol);
-    const text = await change.innerText();
-    assert.ok(Number.isFinite(numeric(text)),symbol+' '+text);
-    assert.ok(await change.evaluate(el=>{
+    const text = values.get(symbol);
+    assert.ok(text && percentage.test(text) && Number.isFinite(numeric(text)),'missing rendered percentage for '+symbol+' '+text);
+    assert.ok(await row.locator('tv-ticker-tag').evaluate(el=>{
       const box=el.getBoundingClientRect();
       return box.width>0 && box.height>0 && box.left>=-1 && box.right<=document.documentElement.clientWidth+1;
     }),symbol+' change fits in the quote viewport');
-    values.push({symbol,change:text});
   }
-  console.log('Eight live TradingView compact changes',page.viewportSize().width,values);
+  console.log('Eight live TradingView compact changes',page.viewportSize().width,Object.fromEntries(values));
 }
 
 async function fullWatch(page) {
@@ -181,16 +221,26 @@ async function inspect(browser,width) {
     await page.goto(home, {waitUntil:'domcontentloaded'});
     const board = page.locator('.radar-stocks');
     await board.scrollIntoViewIfNeeded();
+    const usStage=board.locator('[data-mover-market="us"] .radar-mover-stage');
+    await usStage.evaluate(el=>el.scrollIntoView({block:'center',behavior:'instant'}));
+    await verify('US gainers',()=>us(page,'gains'));
+    await verify('unobstructed US quote viewport',async()=>{
+      const bounds = await usStage.boundingBox();
+      const strip = await page.locator('#index-ticker').boundingBox();
+      assert.ok(bounds && (!strip || bounds.y>=strip.y+strip.height-1),'fixed ticker overlaps the US quotes');
+    });
+    await usStage.screenshot({path:output+'/provider-'+width+'-default-us.png'});
+    await board.locator('[data-equity-watch] .radar-mover-stage').evaluate(el=>el.scrollIntoView({block:'center',behavior:'instant'}));
     await verify('compact watch',()=>compactWatch(page));
     if (!mobile) {
       await verify('closing ranks',()=>chinaDaily(page,upstream));
-      await verify('US gainers',()=>us(page,'gains'));
     }
     await verify('default layout',async()=>{
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth<=innerWidth+1),'no horizontal overflow on homepage');
       assert.equal(await page.locator('[data-mover-market="us"] [data-kind="gainers"]').getAttribute('aria-pressed'),'true');
     });
-    await board.screenshot({path:output+'/provider-'+width+'-default-radar.png'});
+    // This multi-viewport component capture would otherwise repeat the fixed ticker inside the card.
+    await board.screenshot({path:output+'/provider-'+width+'-default-radar.png',style:'.books-shell > .index-ticker {visibility:hidden !important}'});
     await board.locator('[data-equity-watch]').screenshot({path:output+'/provider-'+width+'-default-watch.png'});
     if (!mobile) {
       await verify('full or backup quotes',()=>fullWatch(page));
