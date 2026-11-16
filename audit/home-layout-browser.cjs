@@ -15,13 +15,25 @@ async function tape(page, scope, {motion}) {
   const inputs=await charts.evaluateAll(anchors=>anchors.map(a=>({
     symbol:a.dataset.symbol,price:Number(a.querySelector('.tape-price').textContent.replace(/[,，]/g,'')),
     change:Number(a.querySelector('.tape-change').textContent.replace(/[,，%％]/g,'').replace('−','-')),
-    close:Number(a.dataset.close),previousClose:Number(a.dataset.previousClose),
+    kind:a.dataset.quoteKind ?? 'close',label:a.querySelector('.tape-kind').textContent,
+    point:Number(a.dataset.price ?? a.dataset.close),close:Number(a.dataset.close),previousClose:Number(a.dataset.previousClose),
+    previousDate:a.dataset.previousDate,
     date:a.querySelector('time').dateTime,source:a.querySelector('.tape-source').textContent,sourceURL:a.dataset.sourceUrl
   })));
   for(const item of inputs) {
-    assert.ok(item.close>0 && item.previousClose>0 && Math.abs(item.price-item.close)<=.0051,item.symbol+' close');
-    assert.ok(Math.abs(item.change-(item.close/item.previousClose-1)*100)<=.0051,item.symbol+' index change');
-    assert.ok(/^\d{4}-\d\d-\d\d(?:$|T)/.test(item.date) && Number.isFinite(Date.parse(item.date)) && item.source,item.symbol+' dated source');
+    assert.ok(item.point>0 && item.close>0 && item.previousClose>0 && Math.abs(item.price-item.point)<=.0051,item.symbol+' displayed point value');
+    assert.ok(Math.abs(item.change-(item.point/item.previousClose-1)*100)<=.0051,item.symbol+' index change');
+    assert.ok(Number.isFinite(Date.parse(item.date)) && /^\d{4}-\d\d-\d\d$/.test(item.previousDate) && item.source,item.symbol+' dated source');
+    if (item.kind==='delayed') {
+      assert.equal(item.label,'延时报价');
+      assert.match(item.date,/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?(?:Z|[+-]\d\d:\d\d)$/);
+      assert.ok(Math.abs(item.close-item.previousClose)<=.015,item.symbol+' delayed value must use the confirmed previous close');
+    } else {
+      assert.equal(item.kind,'close');
+      assert.equal(item.label,'收盘');
+      assert.match(item.date,/^\d{4}-\d\d-\d\d$/);
+      assert.ok(item.previousDate<item.date && item.close===item.point,item.symbol+' dated closing point');
+    }
     assert.ok(['web.ifzq.gtimg.cn','proxy.finance.qq.com'].includes(new URL(item.sourceURL).hostname));
   }
   if(scope!==page) {

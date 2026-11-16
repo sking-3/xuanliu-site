@@ -58,7 +58,7 @@
     const qt = entry.qt?.[ticker];
     const code = String(qt?.[2] || '').toUpperCase(), expected = ticker.slice(2).toUpperCase();
     // Tencent uses both formatted exchange-local times and compact timestamps.
-    const stamp = String(qt?.[30] || '').replace(/[-: ]/g,'');
+    const stamp = String(qt?.[30] || '').replace(/[-/: ]/g,'');
     const today = clock.date;
     const stampToday = (code===expected || code===ticker.toUpperCase())
       && /^\d{8}(?:[01]\d|2[0-3])(?:[0-5]\d){2}$/.test(stamp) && stamp.slice(0,8) === today.replaceAll('-','');
@@ -73,6 +73,9 @@
     }
     closes.sort((a,b) => a.date.localeCompare(b.date));
     if (closes.length < 2 || closes.some((bar,i)=>i>0 && bar.date===closes[i-1].date)) return null;
+    if (closes.at(-1).date === today && (!positive(qt[3]) || !positive(qt[4])
+        || Math.abs(closes.at(-1).close-Number(qt[3]))>0.015 || Math.abs(closes.at(-2).close-Number(qt[4]))>0.015)) closes.pop();
+    if (closes.length < 2) return null;
     const closing = {...closes.at(-1),previousClose:closes.at(-2).close,previousDate:closes.at(-2).date};
     let delayed = null;
     const age = seconds(clock.time) - seconds(quoteTime);

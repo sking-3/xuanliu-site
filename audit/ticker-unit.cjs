@@ -13,59 +13,79 @@ vm.runInNewContext(fs.readFileSync('index-ticker.js','utf8'),parentContext);
 check('host requests measurement on startup and iframe load',()=>{assert.equal(messages.length,1);events['frame:load']();assert.equal(messages.length,2);assert.equal(messages[0].target,origin)});
 const size=(source,from,height)=>events.message({origin:from,source,data:{type:'books-market-strip-size',height}});
 check('host rejects wrong origin, wrong frame and invalid heights',()=>{for(const h of [NaN,Infinity,'45'])size(contentWindow,origin,h);size({},origin,100);size(contentWindow,'https://other.example',100);assert.deepEqual(properties,{})});
-check('host fits the entire scaled provider component without clipping',()=>{size(contentWindow,origin,44.5);assert.equal(properties['--books-ticker-height'],'45px');size(contentWindow,origin,86.25);assert.equal(properties['--books-ticker-height'],'87px')});
+check('host sizes the entire measured native strip',()=>{size(contentWindow,origin,44.5);assert.equal(properties['--books-ticker-height'],'45px');size(contentWindow,origin,86.25);assert.equal(properties['--books-ticker-height'],'87px')});
 check('host keeps safe minimum height',()=>{size(contentWindow,origin,10);assert.equal(properties['--books-ticker-height'],'40px')});
-let height=43.5,resize;
-const observed=[],childEvents={},reports=[];
-const parent={postMessage:(data,target)=>reports.push({data,target})};
-const vendorFrame={contentWindow:{}};
-const widget={getBoundingClientRect:()=>({height}),querySelector:()=>vendorFrame};
-const links={getBoundingClientRect:()=>({height:44}),contains:()=>false,addEventListener(){}};
-const childDocument={
- body:{dataset:{}},
- querySelector:selector=>selector==='.strip-links'?links:widget
-};
-vm.runInNewContext(fs.readFileSync('market-strip.js','utf8'),{
- document:childDocument, window:{addEventListener:(type,fn)=>childEvents[type]=fn},location:{origin},parent,
- ResizeObserver:class{constructor(fn){resize=fn}observe(element){observed.push(element)}}
+const {feeds,quote,fresh,change,endpoint} = require('../market-strip.js');
+const html = fs.readFileSync('market-strip.html','utf8');
+const seeded = [...html.matchAll(/<a class="tape-item"[^>]*>[\s\S]*?<\/a>/g)].map(m=>m[0]);
+check('six first-paint native chart links include attributable dated closes without remote rendering',()=>{
+  assert.doesNotMatch(html,/tradingview-widget|embed-widget-ticker-tape|<iframe/);
+  assert.equal(seeded.length,6);
+  const symbols = Object.keys(feeds);
+  for (const [i,tag] of seeded.entries()) {
+    const attr = key=>tag.match(new RegExp(key+'="([^"]+)"'))?.[1];
+    const sym = symbols[i],close=Number(attr('data-close')),prev=Number(attr('data-previous-close'));
+    assert.equal(attr('target'),'_parent');assert.equal(attr('data-symbol'),sym);
+    assert.equal(new URL(attr('href'),origin).searchParams.get('tvwidgetsymbol'),sym);
+    assert.match(attr('datetime'),/^\d{4}-\d{2}-\d{2}$/);
+    assert.ok(attr('data-previous-date')<attr('datetime'));
+    assert.ok(close>0 && prev>0);assert.ok(tag.includes('收盘') && tag.includes('腾讯行情'));
+    assert.equal(Number(tag.match(/data-direction="(?:up|down|flat)">([-+\d.]+)%/)[1]),Number(change(close,prev).toFixed(2)));
+    assert.equal(new URL(attr('data-source-url')).searchParams.get('param').split(',')[0],feeds[sym][0]);
+  }
 });
-const provider='https://www.tradingview-widget.com';
-const notify=(from,source,name,data)=>childEvents.message({origin:from,source,data:{name,data}});
-check('first paint offers four source-specific index charts without an external request',()=>{
- const html=fs.readFileSync('market-strip.html','utf8');
- const nav=html.match(/<nav class="strip-links".*?<\/nav>/s)[0];
- const destinations=[...nav.matchAll(/href="chart\.html\?tvwidgetsymbol=([^"]+)"/g)].map(m=>decodeURIComponent(m[1]));
- assert.deepEqual(destinations,['SSE:000001','SZSE:399001','HSI:HSI','FRED:NDQCOM']);
- assert.equal((nav.match(/target="_parent"/g)||[]).length,4);
- assert.equal(childDocument.body.dataset.stripMode,'links');assert.equal(reports[0].data.height,45);assert.equal(reports[0].target,origin);
+const examples=[
+  ['SSE:000001','20261116161427','2026-11-16T09:28:00Z'],
+  ['HSI:HSI','2026/11/16 17:28:11','2026-11-16T09:30:00Z'],
+  ['FRED:NDQCOM','2026-11-16 17:15:59','2026-11-16T22:16:00Z']
+];
+function data(symbol,stamp,price=101,previous=100) {
+  const ticker=feeds[symbol][0];
+  const qt=[];qt[2]=ticker.slice(2);qt[3]=String(price);qt[4]=String(previous);qt[30]=stamp;
+  const day=[['2026-11-12','96','98'],['2026-11-13','98','100'],['2026-11-16','100','101']];
+  return {code:0,data:{[ticker]:{day,qt:{[ticker]:qt}}}};
+}
+check('three exchange dispatch paths and verified daily pairs after local close',()=>{
+  for(const [symbol,stamp,time] of examples) {
+    const result=quote(symbol,data(symbol,stamp),new Date(time));
+    assert.deepEqual(result,{closing:{date:'2026-11-16',close:101,previousClose:100,previousDate:'2026-11-13'},delayed:null});
+    const url=new URL(endpoint('https://web.ifzq.gtimg.cn',feeds[symbol]));
+    assert.ok(url.pathname.includes('/'+feeds[symbol][1]+'/'));assert.equal(url.searchParams.get('param').split(',')[0],feeds[symbol][0]);
+  }
 });
-check('only the live provider frame may replace the links with its complete widget',()=>{
- notify('https://other.example',vendorFrame.contentWindow,'tv-widget-ready');notify(provider,{},'tv-widget-ready');
- notify(provider,vendorFrame.contentWindow,'tv-widget-load');
- assert.equal(childDocument.body.dataset.stripMode,'links');
- for (const h of [0,-1,Infinity,'58']) notify(provider,vendorFrame.contentWindow,'tv-widget-resize-iframe',{height:h});
- notify(provider,{},'tv-widget-resize-iframe',{height:58});
- notify('https://other.example',vendorFrame.contentWindow,'tv-widget-resize-iframe',{height:58});
- assert.equal(childDocument.body.dataset.stripMode,'links');
- notify(provider,vendorFrame.contentWindow,'tv-widget-resize-iframe',{height:58});
- assert.equal(childDocument.body.dataset.stripMode,'provider');assert.equal(widget.inert,false);
- assert.deepEqual(observed,[widget,links]);assert.equal(reports.at(-1).data.height,44.5);
- height=78;resize();assert.equal(reports.at(-1).data.height,79);
+check('an unconfirmed current candle, future date or wrong code never becomes the official close',()=>{
+  const [symbol,stamp,time]=examples[0],now=new Date(time);
+  const wrong=data(symbol,stamp);wrong.data.sh000001.qt.sh000001[2]='000688';
+  assert.equal(quote(symbol,wrong,now).closing.date,'2026-11-13');
+  assert.equal(quote(symbol,data(symbol,stamp,2222),now).closing.date,'2026-11-13');
+  assert.equal(quote(symbol,data(symbol,'20261116145900'),now).closing.date,'2026-11-13');
+  const rows=data(symbol,stamp);rows.data.sh000001.day.push(['2026-11-17','42','42']);
+  assert.equal(quote(symbol,rows,now).closing.date,'2026-11-16');
 });
-check('an explicit no-data message restores keyboard-accessible native chart links',()=>{
- notify(provider,vendorFrame.contentWindow,'tv-widget-no-data');assert.equal(childDocument.body.dataset.stripMode,'links');assert.equal(widget.inert,true);assert.equal(reports.at(-1).data.height,45);
+check('verified intraday snapshots retain exchange-local time and separated last closed session',()=>{
+  for (const [s,stamp,clock,expected] of [
+    ['SSE:000001','20261116104230','2026-11-16T02:45:00Z','2026-11-16T02:42:30.000Z'],
+    ['HSI:HSI','2026/11/16 10:42:30','2026-11-16T02:45:00Z','2026-11-16T02:42:30.000Z'],
+    ['FRED:NDQCOM','2026-11-16 10:42:30','2026-11-16T15:45:00Z','2026-11-16T15:42:30.000Z']]) {
+    const now=new Date(clock),result=quote(s,data(s,stamp,100.123),now);
+    assert.equal(result.closing.date,'2026-11-13');assert.ok(fresh(s,result.delayed,result.closing,now));
+    assert.equal(result.delayed.price,100.123);assert.equal(result.delayed.instant,expected);
+    assert.equal(fresh(s,result.delayed,result.closing,new Date(now.getTime()+32*60e3)),false);
+  }
 });
-check('late layout messages cannot hide an explicit outage, but ready can restore the widget',()=>{
- notify(provider,vendorFrame.contentWindow,'tv-widget-resize-iframe',{height:58});
- assert.equal(childDocument.body.dataset.stripMode,'links');
- notify(provider,vendorFrame.contentWindow,'tv-widget-ready');
- assert.equal(childDocument.body.dataset.stripMode,'provider');
+check('stale, future, mismatched previous close and lunch-break ticks fall back to closing data',()=>{
+  const s='SSE:000001',now=new Date('2026-11-16T02:45:00Z');
+  for(const [time,previous] of [['20261116101100',100],['20261116104600',100],['20261116104200',500],['20261116104287',100]]){
+    const result=quote(s,data(s,time,101,previous),now);
+    assert.equal(result.delayed,null);assert.equal(result.closing.date,'2026-11-13');
+  }
+  assert.equal(quote(s,data(s,'20261116112900'),new Date('2026-11-16T03:31:00Z')).delayed,null);
 });
-check('tape only accepts same-origin parent measurement messages',()=>{
- const n=reports.length;
- childEvents.message({origin,source:{},data:{type:'books-market-strip-measure'}});
- childEvents.message({origin:'https://other.example',source:parent,data:{type:'books-market-strip-measure'}});
- assert.equal(reports.length,n);childEvents.message({origin,source:parent,data:{type:'books-market-strip-measure'}});
- assert.equal(reports.length,n+1);
+check('short, malformed and duplicate series fail independently',()=>{
+  const s='SSE:000001',stamp=examples[0][1],now=new Date(examples[0][2]);
+  for(const mutate of [bars=>bars.splice(1),bars=>bars.push(bars[1]),bars=>bars[1][2]='',bars=>bars[1][0]='2026-02-31']) {
+    const d=data(s,stamp);mutate(d.data.sh000001.day);assert.equal(quote(s,d,now),null);
+  }
+  assert.equal(quote(s,{code:403},now),null);
 });
-console.log(`${count} ticker sizing/security DOM-model tests passed. Real rendering is verified separately.`);
+console.log(count+' ticker regression checks passed.');
