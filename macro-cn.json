@@ -1,21 +1,21 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-11-15T18:20:00Z",
-  "source": "国家统计局 RSS · 首次中文快照",
+  "generatedAt": "2026-11-16T04:10:42Z",
+  "source": "国家统计局数据发布",
   "card": {
     "status": "ready",
     "sourceName": "国家统计局",
-    "sourceUrl": "https://www.stats.gov.cn/sj/zxfb/rss.xml",
-    "sourceUpdatedAt": "2026-11-14T01:30:00Z",
-    "fetchedAt": "2026-11-15T18:20:00Z",
-    "lastAttemptAt": "2026-11-15T18:20:00Z",
-    "asOf": "2026-11-14T01:30:00Z",
+    "sourceUrl": "https://www.stats.gov.cn/sj/zxfb/",
+    "sourceUpdatedAt": "2026-11-16T02:00:00Z",
+    "fetchedAt": "2026-11-16T04:10:42Z",
+    "lastAttemptAt": "2026-11-16T04:10:42Z",
+    "asOf": "2026-11-16T02:00:00Z",
     "errorCode": null,
     "data": {
       "latest": {
-        "title": "2026年11月上旬流通领域重要生产资料市场价格变动情况",
-        "url": "https://www.stats.gov.cn/sj/zxfb/202611/t20261113_1965820.html",
-        "publishedAt": "2026-11-14T01:30:00Z",
+        "title": "10月份国民经济运行总体平稳、向新向优",
+        "url": "https://www.stats.gov.cn/sj/zxfb/202611/t20261116_1965844.html",
+        "publishedAt": "2026-11-16T02:00:00Z",
         "updatedAt": null
       },
       "events": []
