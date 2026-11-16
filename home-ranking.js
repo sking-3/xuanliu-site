@@ -5,10 +5,13 @@ const LABELS={'30D':'月度','90D':'季度','365D':'年度'};
 const FILES={feed:{url:'trader/feed.json',limit:2097152,validate:'validateFeed'},portfolios:{url:'trader/portfolios.json',limit:4194304,validate:'validatePortfolios'},analytics:{url:'trader/analytics.json',limit:2097152,validate:'validateAnalytics'},binance:{url:'trader/binance/portfolios.json',limit:2097152,validate:'validateBinance'},reference:{url:'trader/aoying-history.js',limit:2097152,validate:'validateReference',wrapped:true}};
 function dataAPI(){return typeof module!=='undefined'&&module.exports?require('./home-trader-data.js'):global.HomeTraderData;}
 function fail(){throw Error('Invalid ranking snapshot');}
-function decimal(value,digits=2){return value.toLocaleString('zh-CN',{minimumFractionDigits:digits,maximumFractionDigits:digits});}
+const numbers=new Intl.NumberFormat('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2});
+const dateOptions={timeZone:'Asia/Shanghai',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false};
+const shortTime=new Intl.DateTimeFormat('zh-CN',dateOptions),fullTime=new Intl.DateTimeFormat('zh-CN',{...dateOptions,year:'numeric'});
+function decimal(value){return numbers.format(value);}
 function amount(value){if(!Number.isFinite(value))return '—';const prefix=value>0?'+':value<0?'−':'',n=Math.abs(value);return prefix+(n>=1e8?decimal(n/1e8)+'亿':n>=1e4?decimal(n/1e4)+'万':decimal(n));}
 function percent(value,signed=false){return Number.isFinite(value)?(signed&&value>0?'+':'')+decimal(value)+'%':'—';}
-function time(value,full=false){if(!value||!Number.isFinite(Date.parse(value)))return '—';return new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',...(full?{year:'numeric'}:{}),month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}).format(new Date(value));}
+function time(value,full=false){if(!value||!Number.isFinite(Date.parse(value)))return '—';return (full?fullTime:shortTime).format(new Date(value));}
 function day(value,year=false){return new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',...(year?{year:'numeric'}:{}),month:'2-digit',day:'2-digit'}).format(new Date(value));}
 function moreHref(period){if(!PERIODS.includes(period))period='30D';return 'trader/index.html?'+new URLSearchParams({period,exchange:'all',source:'public',sort:'roi',currency:'all'}).toString();}
 function node(doc,tag,text,cls){const el=doc.createElement(tag);if(text!==undefined)el.textContent=text;if(cls)el.className=cls;return el;}
@@ -48,6 +51,9 @@ function renderRow(doc,row,index,period,Data){
 function render(doc,view,period,Data,pending=false){
   const root=doc.getElementById('home-trader-ranking'),list=doc.getElementById('home-ranking-list'),status=doc.getElementById('home-ranking-status'),note=doc.getElementById('home-ranking-note'),more=doc.getElementById('home-ranking-more');
   const focused=doc.activeElement,focusedHref=list.contains?.(focused)?focused?.href:null;
+  const scrollTop=list.getAttribute('data-period')===period ? list.scrollTop : 0;
+  list.setAttribute('data-period',period);
+  list.tabIndex=view?.rows.length>3 ? 0 : -1;
   root.setAttribute('aria-busy',String(pending));list.setAttribute('aria-busy',String(pending));root.setAttribute('data-stale',String(!!view?.stale));
   for(const button of root.querySelectorAll('[data-ranking-period]'))button.setAttribute('aria-pressed',String(button.getAttribute('data-ranking-period')===period));
   more.href=moreHref(period);more.textContent='查看'+LABELS[period]+'榜单 ↗';
@@ -56,10 +62,11 @@ function render(doc,view,period,Data,pending=false){
   if(!view){list.append(node(doc,'p',pending?'正在读取榜单…':'暂未取得可用榜单','home-rank-empty'));status.textContent=pending?'正在读取广场快照…':'榜单暂不可用';note.textContent='与带单员广场共用公开数据快照。';return;}
   if(view.rows.length){view.rows.forEach((row,index)=>list.append(renderRow(doc,row,index,period,Data)));}
   else list.append(node(doc,'p',pending?'正在读取当前周期数据…':'该周期缺少可核验的收益率，暂无排名。','home-rank-empty'));
-  const sample=view.eligibleCount===1?'仅 1 个账户有同期收益率':view.rows.length?'收益率前 '+view.rows.length+' 名 · '+view.eligibleCount+' 个账户可比较':'当前周期暂无符合条件排名';
+  const sample=view.eligibleCount===1?'仅 1 个账户有同期收益率':view.rows.length>3?view.eligibleCount+' 个账户按收益率排序':view.rows.length?'收益率前 '+view.rows.length+' 名 · '+view.eligibleCount+' 个账户可比较':'当前周期暂无符合条件排名';
   status.textContent=(view.stale?'历史快照 · ':'')+'近 '+parseInt(period,10)+' 天 · '+sample;
   note.textContent=[view.scope,view.note].filter(Boolean).join(' · ');
-  if(focusedHref){const replacement=[...list.querySelectorAll('a')].find(a=>a.href===focusedHref);replacement?.focus();}
+  if(focusedHref){const replacement=[...list.querySelectorAll('a')].find(a=>a.href===focusedHref);replacement?.focus({preventScroll:true});}
+  list.scrollTop=scrollTop;
 }
 function stamp(value){const parsed=Date.parse(value||'');return Number.isFinite(parsed)?parsed:null;}
 function rejectOlder(kind,next,before){
@@ -116,9 +123,19 @@ function mount(doc,options={}){
   const Data=options.data||dataAPI();if(!Data)return null;
   const now=options.now||Date.now,fetcher=options.fetch||global.fetch.bind(global);
   const snapshots={},raw={},failures={};
+  const desktop=doc.defaultView?.matchMedia('(min-width:1141px)');
+  const radar=doc.getElementById('market-radar');
+  function measureRadar(){
+    if(desktop?.matches && radar)root.style.setProperty('--ranking-radar-height',radar.getBoundingClientRect().height+'px');
+  }
+  const observer=radar && doc.defaultView?.ResizeObserver ? new doc.defaultView.ResizeObserver(measureRadar) : null;
+  observer?.observe(radar);
+  measureRadar();
   let period='30D',inflight=null,destroyed=false,pending=false;
-  const view=()=>snapshots.feed||snapshots.binance||snapshots.reference?Data.rank({...snapshots,failures:{...failures}},period,now()):null;
+  const view=()=>snapshots.feed||snapshots.binance||snapshots.reference?Data.rank({...snapshots,failures:{...failures}},period,now(),desktop?.matches?Infinity:3):null;
   function draw(){if(!destroyed)render(doc,view(),period,Data,pending);}
+  function onLayout(){measureRadar();draw();}
+  desktop?.addEventListener('change',onLayout);
   async function revalidate(){
     pending=true;draw();
     await Promise.all(Object.entries(FILES).map(async([kind,spec])=>{
@@ -133,7 +150,7 @@ function mount(doc,options={}){
   const onVisibility=()=>{if(doc.visibilityState==='visible'){draw();refresh();}};
   doc.addEventListener('visibilitychange',onVisibility);
   const timer=setInterval(()=>{if(doc.visibilityState==='visible')refresh();},60000);
-  refresh();return {refresh,render:draw,getPeriod:()=>period,getView:view,destroy(){destroyed=true;clearInterval(timer);doc.removeEventListener?.('visibilitychange',onVisibility);for(const[button,listener]of listeners)button.removeEventListener?.('click',listener);}};
+  refresh();return {refresh,render:draw,getPeriod:()=>period,getView:view,destroy(){destroyed=true;clearInterval(timer);observer?.disconnect();desktop?.removeEventListener('change',onLayout);doc.removeEventListener?.('visibilitychange',onVisibility);for(const[button,listener]of listeners)button.removeEventListener?.('click',listener);}};
 }
 const api={PERIODS,FILES,amount,percent,time,moreHref,renderRow,render,rejectOlder,readJSON,mount};
 if(typeof module!=='undefined'&&module.exports)module.exports=api;

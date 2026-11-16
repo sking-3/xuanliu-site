@@ -6,6 +6,7 @@ const path = require('node:path');
 const {execFileSync}=require('node:child_process');
 const {chromium, webkit, devices} = require('playwright');
 const selection = require('./selection-browser.cjs');
+const layout = require('./home-layout-browser.cjs');
 
 const root = path.resolve(__dirname,'..');
 const base = new URL('http://127.0.0.1:8789/');
@@ -89,17 +90,7 @@ async function shell(page,route) {
     await page.waitForURL(url=>url.pathname==='/trader/' && url.searchParams.get('exchange')==='Binance');
   }
   if(embedded.has(route)) {
-    if(route==='market-strip.html'){
-      const links=page.locator('.strip-links a');
-      assert.equal(await links.count(),4);
-      const destinations=[];
-      for(const link of await links.all()){
-        await link.waitFor();
-        destinations.push(new URL(await link.getAttribute('href'),base).searchParams.get('tvwidgetsymbol'));
-      }
-      assert.deepEqual(destinations,['SSE:000001','SZSE:399001','HSI:HSI','FRED:NDQCOM']);
-      assert.equal(await page.locator('body').getAttribute('data-strip-mode'),'links');
-    }
+    if(route==='market-strip.html') await layout.tape(page,page,{motion:false});
     await noOverflow(page);
     return {component:true,title:await page.title()};
   }
@@ -349,22 +340,9 @@ async function liveUS(page) {
     observed.push({direction,source:src.origin,values,verifiedChanges:values.map(item=>independent[item.symbol])});
     if(sign>0) await board.screenshot({path:path.join(out,'real-us-gainers.png')});
   }
-  const strip=page.frameLocator('#index-ticker iframe');
-  const ticker=page.frames().find(f=>f.parentFrame()?.url().match(/\/market-strip\.html(?:\?|$)/));
-  const text=ticker ? await ticker.locator('body').innerText({timeout:4000}).catch(()=>'') : '';
-  const stripMode=await strip.locator('body').getAttribute('data-strip-mode');
-  const providerHasQuotes=/\d[,.\d]*\s*[%％]/.test(text);
-  console.log('Index strip',stripMode,providerHasQuotes,text.slice(0,200));
-  assert.ok(['links','provider'].includes(stripMode),'expected a defined ticker state');
-  assert.ok(!providerHasQuotes || stripMode==='provider','ticker has quoted indices but links cover it: '+text.slice(0,175));
-  assert.ok(providerHasQuotes,'expected a real percentage in the index tape during online acceptance');
-  const reachable=await strip.locator('.tradingview-widget-container iframe').evaluate(frame=>{
-    const box=frame.getBoundingClientRect();
-    return document.elementFromPoint(box.left+box.width/2,box.top+box.height/2)===frame;
-  });
-  assert.ok(reachable,'index tape is covered or outside its viewport');
+  const tape=await layout.tape(page,page.frameLocator('#index-ticker iframe'),{motion:false});
   await page.locator('#index-ticker').screenshot({path:path.join(out,'real-index-tape.png')});
-  return {cardGeometry,observed,stripMode,providerHasQuotes,reachable};
+  return {cardGeometry,observed,tape};
 }
 
 function ocrScreenerQuotes(tsv,symbols) {
@@ -575,10 +553,19 @@ async function actualChart(page) {
   }
   const src=new URL(await host.locator('iframe').getAttribute('src'),base);
   assert.ok(/(^|\.)tradingview(-widget)?\.com$/.test(src.hostname));
-  const usable=await frame.locator('canvas:visible').evaluateAll(nodes=>nodes.some(canvas=>{
-    const box=canvas.getBoundingClientRect();return box.width>=130 && box.height>=90;
-  }));
-  assert.ok(usable,'chart canvas has a usable plotted area');
+  // On WebKit the legend can paint and the quote socket can settle before the plot canvas is sized.
+  await frame.locator('body').evaluate(async body=>{
+    const deadline=performance.now()+20000;
+    let sizes;
+    do {
+      sizes=[...body.querySelectorAll('canvas')].map(canvas=>{
+        const {width,height}=canvas.getBoundingClientRect();return [width,height];
+      });
+      if(sizes.some(([width,height])=>width>=130 && height>=90))return;
+      await new Promise(resolve=>setTimeout(resolve,150));
+    } while(performance.now()<deadline);
+    throw new Error('Chart plot did not reach 130 × 90 pixels: '+JSON.stringify(sizes));
+  });
   let proof;
   if(actual) {
     const bars=actual.bars.slice(-3);
@@ -612,6 +599,26 @@ async function main() {
       ['annual trader performance and detail',annualReturn],['public execution archive and filter',publicExecutions],
       ['research pages and source filter',researchFiles],['five-agent rules without AI',fiveAgents],['public watchlist add restore remove',publicWatchlist],['Bitget unavailable and retry',cryptoFailure]
     ])await check(offline,name,fn);
+    await check(offline,'visible moving index quotes when external widgets are offline',async page=>{
+      await page.emulateMedia({reducedMotion:'no-preference'});
+      await open(page,'index.html');
+      const result=await layout.tape(page,page.frameLocator('#index-ticker iframe'),{motion:true});
+      await page.locator('#index-ticker').screenshot({path:path.join(out,'offline-moving-tape.png')});
+      return result;
+    });
+    await check(offline,'trader ranking tracks the expanded market radar',async page=>{
+      await open(page,'index.html');
+      const result=await layout.ranking(page);
+      await page.locator('.home-grid').screenshot({path:path.join(out,'aligned-ranking.png')});
+      if (!mobile) {
+        await page.setViewportSize({width:1157,height:800});
+        result.atScreenshotWidth=await layout.ranking(page);
+        await page.locator('.home-grid').screenshot({path:path.join(out,'aligned-ranking-1157.png')});
+        await page.setViewportSize({width:1024,height:768});
+        result.atTabletWidth=await layout.ranking(page);
+      }
+      return result;
+    });
     await check(offline,'stock selection offline without a cached market',async page=>{
       await open(page,'screening/index.html#stock-selection');
       return selection.offline(page);

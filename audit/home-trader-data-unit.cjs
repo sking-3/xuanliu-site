@@ -23,6 +23,14 @@ function withVerifiedROI(f=fixtures()){
 let tests=0;function test(name,fn){fn();tests++;console.log('PASS '+name);}
 test('all real schema contracts normalize without copying trading clients',()=>{const p=checked();assert.equal(p.feed.traders.length,4);assert.equal(p.portfolios.accounts[addr(1)].portfolio.windows['90D'].roi,null);assert.equal(p.analytics.accounts[addr(1)].win.method,'closing_fill_net_of_closing_fee');assert.equal(typeof API.fetch,'undefined');});
 test('monthly ranks by return despite inverse dollar profits',()=>{const r=API.rank(checked(),'30D',T);assert.deepEqual(r.rows.map(x=>x.accountId),[addr(4),addr(3),addr(2)]);assert.equal(r.rows[0].roi,40);assert.equal(r.rows[0].pnl,100);assert.equal(r.eligibleCount,4);});
+test('expanded ranking contains each eligible account in the same order as the compact preview',()=>{
+ const input=checked(),full=API.rank(input,'30D',T,Infinity),preview=API.rank(input,'30D',T);
+ assert.deepEqual(full.rows.map(row=>row.accountId),[addr(4),addr(3),addr(2),addr(1)]);
+ assert.equal(full.rows.length,full.eligibleCount);
+ assert.deepEqual(full.rows.slice(0,3),preview.rows);
+ input.feed.traders[0].windows['30D'].roi=null;
+ assert.deepEqual(API.rank(input,'30D',T,Infinity).rows,preview.rows);
+});
 test('unverified capital history cannot produce a ranked return',()=>{const f=withVerifiedROI(),p=checked(f);for(const period of ['90D','365D']){assert.ok(f.portfolios.accounts[addr(1)].portfolio.windows[period].roiEvidence);assert.equal(API.rank(p,period,T).eligibleCount,0);}assert.equal(API.rank(p,'30D',T).rows[0].roi,40);});
 test('long numeric ROI requires valid evidence for its exact account, range and denominator',()=>{for(const mutate of [w=>delete w.roiEvidence,w=>w.roiEvidence.accountId=addr(2),w=>w.roiEvidence.capitalBase++,w=>w.roiEvidence.startAt=w.endAt,w=>w.roiEvidence.queryExhausted=false,w=>w.roiEvidence.historyComplete=true]){const f=withVerifiedROI();mutate(f.portfolios.accounts[addr(1)].portfolio.windows['90D']);assert.throws(()=>checked(f));}});
 test('ROI ledger proof cannot be newer than its portfolio observation plus five seconds',()=>{const f=withVerifiedROI(),e=f.portfolios.accounts[addr(1)],w=e.portfolio.windows['90D'];w.roiEvidence.ledgerFetchedAt=iso(Date.parse(e.fetchedAt)+5000);assert.doesNotThrow(()=>checked(f));w.roiEvidence.ledgerFetchedAt=iso(Date.parse(e.fetchedAt)+5001);assert.throws(()=>checked(f));});

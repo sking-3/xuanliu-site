@@ -6,6 +6,7 @@ const path = require('node:path');
 const {setTimeout: delay} = require('node:timers/promises');
 const {chromium, webkit, devices} = require('playwright');
 const selection = require('./selection-browser.cjs');
+const layout = require('./home-layout-browser.cjs');
 
 const root = path.resolve(__dirname, '..');
 const engine = process.env.UI_BROWSER;
@@ -50,16 +51,11 @@ async function home(page) {
     const sizes=markets.map(card=>card[key]);
     assert.ok(Math.min(...sizes)>0 && Math.max(...sizes)-Math.min(...sizes)<=2,'unequal market card '+key);
   }
-  const header = page.frameLocator('#index-ticker iframe');
-  const provider = header.locator('.tradingview-widget-container iframe');
-  await provider.contentFrame().locator('body').filter({hasText:/[0-9][.,0-9]*\s*[%％]/}).waitFor({timeout:30000});
-  await header.locator('body[data-strip-mode="provider"]').waitFor();
-  assert.ok(await provider.evaluate(frame => {
-    const box = frame.getBoundingClientRect();
-    return document.elementFromPoint(box.left+box.width/2,box.top+box.height/2) === frame;
-  }), 'index quotes must be visible and reachable');
-  const quotes = await provider.contentFrame().locator('body').innerText();
-  return {markets,indexQuotes:quotes.split(/\s+/).slice(0,12).join(' ')};
+  const tape=await layout.tape(page,page.frameLocator('#index-ticker iframe'),{motion:true});
+  const ranking=await layout.ranking(page);
+  await page.locator('#index-ticker').screenshot({path:path.join(output,'visible-market-tape.png')});
+  await page.locator('.home-grid').screenshot({path:path.join(output,'aligned-ranking.png')});
+  return {markets,tape,ranking};
 }
 
 async function aShares(page) {

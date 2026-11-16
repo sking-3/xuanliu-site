@@ -27,3 +27,18 @@
 #home-trader-ranking a:focus-visible,.home-ranking-periods button:focus-visible{outline:2px solid #bd6c29;outline-offset:3px;border-radius:4px}
 @media(max-width:720px){.home-ranking-periods{margin:12px 12px 8px}#home-ranking-status,#home-ranking-list{margin-left:12px;margin-right:12px}#home-ranking-note{margin:10px 12px 14px}.home-ranking-periods button{min-height:40px}.home-rank-row{padding:15px 0}.home-rank-identity{min-height:32px}.home-rank-metric{font-size:10px}}
 @media(max-width:360px){.home-rank-top{flex-wrap:wrap}.home-rank-profit{margin-left:30px}.home-rank-metrics{gap:5px}.home-rank-metric strong{font-size:11px}}
+
+@media (min-width:1141px) {
+  #home-trader-ranking {
+    box-sizing: border-box;
+    align-self: start;
+    max-height: max(15rem, var(--ranking-radar-height));
+  }
+  #home-trader-ranking > :not(#home-ranking-list) { flex: none; }
+  #home-ranking-list {
+    flex: 0 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+  }
+  #home-ranking-list:focus-visible { outline: 2px solid #bd6c29; outline-offset: -2px; }
+}

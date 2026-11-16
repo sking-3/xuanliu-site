@@ -1,16 +1,31 @@
-html,body{margin:0;padding:0;background:#fff;color-scheme:light}
-.tradingview-widget-container{width:100%;zoom:.75}
-.tradingview-widget-container__widget{width:100%}
-.tradingview-widget-container iframe{display:block;border:0;width:100%;max-width:100%}
-
-[data-books-attribution][hidden]{display:none!important}
-
-body {position:relative;font:13px/1.3 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif}
-.strip-links {position:relative;z-index:1;display:flex;align-items:center;gap:clamp(4px,2vw,24px);height:44px;padding:0 10px;background:#fff;color:#233849;box-sizing:border-box;white-space:nowrap}
-.strip-links span {color:#657483;font-size:11px}
-.strip-links a {display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding-inline:4px;color:#28485c;text-decoration:none}
-.strip-links a:hover {text-decoration:underline}
-.strip-links a:focus-visible {outline:2px solid #a74613;outline-offset:-3px}
-body:not([data-strip-mode=provider]) .tradingview-widget-container {position:absolute;top:0;left:0;pointer-events:none}
-body[data-strip-mode=provider] .strip-links {display:none}
-@media(max-width:320px){.strip-links {padding:0 4px;gap:2px}.strip-links span {display:none}}
+:root { color-scheme: light; font: 13px/1.25 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif; color: #203543; background: #fff; }
+* { box-sizing: border-box; }
+body { margin: 0; }
+.tape { display: flex; align-items: stretch; height: 44px; }
+.tape-window { min-width: 0; flex: 1; overflow: hidden; scrollbar-width: none; }
+.tape-window::-webkit-scrollbar { display: none; }
+.tape-track { display: flex; width: max-content; min-width: 100%; }
+[data-loop] .tape-track { animation: market-tape-scroll 48s linear infinite; }
+@keyframes market-tape-scroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+[data-tape-group] { display: flex; align-items: center; justify-content: space-around; min-width: 100vw; height: 44px; }
+.tape-item { display: grid; grid-template-columns: auto auto auto; align-items: baseline; column-gap: 7px; row-gap: 1px; padding: 4px 17px; border-inline-end: 1px solid #e4e9ed; white-space: nowrap; color: inherit; text-decoration: none; font-variant-numeric: tabular-nums; }
+.tape-name { font-weight: 650; }
+.tape-price { font-weight: 600; }
+.tape-change { font-size: 12px; }
+.tape-change[data-direction=up] { color: #08725a; }
+.tape-change[data-direction=down] { color: #b23946; }
+.tape-stamp { grid-column: 1 / -1; color: #617581; font-size: 10px; }
+.tape-toggle { flex: none; width: 34px; padding: 0; background: #fff; border: 0; border-inline-start: 1px solid #dfe6ea; color: #546977; cursor: pointer; }
+.tape-toggle[hidden] { display: none; }
+.tape-toggle svg { display: block; width: 14px; height: 14px; fill: currentColor; margin: auto; }
+.tape-toggle[aria-pressed=false] .play-icon, .tape-toggle[aria-pressed=true] .pause-icon { display: none; }
+.tape-toggle:focus-visible, .tape-item:focus-visible { outline: 2px solid #a74613; outline-offset: -2px; }
+.tape-item:hover .tape-name { text-decoration: underline; }
+[data-paused] .tape-track { animation-play-state: paused; }
+.tape:not([data-loop]) .tape-window, .tape-window:has(a:focus-visible) { overflow-x: auto; }
+.tape-window:has(a:focus-visible) .tape-track { animation: none; }
+@media (prefers-reduced-motion: reduce) {
+  [data-loop] .tape-track { animation: none; }
+  [data-tape-group][aria-hidden=true], .tape-toggle { display: none; }
+  .tape-window { overflow-x: auto; }
+}
