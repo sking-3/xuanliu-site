@@ -88,7 +88,8 @@ for p in pages:
   if 'tvwidgetsymbol' in q:
    requested=q['tvwidgetsymbol'][0]
    dynamic_a=bool(re.fullmatch(r'(?:SSE|SZSE):\d{6}',requested))
-   check(requested in supported or dynamic_a,f'{p}: unsupported chart link')
+   dynamic_us=bool(re.fullmatch(r'(?:NASDAQ|NYSE|AMEX):[A-Z][A-Z0-9]*(?:[.-][A-Z0-9]+)?',requested)) and len(requested.split(':')[1])<=20
+   check(requested in supported or dynamic_a or dynamic_us,f'{p}: unsupported chart link {requested}')
 feed=json.loads((root/'trader/feed.json').read_text())
 check(feed.get('schemaVersion')==1 and feed.get('status') in ('ready','unavailable'), 'public feed declares readiness or a truthful failure')
 rows=feed.get('traders',[]); source=feed.get('source',{})

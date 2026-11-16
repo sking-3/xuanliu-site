@@ -10,6 +10,8 @@ on:
       - 'home-watch-quotes.html'
       - 'audit/home-dashboard-browser.cjs'
       - 'audit/home-provider-browser.cjs'
+      - 'audit/offline-home-policy.cjs'
+      - 'audit/offline-home-policy-unit.cjs'
       - 'research-data/a-daily-movers.json'
       - 'audit/home-daily-movers-unit.cjs'
       - '.github/workflows/verify-home-dashboard.yml'
@@ -29,36 +31,23 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@v6
         with:
-          node-version: '22'
+          node-version: '24'
       - name: Install Playwright and the test browser
         run: |
+          set -euo pipefail
           npm install --prefix "$RUNNER_TEMP/home-browser" --no-audit --no-fund --ignore-scripts playwright@1.56.1
           "$RUNNER_TEMP/home-browser/node_modules/.bin/playwright" install --with-deps "${{ matrix.engine }}"
-      - name: Exercise the committed homepage on desktop and phone viewports
+      - name: Exercise the homepage with offline fixtures on desktop and phone
         env:
           HOME_BROWSER_ENGINE: ${{ matrix.engine }}
         run: |
+          set -euo pipefail
           python3 -m http.server 8784 --bind 127.0.0.1 > "$RUNNER_TEMP/home-http.log" 2>&1 &
           site_pid=$!
           trap 'kill "$site_pid" || true' EXIT
           curl --fail --retry 5 --retry-connrefused -s -o /dev/null http://127.0.0.1:8784/index.html
-          node --test audit/home-market-radar-unit.cjs audit/home-daily-movers-unit.cjs
+          node --test audit/home-market-radar-unit.cjs audit/home-daily-movers-unit.cjs audit/offline-home-policy-unit.cjs
           NODE_PATH="$RUNNER_TEMP/home-browser/node_modules" node audit/home-dashboard-browser.cjs
-      - name: Verify the closing ranks and actual China and US quotes
-        if: matrix.engine == 'chromium'
-        run: |
-          python3 -m http.server 8784 --bind 127.0.0.1 > "$RUNNER_TEMP/home-live-http.log" 2>&1 &
-          site_pid=$!
-          trap 'kill "$site_pid" || true' EXIT
-          curl --fail --retry 5 --retry-connrefused -s -o /dev/null http://127.0.0.1:8784/index.html
-          public_home="https://sking-3.github.io/xuanliu-site/index.html?verify=$GITHUB_SHA"
-          if curl --fail --silent --show-error --max-time 10 "$public_home" -o "$RUNNER_TEMP/public-home.html" && cmp -s index.html "$RUNNER_TEMP/public-home.html"; then
-            export HOME_PROVIDER_URL="$public_home"
-            echo "Checking this revision on GitHub Pages"
-          else
-            echo "Checking this revision on the local HTTP server"
-          fi
-          NODE_PATH="$RUNNER_TEMP/home-browser/node_modules" node audit/home-provider-browser.cjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:

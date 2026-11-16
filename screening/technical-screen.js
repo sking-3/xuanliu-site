@@ -3,10 +3,45 @@
 // Independently implements the turtle_trade and keep_increasing conditions from
 // myhhub/stock (Apache-2.0), revision b6e0ca2268cfbadd02f5ed052159c187b6670231.
 (function (root) {
+ function createClient(env) {
   const hosts = ['https://web.ifzq.gtimg.cn', 'https://proxy.finance.qq.com/ifzqgtimg'];
   const path = '/appstock/app/fqkline/get';
   const dayMs = 86400000;
   const shanghaiOffset = 8 * 3600000;
+  const stopKey='books.screening.tencent-source-stop.v1';
+  const active=new Set();
+  let stopped=null, persistenceChecked=false;
+  const now=()=>env.now?env.now():Date.now();
+  function stop(record){
+    stopped=record;
+    try{env.localStorage.setItem(stopKey,JSON.stringify(record));}catch{}
+    for(const controller of active)controller.abort();
+    if(env.dispatchEvent&&env.Event)env.dispatchEvent(new env.Event('books:technical-source-state'));
+  }
+  function sourceState(){
+    if(!stopped){
+      try{
+        const storage=env.localStorage;
+        if(!storage)throw Error('storage unavailable');
+        const saved=storage.getItem(stopKey);
+        if(saved){
+          try{stopped=JSON.parse(saved);}catch{stopped={reason:'停止记录需人工核对'};}
+          if(!stopped||typeof stopped!=='object')stopped={reason:'停止记录需人工核对'};
+        }else if(!persistenceChecked){
+          const probe=stopKey+'.storage-check';storage.setItem(probe,'1');storage.removeItem(probe);persistenceChecked=true;
+        }
+      }catch{stopped={reason:'无法可靠保存来源停止记录',storageUnavailable:true};}
+    }
+    if(!stopped)return {status:'idle',record:null,reason:''};
+    const status=stopped.storageUnavailable?'unavailable':'restricted';
+    const detail=stopped.httpStatus?'HTTP '+stopped.httpStatus+(stopped.stoppedAt?' · '+stopped.stoppedAt:''):stopped.reason;
+    return {status,record:{...stopped},reason:'腾讯日线已停止访问（'+detail+'）。刷新或再次点击不会恢复；可载入本地历史文件继续研究。'};
+  }
+  if(env.addEventListener)env.addEventListener('storage',event=>{
+    if(event.key===stopKey&&event.newValue){sourceState();for(const controller of active)controller.abort();
+      if(env.dispatchEvent&&env.Event)env.dispatchEvent(new env.Event('books:technical-source-state'));}
+  });
+
 
   function validDay(day) {
     if (typeof day !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(day)) return false;
@@ -26,8 +61,9 @@
 
   function readBars(entry, day) {
     if (!entry || typeof entry !== 'object') throw Error('该代码没有日线');
-    // Tencent returns "day" alone for securities with no adjustment in the requested period.
-    const rows = Object.hasOwn(entry, 'qfqday') ? entry.qfqday : entry.day;
+    // A qfq request alone does not prove the adjustment of a day-only response.
+    if (!Object.hasOwn(entry, 'qfqday')) throw Error('来源仅返回 day，前复权口径未确认');
+    const rows = entry.qfqday;
     if (!Array.isArray(rows) || !rows.length) throw Error('没有可用前复权日线');
     const bars = [];
     const dates = new Set();
@@ -75,14 +111,20 @@
     const cancel = () => control.abort();
     signal?.addEventListener('abort', cancel, {once: true});
     const timeout = setTimeout(cancel, 8000);
+    active.add(control);
     try {
-      const response = await fetch(url, {
+      const response = await env.fetch(url, {
         signal: control.signal, cache: 'no-store', credentials: 'omit', redirect: 'error', referrerPolicy: 'no-referrer'
       });
-      if ([401, 403, 429].includes(response.status)) return {restricted: true};
+      if ([401, 403, 429].includes(response.status)) {
+        stop({httpStatus:response.status,source:url.origin,stoppedAt:new Date(now()).toISOString()});
+        return {restricted:true};
+      }
+      if(sourceState().status!=='idle')return {restricted:true};
       if (!response.ok) throw Error('行情服务暂不可用');
       return {payload: await response.json()};
     } finally {
+      active.delete(control);
       clearTimeout(timeout);
       signal?.removeEventListener('abort', cancel);
     }
@@ -92,30 +134,33 @@
     abortIfNeeded(signal);
     const code = stock?.code;
     const fail = reason => unavailable(code, day, reason);
+    const blocked=()=>({...fail(sourceState().reason),sourceStopped:true});
+    if(sourceState().status!=='idle')return blocked();
     if (typeof code !== 'string' || !/^\d{6}\.(?:SH|SZ|BJ)$/.test(code)) return fail('证券代码或交易所无效');
     if (code.endsWith('.BJ')) return fail('腾讯前复权日线未覆盖北交所');
     if (!validDay(day)) return fail('目标交易日无效');
-    const now = Date.now();
+    const currentTime = now();
     const marketClose = Date.parse(day + 'T15:00:00+08:00');
-    if (now < marketClose) return fail('目标交易日尚未收盘');
+    if (currentTime < marketClose) return fail('目标交易日尚未收盘');
     if (stock.asOf != null) {
       const stamp = stock.asOf, cutoff = typeof stamp === 'string' ? Date.parse(stamp) : NaN;
-      if (!/(?:Z|[+-]\d{2}:\d{2})$/.test(stamp) || !Number.isFinite(cutoff) || cutoff > now
+      if (!/(?:Z|[+-]\d{2}:\d{2})$/.test(stamp) || !Number.isFinite(cutoff) || cutoff > currentTime
           || cutoff < marketClose || new Date(cutoff + shanghaiOffset).toISOString().slice(0, 10) !== day)
         return fail('候选快照未提供该交易日的收盘时点');
     }
     const ticker = code.slice(-2).toLowerCase() + code.slice(0, 6);
-    const today = new Date(now + shanghaiOffset).toISOString().slice(0, 10);
+    const today = new Date(currentTime + shanghaiOffset).toISOString().slice(0, 10);
     const start = new Date(Date.parse(day + 'T00:00:00Z') - 360 * dayMs).toISOString().slice(0, 10);
     let reason = '腾讯日线连接失败或超时';
     for (const host of hosts) {
+      if(sourceState().status!=='idle')return blocked();
       const url = new URL(host + path);
       url.searchParams.set('param', [ticker, 'day', start, day, 640, 'qfq'].join(','));
       let result;
       try { result = await load(url, signal); }
-      catch { abortIfNeeded(signal); continue; }
+      catch { if(sourceState().status!=='idle')return blocked();abortIfNeeded(signal);continue; }
       abortIfNeeded(signal);
-      if (result.restricted) return fail('腾讯暂时限制访问，请稍后重试');
+      if (result.restricted||sourceState().status!=='idle')return blocked();
       const payload = result.payload;
       if (payload?.code !== 0 && payload?.code !== '0') { reason = '腾讯未返回该标的日线'; continue; }
       const entry = payload.data?.[ticker];
@@ -135,7 +180,9 @@
     return fail(reason);
   }
 
-  const api = {run};
+  return {run,sourceState};
+ }
+  const api = {...createClient(root),createClient};
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.BooksTechnicalScreen = api;
 })(globalThis);

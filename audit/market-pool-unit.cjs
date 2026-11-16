@@ -73,3 +73,12 @@ test('curated industry chain membership intersects current rows, sector, venue a
   assert.equal(select(rows,{})[0].code,'000858.SZ');
   assert.equal(rows[0].code,'688256.SH','source order unchanged');
 });
+
+ test('main-board name filter does not infer final eligibility from prices or code prefixes',()=>{
+  const base={price:10,changePct:2,totalMarketCap:1e8,sector:'电子'};
+  const rows=[['600519.SH','贵州茅台'],['002594.SZ','比亚迪'],['003000.SZ','普通样本'],['688001.SH','科创样本'],['300750.SZ','创业样本'],['920001.BJ','北交样本'],['900001.SH','B股'],['600001.SH','*ST样本'],['000002.SZ','S ST样本'],['600003.SH','样本退']].map(([code,name])=>({...base,code,name,exchange:code.split('.')[1]}));
+  assert.deepEqual(select(rows,{universe:'main',excludeRiskNames:true}).map(r=>r.code),['002594.SZ','003000.SZ','600519.SH']);
+  assert.equal(select(rows,{universe:'all',excludeRiskNames:true}).length,7);
+  assert.equal(select(rows,{universe:'main',excludeRiskNames:true,query:'ST'}).length,0);
+  assert.ok(select(rows,{universe:'main',excludeRiskNames:true}).every(r=>r.qualified===undefined));
+ });

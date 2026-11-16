@@ -1,93 +1,26 @@
 name: Verify public research site
 on:
   push:
-    branches: [ui/public-site-review-20261116, ui/research-evidence-desk, ui/a-share-stock-selection, ui/home-ticker-ranking-fit, ui/verified-long-period-roi, ui/okx-verified-lead-traders, ui/trader-history-bitget, ui/trader-deeplink-recovery, ui/trade-chart-zoom, ui/remove-tape-pause, ui/unified-trader-analysis, ui/compact-trader-follow]
-  workflow_dispatch:
-  workflow_run:
-    workflows: [Deploy static Pages]
+    branches: [integration/site-release-20261117, ui/public-site-review-20261116, ui/research-evidence-desk, ui/a-share-stock-selection, ui/home-ticker-ranking-fit, ui/verified-long-period-roi, ui/okx-verified-lead-traders, ui/trader-history-bitget, ui/trader-deeplink-recovery, ui/trade-chart-zoom, ui/remove-tape-pause, ui/unified-trader-analysis, ui/compact-trader-follow]
+  pull_request:
     branches: [main]
-    types: [completed]
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:
   public-site:
-    if: github.event_name != 'workflow_run'
     runs-on: ubuntu-24.04
-    timeout-minutes: 18
-    strategy:
-      fail-fast: false
-      matrix:
-        browser: [chromium, webkit]
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v6
-        with:
-          node-version: '22'
-      - name: Install isolated browser tools
-        run: |
-          npm install --prefix "$RUNNER_TEMP/public-ui-browser" --no-audit --no-fund --ignore-scripts playwright@1.56.1
-          "$RUNNER_TEMP/public-ui-browser/node_modules/.bin/playwright" install --with-deps "${{ matrix.browser }}"
-          sudo apt-get -qq install -y tesseract-ocr tesseract-ocr-eng python3-pil
-      - name: Verify navigation, real source values and outages
-        env:
-          UI_BROWSER: ${{ matrix.browser }}
-        run: |
-          node --test audit/market-pool-unit.cjs audit/technical-screen-unit.cjs audit/home-daily-movers-unit.cjs
-          node audit/ticker-unit.cjs
-          node --test audit/home-trader-data-unit.cjs audit/home-ranking-ui-unit.cjs
-          node --test audit/binance-period-returns-unit.cjs audit/binance-plaza-data-unit.cjs audit/okx-periods-unit.cjs audit/bitget-periods-unit.cjs
-          node --test audit/aoying-archive-unit.cjs audit/public-executions-unit.cjs audit/aoying-public-archive-unit.cjs audit/okx-trades-unit.cjs
-          node audit/trader-refresh-mode-unit.cjs
-          node audit/trader-linked-account-unit.cjs
-          node --test audit/trade-chart-unit.cjs audit/strategy-analytics-unit.cjs audit/position-lifecycle-unit.cjs audit/position-history-view-unit.cjs
-          python3 -m http.server 8789 --bind 127.0.0.1 > "$RUNNER_TEMP/public-ui-http.log" 2>&1 &
-          server_pid=$!
-          trap 'kill "$server_pid"' EXIT
-          curl --fail --retry 6 --retry-connrefused --silent --output /dev/null http://127.0.0.1:8789/index.html
-          NODE_PATH="$RUNNER_TEMP/public-ui-browser/node_modules" node audit/public-site-browser.cjs
+      - uses: ./.github/actions/setup-public-release
+      - name: Verify the candidate without contacting market sources
+        run: node scripts/verify_public_release.cjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: public-site-${{ matrix.browser }}
-          path: audit/browser-output/public-site/
-          retention-days: 7
-  live-pages:
-    if: >-
-      github.event_name == 'workflow_run' &&
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.head_branch == 'main' &&
-      github.event.workflow_run.head_repository.full_name == github.repository &&
-      contains(github.event.workflow_run.head_commit.message, '[ui-only]') &&
-      contains(github.event.workflow_run.head_commit.message, '[public-ui-smoke]')
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        browser: [chromium, webkit]
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          ref: ${{ github.event.workflow_run.head_sha }}
-          persist-credentials: false
-      - uses: actions/setup-node@v6
-        with:
-          node-version: '22'
-      - name: Install browser for public Pages checks
-        run: |
-          npm install --prefix "$RUNNER_TEMP/public-ui-browser" --no-audit --no-fund --ignore-scripts playwright@1.56.1
-          "$RUNNER_TEMP/public-ui-browser/node_modules/.bin/playwright" install --with-deps "${{ matrix.browser }}"
-      - name: Verify deployed HTML and visible public market data
-        env:
-          UI_BROWSER: ${{ matrix.browser }}
-          EXPECTED_SHA: ${{ github.event.workflow_run.head_sha }}
-          NODE_PATH: ${{ runner.temp }}/public-ui-browser/node_modules
-        run: node audit/public-live-smoke.cjs
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: live-pages-${{ matrix.browser }}-${{ github.event.workflow_run.head_sha }}
-          path: audit/browser-output/live-pages/
+          name: public-release-regressions
+          path: audit/browser-output/release/
           retention-days: 7

@@ -28,16 +28,18 @@
     const host = mount.querySelector('.crypto-quote-list');
     const unavailable = sourceUnavailable && !status;
     const stale = Boolean(lastQuoteAt && Date.now() - lastQuoteAt > 90000);
-    mount.dataset.cryptoState = unavailable ? 'error' : stale ? 'stale' : status ? 'ready' : 'loading';
+    const stalePairs = visiblePairs(mount).filter(pair => state.has(pair.id) && Date.now() - state.get(pair.id).ts > 90000);
+    mount.dataset.cryptoState = unavailable ? 'error' : stale ? 'stale' : stalePairs.length ? 'partial-stale' : status ? 'ready' : 'loading';
     const rows = unavailable ? '<div class="crypto-quote-empty"><strong>交易所行情暂未连接</strong><p>Bitget 当前没有返回公开报价。请检查网络后重试。</p><button type="button" data-crypto-retry>重试</button></div>' : visiblePairs(mount).map(pair => {
       const q=state.get(pair.id), price=q?.price, change=q?.change;
+      const quoteStale = Boolean(q && Date.now() - q.ts > 90000);
       const changeText=change === null || change === undefined ? '--' : `${change >= 0 ? '+' : ''}${change.toFixed(2)}%`;
       const cls=change === null || change === undefined ? '' : change >= 0 ? 'up' : 'down';
-      return `<div class="crypto-quote-row"><div><strong>${pair.name}</strong><small>${pair.id}</small></div><div class="crypto-quote-value"><strong>${price === null || price === undefined ? '--' : Number(price).toLocaleString('en-US',{maximumFractionDigits:8})}</strong><span class="${cls}">${changeText}</span></div><small class="crypto-quote-source">${q ? `${providerLabel[q.provider]||q.provider} · ${new Date(q.ts).toLocaleTimeString('zh-CN',{hour12:false})}` : '等待来源'}</small></div>`;
+      return `<div class="crypto-quote-row" data-quote-state="${!q ? 'loading' : quoteStale ? 'stale' : 'ready'}"><div><strong>${pair.name}</strong><small>${pair.id}</small></div><div class="crypto-quote-value"><strong>${price === null || price === undefined ? '--' : Number(price).toLocaleString('en-US',{maximumFractionDigits:8})}</strong><span class="${cls}">${changeText}</span></div><small class="crypto-quote-source">${q ? `${providerLabel[q.provider]||q.provider}${quoteStale ? ' · 报价已过期' : ''} · ${new Date(q.ts).toLocaleTimeString('zh-CN',{hour12:false})}` : '等待来源'}</small></div>`;
     }).join('');
     if (host) { host.innerHTML = rows; host.querySelector('[data-crypto-retry]')?.addEventListener('click', refresh); }
     const statusNode=mount.querySelector('[data-crypto-status]');
-    if(statusNode) statusNode.textContent = unavailable ? '交易所公开行情暂未连接，请重试或检查网络。' : stale ? `行情暂未更新 · 上次成功 ${new Date(lastQuoteAt).toLocaleTimeString('zh-CN',{hour12:false})}` : status ? `来源：${providerLabel[status.provider]||status.provider} · 公开行情 · ${new Date(status.ts).toLocaleTimeString('zh-CN',{hour12:false})}` : '正在连接 Bitget 公开行情…';
+    if(statusNode) statusNode.textContent = stalePairs.length && !stale ? `${stalePairs.length} 个交易对报价已过期 · 请按各行时间核对` : unavailable ? '交易所公开行情暂未连接，请重试或检查网络。' : stale ? `行情暂未更新 · 上次成功 ${new Date(lastQuoteAt).toLocaleTimeString('zh-CN',{hour12:false})}` : status ? `来源：${providerLabel[status.provider]||status.provider} · 公开行情 · ${new Date(status.ts).toLocaleTimeString('zh-CN',{hour12:false})}` : '正在连接 Bitget 公开行情…';
   }
   function apply(state, pair, provider, last, open, change, ts) {
     const price = clean(last), timestamp = clean(ts);
@@ -94,6 +96,8 @@
     try { socket = connectBitget(state); } catch {}
     refresh();
     interval = setInterval(() => {
+      // Age displayed quotes even while a network request is pending.
+      schedulePaint();
       if (!socket || socket.readyState === 3) {
         try { socket = connectBitget(state); } catch {}
       }

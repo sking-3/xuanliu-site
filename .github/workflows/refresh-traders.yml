@@ -48,11 +48,13 @@ jobs:
     outputs:
       published_sha: ${{ steps.snapshot.outputs.sha }}
     steps:
-      - name: Check out the latest main branch
+      - name: Pin UI-only pushes; otherwise check out the latest main branch
         id: checkout
         uses: actions/checkout@v6
         with:
-          ref: main
+          # A queued UI publication must validate the triggering commit even if
+          # main advances. Other refreshes retain the latest source-stop state.
+          ref: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[ui-only]') && github.event.after || 'main' }}
           fetch-depth: 1
 
       - name: Resolve Hyperliquid refresh scope
@@ -291,25 +293,19 @@ jobs:
           fi
           printf 'sha=%s\n' "$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
+      - uses: ./.github/actions/setup-public-release
+
+      - name: Gate the final snapshot on offline unit, static and browser checks
+        run: node scripts/verify_public_release.cjs
+
       - name: Configure Pages
         uses: actions/configure-pages@v5
 
       - name: Stage only the committed website
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/books-pages"
-          git archive --format=tar HEAD | tar -x -C "$RUNNER_TEMP/books-pages"
-          # Account administration and local simulation code are not public Pages assets.
-          rm -rf "$RUNNER_TEMP/books-pages/copy-config" "$RUNNER_TEMP/books-pages/tools/copy_plan" "$RUNNER_TEMP/books-pages/private-follow"
-          rm -f "$RUNNER_TEMP/books-pages/trader/"paper-*.js "$RUNNER_TEMP/books-pages/trader/paper-copy.css"
-          test -s "$RUNNER_TEMP/books-pages/index.html"
-          test -s "$RUNNER_TEMP/books-pages/trader/feed.json"
-          test -s "$RUNNER_TEMP/books-pages/trader/analytics.json"
-          test -s "$RUNNER_TEMP/books-pages/trader/portfolios.json"
-          test -s "$RUNNER_TEMP/books-pages/trader/binance/snapshot.json"
-          test -s "$RUNNER_TEMP/books-pages/trader/binance/portfolios.json"
-          # Raw downloads and test temporary files are never part of git archive.
+        env:
+          BOOKS_STAGE_DIR: ${{ runner.temp }}/books-pages
+          EXPECTED_SHA: ${{ steps.snapshot.outputs.sha }}
+        run: node scripts/stage_public_release.cjs
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v4
@@ -321,7 +317,7 @@ jobs:
   deploy:
     needs: collect-build
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     permissions:
       contents: read
       pages: write
@@ -330,6 +326,12 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.collect-build.outputs.published_sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/setup-public-release
+
       - name: Stop if main advanced after this artifact was built
         env:
           GH_TOKEN: ${{ github.token }}
@@ -348,3 +350,17 @@ jobs:
       - name: Deploy the validated website and snapshot
         id: deployment
         uses: actions/deploy-pages@v4
+
+      - name: Verify the published revision, assets and browser behavior
+        env:
+          EXPECTED_SHA: ${{ needs.collect-build.outputs.published_sha }}
+          RELEASE_BASE_URL: https://sking-3.github.io/xuanliu-site/
+        run: node scripts/verify_public_release.cjs --live
+
+      - name: Preserve failed release evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-failure-${{ github.run_id }}-${{ github.job }}
+          path: audit/browser-output/release/
+          retention-days: 7

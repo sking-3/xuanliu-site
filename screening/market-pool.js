@@ -107,11 +107,19 @@
     return {day:dayInShanghai.format(new Date(asOf)),rows,sectors};
   }
 
+  // Code/name prefilter only. It cannot attest current listing, suspension or 10% limits.
+  function mainBoard(row) {
+    return /^(?:600|601|603|605)\d{3}\.SH$/.test(row.code) || /^(?:000|001|002|003)\d{3}\.SZ$/.test(row.code);
+  }
+  function riskName(row) { return /^(?:S?\*?ST)|退/i.test(row.name.replace(/\s/g,'')); }
+
   function select(rows, options = {}) {
     const {sector,venue,chain,minChange,maxChange,minCap,maxCap,onlySaved,saved} = options;
     const query = (options.query || '').trim().toUpperCase();
     const selectedChain = members.get(chain);
     return rows.filter(row => {
+      if (options.universe === 'main' && !mainBoard(row)) return false;
+      if (options.excludeRiskNames && riskName(row)) return false;
       if (sector && row.sector !== sector || venue && row.exchange !== venue) return false;
       if (chain && !selectedChain?.has(row.code) || onlySaved && !saved?.has(row.code)) return false;
       if (query && !row.name.toUpperCase().includes(query) && !row.code.includes(query)) return false;
@@ -125,7 +133,7 @@
     }).sort((a,b) => b.changePct - a.changePct || a.code.localeCompare(b.code));
   }
 
-  const api = {build,select,chains};
+  const api = {build,select,chains,mainBoard,riskName};
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.BooksMarketPool = api;
 })(globalThis);

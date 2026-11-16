@@ -22,11 +22,12 @@ test('workflow schedules and collection stages use the one resolved scope',()=>{
  assert.deepEqual([...workflow.matchAll(/- cron: '([^']+)'/g)].map(m=>m[1]),['27,57 * * * *','12 */6 * * *']);
  assert.match(step('Resolve Hyperliquid refresh scope'),/BOOKS_CHECKOUT_SHA:.*steps.checkout.outputs.commit/);
  assert.match(step('Resolve Hyperliquid refresh scope'),/node scripts\/resolve_trader_refresh_mode\.cjs/);
- // Only job scheduling may inspect the UI-only label directly; source stages
+ // Job scheduling and checkout may inspect the UI-only label directly; source stages
  // still use the resolver with its event/checkout SHA equality validation.
  const directLabels=workflow.split('\n').filter(line=>line.includes('github.event.head_commit.message'));
- assert.equal(directLabels.length,1);
+ assert.equal(directLabels.length,2);
  assert.match(directLabels[0],/^      group:.*github.event_name == 'push'.*\[ui-only\].*github.run_id.*github.run_attempt.*'binance-public-source'/);
+ assert.equal(directLabels[1].trim(), "ref: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[ui-only]') && github.event.after || 'main' }}");
  for(const name of ['Record this collection start','Collect one public Hyperliquid snapshot'])assert.match(step(name),/if: steps.refresh-mode.outputs.mode != 'skip'/);
  for(const name of ['Precompute native and 90/180/365-day portfolio windows','Separate shared API rate windows','Precompute closing-fill win rates with persistent last-good cache','Reverify holdings after the long analytics batch'])assert.match(step(name),/if: steps.refresh-mode.outputs.mode == 'full'/);
 });

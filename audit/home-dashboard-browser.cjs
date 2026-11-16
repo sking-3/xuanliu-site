@@ -2,10 +2,12 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const playwright = require('playwright');
+const {loopbackSite, localLink} = require('./offline-home-policy.cjs');
 
 const engine = process.env.HOME_BROWSER_ENGINE || 'chromium';
-const site = new URL(process.env.HOME_BROWSER_URL || 'http://127.0.0.1:8784/');
+const site = loopbackSite(process.env.HOME_BROWSER_URL || 'http://127.0.0.1:8784/');
+const playwright = require('playwright');
+assert.ok(['chromium','webkit'].includes(engine),'supported offline browser');
 const output = path.join(__dirname, 'browser-output/home-dashboard');
 const viewports = [{width:1440,height:900}, {width:390,height:844}];
 const heatmapRepo = 'https://github.com/wenyuanw/a-share-heatmap';
@@ -32,7 +34,7 @@ async function checkLinks(page) {
         /^\/markets\/stocks-(?:china|usa)\/market-movers-(?:gainers|losers|active)\/$/.test(url.pathname),href);
       continue;
     }
-    const response = await page.request.get(href);
+    const response = await page.request.get(localLink(href,site),{maxRedirects:0});
     assert.equal(response.status(), 200, href);
     if (url.hash) {
       const found = await page.evaluate(({html, id}) => Boolean(new DOMParser().parseFromString(html, 'text/html').getElementById(id)), {html: await response.text(), id: decodeURIComponent(url.hash.slice(1))});
@@ -43,7 +45,7 @@ async function checkLinks(page) {
 
 async function inspect(browser, viewport) {
   const mobile = viewport.width < 600;
-  const context = await browser.newContext({viewport,isMobile:mobile,hasTouch:mobile,locale:'zh-CN',timezoneId:'Asia/Shanghai'});
+  const context = await browser.newContext({viewport,isMobile:mobile,hasTouch:mobile,locale:'zh-CN',timezoneId:'Asia/Shanghai',serviceWorkers:'block'});
   const page = await context.newPage(), errors = [];
   const prefix = path.join(output,engine+'-'+viewport.width);
   page.on('pageerror', err => errors.push(err.message));
@@ -60,7 +62,11 @@ async function inspect(browser, viewport) {
     }, true);
   });
   // Deterministic read-only Bitget input goes through the site's normal REST and socket adapters.
-  await context.routeWebSocket('**/v2/ws/public', socket => {tickerSocket = socket;});
+  await context.routeWebSocket('**/*', socket => {
+    if(socket.url()==='wss://ws.bitget.com/v2/ws/public') tickerSocket=socket;
+    else socket.close();
+    // No connectToServer(): even the known Bitget socket is entirely synthetic.
+  });
   await context.route('**/*', async route => {
     const url = new URL(route.request().url());
     if(url.origin===site.origin && url.pathname==='/home-widget-test.html'){
@@ -374,7 +380,7 @@ async function inspect(browser, viewport) {
 
 (async()=>{
   fs.mkdirSync(output,{recursive:true});
-  const browser = await playwright[engine].launch({headless:true});
+  const browser = await playwright[engine].launch({headless:true,...(engine==='chromium'&&process.env.RELEASE_BROWSER_EXECUTABLE?{executablePath:process.env.RELEASE_BROWSER_EXECUTABLE}:{})});
   try {for (const viewport of viewports) await inspect(browser,viewport);}
   finally {await browser.close();}
 })().catch(err=>{console.error(err);process.exitCode=1;});

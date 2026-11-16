@@ -56,7 +56,12 @@ async function check(page,captures,{screenshot}={}) {
       return s.includes('符合'+selected+'/'+total+'只');
     },{selected,total});
   };
-  await counts(valid.length);
+  const allowed=valid.filter(s=>!(/^(?:S?\*?ST)|退/i.test(s.name.replace(/\s/g,''))));
+  const main=allowed.filter(s=>/^(?:600|601|603|605)\d{3}\.SH$/.test(s.code)||/^(?:000|001|002|003)\d{3}\.SZ$/.test(s.code));
+  await counts(main.length);
+  await page.locator('#pick-universe').selectOption('all');
+  await counts(allowed.length);
+  await page.locator('.pick-advanced summary').click();
   const sectors = new Map();
   for (const s of valid) {
     const name = s.boardName?.trim();
@@ -75,7 +80,7 @@ async function check(page,captures,{screenshot}={}) {
     assert.ok(Math.abs(pct-group.mean)<=.00501, 'industry mean mismatch for '+group.name);
   }
   await buttons.first().click();
-  await counts(groups[0].count);
+  await counts(allowed.filter(s=>s.boardName===groups[0].name).length);
   const sector = page.locator('#pick-sector');
   assert.equal(await sector.inputValue(),groups[0].name);
   await sector.selectOption({value:target.boardName});
@@ -85,16 +90,17 @@ async function check(page,captures,{screenshot}={}) {
   for (const [id,value] of [['pick-min-change',bounds.minChange],['pick-max-change',bounds.maxChange],['pick-cap-min',bounds.minCap],['pick-cap-max',bounds.maxCap]]) {
     await page.locator('#'+id).fill(String(value));
   }
-  const matches=valid.filter(s=>s.boardName===target.boardName && s.exchange==='SH' && s.changePct>=bounds.minChange && s.changePct<=bounds.maxChange
+  const matches=allowed.filter(s=>s.boardName===target.boardName && s.exchange==='SH' && s.changePct>=bounds.minChange && s.changePct<=bounds.maxChange
     && Number.isFinite(s.totalMarketCap) && s.totalMarketCap/1e8>=bounds.minCap && s.totalMarketCap/1e8<=bounds.maxCap)
     .sort((a,b)=>b.changePct-a.changePct || a.code.localeCompare(b.code));
   await counts(matches.length);
   assert.deepEqual(await displayed.evaluateAll(rows=>rows.map(row=>row.dataset.code)),matches.slice(0,20).map(s=>s.code));
   await page.locator('#pick-reset').click();
+  await page.locator('#pick-universe').selectOption('all');
   const chain=page.locator('#pick-chain');
   await chain.selectOption('大模型');
   const largeModel=new Set(['688041.SH','688256.SH','300308.SZ','601138.SH','000977.SZ','002230.SZ','601360.SH','300418.SZ','688111.SH','300229.SZ','300624.SZ','300496.SZ','688088.SH','688327.SH','002362.SZ']);
-  const members=valid.filter(s=>largeModel.has(s.code));
+  const members=allowed.filter(s=>largeModel.has(s.code));
   await counts(members.length);
   assert.deepEqual((await displayed.evaluateAll(rows=>rows.map(row=>row.dataset.code))).sort(),members.map(s=>s.code).sort());
   await page.locator('#pick-segments').getByRole('button',{name:'上游 · 算力基座'}).click();
