@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const {setTimeout: delay} = require('node:timers/promises');
 const {chromium, webkit, devices} = require('playwright');
+const selection = require('./selection-browser.cjs');
 
 const root = path.resolve(__dirname, '..');
 const engine = process.env.UI_BROWSER;
@@ -119,9 +120,11 @@ async function main() {
       page.setDefaultTimeout(15000);
       const record={route};
       report.pages.push(record);
+      const captures=route==='screening/index.html' ? selection.observe(page) : null;
       try {
         await openPublished(page,route,record);
         record.evidence=await check(page);
+        if(captures) record.selection=await selection.check(page,captures,{screenshot:path.join(output,'real-stock-selection.png')});
         record.status='pass';
       } catch (error) {
         record.status='failed';record.reason=error.message;
