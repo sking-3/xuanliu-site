@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const {execFileSync}=require('node:child_process');
 const {chromium, webkit, devices} = require('playwright');
+const selection = require('./selection-browser.cjs');
 
 const root = path.resolve(__dirname,'..');
 const base = new URL('http://127.0.0.1:8789/');
@@ -611,12 +612,21 @@ async function main() {
       ['annual trader performance and detail',annualReturn],['public execution archive and filter',publicExecutions],
       ['research pages and source filter',researchFiles],['five-agent rules without AI',fiveAgents],['public watchlist add restore remove',publicWatchlist],['Bitget unavailable and retry',cryptoFailure]
     ])await check(offline,name,fn);
+    await check(offline,'stock selection offline without a cached market',async page=>{
+      await open(page,'screening/index.html#stock-selection');
+      return selection.offline(page);
+    });
     await offline.close();
     const online=await browser.newContext({...profile,locale:'zh-CN',timezoneId:'Asia/Shanghai',serviceWorkers:'block',reducedMotion:'reduce'});
     for(const [name,fn] of [['live A-share closing source',fullA],['live US ranking data',liveUS],['US page real watch quotes',usQuotesPage],['live Bitget quote values',liveCrypto],['real chart from symbol picker',actualChart]])await check(online,name,fn);
     await check(online,'company dossier evidence and export',async page=>{
       await open(page,'company-dossier.html');
       return require('./company-dossier-browser.cjs')(page,{local:true,screenshot:path.join(out,'company-dossier.png')});
+    });
+    await check(online,'A-share market filters, watchlist and daily signal verification',async page=>{
+      const captures=selection.observe(page);
+      await open(page,'screening/index.html#stock-selection');
+      return selection.check(page,captures,{screenshot:path.join(out,'real-stock-selection.png')});
     });
     await online.close();
   } finally {

@@ -56,12 +56,25 @@
       if (!response.ok) throw Error('snapshot unavailable');
       const snapshot = await response.json();
       show(origin === 'upstream' ? window.BooksDailyMovers.summarize(snapshot) : snapshot, origin);
+      if (origin === 'upstream') window.BooksStockSelection?.accept(snapshot, origin);
     } finally {
       clearTimeout(timeout);
     }
   }
   const remote = 'https://raw.githubusercontent.com/wenyuanw/a-share-heatmap/main/src/lib/data/market-heatmap-fallback.json';
-  Promise.allSettled([read('../research-data/a-daily-movers.json','bundled'),read(remote,'upstream')]).then(() => {
+  let pending;
+  function refresh() {
+    if (pending) return pending;
+    const button=document.getElementById('pick-refresh');
+    if (button) button.disabled=true;
+    pending=read(remote,'upstream').catch(()=>window.BooksStockSelection?.unavailable()).finally(()=>{
+      pending=null;
+      if (button) button.disabled=false;
+    });
+    return pending;
+  }
+  window.addEventListener('books:refresh-selection',refresh);
+  Promise.allSettled([read('../research-data/a-daily-movers.json','bundled'),refresh()]).then(() => {
     if (Number.isFinite(displayedAt)) return;
     status.textContent = '本站与来源收盘快照均未能读取，可打开原始来源核对。';
     host.dataset.state = 'unavailable';

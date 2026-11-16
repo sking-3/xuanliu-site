@@ -1,0 +1,51 @@
+.pick-desk {margin:0 0 18px;padding:clamp(12px,2vw,22px);background:#fff;border:1px solid var(--desk-border);border-radius:8px;scroll-margin-top:80px;font-size:14px;color:var(--desk-ink)}
+.pick-desk h2,.pick-desk h3 {margin:0;line-height:1.4;color:var(--desk-ink)}
+.pick-desk h2 {font-size:20px}.pick-desk h3 {font-size:17px}
+.pick-heading,.pick-toolbar,.pick-pages {display:flex;align-items:center;justify-content:space-between;gap:8px 18px;flex-wrap:wrap}
+.pick-desk p,.pick-desk footer {margin:4px 0;font-size:13px;color:var(--desk-muted);line-height:1.6}
+.pick-desk :is(input,select,button) {font:inherit;font-size:13px;color:var(--desk-ink)}
+.pick-desk :is(select,input:not([type=checkbox]),button) {box-sizing:border-box;min-height:36px;border:1px solid #b8c8c8;border-radius:5px;background:#fff;padding:5px 9px}
+.pick-desk button {cursor:pointer}.pick-desk button:disabled {cursor:default;opacity:.55}
+.pick-desk :is(a,button,input,select,summary):focus-visible {outline:2px solid #187b71;outline-offset:2px}
+.pick-desk a {color:var(--desk-accent);text-underline-offset:3px}
+.pick-desk button:hover:not(:disabled),.pick-desk button[aria-pressed=true] {background:#edf6f4;border-color:#58948b}
+.pick-desk #pick-run {background:var(--desk-accent);color:#fff;border-color:var(--desk-accent)}
+.pick-overview {display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px;padding:9px 0;margin:7px 0;border-block:1px solid var(--desk-border);font-size:13px}
+.pick-overview button {color:var(--desk-accent);border:0;padding:4px 2px;min-height:32px}
+.pick-filters {display:grid;grid-template-columns:1fr 1fr .7fr 1fr 1.2fr 1.2fr;gap:10px}
+.pick-filters label,.pick-filters legend {display:block;font-size:12px;font-weight:600}
+.pick-filters select,.pick-filters label input:not([type=checkbox]) {display:block;width:100%;margin-top:4px}
+.pick-filters fieldset {border:none;padding:0;margin:0;min-width:0}
+.pick-filters fieldset div {display:flex;align-items:center;gap:4px;margin-top:4px}
+.pick-filters fieldset input {width:100%;min-width:0}
+.pick-toolbar {margin:10px 0 5px;justify-content:flex-end;font-size:13px}
+.pick-toolbar>:first-child {margin-right:auto}
+.pick-toolbar label {display:inline-flex;align-items:center;min-height:36px;gap:4px}
+.pick-table {width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;font-size:13px}
+.pick-table :is(th,td) {padding:4px 7px;border:0;border-bottom:1px solid #e1e9e8;text-align:right}
+.pick-table thead th {color:#4d655e;background:#f0f5f4;font-size:12px;font-weight:600}
+.pick-table :is(th,td):first-child,.pick-table :is(th,td):nth-child(2),.pick-tech-table :is(th,td):last-child {text-align:left}
+.pick-table td:first-child a {display:inline-flex;gap:7px;align-items:baseline;flex-wrap:wrap;font-weight:600;text-decoration:none}
+.pick-table .stock-code {font-size:11px;color:#536673;font-weight:400}
+.pick-table .change-up {color:#a52f38}.pick-table .change-down {color:#116b58}
+.pick-table button[data-save] {min-height:32px}
+.pick-pages {justify-content:flex-end;margin:9px 0;font-size:12px}
+#pick-tech {border-top:1px solid var(--desk-border);margin-top:14px;padding-top:14px}
+.pick-desk details {margin:4px 0}
+.pick-desk summary {width:fit-content;color:var(--desk-accent);cursor:pointer;padding:7px 0}
+.pick-desk footer {margin-top:12px;font-size:12px}
+.pick-desk .sr-only {position:absolute;width:1px;height:1px;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+@media(max-width:950px){.pick-filters{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:650px){
+ .pick-filters{grid-template-columns:1fr 1fr}.pick-query{grid-column:1/-1}
+ .pick-desk :is(select,input:not([type=checkbox]),button,.pick-toolbar label,.pick-desk summary){min-height:44px}
+ .pick-table thead{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+ .pick-table tr{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:0 7px;padding:5px 0;border-top:1px solid var(--desk-border)}
+ .pick-table :is(td,td:nth-child(2),td:last-child){display:flex;align-items:baseline;gap:5px;text-align:left;border:0;padding:3px 0}
+ .pick-table td[data-label]::before{content:attr(data-label);font-size:11px;color:#5c6b73}
+ .pick-table tr td:nth-child(2n){justify-content:flex-end}
+ .pick-tech-table tr td:last-child{grid-column:1/-1;justify-content:flex-start}
+ .pick-table button[data-save]{min-height:44px}.pick-overview button{min-height:44px}
+}
+
+.pick-run-actions{display:flex;gap:6px;flex-wrap:wrap}.pick-desk [hidden]{display:none!important}
