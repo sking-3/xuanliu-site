@@ -1,0 +1,67 @@
+name: Verify native Vibe evidence in the research desk
+on:
+  push:
+    branches: [verify/vibe-evidence-20261116]
+permissions:
+  contents: read
+jobs:
+  native-file:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v6
+        with:
+          repository: simonlin1212/Vibe-Research
+          ref: 76bd805f9b8387035b9dbc9110d1484d782d0e3a
+          path: upstream
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Run the native estimates skill and import its unmodified output
+        shell: bash
+        run: |
+          set -eu
+          python -m pip -q install requests pandas lxml html5lib beautifulsoup4
+          npm install --prefix "$RUNNER_TEMP/ui" --no-audit --no-fund --ignore-scripts playwright@1.56.1
+          "$RUNNER_TEMP/ui/node_modules/.bin/playwright" install --with-deps chromium
+          python -m http.server 8789 --bind 127.0.0.1 > "$RUNNER_TEMP/http.log" 2>&1 &
+          server=$!
+          trap 'kill "$server"' EXIT
+          export NODE_PATH="$RUNNER_TEMP/ui/node_modules"
+          for symbol in 600519 000858; do
+            export SYMBOL="$symbol"
+            export VIBE_RUN="$RUNNER_TEMP/vibe-$symbol"
+            status=0
+            python upstream/.agents/skills/data-access/scripts/fetch_estimates.py --symbol "$symbol" --out-dir "$VIBE_RUN" --timeout 12 > "$RUNNER_TEMP/response.json" || status=$?
+            if [ "$status" -ne 0 ] && [ "$status" -ne 2 ]; then continue; fi
+            if node <<'JS'
+          const assert=require('node:assert/strict'), fs=require('node:fs');
+          const {chromium}=require('playwright');
+          (async()=>{
+            const file=process.env.VIBE_RUN+'/fetch/fetch_estimates.json';
+            const env=JSON.parse(fs.readFileSync(file));
+            assert.equal(env.primary_source,'ths','source returned single reports rather than consensus');
+            const browser=await chromium.launch();
+            try {
+              const page=await browser.newPage();
+              await page.goto('http://127.0.0.1:8789/company-dossier.html?symbol='+process.env.SYMBOL);
+              await page.locator('#vibe-file').setInputFiles(file);
+              await page.locator('#vibe-status').filter({hasText:'已导入'}).waitFor({state:'attached',timeout:5000});
+              await page.getByRole('button',{name:'生成研究报告'}).click();
+              const report=await page.locator('#report').innerText();
+              assert.ok(report.includes(env.fetched_at));
+              assert.ok(report.includes(env.evidence.find(e=>e.field==='eps_consensus_mean' && e.period===env.extra.current_fy).id));
+              console.log('PASS native forecast import',env.symbol,env.primary_source,env.extra.current_fy,env.fetched_at,env.evidence.length);
+            } finally {await browser.close()}
+          })().catch(e=>{console.error(e.message);process.exitCode=1})
+          JS
+            then exit 0; fi
+          done
+          exit 1
