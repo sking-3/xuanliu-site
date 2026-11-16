@@ -12,6 +12,7 @@ on:
       - 'trader/aoying-history.js'
       - 'trader/binance/evidence/aoying-analysis-current/**'
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read

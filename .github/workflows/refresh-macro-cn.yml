@@ -1,45 +1,104 @@
-name: Refresh Chinese macro snapshot (manual)
+name: Refresh Chinese macro snapshot
 
 on:
+  schedule:
+    - cron: '17 10 * * *' # 18:17 Asia/Shanghai, every calendar day
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/refresh-macro-cn.yml'
+      - 'scripts/collect_macro_cn.py'
 
-permissions:
-  contents: write
+permissions: {}
 
 concurrency:
   group: macro-cn-refresh
-  queue: max
   cancel-in-progress: false
 
 jobs:
   refresh:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: write
+    outputs:
+      digest: ${{ steps.publish.outputs.digest }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: main
-          fetch-depth: 1
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Collect official Chinese RSS metadata
-        run: python scripts/collect_macro_cn.py --output macro-cn.json
-      - name: Validate the public consumer
-        run: node --check market-overview.js
-      - name: Commit only the macro snapshot
+      - name: Collect and validate the official release
         shell: bash
         run: |
           set -euo pipefail
-          if git diff --quiet -- macro-cn.json; then
-            echo 'No macro snapshot change.' >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
+          snapshot="$RUNNER_TEMP/macro-cn.json"
+          python scripts/collect_macro_cn.py --output "$snapshot"
+          node - "$snapshot" <<'NODE'
+          const fs = require('node:fs')
+          const { validate, macroSnapshot } = require('./market-overview.js')
+          const next = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'))
+          const before = require('./macro-cn.json').card
+          const checked = macroSnapshot(next, validate(require('./market-overview.json')), Date.now())
+          if (!checked || checked.cards.macro.status !== 'ready' || Date.parse(next.card.asOf) < Date.parse(before.asOf)) {
+            throw new Error('Rejected invalid or older macro release. Published snapshot preserved.')
+          }
+          console.log(next.card.data.latest.title, next.card.asOf)
+          NODE
+      - name: Publish only the validated snapshot
+        id: publish
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=$(git rev-parse HEAD:macro-cn.json)
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add macro-cn.json
-          git commit -m 'data: refresh Chinese macro snapshot'
-          git push origin HEAD:main
+          for attempt in 1 2 3; do
+            git fetch --no-tags --depth=1 origin main
+            git checkout --detach FETCH_HEAD
+            if [[ $(git rev-parse HEAD:macro-cn.json) != "$base" ]]; then
+              echo "::error::The published macro snapshot changed during collection."
+              exit 1
+            fi
+            cp "$RUNNER_TEMP/macro-cn.json" macro-cn.json
+            git add -- macro-cn.json
+            if git diff --cached --quiet; then break; fi
+            git commit -m 'data: update Chinese macro release'
+            if git push origin HEAD:main; then break; fi
+            if [[ $attempt == 3 ]]; then exit 1; fi
+          done
+          echo "digest=$(sha256sum macro-cn.json | cut -d ' ' -f1)" >> "$GITHUB_OUTPUT"
 
-# A schedule is intentionally absent. Add one only after source frequency and
-# publication rights have been reviewed and explicitly approved.
+  deploy:
+    needs: refresh
+    uses: ./.github/workflows/deploy-static-pages.yml
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+
+  verify:
+    needs: [refresh, deploy]
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - name: Verify the snapshot served by GitHub Pages
+        env:
+          EXPECTED: ${{ needs.refresh.outputs.digest }}
+        run: |
+          set -euo pipefail
+          url="https://sking-3.github.io/xuanliu-site/macro-cn.json?v=$EXPECTED"
+          for attempt in {1..15}; do
+            if curl --silent --show-error --fail --max-time 8 "$url" -o public.json &&
+                echo "$EXPECTED  public.json" | sha256sum --check --status; then
+              jq -r '.card | "Published: \(.data.latest.title) · \(.asOf)"' public.json >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::GitHub Pages did not serve the validated snapshot."
+          exit 1
