@@ -3,7 +3,8 @@
   const symbols = new Map([
     ['SSE:000001','上证指数'], ['SZSE:399001','深证成指'], ['SZSE:399006','创业板指'],
     ['SSE:000688','科创50'], ['HSI:HSI','恒生指数'], ['FRED:NDQCOM','纳斯达克综合'],
-    ['SSE:600519','贵州茅台'], ['SZSE:000001','平安银行'], ['SZSE:300750','宁德时代'],
+    ['SSE:600519','贵州茅台'], ['SSE:601398','工商银行'], ['SSE:600036','招商银行'], ['SSE:601318','中国平安'],
+    ['SZSE:000858','五粮液'], ['SZSE:000333','美的集团'], ['SZSE:002594','比亚迪'], ['SZSE:000001','平安银行'], ['SZSE:300750','宁德时代'],
     ['NASDAQ:AAPL','Apple'], ['NASDAQ:MSFT','Microsoft'], ['NASDAQ:NVDA','NVIDIA'],
     ['NASDAQ:AMZN','Amazon'], ['NASDAQ:GOOGL','Alphabet'], ['NASDAQ:META','Meta'], ['NASDAQ:TSLA','Tesla'],
       ['BITGET:BTCUSDT','Bitcoin / USDT'], ['BITGET:ETHUSDT','Ethereum / USDT'], ['BITGET:SOLUSDT','Solana / USDT'], ['BITGET:XRPUSDT','XRP / USDT'], ['BITGET:DOGEUSDT','Dogecoin / USDT'], ['BITGET:ADAUSDT','Cardano / USDT'], ['BITGET:AVAXUSDT','Avalanche / USDT'], ['BITGET:LINKUSDT','Chainlink / USDT'], ['BITGET:DOTUSDT','Polkadot / USDT'], ['BITGET:LTCUSDT','Litecoin / USDT'], ['BITGET:BCHUSDT','Bitcoin Cash / USDT'], ['BITGET:UNIUSDT','Uniswap / USDT'], ['BITGET:AAVEUSDT','Aave / USDT'], ['BITGET:NEARUSDT','NEAR / USDT'], ['BITGET:ATOMUSDT','Cosmos / USDT'], ['BITGET:FILUSDT','Filecoin / USDT'], ['BITGET:XLMUSDT','Stellar / USDT'], ['BITGET:SHIBUSDT','Shiba Inu / USDT'], ['BITGET:SUIUSDT','Sui / USDT'], ['BITGET:PEPEUSDT','Pepe / USDT'],
@@ -71,36 +72,60 @@
     : closeOnly ? '纳斯达克综合指数 · FRED 每日收盘序列，仅绘制收盘走势，不表示盘中K线。更新日期与可用性以来源为准。'
     : symbol.startsWith('BITGET:') ? 'Bitget 现货 / USDT。报价时间与可用性以图表显示为准。'
     : '美股行情可能延迟。报价时间与可用性以图表显示为准。';
+  const sourceLink = document.getElementById('chart-source');
+  sourceLink.href = symbol.startsWith('BITGET:')
+    ? 'https://www.bitget.com/spot/' + symbol.split(':')[1]
+    : symbol.startsWith('FRED:') ? 'https://fred.stlouisfed.org/series/' + symbol.split(':')[1]
+    : 'https://www.tradingview.com/symbols/' + symbol.replace(':','-') + '/';
+  sourceLink.hidden = false;
   let generation = 0, timer, observer;
   function mount() {
     const current = ++generation;
     clearTimeout(timer);
     if (observer) observer.disconnect();
     const host = document.getElementById('chart-widget');
+    host.hidden = false;
+    host.dataset.chartState = 'loading';
     host.replaceChildren();
     retry.disabled = true;
-    status.textContent = '正在请求第三方图表。图表及数据是否可用，请以组件内显示为准。';
+    status.textContent = '正在连接图表来源…';
     const container = document.createElement('div');
     container.className = 'tradingview-widget-container';
     const slot = document.createElement('div');
     slot.className = 'tradingview-widget-container__widget';
     container.append(slot);
     host.append(container);
+    function unavailable() {
+      if (current !== generation || host.dataset.chartState !== 'loading') return;
+      observer.disconnect();
+      clearTimeout(timer);
+      host.dataset.chartState = 'unavailable';
+      host.replaceChildren();
+      host.hidden = true;
+      retry.disabled = false;
+      status.textContent = '图表来源未响应。可重试，或打开此标的的来源页。';
+    }
     observer = new MutationObserver(() => {
       const frame = container.querySelector('iframe');
-      if (frame && current === generation) {
-        frame.title = symbolName + ' ' + chartKind + '（TradingView）';
-        status.textContent = '已嵌入第三方图表；不代表已取得行情。数据、时间与错误提示以组件内显示为准。';
-        clearTimeout(timer); retry.disabled = false; observer.disconnect();
-      }
+      if (!frame || current !== generation) return;
+      observer.disconnect();
+      frame.title = symbolName + ' ' + chartKind + '（TradingView）';
+      frame.addEventListener('load', () => {
+        if (current !== generation || host.dataset.chartState !== 'loading') return;
+        host.dataset.chartState = 'frame-loaded';
+        clearTimeout(timer);
+        retry.disabled = false;
+        status.textContent = '来源图表已打开。价格与行情日期见图内标注。';
+      }, {once:true});
+      frame.addEventListener('error', unavailable, {once:true});
     });
     observer.observe(container, {childList:true, subtree:true});
     const script = document.createElement('script');
     script.src = 'https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js';
     script.async = true;
     script.textContent = JSON.stringify({autosize:true, symbol, interval:'D', timezone:'Asia/Shanghai', theme:'light', style:closeOnly ? '3' : '1', locale:'zh_CN', allow_symbol_change:false, calendar:false, hide_top_toolbar:false, hide_legend:false, support_host:'https://www.tradingview.com'});
-    script.onerror = () => { if (current === generation) { clearTimeout(timer); observer.disconnect(); retry.disabled = false; status.textContent = '第三方图表脚本未能加载，请重试。本站不会用模拟K线替代。'; } };
-    timer = setTimeout(() => { if (current === generation) { retry.disabled = false; status.textContent = '图表尚未确认加载，可能受网络或来源限制。可重试；空白不代表零价格。'; } }, 15000);
+    script.onerror = unavailable;
+    timer = setTimeout(unavailable, 15000);
     container.append(script);
   }
   retry.addEventListener('click', mount);

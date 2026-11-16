@@ -75,6 +75,16 @@
     }catch{if(token!==generation)return;source.textContent='文件格式或指标未通过校验。'+(book?'保留上次载入的 '+book.asof+' 历史结果。':'请选择本工具生成的研究快照。');}
     render();
   }
+  function openImportLink() {
+    if (location.hash !== '#research-file') return;
+    let wrap = file.closest('details');
+    while (wrap) {
+      wrap.open = true;
+      wrap = wrap.parentElement?.closest('details');
+    }
+  }
+  window.addEventListener('hashchange',openImportLink);
+  openImportLink();
   file.addEventListener('change',load);
   for(const control of [rule,group,query])control.addEventListener('input',()=>{page=0;render();});
   get('back-page').addEventListener('click',()=>{page--;render();});

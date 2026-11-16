@@ -1,14 +1,50 @@
 'use strict';
 (() => {
   const widget = document.querySelector('.tradingview-widget-container');
-  const reportSize = () => {
-    const height = widget.getBoundingClientRect().height;
+  const links = document.querySelector('.strip-links');
+  const vendor = 'https://www.tradingview-widget.com';
+  let state = 'loading';
+
+  function reportSize() {
+    const current = document.body.dataset.stripMode === 'provider' ? widget : links;
+    const height = current.getBoundingClientRect().height;
     if (height >= 24) parent.postMessage({type:'books-market-strip-size',height:height + 1}, location.origin);
-  };
+  }
+
+  function display() {
+    const show = state === 'rendered' && !links.contains(document.activeElement);
+    document.body.dataset.stripMode = show ? 'provider' : 'links';
+    widget.inert = !show;
+    reportSize();
+  }
+
   window.addEventListener('message', event => {
-    if (event.origin === location.origin && event.source === parent && event.data?.type === 'books-market-strip-measure') reportSize();
+    if (event.origin === location.origin && event.source === parent && event.data?.type === 'books-market-strip-measure') {
+      reportSize();
+      return;
+    }
+    if (event.origin !== vendor || !event.source || event.source !== widget.querySelector('iframe')?.contentWindow) return;
+    const message = event.data;
+    if (message?.name === 'tv-widget-no-data') {
+      state = 'unavailable';
+    } else if (message?.name === 'tv-widget-ready') {
+      state = 'rendered';
+    } else if (message?.name === 'tv-widget-resize-iframe' && state === 'loading'
+      && Number.isFinite(message.data?.height) && message.data.height > 0) {
+      // Ticker Tape reports its mounted layout even when it omits the ready event.
+      state = 'rendered';
+    } else {
+      return;
+    }
+    display();
   });
-  new ResizeObserver(reportSize).observe(widget);
+  links.addEventListener('focusout', () => setTimeout(display, 0));
+  if (typeof ResizeObserver === 'function') {
+    const observer = new ResizeObserver(reportSize);
+    observer.observe(widget);
+    observer.observe(links);
+  }
+  window.addEventListener('resize', reportSize);
   window.addEventListener('load', reportSize);
-  reportSize();
+  display();
 })();

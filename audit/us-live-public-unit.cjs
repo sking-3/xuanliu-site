@@ -22,15 +22,27 @@ function setup(options={}){
  const bar=t=>({t,o:100,h:103,l:99,c:102,v:400,vw:100,n:4});
  const payload=url=>url.includes('/snapshots')?{AAPL:{latestTrade:{t:TRADE,p:102,s:1},minuteBar:bar('2026-11-13T20:59:00Z')}}:url.includes('/clock')?{timestamp:new Date(now).toISOString(),is_open:false,next_open:'2026-11-16T09:30:00-05:00',next_close:'2026-11-16T16:00:00-05:00'}:url.includes('/calendar')?calendar(url):{bars:{AAPL:[]},next_page_token:null};
  const scope={Date:Clock,URL,URLSearchParams,Response,Blob,AbortController,Intl,FormData:FormDataFixture,document,CustomEvent:class{constructor(type,init){this.type=type;this.detail=init.detail;}},localStorage:{getItem:key=>storage.get(key)??null,setItem(key,value){writes.push({key,value});storage.set(key,value);}},setTimeout(fn,ms){const timer=++id;timers.set(timer,{fn,at:now+ms,ms});return timer;},clearTimeout:timer=>timers.delete(timer),addEventListener(type,fn){(listeners[type]??=[]).push(fn);},dispatchEvent(event){for(const fn of listeners[event.type]||[])fn(event);},fetch:async(url,init)=>{calls.push({url,init});return options.fetch?options.fetch(url,init,{payload,bar}):Response.json(payload(url));}};
- scope.window=scope;for(const file of files)vm.runInNewContext(fs.readFileSync(path.join(ROOT,file),'utf8'),scope,{filename:file});
+ scope.window=scope;if(options.watchOnly)delete nodes['public-connection'];for(const file of options.watchOnly ? ['us-live-app.js'] : files)vm.runInNewContext(fs.readFileSync(path.join(ROOT,file),'utf8'),scope,{filename:file});
  async function advance(ms){now+=ms;for(let i=0;i<50;i++){const due=[...timers].filter(([,t])=>t.at<=now).sort((a,b)=>a[1].at-b[1].at)[0];if(!due)break;timers.delete(due[0]);due[1].fn();await flush();}await flush();}
  async function complete(promise){let settled=false,value,thrown;Promise.resolve(promise).then(v=>{settled=true;value=v;},e=>{settled=true;thrown=e;});for(let i=0;i<50&&!settled;i++){await flush();if(settled)break;const next=[...timers.values()].sort((a,b)=>a.at-b.at)[0];if(next&&next.at-now<=1000)await advance(Math.max(0,next.at-now));}assert.ok(settled,'SYNTHETIC task did not settle');if(thrown)throw thrown;return value;}
  const bridge=scope.BooksPublicMarket,api=async(resource,body)=>{const response=await bridge.fetch('/api/research/'+resource,{method:body===undefined?'GET':'POST',...(body===undefined?{}:{body:JSON.stringify(body)})});return {response,value:await response.json()};};
  return {scope,document,nodes,form,submit,calls,writes,storage,timers,bridge,advance,complete,api,get now(){return now;},fill(){form.elements.apiKey.value=KEY;form.elements.apiSecret.value=SECRET;form.elements.personalUse.checked=true;},connect(){this.fill();return complete(form.onsubmit({preventDefault(){}}));},async hide(){document.hidden=true;for(const fn of documentListeners.visibilitychange||[])fn({});await flush();},async show(){document.hidden=false;for(const fn of documentListeners.visibilitychange||[])fn({});await flush();},async event(type,event={}){for(const fn of listeners[type]||[])fn(event);await flush();}};
 }
 
+test('public watchlist add and remove work before any broker or market client is configured',()=>{
+ const h=setup({watchOnly:true,watch:[{market:'a',symbol:'600519'}]});
+ assert.equal(h.bridge,undefined);
+ h.nodes['public-watch-symbol'].value=' nvda ';
+ h.nodes['public-watch-form'].onsubmit({preventDefault(){}});
+ assert.deepEqual(JSON.parse(h.storage.get(WATCH_KEY)),[{market:'a',symbol:'600519'},{market:'us',symbol:'NVDA'}]);
+ assert.equal(h.nodes['watch-count'].textContent,'1 / 30');
+ h.nodes['public-watchlist'].firstChild.children[1].onclick();
+ assert.deepEqual(JSON.parse(h.storage.get(WATCH_KEY)),[{market:'a',symbol:'600519'}]);
+ assert.equal(h.calls.length,0);
+});
+
 test('public page loads only same-origin scripts and has password fields, fixed CORS domains and safe external links',()=>{
- const html=fs.readFileSync(path.join(ROOT,'us-live.html'),'utf8');assert.doesNotMatch(html,/<script\b[^>]*src=["']https?:/i);assert.match(html,/script-src 'self'/);assert.match(html,/connect-src 'self' https:\/\/nvidianews\.nvidia\.com/);assert.match(html,/frame-src 'none'/);assert.match(html,/form-action 'none'/);assert.equal((html.match(/type="password"/g)||[]).length,1);assert.match(html,/id="broker-pair" type="password"/);assert.doesNotMatch(html,/public-connection|legacy-iex|APCA-API/);assert.match(html,/http:\/\/127\.0\.0\.1:19355/);for(const a of html.match(/<a\b[^>]*target="_blank"[^>]*>/g)||[])assert.match(a,/rel="noopener noreferrer"/);
+ const html=fs.readFileSync(path.join(ROOT,'us-live.html'),'utf8');assert.doesNotMatch(html,/<script\b[^>]*src=["']https?:/i);assert.match(html,/script-src 'self'/);assert.match(html,/connect-src 'self' https:\/\/nvidianews\.nvidia\.com/);assert.match(html,/frame-src 'self';/);const frames=[...html.matchAll(/<iframe\b[^>]*src="([^"]+)"/g)].map(m=>m[1]);assert.equal(frames.length,1);assert.match(frames[0],/^market-strip\.html(?:\?v=[a-z0-9]+)?$/);assert.match(html,/src="us-live-app\.js/);assert.match(html,/form-action 'none'/);assert.equal((html.match(/type="password"/g)||[]).length,1);assert.match(html,/id="broker-pair" type="password"/);assert.doesNotMatch(html,/public-connection|legacy-iex|APCA-API/);assert.match(html,/http:\/\/127\.0\.0\.1:19355/);for(const a of html.match(/<a\b[^>]*target="_blank"[^>]*>/g)||[])assert.match(a,/rel="noopener noreferrer"/);
 });
 test('connect form clears both fields and actually reads snapshots and clock through the public RAM bridge',async()=>{
  const h=setup();await h.connect();assert.equal(h.form.elements.apiKey.value,'');assert.equal(h.form.elements.apiSecret.value,'');assert.equal(h.submit.disabled,false);assert.match(h.nodes['connection-state'].textContent,/IEX.*已读取/);assert.match(h.nodes['us-live-quotes'].textContent,/102/);assert.match(h.nodes['us-live-quotes'].textContent,/历史成交/);

@@ -1,0 +1,100 @@
+/* Shared reading and interaction scale for Books' public desks. */
+:root {
+  --desk-paper: #fff;
+  --desk-canvas: #f5f7f7;
+  --desk-ink: #1c303c;
+  --desk-muted: #536673;
+  --desk-border: #dbe2e4;
+  --desk-accent: #14675c;
+  --desk-pad: clamp(12px, 1.25vw, 20px);
+}
+body.books-shell {
+  background: var(--desk-canvas);
+  color: var(--desk-ink);
+  --books-ink: var(--desk-ink);
+  --books-muted: var(--desk-muted);
+  --books-line: var(--desk-border);
+  --books-radius: 8px;
+  font-variant-numeric: tabular-nums;
+}
+.books-shell > main { padding-inline: clamp(14px,2.2vw,34px); }
+.books-shell main h1 {
+  margin-block: 0; color: var(--desk-ink);
+  font-size: clamp(22px,1.65vw,28px); line-height: 1.28; letter-spacing: -.025em;
+}
+.books-shell main :is(.page-heading,.stock-page-heading,.desk-heading,.page-header,.books-page-heading) { margin: 0 0 14px; }
+.books-shell :is(.desk-heading,.stock-page-heading,.page-heading) > p { margin: 5px 0 0; color: var(--desk-muted); font-size: 13px; line-height: 1.6; }
+.books-shell .books-sidebar { padding-top: 14px; }
+.books-shell .books-nav { margin-top: 18px; }
+.books-shell .books-shortcuts {
+  display: grid; gap: 0; margin: 15px 0 0; padding: 10px 0 0; border-top: 1px solid var(--desk-border);
+}
+.books-shortcuts a { display: block; padding: 5px 0; color: var(--desk-muted); text-align: center; text-decoration: none; font-size: 12px; }
+.books-shortcuts a:hover, .books-shortcuts a[aria-current=page] { color: var(--desk-accent); text-decoration: underline; text-underline-offset: 3px; }
+.books-shell .desk-heading { display: block; }
+.books-shell .desk-paper { min-width: 0; border: 1px solid var(--desk-border); border-radius: var(--books-radius); background: var(--desk-paper); margin: 0 0 14px; overflow: clip; }
+.desk-section-title, .desk-toolbar, .desk-foot { display: flex; align-items: baseline; justify-content: space-between; gap: 8px 16px; flex-wrap: wrap; padding: 10px var(--desk-pad); }
+.desk-section-title { border-bottom: 1px solid var(--desk-border); }
+.desk-section-title h2 { margin: 0; font-size: 16px; color: var(--desk-ink); line-height: 1.45; }
+.desk-paper a { color: var(--desk-accent); text-underline-offset: 3px; }
+.material-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); }
+.material-grid > div { padding: var(--desk-pad); }
+.material-grid > div + div { border-inline-start: 1px solid var(--desk-border); }
+.material-grid h3 { color: var(--desk-muted); font-size: 12px; margin: 0; font-weight: 550; }
+.material-grid p { margin: 6px 0; font-size: 15px; font-weight: 630; }
+.material-grid a, .desk-section-title > a, .desk-foot a { font-size: 12px; }
+.desk-task-list > a {
+  display: grid; align-items: baseline; grid-template-columns: minmax(120px, .45fr) 1fr auto;
+  gap: 4px 16px; padding: 12px var(--desk-pad); text-decoration: none; color: var(--desk-ink);
+}
+.desk-task-list > a + a { border-top: 1px solid var(--desk-border); }
+.desk-task-list > a:hover { background: #f1f7f5; }
+.desk-task-list span, .desk-foot { font-size: 13px; color: var(--desk-muted); }
+.desk-task-list b { color: var(--desk-accent); }
+.books-shell .desk-toolbar label { display: flex; align-items: center; gap: 8px; }
+.desk-toolbar :is(button,select) { font: inherit; color: var(--desk-ink); border: 1px solid var(--desk-border); border-radius: 5px; background: white; padding: 6px 10px; cursor: pointer; }
+.desk-meta { color: var(--desk-muted); font-size: 12px; margin: 0; padding: 6px var(--desk-pad); line-height: 1.5; }
+.desk-sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.desk-table-wrap { overflow: auto; max-width: 100%; }
+.evidence-table { width: 100%; border-collapse: collapse; color: var(--desk-ink); font-size: 13px; }
+.evidence-table th, .evidence-table td { padding: 7px var(--desk-pad); text-align: left; border-block-end: 1px solid var(--desk-border); }
+.evidence-table th { color: var(--desk-muted); background: #f4f7f7; font-size: 12px; font-weight: 580; }
+.evidence-table small { display: block; color: var(--desk-muted); }
+.evidence-table tr :nth-child(n+3) { text-align: right; }
+.desk-foot { font-size: 12px; line-height: 1.6; }
+.books-shell.trader-page .page-header .eyebrow { display: none; }
+.books-shell.trader-page .plaza { padding: var(--desk-pad); }
+.books-shell.trader-page .filters { border-radius: 5px; gap: 8px 12px; padding: 10px; background: #f8fafa; }
+.books-shell.trader-page .platform-switch { flex-wrap: wrap; }
+.books-shell.trader-page .evidence-entry { color: var(--desk-accent); font-size: 13px; text-decoration: underline; text-underline-offset: 3px; }
+.books-shell.trader-page .heading .actions { flex-wrap: wrap; }
+.books-shell .books-load-screen { position: fixed; top: 0; left: 0; right: 0; bottom: auto; height: 2px; display: block; overflow: hidden; background: transparent; }
+.books-shell .books-load-screen::before { content: ""; display: block; width: 25%; height: 100%; background: var(--desk-accent); animation: books-progress 780ms ease-out both; }
+@keyframes books-progress { from { transform: translateX(-100%); } to { transform: translateX(390%); } }
+@media (prefers-reduced-motion: reduce) { .books-shell .books-load-screen { display: none; } }
+@media (max-width:760px) {
+  .books-shell > main { padding-inline: 12px; }
+  .books-shell .books-sidebar { min-height: 54px; padding: 5px 12px; }
+  .books-shell .books-brand { font-size: 20px; }
+  .books-shell .books-brand span { display: none; }
+  .books-shell .books-shortcuts { grid-column: 1/-1; grid-template-columns: repeat(3,minmax(0,1fr)); margin: 6px 0 0; padding: 4px 0 0; }
+  .books-shell .books-nav[hidden] ~ .books-shortcuts { display: none; }
+  .books-shortcuts a, .desk-paper :is(button,select), .material-grid a, .desk-section-title a, .desk-foot a { min-height: 44px; display: inline-flex; align-items: center; }
+  .books-shortcuts a { justify-content: center; }
+  .material-grid { grid-template-columns: 1fr; }
+  .material-grid > div + div { border-inline-start: 0; border-block-start: 1px solid var(--desk-border); }
+  .material-grid p { margin: 3px 0 0; }
+  .desk-task-list > a { grid-template-columns: minmax(0,1fr) auto; gap: 0 8px; padding-block: 9px; }
+  .desk-task-list span { grid-column: 1; }
+  .desk-task-list b { grid-column: 2; grid-row: 1/3; align-self: center; }
+  .evidence-table thead { position:absolute; clip-path:inset(50%); width:1px; height:1px; overflow:hidden; }
+  .evidence-table tbody, .evidence-table tr { display: grid; }
+  .evidence-table tr { grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; padding: 8px var(--desk-pad); border-block-start: 1px solid var(--desk-border); }
+  .evidence-table tr td { border: 0; padding: 0; white-space: normal; overflow-wrap: anywhere; }
+  .evidence-table td:first-child { grid-column: 1; grid-row: 2; font-size: 11px; color: var(--desk-muted); }
+  .evidence-table td:nth-child(2) { grid-column: 1; grid-row: 1; }
+  .evidence-table td:nth-child(3) { grid-column: 2; grid-row: 1; }
+  .evidence-table td:nth-child(4) { grid-column: 2; grid-row: 2; }
+  .evidence-table td:nth-child(3)::before { content: "数量 "; color: var(--desk-muted); font-size: 11px; }
+  .evidence-table td:nth-child(4)::before { content: "均价 "; color: var(--desk-muted); font-size: 11px; }
+}
