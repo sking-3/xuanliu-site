@@ -614,6 +614,10 @@ async function main() {
     await offline.close();
     const online=await browser.newContext({...profile,locale:'zh-CN',timezoneId:'Asia/Shanghai',serviceWorkers:'block',reducedMotion:'reduce'});
     for(const [name,fn] of [['live A-share closing source',fullA],['live US ranking data',liveUS],['US page real watch quotes',usQuotesPage],['live Bitget quote values',liveCrypto],['real chart from symbol picker',actualChart]])await check(online,name,fn);
+    await check(online,'company dossier evidence and export',async page=>{
+      await open(page,'company-dossier.html');
+      return require('./company-dossier-browser.cjs')(page,{local:true,screenshot:path.join(out,'company-dossier.png')});
+    });
     await online.close();
   } finally {
     fs.writeFileSync(path.join(out,'results.json'),JSON.stringify(report,null,2));

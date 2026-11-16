@@ -35,3 +35,5 @@
   .market-search [role=status]:not(:empty) {flex-basis:100%}
   .market-detail [data-scope=full] .crypto-quote-row a {display:flex;align-items:center;min-height:44px}
 }
+
+#a-close-matches li {display:flex;align-items:center;justify-content:space-between;gap:10px}
