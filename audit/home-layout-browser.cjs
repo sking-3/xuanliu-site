@@ -93,6 +93,8 @@ async function ranking(page) {
       const right = root.getBoundingClientRect();
       const list = root.querySelector('#home-ranking-list').getBoundingClientRect();
       const note = root.querySelector('#home-ranking-note').getBoundingClientRect();
+      const shortGroup = root.querySelector('#home-ranking-short');
+      const nextBlock = shortGroup && !shortGroup.hidden ? shortGroup.getBoundingClientRect() : note;
       const shown = [];
       for (const row of root.querySelectorAll('.home-rank-row')) {
         const box = row.getBoundingClientRect();
@@ -107,7 +109,7 @@ async function ranking(page) {
         rows: shown.length, totalRows:root.querySelectorAll('.home-rank-row').length,
         scrollable:root.querySelector('#home-ranking-list').scrollHeight>root.querySelector('#home-ranking-list').clientHeight+1,
         ordinals:shown.map(row => row.position), roi:shown.map(row => row.roi),
-        gapBelowNote: right.bottom - note.bottom, gapAboveNote: note.top - Math.min(shown.at(-1)?.bottom ?? list.top,list.bottom)};
+        gapBelowNote: right.bottom - note.bottom, gapAboveNote: nextBlock.top - Math.min(shown.at(-1)?.bottom ?? list.top,list.bottom)};
     });
   }
 

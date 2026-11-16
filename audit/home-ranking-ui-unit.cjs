@@ -88,7 +88,9 @@ await test('published Binance reference alone enables the three periods with the
   for(const [index,period] of UI.PERIODS.entries()){
    d.buttons[index].click();
    const expected=ref.performance(raw,raw.portfolioId,period,{now}),view=app.getView();
-   assert.equal(view.eligibleCount,1);assert.ok(Number.isFinite(expected.roi));
+   assert.ok(Number.isFinite(expected.roi));
+   if(expected.fullPeriod===false){assert.equal(view.eligibleCount,0);assert.equal(view.short[0].roi,expected.roi);assert.equal(view.short[0].name,'熬鹰资本');continue;}
+   assert.equal(view.eligibleCount,1);
    assert.equal(view.rows[0].roi,expected.roi);assert.equal(view.rows[0].performanceAsOf,null);
    assert.equal(view.rows[0].performanceFetchedAt,expected.lastSuccessAt);
    const list=d.ids['home-ranking-list'];
@@ -99,9 +101,9 @@ await test('published Binance reference alone enables the three periods with the
    assert.equal(link.searchParams.get('currency'),'USDT');assert.equal(link.searchParams.get('period'),period);
   }
   const incomplete=structuredClone(raw);delete incomplete.performanceByPeriod['365D'];
-  assert.equal(real.rank({reference:incomplete},'365D',now).eligibleCount,0);
+  assert.equal(real.rank({reference:incomplete},'365D',now).short.length,0);
   incomplete.performanceByPeriod['365D']=raw.performanceByPeriod['90D'];
-  assert.equal(real.rank({reference:incomplete},'365D',now).eligibleCount,0);
+  assert.equal(real.rank({reference:incomplete},'365D',now).short.length,0);
  }finally{app.destroy();}
  const modified=scriptResponse();
  await assert.rejects(UI.readJSON(async()=>new Response(await modified.text()+'alert(1)',{headers:{'content-type':'text/javascript'}}),UI.FILES.reference));

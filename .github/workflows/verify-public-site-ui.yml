@@ -1,7 +1,7 @@
 name: Verify public research site
 on:
   push:
-    branches: [ui/public-site-review-20261116, ui/research-evidence-desk, ui/a-share-stock-selection, ui/home-ticker-ranking-fit]
+    branches: [ui/public-site-review-20261116, ui/research-evidence-desk, ui/a-share-stock-selection, ui/home-ticker-ranking-fit, ui/verified-long-period-roi]
   workflow_dispatch:
   workflow_run:
     workflows: [Deploy static Pages]
@@ -37,6 +37,7 @@ jobs:
           node --test audit/market-pool-unit.cjs audit/technical-screen-unit.cjs audit/home-daily-movers-unit.cjs
           node audit/ticker-unit.cjs
           node --test audit/home-trader-data-unit.cjs audit/home-ranking-ui-unit.cjs
+          node --test audit/binance-period-returns-unit.cjs audit/binance-plaza-data-unit.cjs
           python3 -m http.server 8789 --bind 127.0.0.1 > "$RUNNER_TEMP/public-ui-http.log" 2>&1 &
           server_pid=$!
           trap 'kill "$server_pid"' EXIT

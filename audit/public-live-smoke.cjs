@@ -55,7 +55,8 @@ async function home(page) {
   const ranking=await layout.ranking(page);
   await page.locator('#index-ticker').screenshot({path:path.join(output,'visible-market-tape.png')});
   await page.locator('.home-grid').screenshot({path:path.join(output,'aligned-ranking.png')});
-  return {markets,tape,ranking};
+  const longPeriods=await require('./long-ranking-browser.cjs')(page);
+  return {markets,tape,ranking,longPeriods};
 }
 
 async function aShares(page) {

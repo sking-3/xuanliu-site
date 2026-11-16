@@ -48,6 +48,10 @@ function draw(c){
  details.append(note(r.exchange==='Binance'?'币安公开操作记录是聚合成交记录，没有订单 ID；更新时间不等于每笔撮合时间。“开仓 / 加仓方向”不能单独确认新开仓。历史仓位汇总来自币安官方历史接口，逐条操作只包含本站已保存的有限样本。当前持仓与挂单未取得时均显示未知。':'Hyperliquid 只读 userFills 返回最近最多 2000 笔成交；默认永续市场之外的现货不混入仓位重建。以每笔 startPosition 校验数量连续性，发生缺口便中断归组，不把样本当完整账户历史。'));
  details.append(note('观测数量净变化 = 已见开 / 加方向数量 − 已见减 / 平方向数量。期初仓位未知或记录版本存在歧义时，不据此断言当前持仓。官方仓位的开平均价只是汇总，不伪造成图上的逐笔买卖点。'));
  if(c.context.metricNote)details.append(note(c.context.metricNote));
+ const periodMetric=c.context.metrics;
+ if(r.exchange==='Binance'&&!r._local&&/^binance\/evidence\/[a-zA-Z0-9/.-]+\.json$/.test(periodMetric?.evidencePath||'')&&!periodMetric.evidencePath.includes('..')){const proof=el('a','收益凭证');proof.href=periodMetric.evidencePath;proof.target='_blank';proof.rel='noopener';details.append(proof);}
+ if(Number.isFinite(periodMetric?.accountAgeDays))details.append(note('采集时已带单 '+periodMetric.accountAgeDays+' 天'+(periodMetric.fullPeriod===false?'，未满所选周期，平台窗口值只涵盖已带单时段。':'。')));
+
  if(c.error)details.append(note('更新状态：'+c.error+'。403 / 429 会停止相应来源请求，不切换接口绕过。'));
  if(isHL(r))details.append(note('成交流水的来源已实现盈亏未扣手续费、资金费；手续费按原费用币单列。首次发现时间是本机读取此成交的时间，不当作开仓时间。'));
  if(c.officialHistory)details.append(note(`历史仓位分页：${c.officialHistory.rows.length} / 来源本次总数 ${c.officialHistory.sourceTotal}；${c.officialHistory.pages} 页，每页 20 条。读取 ${date(c.officialHistory.fetchedAt)}；不是账户完整交割单。`));

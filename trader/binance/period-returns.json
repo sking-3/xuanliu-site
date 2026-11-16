@@ -1,0 +1,721 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-11-16T10:05:57.421Z",
+  "accounts": [
+    {
+      "portfolioId": "4186437056735338496",
+      "name": "RideTheWave",
+      "startTime": 1727489493797,
+      "positionShow": false,
+      "profileSourceUrl": "https://www.binance.com/bapi/futures/v1/friendly/future/copy-trade/lead-portfolio/detail?portfolioId=4186437056735338496",
+      "profileEvidencePath": "binance/evidence/performance-v1/4186437056735338496/profile-6cab2d5f8537008c1f5c7c68921c72605b1fbe108ef3f4dd6d7faf1fa3233b5c.json",
+      "profileEvidenceSha256": "6cab2d5f8537008c1f5c7c68921c72605b1fbe108ef3f4dd6d7faf1fa3233b5c",
+      "profileFetchedAt": "2026-11-16T10:05:48.002Z",
+      "performance": {
+        "schemaVersion": 1,
+        "byPeriod": {
+          "90D": {
+            "roi": 4.82211379,
+            "pnl": 18182.07029921,
+            "mdd": 28.364683,
+            "winRate": 92.9412,
+            "status": "ready",
+            "sourcePeriod": "90D",
+            "currency": "USDT",
+            "sourceUrl": "https://www.binance.com/bapi/futures/v1/public/future/copy-trade/lead-portfolio/performance?portfolioId=4186437056735338496&timeRange=90D",
+            "evidencePath": "binance/evidence/performance-v1/4186437056735338496/90D-4766e60a6ec73e960b4c29e9deac6fc5770b614c6f6f3110db92495e7943274c.json",
+            "lastAttemptAt": "2026-11-16T10:05:48.881Z",
+            "lastSuccessAt": "2026-11-16T10:05:48.881Z",
+            "sourceAsOf": null,
+            "errorCode": null,
+            "portfolioStartedAt": "2024-09-28T02:11:33.797Z",
+            "profileEvidencePath": "binance/evidence/performance-v1/4186437056735338496/profile-6cab2d5f8537008c1f5c7c68921c72605b1fbe108ef3f4dd6d7faf1fa3233b5c.json",
+            "profileEvidenceSha256": "6cab2d5f8537008c1f5c7c68921c72605b1fbe108ef3f4dd6d7faf1fa3233b5c",
+            "evidence": {
+              "sha256": "4766e60a6ec73e960b4c29e9deac6fc5770b614c6f6f3110db92495e7943274c",
+              "bytes": 257,
+              "httpStatus": 200,
+              "code": "000000",
+              "receivedAt": "2026-11-16T10:05:48.881Z"
+            }
+          },
+          "365D": {
+            "roi": 42.0174818,
+            "pnl": 116935.66874721,
+            "mdd": 29.225854,
+            "winRate": 95.6679,
+            "status": "ready",
+            "sourcePeriod": "365D",
+            "currency": "USDT",
+            "sourceUrl": "https://www.binance.com/bapi/futures/v1/public/future/copy-trade/lead-portfolio/performance?portfolioId=4186437056735338496&timeRange=365D",
+            "evidencePath": "binance/evidence/performance-v1/4186437056735338496/365D-a1f5ff19fad819c104b5725aabb67246df0c1245b4e01b4fcec4593626124d0e.json",
+            "lastAttemptAt": "2026-11-16T10:05:49.617Z",
+            "lastSuccessAt": "2026-11-16T10:05:49.617Z",
+            "sourceAsOf": null,
+            "errorCode": null,
+            "portfolioStartedAt": "2024-09-28T02:11:33.797Z",
+            "profileEvidencePath": "binance/evidence/performance-v1/4186437056735338496/profile-6cab2d5f8537008c1f5c7c68921c72605b1fbe108ef3f4dd6d7faf1fa3233b5c.json",
+            "profileEvidenceSha256": "6cab2d5f8537008c1f5c7c68921c72605b1fbe108ef3f4dd6d7faf1fa3233b5c",
+            "evidence": {
+              "sha256": "a1f5ff19fad819c104b5725aabb67246df0c1245b4e01b4fcec4593626124d0e",
+              "bytes": 262,
+              "httpStatus": 200,
+              "code": "000000",
+              "receivedAt": "2026-11-16T10:05:49.617Z"
+            }
+          }
+        }
+      }
+    },
+    {
+      "portfolioId": "4286775714676474369",
+      "name": "小小的躺赢",
+      "startTime": 1733470143823,
+      "positionShow": true,
+      "profileSourceUrl": "https://www.binance.com/bapi/futures/v1/friendly/future/copy-trade/lead-portfolio/detail?portfolioId=4286775714676474369",
+      "profileEvidencePath": "binance/evidence/performance-v1/4286775714676474369/profile-0ab02a04f4ea46e9e7e97b6e3d3bc58a0f2e3d3002c0606760c4e6f89cb596c4.json",
+      "profileEvidenceSha256": "0ab02a04f4ea46e9e7e97b6e3d3bc58a0f2e3d3002c0606760c4e6f89cb596c4",
+      "profileFetchedAt": "2026-11-16T10:05:51.138Z",
+      "performance": {
+        "schemaVersion": 1,
+        "byPeriod": {
+          "90D": {
+            "roi": 17.13052217,
+            "pnl": 26157.64718386,
+            "mdd": 22.570612,
+            "winRate": 50,
+            "status": "ready",
+            "sourcePeriod": "90D",
+            "currency": "USDT",
+            "sourceUrl": "https://www.binance.com/bapi/futures/v1/public/future/copy-trade/lead-portfolio/performance?portfolioId=4286775714676474369&timeRange=90D",
+            "evidencePath": "binance/evidence/performance-v1/4286775714676474369/90D-44a290e9cad817b96a065cbfe977768fde0111b8e8aff611540f1922ce1ba621.json",
+            "lastAttemptAt": "2026-11-16T10:05:51.749Z",
+            "lastSuccessAt": "2026-11-16T10:05:51.749Z",
+            "sourceAsOf": null,
+            "errorCode": null,
+            "portfolioStartedAt": "2024-12-06T07:29:03.823Z",
+            "profileEvidencePath": "binance/evidence/performance-v1/4286775714676474369/profile-0ab02a04f4ea46e9e7e97b6e3d3bc58a0f2e3d3002c0606760c4e6f89cb596c4.json",
+            "profileEvidenceSha256": "0ab02a04f4ea46e9e7e97b6e3d3bc58a0f2e3d3002c0606760c4e6f89cb596c4",
+            "evidence": {
+              "sha256": "44a290e9cad817b96a065cbfe977768fde0111b8e8aff611540f1922ce1ba621",
+              "bytes": 254,
+              "httpStatus": 200,
+              "code": "000000",
+              "receivedAt": "2026-11-16T10:05:51.749Z"
+            }
+          },
+          "365D": {
+            "roi": 133.14571099,
+            "pnl": 104710.35934456,
+            "mdd": 35.562805,
+            "winRate": 27.7778,
+            "status": "ready",
+            "sourcePeriod": "365D",
+            "currency": "USDT",
+            "sourceUrl": "https://www.binance.com/bapi/futures/v1/public/future/copy-trade/lead-portfolio/performance?portfolioId=4286775714676474369&timeRange=365D",
+            "evidencePath": "binance/evidence/performance-v1/4286775714676474369/365D-9e566ac43b47523b60b9f196c9bd2f85594ee4472b61ccd4b57d04a319783647.json",
+            "lastAttemptAt": "2026-11-16T10:05:52.627Z",
+            "lastSuccessAt": "2026-11-16T10:05:52.627Z",
+            "sourceAsOf": null,
+            "errorCode": null,
+            "portfolioStartedAt": "2024-12-06T07:29:03.823Z",
+            "profileEvidencePath": "binance/evidence/performance-v1/4286775714676474369/profile-0ab02a04f4ea46e9e7e97b6e3d3bc58a0f2e3d3002c0606760c4e6f89cb596c4.json",
+            "profileEvidenceSha256": "0ab02a04f4ea46e9e7e97b6e3d3bc58a0f2e3d3002c0606760c4e6f89cb596c4",
+            "evidence": {
+              "sha256": "9e566ac43b47523b60b9f196c9bd2f85594ee4472b61ccd4b57d04a319783647",
+              "bytes": 258,
+              "httpStatus": 200,
+              "code": "000000",
+              "receivedAt": "2026-11-16T10:05:52.627Z"
+            }
+          }
+        }
+      }
+    },
+    {
+      "portfolioId": "4532994172262753536",
+      "name": "Sky株式会社",
+      "startTime": 1748145907528,
+      "positionShow": false,
+      "profileSourceUrl": "https://www.binance.com/bapi/futures/v1/friendly/future/copy-trade/lead-portfolio/detail?portfolioId=4532994172262753536",
+      "profileEvidencePath": "binance/evidence/performance-v1/4532994172262753536/profile-1cc32cf5b29a9656921face0938406855dffcc5c4725b7ddddb8b2d79fc9b2d6.json",
+      "profileEvidenceSha256": "1cc32cf5b29a9656921face0938406855dffcc5c4725b7ddddb8b2d79fc9b2d6",
+      "profileFetchedAt": "2026-11-16T10:05:33.037Z",
+      "performance": {
+        "schemaVersion": 1,
+        "byPeriod": {
+          "90D": {
+            "roi": 30.97113031,
+            "pnl": 124645.39525897,
+            "mdd": 20.982421,
+            "winRate": 59.1837,
+            "status": "ready",
+            "sourcePeriod": "90D",
+            "currency": "USDT",
+            "sourceUrl": "https://www.binance.com/bapi/futures/v1/public/future/copy-trade/lead-portfolio/performance?portfolioId=4532994172262753536&timeRange=90D",
+            "evidencePath": "binance/evidence/performance-v1/4532994172262753536/90D-5d62e4eee46dc065463d4047b237256f58af176a865062e54e151d82aef4c62f.json",
+            "lastAttemptAt": "2026-11-16T10:05:33.915Z",
+            "lastSuccessAt": "2026-11-16T10:05:33.915Z",
+            "sourceAsOf": null,
+            "errorCode": null,
+            "portfolioStartedAt": "2025-05-25T04:05:07.528Z",
+            "profileEvidencePath": "binance/evidence/performance-v1/4532994172262753536/profile-1cc32cf5b29a9656921face0938406855dffcc5c4725b7ddddb8b2d79fc9b2d6.json",
+            "profileEvidenceSha256": "1cc32cf5b29a9656921face0938406855dffcc5c4725b7ddddb8b2d79fc9b2d6",
+            "evidence": {
+              "sha256": "5d62e4eee46dc065463d4047b237256f58af176a865062e54e151d82aef4c62f",
+              "bytes": 260,
+              "httpStatus": 200,
+              "code": "000000",
+              "receivedAt": "2026-11-16T10:05:33.915Z"
+            }
+          },
+          "365D": {
+            "roi": 89.49947674,
+            "pnl": 552317.54456827,
+            "mdd": 9.9658137,
+            "winRate": 83.1633,
+            "status": "ready",
+            "sourcePeriod": "365D",
+            "currency": "USDT",
+            "sourceUrl": "https://www.binance.com/bapi/futures/v1/public/future/copy-trade/lead-portfolio/performance?portfolioId=4532994172262753536&timeRange=365D",
+            "evidencePath": "binance/evidence/performance-v1/4532994172262753536/365D-f42c03a7dbf2f492686a14089b75b6ae6284d5d132106c935242b8efc5b4cd52.json",
+            "lastAttemptAt": "2026-11-16T10:05:34.524Z",
+            "lastSuccessAt": "2026-11-16T10:05:34.524Z",
+            "sourceAsOf": null,
+            "errorCode": null,
+            "portfolioStartedAt": "2025-05-25T04:05:07.528Z",
+            "profileEvidencePath": "binance/evidence/performance-v1/4532994172262753536/profile-1cc32cf5b29a9656921face0938406855dffcc5c4725b7ddddb8b2d79fc9b2d6.json",
+            "profileEvidenceSha256": "1cc32cf5b29a9656921face0938406855dffcc5c4725b7ddddb8b2d79fc9b2d6",
+            "evidence": {
+              "sha256": "f42c03a7dbf2f492686a14089b75b6ae6284d5d132106c935242b8efc5b4cd52",
+              "bytes": 262,
+              "httpStatus": 200,
+              "code": "000000",
+              "receivedAt": "2026-11-16T10:05:34.524Z"
+            }
+          }
+        }
+      }
+    },
+    {
+      "portfolioId": "4566696155639181057",
+      "name": "Eenis的绝对盘感",
+      "startTime": 1750154702270,
+      "positionShow": false,
+      "profileSourceUrl": "https://www.binance.com/bapi/futures/v1/friendly/future/copy-trade/lead-portfolio/detail?portfolioId=4566696155639181057",
+      "profileEvidencePath": "binance/evidence/performance-v1/4566696155639181057/profile-b065359fd649f7f332e19cbedb3d66ac030831a5e01e99b07a30dbb2da9ba7db.json",
+      "profileEvidenceSha256": "b065359fd649f7f332e19cbedb3d66ac030831a5e01e99b07a30dbb2da9ba7db",
+      "profileFetchedAt": "2026-11-16T10:05:43.672Z",
+      "performance": {
+        "schemaVersion": 1,
+        "byPeriod": {
+          "90D": {
+            "roi": -10.3699749,
+            "pnl": -35516.56030566,
+            "mdd": 15.153047,
+            "winRate": 33.3333,
+            "status": "ready",
+            "sourcePeriod": "90D",
+            "currency": "USDT",
+            "sourceUrl": "https://www.binance.com/bapi/futures/v1/public/future/copy-trade/lead-portfolio/performance?portfolioId=4566696155639181057&timeRange=90D",
+            "evidencePath": "binance/evidence/performance-v1/4566696155639181057/90D-28356039fbf04e626aea7dc14ca86039e3ba34901944fffdc8b8bde4e6fa64e9.json",
+            "lastAttemptAt": "2026-11-16T10:05:44.279Z",
+            "lastSuccessAt": "2026-11-16T10:05:44.279Z",
+            "sourceAsOf": null,
+            "errorCode": null,
+            "portfolioStartedAt": "2025-06-17T10:05:02.270Z",
+            "profileEvidencePath": "binance/evidence/performance-v1/4566696155639181057/profile-b065359fd649f7f332e19cbedb3d66ac030831a5e01e99b07a30dbb2da9ba7db.json",
+            "profileEvidenceSha256": "b065359fd649f7f332e19cbedb3d66ac030831a5e01e99b07a30dbb2da9ba7db",
+            "evidence": {
+              "sha256": "28356039fbf04e626aea7dc14ca86039e3ba34901944fffdc8b8bde4e6fa64e9",
+              "bytes": 259,
+              "httpStatus": 200,
+              "code": "000000",
+              "receivedAt": "2026-11-16T10:05:44.279Z"
+            }
+          },
+          "365D": {
+            "roi": 66.46506693,
+            "pnl": 186244.10119454,
+            "mdd": 17.788245,
+            "winRate": 74.0741,
+            "status": "ready",
+            "sourcePeriod": "365D",
+            "currency": "USDT",
+            "sourceUrl": "https://www.binance.com/bapi/futures/v1/public/future/copy-trade/lead-portfolio/performance?portfolioId=4566696155639181057&timeRange=365D",
+            "evidencePath": "binance/evidence/performance-v1/4566696155639181057/365D-08d745e17ab7ed6630ffd7aa122e299753c1cc77b588143594a6328b89d0df2f.json",
+            "lastAttemptAt": "2026-11-16T10:05:44.892Z",
+            "lastSuccessAt": "2026-11-16T10:05:44.892Z",
+            "sourceAsOf": null,
+            "errorCode": null,
+            "portfolioStartedAt": "2025-06-17T10:05:02.270Z",
+            "profileEvidencePath": "binance/evidence/performance-v1/4566696155639181057/profile-b065359fd649f7f332e19cbedb3d66ac030831a5e01e99b07a30dbb2da9ba7db.json",
+            "profileEvidenceSha256": "b065359fd649f7f332e19cbedb3d66ac030831a5e01e99b07a30dbb2da9ba7db",
+            "evidence": {
+              "sha256": "08d745e17ab7ed6630ffd7aa122e299753c1cc77b588143594a6328b89d0df2f",
+              "bytes": 261,
+              "httpStatus": 200,
+              "code": "000000",
+              "receivedAt": "2026-11-16T10:05:44.892Z"
+            }
+          }
+        }
+      }
+    },
+    {
+      "portfolioId": "4664928038467820544",
+      "name": "币圈大佬之加仓小魔女",
+      "startTime": 1756009778753,
+      "positionShow": true,
+      "profileSourceUrl": "https://www.binance.com/bapi/futures/v1/friendly/future/copy-trade/lead-portfolio/detail?portfolioId=4664928038467820544",
+      "profileEvidencePath": "binance/evidence/performance-v1/4664928038467820544/profile-3caabc7573ae95d42d831912af52363e465f2f85ab1c9f990cfeeb1b15b626e4.json",
+      "profileEvidenceSha256": "3caabc7573ae95d42d831912af52363e465f2f85ab1c9f990cfeeb1b15b626e4",
+      "profileFetchedAt": "2026-11-16T10:05:40.051Z",
+      "performance": {
+        "schemaVersion": 1,
+        "byPeriod": {
+          "90D": {
+            "roi": 130.32523911,
+            "pnl": 48708.56308009,
+            "mdd": 91.216824,
+            "winRate": 50,
+            "status": "ready",
+            "sourcePeriod": "90D",
+            "currency": "USDT",
+            "sourceUrl": "https://www.binance.com/bapi/futures/v1/public/future/copy-trade/lead-portfolio/performance?portfolioId=4664928038467820544&timeRange=90D",
+            "evidencePath": "binance/evidence/performance-v1/4664928038467820544/90D-4c64e5fb5dde515bf93ca4d95c11a8324799918faba7633da3be16ee2ecc7d06.json",
+            "lastAttemptAt": "2026-11-16T10:05:40.660Z",
+            "lastSuccessAt": "2026-11-16T10:05:40.660Z",
+            "sourceAsOf": null,
+            "errorCode": null,
+            "portfolioStartedAt": "2025-08-24T04:29:38.753Z",
+            "profileEvidencePath": "binance/evidence/performance-v1/4664928038467820544/profile-3caabc7573ae95d42d831912af52363e465f2f85ab1c9f990cfeeb1b15b626e4.json",
+            "profileEvidenceSha256": "3caabc7573ae95d42d831912af52363e465f2f85ab1c9f990cfeeb1b15b626e4",
+            "evidence": {
+              "sha256": "4c64e5fb5dde515bf93ca4d95c11a8324799918faba7633da3be16ee2ecc7d06",
+              "bytes": 255,
+              "httpStatus": 200,
+              "code": "000000",
+              "receivedAt": "2026-11-16T10:05:40.660Z"
+            }
+          },
+          "365D": {
+            "roi": 924.09882424,
+            "pnl": 267226.53563249,
+            "mdd": 91.06291,
+            "winRate": 50,
+            "status": "ready",
+            "sourcePeriod": "365D",
+            "currency": "USDT",
+            "sourceUrl": "https://www.binance.com/bapi/futures/v1/public/future/copy-trade/lead-portfolio/performance?portfolioId=4664928038467820544&timeRange=365D",
+            "evidencePath": "binance/evidence/performance-v1/4664928038467820544/365D-3f827352414ac918c6225e6053840b7420fcb5a8f334df23aad1e8ae5d963d75.json",
+            "lastAttemptAt": "2026-11-16T10:05:41.271Z",
+            "lastSuccessAt": "2026-11-16T10:05:41.271Z",
+            "sourceAsOf": null,
+            "errorCode": null,
+            "portfolioStartedAt": "2025-08-24T04:29:38.753Z",
+            "profileEvidencePath": "binance/evidence/performance-v1/4664928038467820544/profile-3caabc7573ae95d42d831912af52363e465f2f85ab1c9f990cfeeb1b15b626e4.json",
+            "profileEvidenceSha256": "3caabc7573ae95d42d831912af52363e465f2f85ab1c9f990cfeeb1b15b626e4",
+            "evidence": {
+              "sha256": "3f827352414ac918c6225e6053840b7420fcb5a8f334df23aad1e8ae5d963d75",
+              "bytes": 263,
+              "httpStatus": 200,
+              "code": "000000",
+              "receivedAt": "2026-11-16T10:05:41.271Z"
+            }
+          }
+        }
+      }
+    },
+    {
+      "portfolioId": "4708220152086930177",
+      "name": "风雪哥",
+      "startTime": 1758590189813,
+      "positionShow": true,
+      "profileSourceUrl": "https://www.binance.com/bapi/futures/v1/friendly/future/copy-trade/lead-portfolio/detail?portfolioId=4708220152086930177",
+      "profileEvidencePath": "binance/evidence/performance-v1/4708220152086930177/profile-f60f5b77a80e3fa97289f28475a270465fd57004115ef870b8d3ee9d3f9c17fd.json",
+      "profileEvidenceSha256": "f60f5b77a80e3fa97289f28475a270465fd57004115ef870b8d3ee9d3f9c17fd",
+      "profileFetchedAt": "2026-11-16T10:05:35.419Z",
+      "performance": {
+        "schemaVersion": 1,
+        "byPeriod": {
+          "90D": {
+            "roi": 26.12998928,
+            "pnl": 147171.97779908,
+            "mdd": 25.916785,
+            "winRate": 38.961,
+            "status": "ready",
+            "sourcePeriod": "90D",
+            "currency": "USDT",
+            "sourceUrl": "https://www.binance.com/bapi/futures/v1/public/future/copy-trade/lead-portfolio/performance?portfolioId=4708220152086930177&timeRange=90D",
+            "evidencePath": "binance/evidence/performance-v1/4708220152086930177/90D-c5784b8bd0bdc0d1c1d86cc051908a582c177fb87f4707fbcaceee03b222ea48.json",
+            "lastAttemptAt": "2026-11-16T10:05:36.293Z",
+            "lastSuccessAt": "2026-11-16T10:05:36.293Z",
+            "sourceAsOf": null,
+            "errorCode": null,
+            "portfolioStartedAt": "2025-09-23T01:16:29.813Z",
+            "profileEvidencePath": "binance/evidence/performance-v1/4708220152086930177/profile-f60f5b77a80e3fa97289f28475a270465fd57004115ef870b8d3ee9d3f9c17fd.json",
+            "profileEvidenceSha256": "f60f5b77a80e3fa97289f28475a270465fd57004115ef870b8d3ee9d3f9c17fd",
+            "evidence": {
+              "sha256": "c5784b8bd0bdc0d1c1d86cc051908a582c177fb87f4707fbcaceee03b222ea48",
+              "bytes": 260,
+              "httpStatus": 200,
+              "code": "000000",
+              "receivedAt": "2026-11-16T10:05:36.293Z"
+            }
+          },
+          "365D": {
+            "roi": 35.55970566,
+            "pnl": 470264.72440288,
+            "mdd": 12.116004,
+            "winRate": 42.2131,
+            "status": "ready",
+            "sourcePeriod": "365D",
+            "currency": "USDT",
+            "sourceUrl": "https://www.binance.com/bapi/futures/v1/public/future/copy-trade/lead-portfolio/performance?portfolioId=4708220152086930177&timeRange=365D",
+            "evidencePath": "binance/evidence/performance-v1/4708220152086930177/365D-cffa249d0e1a110ee7e5b3569c688dc8b4896f654a4b5d69a46e461414b506ca.json",
+            "lastAttemptAt": "2026-11-16T10:05:36.903Z",
+            "lastSuccessAt": "2026-11-16T10:05:36.903Z",
+            "sourceAsOf": null,
+            "errorCode": null,
+            "portfolioStartedAt": "2025-09-23T01:16:29.813Z",
+            "profileEvidencePath": "binance/evidence/performance-v1/4708220152086930177/profile-f60f5b77a80e3fa97289f28475a270465fd57004115ef870b8d3ee9d3f9c17fd.json",
+            "profileEvidenceSha256": "f60f5b77a80e3fa97289f28475a270465fd57004115ef870b8d3ee9d3f9c17fd",
+            "evidence": {
+              "sha256": "cffa249d0e1a110ee7e5b3569c688dc8b4896f654a4b5d69a46e461414b506ca",
+              "bytes": 263,
+              "httpStatus": 200,
+              "code": "000000",
+              "receivedAt": "2026-11-16T10:05:36.903Z"
+            }
+          }
+        }
+      }
+    },
+    {
+      "portfolioId": "4751838302089254401",
+      "name": "Btc星辰",
+      "startTime": 1761190034148,
+      "positionShow": false,
+      "profileSourceUrl": "https://www.binance.com/bapi/futures/v1/friendly/future/copy-trade/lead-portfolio/detail?portfolioId=4751838302089254401",
+      "profileEvidencePath": "binance/evidence/performance-v1/4751838302089254401/profile-3399d913837dd8f11b012a18b430cf8a88cf8da2a8cc6f12f0fb41594aada5c7.json",
+      "profileEvidenceSha256": "3399d913837dd8f11b012a18b430cf8a88cf8da2a8cc6f12f0fb41594aada5c7",
+      "profileFetchedAt": "2026-11-16T10:05:30.391Z",
+      "performance": {
+        "schemaVersion": 1,
+        "byPeriod": {
+          "90D": {
+            "roi": 50.63910122,
+            "pnl": 421396.48047774,
+            "mdd": 36.387982,
+            "winRate": 78.9474,
+            "status": "ready",
+            "sourcePeriod": "90D",
+            "currency": "USDT",
+            "sourceUrl": "https://www.binance.com/bapi/futures/v1/public/future/copy-trade/lead-portfolio/performance?portfolioId=4751838302089254401&timeRange=90D",
+            "evidencePath": "binance/evidence/performance-v1/4751838302089254401/90D-dc33545f37fd0a8d09ee4b9640c9da195f540ea076c499eed2b7ec531387dbc4.json",
+            "lastAttemptAt": "2026-11-16T10:05:31.267Z",
+            "lastSuccessAt": "2026-11-16T10:05:31.267Z",
+            "sourceAsOf": null,
+            "errorCode": null,
+            "portfolioStartedAt": "2025-10-23T03:27:14.148Z",
+            "profileEvidencePath": "binance/evidence/performance-v1/4751838302089254401/profile-3399d913837dd8f11b012a18b430cf8a88cf8da2a8cc6f12f0fb41594aada5c7.json",
+            "profileEvidenceSha256": "3399d913837dd8f11b012a18b430cf8a88cf8da2a8cc6f12f0fb41594aada5c7",
+            "evidence": {
+              "sha256": "dc33545f37fd0a8d09ee4b9640c9da195f540ea076c499eed2b7ec531387dbc4",
+              "bytes": 260,
+              "httpStatus": 200,
+              "code": "000000",
+              "receivedAt": "2026-11-16T10:05:31.267Z"
+            }
+          },
+          "365D": {
+            "roi": 803.81948672,
+            "pnl": 1114857.75897284,
+            "mdd": 51.130072,
+            "winRate": 95.2381,
+            "status": "ready",
+            "sourcePeriod": "365D",
+            "currency": "USDT",
+            "sourceUrl": "https://www.binance.com/bapi/futures/v1/public/future/copy-trade/lead-portfolio/performance?portfolioId=4751838302089254401&timeRange=365D",
+            "evidencePath": "binance/evidence/performance-v1/4751838302089254401/365D-399b2868ea930a3816f3f8251b4a86532f871eefae95320e1285c66572d3fe65.json",
+            "lastAttemptAt": "2026-11-16T10:05:32.147Z",
+            "lastSuccessAt": "2026-11-16T10:05:32.147Z",
+            "sourceAsOf": null,
+            "errorCode": null,
+            "portfolioStartedAt": "2025-10-23T03:27:14.148Z",
+            "profileEvidencePath": "binance/evidence/performance-v1/4751838302089254401/profile-3399d913837dd8f11b012a18b430cf8a88cf8da2a8cc6f12f0fb41594aada5c7.json",
+            "profileEvidenceSha256": "3399d913837dd8f11b012a18b430cf8a88cf8da2a8cc6f12f0fb41594aada5c7",
+            "evidence": {
+              "sha256": "399b2868ea930a3816f3f8251b4a86532f871eefae95320e1285c66572d3fe65",
+              "bytes": 266,
+              "httpStatus": 200,
+              "code": "000000",
+              "receivedAt": "2026-11-16T10:05:32.147Z"
+            }
+          }
+        }
+      }
+    },
+    {
+      "portfolioId": "4753185532199309057",
+      "name": "用数学赚钱就是稳-广西数学哥",
+      "startTime": 1761270335305,
+      "positionShow": false,
+      "profileSourceUrl": "https://www.binance.com/bapi/futures/v1/friendly/future/copy-trade/lead-portfolio/detail?portfolioId=4753185532199309057",
+      "profileEvidencePath": "binance/evidence/performance-v1/4753185532199309057/profile-ecdb9efc11a3cdd1901facf6c76bfb5ab23430c828e9feda6a0857d0de873e95.json",
+      "profileEvidenceSha256": "ecdb9efc11a3cdd1901facf6c76bfb5ab23430c828e9feda6a0857d0de873e95",
+      "profileFetchedAt": "2026-11-16T10:05:55.932Z",
+      "performance": {
+        "schemaVersion": 1,
+        "byPeriod": {
+          "90D": {
+            "roi": 27.84629416,
+            "pnl": 18202.13727951,
+            "mdd": 34.454222,
+            "winRate": 83.9779,
+            "status": "ready",
+            "sourcePeriod": "90D",
+            "currency": "USDT",
+            "sourceUrl": "https://www.binance.com/bapi/futures/v1/public/future/copy-trade/lead-portfolio/performance?portfolioId=4753185532199309057&timeRange=90D",
+            "evidencePath": "binance/evidence/performance-v1/4753185532199309057/90D-4886bb559b43c9e35d9fb9810528a0d56cb0132a0d673d53b6905c661e8851de.json",
+            "lastAttemptAt": "2026-11-16T10:05:56.540Z",
+            "lastSuccessAt": "2026-11-16T10:05:56.540Z",
+            "sourceAsOf": null,
+            "errorCode": null,
+            "portfolioStartedAt": "2025-10-24T01:45:35.305Z",
+            "profileEvidencePath": "binance/evidence/performance-v1/4753185532199309057/profile-ecdb9efc11a3cdd1901facf6c76bfb5ab23430c828e9feda6a0857d0de873e95.json",
+            "profileEvidenceSha256": "ecdb9efc11a3cdd1901facf6c76bfb5ab23430c828e9feda6a0857d0de873e95",
+            "evidence": {
+              "sha256": "4886bb559b43c9e35d9fb9810528a0d56cb0132a0d673d53b6905c661e8851de",
+              "bytes": 259,
+              "httpStatus": 200,
+              "code": "000000",
+              "receivedAt": "2026-11-16T10:05:56.540Z"
+            }
+          },
+          "365D": {
+            "roi": 631.27558949,
+            "pnl": 99709.93282111,
+            "mdd": 29.803507,
+            "winRate": 81.2887,
+            "status": "ready",
+            "sourcePeriod": "365D",
+            "currency": "USDT",
+            "sourceUrl": "https://www.binance.com/bapi/futures/v1/public/future/copy-trade/lead-portfolio/performance?portfolioId=4753185532199309057&timeRange=365D",
+            "evidencePath": "binance/evidence/performance-v1/4753185532199309057/365D-e67780859bbbc7a8f629fc83d91cf0d88eddb0f290049534953a9e4413f0219c.json",
+            "lastAttemptAt": "2026-11-16T10:05:57.421Z",
+            "lastSuccessAt": "2026-11-16T10:05:57.421Z",
+            "sourceAsOf": null,
+            "errorCode": null,
+            "portfolioStartedAt": "2025-10-24T01:45:35.305Z",
+            "profileEvidencePath": "binance/evidence/performance-v1/4753185532199309057/profile-ecdb9efc11a3cdd1901facf6c76bfb5ab23430c828e9feda6a0857d0de873e95.json",
+            "profileEvidenceSha256": "ecdb9efc11a3cdd1901facf6c76bfb5ab23430c828e9feda6a0857d0de873e95",
+            "evidence": {
+              "sha256": "e67780859bbbc7a8f629fc83d91cf0d88eddb0f290049534953a9e4413f0219c",
+              "bytes": 263,
+              "httpStatus": 200,
+              "code": "000000",
+              "receivedAt": "2026-11-16T10:05:57.421Z"
+            }
+          }
+        }
+      }
+    },
+    {
+      "portfolioId": "5139646755272846081",
+      "name": "0xEggg",
+      "startTime": 1784305219123,
+      "positionShow": true,
+      "profileSourceUrl": "https://www.binance.com/bapi/futures/v1/friendly/future/copy-trade/lead-portfolio/detail?portfolioId=5139646755272846081",
+      "profileEvidencePath": "binance/evidence/performance-v1/5139646755272846081/profile-09543b5f38dc4f99fc74a3265848e4de1cb1fdfd31eb2c2513d67669248a162c.json",
+      "profileEvidenceSha256": "09543b5f38dc4f99fc74a3265848e4de1cb1fdfd31eb2c2513d67669248a162c",
+      "profileFetchedAt": "2026-11-16T10:01:45.395Z",
+      "performance": {
+        "schemaVersion": 1,
+        "byPeriod": {
+          "90D": {
+            "roi": -79.76143624,
+            "pnl": -78483.02718593,
+            "mdd": 92.215982,
+            "winRate": 33.195,
+            "status": "ready",
+            "sourcePeriod": "90D",
+            "currency": "USDT",
+            "sourceUrl": "https://www.binance.com/bapi/futures/v1/public/future/copy-trade/lead-portfolio/performance?portfolioId=5139646755272846081&timeRange=90D",
+            "evidencePath": "binance/evidence/performance-v1/5139646755272846081/90D-faaa0f22682bec780e5d662d7083fc6f13982a28d54ebc5a9bff2614188c3dc5.json",
+            "lastAttemptAt": "2026-11-16T10:01:45.908Z",
+            "lastSuccessAt": "2026-11-16T10:01:45.908Z",
+            "sourceAsOf": null,
+            "errorCode": null,
+            "portfolioStartedAt": "2026-07-17T16:20:19.123Z",
+            "profileEvidencePath": "binance/evidence/performance-v1/5139646755272846081/profile-09543b5f38dc4f99fc74a3265848e4de1cb1fdfd31eb2c2513d67669248a162c.json",
+            "profileEvidenceSha256": "09543b5f38dc4f99fc74a3265848e4de1cb1fdfd31eb2c2513d67669248a162c",
+            "evidence": {
+              "sha256": "faaa0f22682bec780e5d662d7083fc6f13982a28d54ebc5a9bff2614188c3dc5",
+              "bytes": 262,
+              "httpStatus": 200,
+              "code": "000000",
+              "receivedAt": "2026-11-16T10:01:45.908Z"
+            }
+          },
+          "365D": {
+            "roi": -33.31265206,
+            "pnl": -35323.72473393,
+            "mdd": 71.076265,
+            "winRate": 35.7746,
+            "status": "ready",
+            "sourcePeriod": "365D",
+            "currency": "USDT",
+            "sourceUrl": "https://www.binance.com/bapi/futures/v1/public/future/copy-trade/lead-portfolio/performance?portfolioId=5139646755272846081&timeRange=365D",
+            "evidencePath": "binance/evidence/performance-v1/5139646755272846081/365D-64b15f68d13c72b2d45026d971f68ddac44ca7dadd4f4035fe0ed834e535f53d.json",
+            "lastAttemptAt": "2026-11-16T10:01:46.421Z",
+            "lastSuccessAt": "2026-11-16T10:01:46.421Z",
+            "sourceAsOf": null,
+            "errorCode": null,
+            "portfolioStartedAt": "2026-07-17T16:20:19.123Z",
+            "profileEvidencePath": "binance/evidence/performance-v1/5139646755272846081/profile-09543b5f38dc4f99fc74a3265848e4de1cb1fdfd31eb2c2513d67669248a162c.json",
+            "profileEvidenceSha256": "09543b5f38dc4f99fc74a3265848e4de1cb1fdfd31eb2c2513d67669248a162c",
+            "evidence": {
+              "sha256": "64b15f68d13c72b2d45026d971f68ddac44ca7dadd4f4035fe0ed834e535f53d",
+              "bytes": 265,
+              "httpStatus": 200,
+              "code": "000000",
+              "receivedAt": "2026-11-16T10:01:46.421Z"
+            }
+          }
+        }
+      }
+    },
+    {
+      "portfolioId": "5156287639231681792",
+      "name": "爱喝快乐肥宅水",
+      "startTime": 1785297093237,
+      "positionShow": false,
+      "profileSourceUrl": "https://www.binance.com/bapi/futures/v1/friendly/future/copy-trade/lead-portfolio/detail?portfolioId=5156287639231681792",
+      "profileEvidencePath": "binance/evidence/performance-v1/5156287639231681792/profile-bfbbaadcca7257121585fc8a66a94a8c9949108238a2033fef1ff17a04ef50ef.json",
+      "profileEvidenceSha256": "bfbbaadcca7257121585fc8a66a94a8c9949108238a2033fef1ff17a04ef50ef",
+      "profileFetchedAt": "2026-11-16T10:01:43.639Z",
+      "performance": {
+        "schemaVersion": 1,
+        "byPeriod": {
+          "90D": {
+            "roi": 145.6327804,
+            "pnl": 11854.41801822,
+            "mdd": 63.592691,
+            "winRate": 59.4937,
+            "status": "ready",
+            "sourcePeriod": "90D",
+            "currency": "USDT",
+            "sourceUrl": "https://www.binance.com/bapi/futures/v1/public/future/copy-trade/lead-portfolio/performance?portfolioId=5156287639231681792&timeRange=90D",
+            "evidencePath": "binance/evidence/performance-v1/5156287639231681792/90D-06ff879e4a4e1c8beb005a3e908c2558574025a1d3f2a67b4c7026e5e0437954.json",
+            "lastAttemptAt": "2026-11-16T10:01:44.153Z",
+            "lastSuccessAt": "2026-11-16T10:01:44.153Z",
+            "sourceAsOf": null,
+            "errorCode": null,
+            "portfolioStartedAt": "2026-07-29T03:51:33.237Z",
+            "profileEvidencePath": "binance/evidence/performance-v1/5156287639231681792/profile-bfbbaadcca7257121585fc8a66a94a8c9949108238a2033fef1ff17a04ef50ef.json",
+            "profileEvidenceSha256": "bfbbaadcca7257121585fc8a66a94a8c9949108238a2033fef1ff17a04ef50ef",
+            "evidence": {
+              "sha256": "06ff879e4a4e1c8beb005a3e908c2558574025a1d3f2a67b4c7026e5e0437954",
+              "bytes": 260,
+              "httpStatus": 200,
+              "code": "000000",
+              "receivedAt": "2026-11-16T10:01:44.153Z"
+            }
+          },
+          "365D": {
+            "roi": 388.95329724,
+            "pnl": 15905.14010142,
+            "mdd": 63.592691,
+            "winRate": 59.8214,
+            "status": "ready",
+            "sourcePeriod": "365D",
+            "currency": "USDT",
+            "sourceUrl": "https://www.binance.com/bapi/futures/v1/public/future/copy-trade/lead-portfolio/performance?portfolioId=5156287639231681792&timeRange=365D",
+            "evidencePath": "binance/evidence/performance-v1/5156287639231681792/365D-a7b8b1b54a453dc77544e0e228b8b7718a19967dac476a8ef8992d67c7b07d80.json",
+            "lastAttemptAt": "2026-11-16T10:01:44.666Z",
+            "lastSuccessAt": "2026-11-16T10:01:44.666Z",
+            "sourceAsOf": null,
+            "errorCode": null,
+            "portfolioStartedAt": "2026-07-29T03:51:33.237Z",
+            "profileEvidencePath": "binance/evidence/performance-v1/5156287639231681792/profile-bfbbaadcca7257121585fc8a66a94a8c9949108238a2033fef1ff17a04ef50ef.json",
+            "profileEvidenceSha256": "bfbbaadcca7257121585fc8a66a94a8c9949108238a2033fef1ff17a04ef50ef",
+            "evidence": {
+              "sha256": "a7b8b1b54a453dc77544e0e228b8b7718a19967dac476a8ef8992d67c7b07d80",
+              "bytes": 262,
+              "httpStatus": 200,
+              "code": "000000",
+              "receivedAt": "2026-11-16T10:01:44.666Z"
+            }
+          }
+        }
+      }
+    },
+    {
+      "portfolioId": "5178595252342363392",
+      "name": "FaribaFinance",
+      "startTime": 1786626730585,
+      "positionShow": true,
+      "profileSourceUrl": "https://www.binance.com/bapi/futures/v1/friendly/future/copy-trade/lead-portfolio/detail?portfolioId=5178595252342363392",
+      "profileEvidencePath": "binance/evidence/performance-v1/5178595252342363392/profile-647c7f55355caaa0c70249273de2aa69edc48c3fe421fbcf56ae2299f995d2ff.json",
+      "profileEvidenceSha256": "647c7f55355caaa0c70249273de2aa69edc48c3fe421fbcf56ae2299f995d2ff",
+      "profileFetchedAt": "2026-11-16T10:01:47.147Z",
+      "performance": {
+        "schemaVersion": 1,
+        "byPeriod": {
+          "90D": {
+            "roi": -20.65086249,
+            "pnl": -620.30986014,
+            "mdd": 24.728657,
+            "winRate": 72.549,
+            "status": "ready",
+            "sourcePeriod": "90D",
+            "currency": "USDT",
+            "sourceUrl": "https://www.binance.com/bapi/futures/v1/public/future/copy-trade/lead-portfolio/performance?portfolioId=5178595252342363392&timeRange=90D",
+            "evidencePath": "binance/evidence/performance-v1/5178595252342363392/90D-679966becea5548c4f8abd2c47a187788342a64924572856a0394a9f5be62661.json",
+            "lastAttemptAt": "2026-11-16T10:01:47.658Z",
+            "lastSuccessAt": "2026-11-16T10:01:47.658Z",
+            "sourceAsOf": null,
+            "errorCode": null,
+            "portfolioStartedAt": "2026-08-13T13:12:10.585Z",
+            "profileEvidencePath": "binance/evidence/performance-v1/5178595252342363392/profile-647c7f55355caaa0c70249273de2aa69edc48c3fe421fbcf56ae2299f995d2ff.json",
+            "profileEvidenceSha256": "647c7f55355caaa0c70249273de2aa69edc48c3fe421fbcf56ae2299f995d2ff",
+            "evidence": {
+              "sha256": "679966becea5548c4f8abd2c47a187788342a64924572856a0394a9f5be62661",
+              "bytes": 259,
+              "httpStatus": 200,
+              "code": "000000",
+              "receivedAt": "2026-11-16T10:01:47.658Z"
+            }
+          },
+          "365D": {
+            "roi": -20.55044934,
+            "pnl": -616.51348044,
+            "mdd": 24.728657,
+            "winRate": 73.0769,
+            "status": "ready",
+            "sourcePeriod": "365D",
+            "currency": "USDT",
+            "sourceUrl": "https://www.binance.com/bapi/futures/v1/public/future/copy-trade/lead-portfolio/performance?portfolioId=5178595252342363392&timeRange=365D",
+            "evidencePath": "binance/evidence/performance-v1/5178595252342363392/365D-79c181dd7a5d4c4dac49b5c2977cf9a4b523112556226e19621a90cc5913c654.json",
+            "lastAttemptAt": "2026-11-16T10:01:48.173Z",
+            "lastSuccessAt": "2026-11-16T10:01:48.173Z",
+            "sourceAsOf": null,
+            "errorCode": null,
+            "portfolioStartedAt": "2026-08-13T13:12:10.585Z",
+            "profileEvidencePath": "binance/evidence/performance-v1/5178595252342363392/profile-647c7f55355caaa0c70249273de2aa69edc48c3fe421fbcf56ae2299f995d2ff.json",
+            "profileEvidenceSha256": "647c7f55355caaa0c70249273de2aa69edc48c3fe421fbcf56ae2299f995d2ff",
+            "evidence": {
+              "sha256": "79c181dd7a5d4c4dac49b5c2977cf9a4b523112556226e19621a90cc5913c654",
+              "bytes": 260,
+              "httpStatus": 200,
+              "code": "000000",
+              "receivedAt": "2026-11-16T10:01:48.173Z"
+            }
+          }
+        }
+      }
+    }
+  ]
+}

@@ -2,7 +2,7 @@
 'use strict';
 const PERIODS=['30D','90D','365D'];
 const LABELS={'30D':'月度','90D':'季度','365D':'年度'};
-const FILES={feed:{url:'trader/feed.json',limit:2097152,validate:'validateFeed'},portfolios:{url:'trader/portfolios.json',limit:4194304,validate:'validatePortfolios'},analytics:{url:'trader/analytics.json',limit:2097152,validate:'validateAnalytics'},binance:{url:'trader/binance/portfolios.json',limit:2097152,validate:'validateBinance'},reference:{url:'trader/aoying-history.js',limit:2097152,validate:'validateReference',wrapped:true}};
+const FILES={periodReturns:{url:'trader/binance/period-returns.json',limit:524288,validate:'validatePeriodReturns'},feed:{url:'trader/feed.json',limit:2097152,validate:'validateFeed'},portfolios:{url:'trader/portfolios.json',limit:4194304,validate:'validatePortfolios'},analytics:{url:'trader/analytics.json',limit:2097152,validate:'validateAnalytics'},binance:{url:'trader/binance/portfolios.json',limit:2097152,validate:'validateBinance'},reference:{url:'trader/aoying-history.js',limit:2097152,validate:'validateReference',wrapped:true}};
 function dataAPI(){return typeof module!=='undefined'&&module.exports?require('./home-trader-data.js'):global.HomeTraderData;}
 function fail(){throw Error('Invalid ranking snapshot');}
 const numbers=new Intl.NumberFormat('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -28,7 +28,7 @@ function roiDescription(row,period){
 function renderRow(doc,row,index,period,Data){
   const el=node(doc,'article',undefined,'home-rank-row');el.setAttribute('role','listitem');el.setAttribute('data-stale',String(!!row.stale));
   const top=node(doc,'div',undefined,'home-rank-top'),identity=node(doc,'a',undefined,'home-rank-identity');
-  identity.href=Data.accountHref(row.accountId,period,row.exchange);identity.setAttribute('aria-label',`查看 ${row.name} 的${LABELS[period]}详情`);
+  identity.href=Data.accountHref(row.accountId,period,row.exchange,row.periodOnly);identity.setAttribute('aria-label',`查看 ${row.name} 的${LABELS[period]}详情`);
   identity.append(node(doc,'span',String(index+1),'home-rank-number'),title(node(doc,'span',row.name,'home-rank-name'),row.name));
   const headline=title(node(doc,'strong',percent(row.roi,true),row.roi<0?'home-rank-negative':'home-rank-positive'),roiDescription(row,period));
   const value=node(doc,'div',undefined,'home-rank-profit');value.append(headline);
@@ -46,6 +46,11 @@ function renderRow(doc,row,index,period,Data){
   const timing=row.performanceAsOf?'收益截至 '+time(row.performanceAsOf,true):'采集于 '+time(row.performanceFetchedAt,true);
   const meta=node(doc,'p',(binance?'币安':'Hyperliquid')+' · '+timing+(row.performanceStale?' · 历史快照':''),'home-rank-timing');
   title(meta,binance?'币安周期统计 · 来源未标明统计截止时刻。':(row.startAt&&row.endAt?'实际采样区间 '+time(row.startAt,true)+' 至 '+time(row.endAt,true)+'；':'')+'收益采集 '+time(row.performanceFetchedAt,true)+'；持仓核验 '+time(row.positionCheckedAt,true)+'。');
+  if(row.evidencePath){
+    const proof=node(doc,'a','收益凭证','home-rank-evidence');
+    proof.href='trader/'+row.evidencePath;proof.setAttribute('target','_blank');proof.setAttribute('rel','noopener');
+    meta.append(node(doc,'span',' · '),proof);
+  }
   el.append(top);if(metrics.children.length)el.append(metrics);el.append(meta);return el;
 }
 function render(doc,view,period,Data,pending=false){
@@ -59,6 +64,26 @@ function render(doc,view,period,Data,pending=false){
   more.href=moreHref(period);more.textContent='查看'+LABELS[period]+'榜单 ↗';
   status.hidden=!!view&&!view.rows.length;note.hidden=!view?.rows.length;
   list.replaceChildren();
+  const short=doc.getElementById('home-ranking-short');
+  if(short){
+    short.hidden=!view?.short?.length;
+    const summary=short.querySelector('summary'),body=short.querySelector('[data-short-rows]');
+    if(short.getAttribute('data-period')!==period){short.open=false;short.setAttribute('data-period',period);}
+    body.replaceChildren();
+    if(!short.hidden){
+      summary.textContent='未满 '+parseInt(period,10)+' 天 · '+view.short.length+' 个账户';
+      for(const row of view.short){
+        const entry=node(doc,'p',undefined,'home-rank-short-row'),link=node(doc,'a',row.name);
+        link.href=Data.accountHref(row.accountId,period,row.exchange,row.periodOnly);
+        entry.append(link,node(doc,'span',' · 已带单 '+row.accountAgeDays+' 天 · 官方窗口 '+percent(row.roi,true)));
+        if(row.evidencePath){
+          const proof=node(doc,'a','收益凭证','home-rank-evidence');proof.href='trader/'+row.evidencePath;proof.target='_blank';proof.rel='noopener';
+          entry.append(node(doc,'span',' · '),proof);
+        }
+        body.append(entry);
+      }
+    }
+  }
   if(!view){list.append(node(doc,'p',pending?'正在读取榜单…':'暂未取得可用榜单','home-rank-empty'));status.textContent=pending?'正在读取广场快照…':'榜单暂不可用';note.textContent='与带单员广场共用公开数据快照。';return;}
   if(view.rows.length){view.rows.forEach((row,index)=>list.append(renderRow(doc,row,index,period,Data)));}
   else list.append(node(doc,'p',pending?'正在读取当前周期数据…':'该周期缺少可核验的收益率，暂无排名。','home-rank-empty'));
@@ -87,11 +112,21 @@ function rejectOlder(kind,next,before){
       return;
     }
     compare(next.generatedAt,before.generatedAt);
+    if(kind==='periodReturns'){
+      const older=new Map(before.accounts.map(row=>[row.portfolioId,row]));
+      for(const item of next.accounts)for(const [p,w] of Object.entries(item.performance.byPeriod)){
+        compare(w.lastSuccessAt,older.get(item.portfolioId)?.performance.byPeriod[p]?.lastSuccessAt);
+      }
+      return;
+    }
     if(kind==='binance'){
       for(const item of next.portfolios){
         const old=before.portfolios.find(feed=>feed.portfolioId===item.portfolioId);
-        const current=item.performance?.byPeriod?.['30D'];
-        if(item.profile.visibility==='public'&&current?.lastSuccessAt)compare(current.lastSuccessAt,old?.performance?.byPeriod?.['30D']?.lastSuccessAt);
+        if(item.profile.visibility!=='public'||item.source.status==='restricted'||item.source.errorCode==='restricted')continue;
+        for(const p of PERIODS){
+          const prior=old?.performance?.byPeriod?.[p],incoming=item.performance?.byPeriod?.[p];
+          if(prior?.lastSuccessAt)compare(incoming?.lastSuccessAt,prior.lastSuccessAt);
+        }
       }
       return;
     }
@@ -132,7 +167,7 @@ function mount(doc,options={}){
   observer?.observe(radar);
   measureRadar();
   let period='30D',inflight=null,destroyed=false,pending=false;
-  const view=()=>snapshots.feed||snapshots.binance||snapshots.reference?Data.rank({...snapshots,failures:{...failures}},period,now(),desktop?.matches?Infinity:3):null;
+  const view=()=>snapshots.feed||snapshots.binance||snapshots.reference||snapshots.periodReturns?Data.rank({...snapshots,failures:{...failures}},period,now(),desktop?.matches?Infinity:3):null;
   function draw(){if(!destroyed)render(doc,view(),period,Data,pending);}
   function onLayout(){measureRadar();draw();}
   desktop?.addEventListener('change',onLayout);
