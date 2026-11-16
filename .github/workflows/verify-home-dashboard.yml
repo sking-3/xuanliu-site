@@ -40,7 +40,7 @@ jobs:
           trap 'kill "$site_pid" || true' EXIT
           curl --fail --retry 5 --retry-connrefused -s -o /dev/null http://127.0.0.1:8784/index.html
           NODE_PATH="$RUNNER_TEMP/home-browser/node_modules" node audit/home-dashboard-browser.cjs
-      - name: Verify actual Shanghai, Shenzhen and US stock rows
+      - name: Verify the market heatmap and actual China and US stock rows
         if: matrix.engine == 'chromium'
         run: |
           python3 -m http.server 8784 --bind 127.0.0.1 > "$RUNNER_TEMP/home-live-http.log" 2>&1 &

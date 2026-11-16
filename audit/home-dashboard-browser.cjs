@@ -8,6 +8,7 @@ const engine = process.env.HOME_BROWSER_ENGINE || 'chromium';
 const site = new URL(process.env.HOME_BROWSER_URL || 'http://127.0.0.1:8784/');
 const output = path.join(__dirname, 'browser-output/home-dashboard');
 const viewports = [{width:1440,height:900}, {width:390,height:844}];
+const heatmapUrl = 'https://dapan.app/?market=all&period=day&borders=off';
 const intradaySources = {
   a: 'https://quote.eastmoney.com/changes/',
   us: 'https://www.nasdaqtrader.com/trader.aspx?id=TradeHalts',
@@ -20,7 +21,7 @@ async function checkLinks(page) {
     const url = new URL(href);
     if(url.origin!==site.origin){
       assert.equal(url.protocol,'https:');
-      if (Object.values(intradaySources).includes(url.href)) continue;
+      if (Object.values(intradaySources).includes(url.href) || ['https://dapan.app/',heatmapUrl].includes(url.href)) continue;
       assert.ok(['www.tradingview.com','cn.tradingview.com'].includes(url.hostname),href);
       assert.ok(url.pathname === '/markets/stocks-china/' ||
         /^\/markets\/stocks-(?:china|usa)\/market-movers-(?:gainers|losers|active)\/$/.test(url.pathname),href);
@@ -42,13 +43,16 @@ async function inspect(browser, viewport) {
   const prefix = path.join(output,engine+'-'+viewport.width);
   page.on('pageerror', err => errors.push(err.message));
   let firstTime, tickerSocket;
-  let failUs = false, failChina = false;
+  let failUs = false, failWatch = false;
   // Deterministic read-only Bitget input goes through the site's normal REST and socket adapters.
   await context.routeWebSocket('**/v2/ws/public', socket => {tickerSocket = socket;});
   await context.route('**/*', async route => {
     const url = new URL(route.request().url());
     if(url.origin===site.origin && url.pathname==='/home-widget-test.html'){
       return route.fulfill({contentType:'text/html',body:'<!doctype html><title>Test chart</title><p>Controlled chart frame</p>'});
+    }
+    if (url.href === heatmapUrl) {
+      return route.fulfill({contentType:'text/html',body:'<!doctype html><title>Controlled heatmap</title><p data-heatmap-proof>Heatmap response</p>'});
     }
     if (url.origin === site.origin) return route.continue();
     if(url.href==='https://s3.tradingview.com/external-embedding/embed-widget-mini-symbol-overview.js'){
@@ -58,17 +62,16 @@ async function inspect(browser, viewport) {
         document.currentScript.parentNode.querySelector('.tradingview-widget-container__widget').append(fixtureFrame);
       `});
     }
-    const widget = url.pathname.match(/\/external-embedding\/embed-widget-(screener|hotlists|market-overview)\.js$/)?.[1];
+    const widget = url.pathname.match(/\/external-embedding\/embed-widget-(screener|market-overview)\.js$/)?.[1];
     if (url.hostname === 's3.tradingview.com' && widget) {
       if (widget === 'screener' && failUs) {
         failUs = false;
         return route.abort();
       }
-      if (widget === 'hotlists' && failChina) return route.abort();
       return route.fulfill({contentType:'application/javascript',body:`
         (() => {
           const script = document.currentScript;
-          if (!script.closest('[data-home-radar]') || (${JSON.stringify(failChina)} && script.closest('[data-shenzhen-watch]'))) {
+          if (!script.closest('[data-home-radar]') || (${JSON.stringify(failWatch)} && script.closest('[data-equity-watch]'))) {
             script.dispatchEvent(new Event('error'));
             return;
           }
@@ -91,8 +94,8 @@ async function inspect(browser, viewport) {
     us:page.locator('.radar-stocks [data-mover-market="us"]'),
   };
   const boards = {
-    sse: panels.a.locator('.radar-main-body'),
-    szse: panels.a.locator('[data-shenzhen-watch]'),
+    heatmap: panels.a.locator('.radar-main-body'),
+    watch: panels.a.locator('[data-equity-watch]'),
     us: panels.us,
   };
   async function inspectBoard(key, direction='gainers') {
@@ -101,17 +104,23 @@ async function inspect(browser, viewport) {
     await frames.waitFor({state:'visible'});
     assert.equal(await frames.count(),1);
     const src = await frames.getAttribute('src');
-    const params = new URL(src, site).searchParams;
+    if (key === 'heatmap') {
+      assert.equal(src,heatmapUrl);
+      // The response fixture is served on the real approved origin. This checks
+      // browser navigation through the page's own CSP, without reading the provider.
+      await frames.contentFrame().locator('[data-heatmap-proof]').waitFor();
+      return frames.evaluate(frame => frame.dataset.testInstance ||= crypto.randomUUID());
+    }
+    const params = new URL(src,site).searchParams;
     const config = JSON.parse(params.get('config'));
-    if (key === 'sse') {
-      assert.equal(params.get('widget'),'hotlists');
-      assert.equal(config.exchange,'SSE');
-    } else if (key === 'szse') {
+    if (key === 'watch') {
       assert.equal(params.get('widget'),'market-overview');
-      const codes = config.tabs.flatMap(tab => tab.symbols.map(symbol => symbol.s));
-      assert.equal(codes.length,4);
-      assert.equal(new Set(codes).size,4);
-      assert.ok(codes.every(code => /^SZSE:\d{6}$/.test(code)));
+      assert.equal(config.tabs.length,1,'one tab for both exchanges');
+      const codes = config.tabs[0].symbols.map(symbol => symbol.s);
+      assert.equal(codes.length,8);
+      assert.equal(new Set(codes).size,8);
+      assert.equal(codes.filter(code => /^SSE:\d{6}$/.test(code)).length,4);
+      assert.equal(codes.filter(code => /^SZSE:\d{6}$/.test(code)).length,4);
     } else {
       assert.equal(params.get('widget'),'screener');
       assert.equal(config.market,'america');
@@ -123,12 +132,12 @@ async function inspect(browser, viewport) {
   try {
     await page.goto(new URL('index.html', site).href, {waitUntil:'domcontentloaded'});
     const initial = {};
-    for (const board of ['sse','szse','us']) initial[board] = await inspectBoard(board);
+    for (const board of ['heatmap','watch','us']) initial[board] = await inspectBoard(board);
     for (const market of ['a','us']) {
       const actualSources = await panels[market].locator('a').evaluateAll(links => links.map(link => link.href));
       assert.ok(actualSources.includes(intradaySources[market]),'market-specific intraday source for '+market);
     }
-    console.log(engine,viewport.width,'Shanghai, Shenzhen and US loaded before interaction');
+    console.log(engine,viewport.width,'A-share heatmap, eight Shanghai/Shenzhen stocks and US gainers loaded before interaction');
     await page.locator('#insight-macro').getByText(/国家统计局/).first().waitFor();
     await page.locator('.radar-crypto .radar-rows').getByText('BTC-USDT').waitFor();
     assert.ok(tickerSocket, 'Bitget socket connected');
@@ -189,32 +198,36 @@ async function inspect(browser, viewport) {
     for (const kind of ['gainers','losers']) {
       await panels.us.locator('.radar-mover-sources a[href$="/stocks-usa/market-movers-'+kind+'/"]').waitFor();
     }
-    assert.equal(await inspectBoard('sse'),initial.sse);
-    assert.equal(await inspectBoard('szse'),initial.szse);
+    assert.equal(await inspectBoard('heatmap'),initial.heatmap);
+    assert.equal(await inspectBoard('watch'),initial.watch);
     await panels.us.locator('.radar-retry').click();
     await inspectBoard('us','losers');
-    assert.equal(await inspectBoard('sse'),initial.sse);
-    assert.equal(await inspectBoard('szse'),initial.szse);
+    assert.equal(await inspectBoard('heatmap'),initial.heatmap);
+    assert.equal(await inspectBoard('watch'),initial.watch);
     await page.locator('.radar-stocks').screenshot({path:prefix+'-stock-radar.png'});
     await checkLinks(page);
 
-    // Both Chinese sources can be unavailable when the page opens. A retry in
-    // one panel must never replace the working US frame or unhide the other.
-    failChina = true;
+    // Test the native heatmap's iframe-error path explicitly. An HTTP error document
+    // can still emit load, so treating a blocked network request as an iframe error
+    // would give a misleading result about what the parent can observe.
+    failWatch = true;
     await page.reload({waitUntil:'domcontentloaded'});
-    await boards.sse.locator('.radar-retry').waitFor();
-    await boards.szse.locator('.radar-retry').waitFor();
+    await inspectBoard('heatmap');
+    const nativeFrame = boards.heatmap.locator('.radar-mover-stage iframe');
+    await nativeFrame.dispatchEvent('error');
+    await boards.heatmap.locator('.radar-retry').waitFor();
+    await boards.watch.locator('.radar-retry').waitFor();
     const usOnReload = await inspectBoard('us');
-    failChina = false;
-    await boards.sse.locator('.radar-retry').click();
-    const recoveredSse = await inspectBoard('sse');
-    assert.equal(await boards.szse.locator('.radar-mover-stage iframe').count(),0);
+    failWatch = false;
+    await boards.heatmap.locator('.radar-retry').click();
+    const recoveredHeatmap = await inspectBoard('heatmap');
+    assert.equal(await boards.watch.locator('.radar-mover-stage iframe').count(),0);
     assert.equal(await inspectBoard('us'),usOnReload);
-    await boards.szse.locator('.radar-retry').click();
-    await inspectBoard('szse');
-    assert.equal(await inspectBoard('sse'),recoveredSse);
+    await boards.watch.locator('.radar-retry').click();
+    await inspectBoard('watch');
+    assert.equal(await inspectBoard('heatmap'),recoveredHeatmap);
     assert.equal(await inspectBoard('us'),usOnReload);
-    console.log(engine,viewport.width,'all three providers fail and recover independently');
+    console.log(engine,viewport.width,'heatmap, watchlist and US boards recover independently');
 
     const ranking = page.locator('#home-trader-ranking');
     await ranking.scrollIntoViewIfNeeded();

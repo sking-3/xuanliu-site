@@ -47,14 +47,15 @@
     const common = {width:'100%', height:'100%', locale:'zh_CN', colorTheme:'light'};
     const china = 'https://www.tradingview.com/markets/stocks-china/';
     if (market === 'a') return {
-      label:'沪市活跃与涨跌榜', script:'hotlists', source:china + 'market-movers-active/',
-      widget:{...common, exchange:'SSE', showChart:false, showSymbolLogo:false, showFloatingTooltip:false}
+      label:'沪深市场涨跌分布', source:'https://dapan.app/', frame:'https://dapan.app/?market=all&period=day&borders=off'
     };
-    if (market === 'sz') return {
-      label:'深市观察', script:'market-overview', source:china,
-      widget:{...common, showChart:false, showSymbolLogo:false, tabs:[{title:'深市观察', symbols:[
-        {s:'SZSE:000858',d:'五粮液'}, {s:'SZSE:000333',d:'美的集团'},
-        {s:'SZSE:002594',d:'比亚迪'}, {s:'SZSE:300750',d:'宁德时代'}
+    if (market === 'watch') return {
+      label:'沪深观察', script:'market-overview', source:china,
+      widget:{...common, showChart:false, showSymbolLogo:false, tabs:[{title:'沪深观察', symbols:[
+        {s:'SSE:600519',d:'贵州茅台'}, {s:'SZSE:000858',d:'五粮液'},
+        {s:'SSE:601398',d:'工商银行'}, {s:'SZSE:000333',d:'美的集团'},
+        {s:'SSE:600036',d:'招商银行'}, {s:'SZSE:002594',d:'比亚迪'},
+        {s:'SSE:601318',d:'中国平安'}, {s:'SZSE:300750',d:'宁德时代'}
       ]}]}
     };
     if (market !== 'us' || !['gainers','losers'].includes(direction)) throw Error('未知榜单');
@@ -95,7 +96,7 @@
     const rules = el('details', null, 'radar-rules');
     rules.append(el('summary', '异动计算规则'),
       el('p', '加密现货比较最新价格与约 60 秒前的价格（允许相差 5 秒）。涨跌达到 ±1% 时，按涨跌绝对值列出最多 3 对。积累样本期间或没有触发时，展示滚动 24 小时涨跌绝对值最大的 3 对。'),
-      el('p', '股票分钟成交额达到过去同一交易时段、同一分钟成交额中位数的 3 倍，标记为放量观察。最多取最近 20 个有效交易日，至少需 10 天。同时一分钟涨跌达到 ±1%，标记为量价异动。交易日榜单和深市观察行情由 TradingView 提供。'));
+      el('p', '股票分钟成交额达到过去同一交易时段、同一分钟成交额中位数的 3 倍，标记为放量观察。最多取最近 20 个有效交易日，至少需 10 天。同时一分钟涨跌达到 ±1%，标记为量价异动。沪深热力图、日终观察和美股日榜分别标明行情口径。'));
     host.replaceChildren(header,crypto,stocks,rules);
 
     function mountQuotePanel(panel, market) {
@@ -141,7 +142,7 @@
         for (const [kind, button] of buttons) button.setAttribute('aria-pressed',String(kind === direction));
         source.href = config.source;
         source.textContent = market === 'us' ? config.label + '原榜 ↗' :
-          market === 'a' ? '中国活跃股原榜 ↗' : '中国股票行情 ↗';
+          market === 'a' ? '大盘云图 ↗' : '中国股票行情 ↗';
         if (market === 'us') {
           const opposite = moverConfig('us', direction === 'gainers' ? 'losers' : 'gainers');
           alternate.href = opposite.source;
@@ -153,21 +154,8 @@
         stage.setAttribute('aria-busy','true');
         feedback.textContent = '正在读取' + config.label + '…';
 
-        const wrapper = el('div',null,'tradingview-widget-container');
-        const target = el('div',null,'tradingview-widget-container__widget');
-        const credit = el('div',null,'tradingview-widget-copyright');
-        const attribution = link(config.label + ' · TradingView',config.source);
-        attribution.target = '_blank'; attribution.rel = 'noopener nofollow';
-        credit.append(attribution);
-        wrapper.append(target,credit);
-        stage.replaceChildren(wrapper);
-
-        let active = true, timer;
-        const observer = new env.MutationObserver(() => {
-          const frame = wrapper.querySelector('iframe');
-          if (!frame || !active) return;
-          observer.disconnect();
-          frame.title = config.label + ' · TradingView';
+        let active = true, timer, observer;
+        function observeFrame(frame) {
           frame.addEventListener('load', () => {
             if (!active) return;
             clearTimeout(timer);
@@ -175,11 +163,11 @@
             feedback.textContent = '';
           }, {once:true});
           frame.addEventListener('error', unavailable, {once:true});
-        });
+        }
         function dispose() {
           active = false;
           clearTimeout(timer);
-          observer.disconnect();
+          observer?.disconnect();
           stage.replaceChildren();
         }
         function unavailable() {
@@ -189,18 +177,42 @@
           stage.setAttribute('aria-busy','false');
           lastFailure = Date.now();
           alternate.hidden = market !== 'us';
-          feedback.textContent = config.label + (autoRetry ? '连接失败，稍后自动重试。' : '暂时无法加载，可查看来源原榜。');
+          feedback.textContent = config.label + (autoRetry ? '连接失败，稍后自动重试。' : '暂时无法加载，可打开行情来源。');
           retry.hidden = false;
           if (autoRetry) retryTimer = setTimeout(() => { if (!doc.hidden) load(false); }, 20000);
         }
         cleanup = dispose;
+        timer = setTimeout(unavailable,15000);
+        if (config.frame) {
+          const frame = el('iframe');
+          frame.title = config.label;
+          frame.referrerPolicy = 'no-referrer';
+          frame.src = config.frame;
+          observeFrame(frame);
+          stage.replaceChildren(frame);
+          return;
+        }
+        const wrapper = el('div',null,'tradingview-widget-container');
+        const target = el('div',null,'tradingview-widget-container__widget');
+        const credit = el('div',null,'tradingview-widget-copyright');
+        const attribution = link(config.label + ' · TradingView',config.source);
+        attribution.target = '_blank'; attribution.rel = 'noopener nofollow';
+        credit.append(attribution);
+        wrapper.append(target,credit);
+        stage.replaceChildren(wrapper);
+        observer = new env.MutationObserver(() => {
+          const frame = wrapper.querySelector('iframe');
+          if (!frame || !active) return;
+          observer.disconnect();
+          frame.title = config.label + ' · TradingView';
+          observeFrame(frame);
+        });
         observer.observe(wrapper, {subtree:true,childList:true});
         const script = el('script');
         script.src = 'https://s3.tradingview.com/external-embedding/embed-widget-' + config.script + '.js';
         script.async = true;
         script.textContent = JSON.stringify(config.widget);
         script.addEventListener('error',unavailable,{once:true});
-        timer = setTimeout(unavailable,15000);
         wrapper.append(script);
       }
       retry.addEventListener('click', () => load(true));
@@ -210,22 +222,22 @@
       });
       load(true);
     }
-    function mountStockBoard(market, name, href) {
+    function mountStockBoard(market, href) {
       const board = el('section', null, 'radar-stock-board');
       board.dataset.moverMarket = market;
       const heading = el('div', null, 'radar-section-heading');
       heading.append(el('h3', market === 'a' ? 'A 股行情' : '美股日涨跌榜'), link('行情筛选 →', href));
       const primary = el('div', null, 'radar-main-body');
-      board.append(heading, el('p', market === 'a' ? '沪市活跃股与涨跌榜 · 日终' :
+      board.append(heading, el('p', market === 'a' ? '当日涨跌分布 · 更新时间见图内' :
         '按交易日涨跌幅排序 · 行情可能延迟', 'radar-cadence'), primary);
       stocks.append(board);
       mountQuotePanel(primary, market);
       if (market === 'a') {
-        const shenzhen = el('section', null, 'radar-shenzhen');
-        shenzhen.dataset.shenzhenWatch = '';
-        shenzhen.append(el('h4', '深市观察'), el('p', '4 只固定观察股 · 日终', 'radar-cadence'));
-        board.append(shenzhen);
-        mountQuotePanel(shenzhen, 'sz');
+        const watch = el('section', null, 'radar-equity-watch');
+        watch.dataset.equityWatch = '';
+        watch.append(el('h4', '沪深观察'), el('p', '8 只固定观察股 · 日终', 'radar-cadence'));
+        board.append(watch);
+        mountQuotePanel(watch, 'watch');
       }
       const intraday = market === 'a' ?
         link('盘口异动 ↗', 'https://quote.eastmoney.com/changes/') :
@@ -238,8 +250,8 @@
       board.append(foot, list);
       stockNodes[market] = {status, list};
     }
-    mountStockBoard('a','A 股','screening/index.html#public-market-title');
-    mountStockBoard('us','美股','us.html#public-market-title');
+    mountStockBoard('a','screening/index.html#public-market-title');
+    mountStockBoard('us','us.html#public-market-title');
     const history = new Map();
     let feed = {quotes:[], total:20, unavailable:false};
     let snapshot, stockError = false, pending = false;

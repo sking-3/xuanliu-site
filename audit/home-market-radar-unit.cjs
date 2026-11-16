@@ -35,13 +35,18 @@ test('future and historical alerts do not count as active signals', () => {
   const a = stockView(data,'a',now);
   assert.deepEqual(a.alerts.map(item=>item.symbol),['000001']);assert.equal(a.last,now);
 });
-test('Shanghai loads the exchange hotlist, Shenzhen loads the four observation stocks', () => {
+test('A-share board opens the day map and an eight-stock Shanghai and Shenzhen watchlist', () => {
   const {moverConfig} = require('../home-market-radar.js');
-  const sh = moverConfig('a'), sz = moverConfig('sz');
-  assert.equal(sh.script,'hotlists');
-  assert.equal(sh.widget.exchange,'SSE');
-  assert.equal(sz.script,'market-overview');
-  assert.deepEqual(sz.widget.tabs[0].symbols.map(row=>row.s),['SZSE:000858','SZSE:000333','SZSE:002594','SZSE:300750']);
+  const map = new URL(moverConfig('a').frame);
+  assert.equal(map.origin,'https://dapan.app');
+  assert.equal(map.searchParams.get('market'),'all');
+  assert.equal(map.searchParams.get('period'),'day');
+  const watch = moverConfig('watch');
+  assert.equal(watch.script,'market-overview');
+  const codes = watch.widget.tabs[0].symbols.map(row=>row.s);
+  assert.equal(new Set(codes).size,8);
+  assert.equal(codes.filter(code=>code.startsWith('SSE:')).length,4);
+  assert.equal(codes.filter(code=>code.startsWith('SZSE:')).length,4);
 });
 test('US gainers and losers map to the proper screen and original list', () => {
   const {moverConfig} = require('../home-market-radar.js');
