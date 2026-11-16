@@ -8,6 +8,12 @@ let dataset = null;
 let records = [];
 let busy = false;
 let loading = false;
+let latestSnapshot = null;
+let refreshError = null;
+let lastCheckedAt = null;
+let lastRefreshAttemptAt = 0;
+const SNAPSHOT_REFRESH_MS = 5 * 60_000;
+const RESUME_REFRESH_MS = 30_000;
 const percent = value => Number.isFinite(value) ? `${(value * 100).toFixed(2)}%` : '—';
 const decimal = value => Number.isFinite(value) ? value.toFixed(2) : '—';
 const date = value => value && Number.isFinite(Date.parse(value)) ? new Date(value).toLocaleString('zh-CN', {hour12:false,timeZoneName:'short'}) : '尚无';
@@ -85,6 +91,20 @@ function statusFor(data){
   if(!data.report)return ['行情已更新，研究结果待生成','网站已取得公开行情，可运行策略研究。'];
   return ['公开行情已更新','网站提供最近一次成功采集的公开行情和研究结果。'];
 }
+function renderRuntimeStatus(){
+  if(!latestSnapshot){
+    if(refreshError){$('runtime-status').textContent='网站数据暂不可用';$('runtime-detail').textContent=refreshError;$('runtime-data').textContent='尚无可用行情。';}
+    return;
+  }
+  const data=latestSnapshot;
+  const expired=Number.isFinite(Date.parse(data.latestClosedAt||''))&&Date.now()-Date.parse(data.latestClosedAt)>2*DAY;
+  const [status,detail]=statusFor(data);
+  $('runtime-status').textContent=refreshError?(expired?'行情已过期 · 网站数据暂不可用':'网站数据暂不可用'):status;
+  $('runtime-detail').textContent=(refreshError?`${refreshError} 保留本页上次读取的结果。 ${detail}`:detail)
+    +(data.lastAttempt?` 最近采集尝试：${date(data.lastAttempt)}。`:'')
+    +(lastCheckedAt?` 网页最近检查：${date(lastCheckedAt)}。`:'');
+  $('runtime-data').textContent=data.retrievedAt?`上次成功采集：${date(data.retrievedAt)} · 最新完整日线结束：${date(data.latestClosedAt)}${expired?' · 行情已过期':''}`:'尚无成功采集记录。';
+}
 async function validateDataset(data){
   if(!data||data.schemaVersion!==1||!['ready','stale','blocked','stopped','error'].includes(data.status))throw Error('网站数据格式异常。');
   if(data.bars==null){if(data.dataHash!=null||data.report!=null||data.reportHash!=null||data.status==='ready')throw Error('网站研究记录不完整。');return null;}
@@ -100,21 +120,19 @@ async function validateDataset(data){
   return data;
 }
 async function refresh(){
-  if(loading)return;loading=true;$('refresh-status').disabled=true;
+  if(loading)return;loading=true;lastRefreshAttemptAt=Date.now();$('refresh-status').disabled=true;
+  renderRuntimeStatus();
   try{
     const response=await fetch('data/latest.json',{cache:'no-store',signal:AbortSignal.timeout(15000)});
     if(!response.ok)throw Error(response.status===404?'网站尚未发布第一份行情与研究结果。':'网站数据暂时无法读取。');
     const data=await response.json();const verified=await validateDataset(data);
-    dataset=verified;const [status,detail]=statusFor(data);$('runtime-status').textContent=status;
-    $('runtime-detail').textContent=detail+(data.lastAttempt?` 最近尝试：${date(data.lastAttempt)}。`:'');
-    $('runtime-data').textContent=data.retrievedAt?`上次成功采集：${date(data.retrievedAt)} · 最新完整日线结束：${date(data.latestClosedAt)}`:'尚无成功采集记录。';
+    dataset=verified;latestSnapshot=data;refreshError=null;lastCheckedAt=Date.now();renderRuntimeStatus();
     $('data-status').textContent=verified?`${verified.bars.length} 根完整日线 · ${day(verified.bars[0].time)} 至 ${day(verified.bars.at(-1).time)}（UTC 开盘日）`:'等待网站提供可核验的行情数据。';
     $('run-button').disabled=!verified||busy;
     if(verified?.report&&(!current||current.origin==='website')){const r={id:verified.dataHash,createdAt:verified.runAt,source:verified.source,dataHash:verified.dataHash,bars:verified.bars,report:verified.report,origin:'website'};render(r);}
   }catch(e){
-    $('runtime-status').textContent='网站数据暂不可用';$('runtime-detail').textContent=e.message||'请稍后刷新。';
-    if(dataset){$('runtime-detail').textContent+=' 保留本页上次读取的结果。';$('run-button').disabled=busy;}
-    else{$('runtime-data').textContent='尚无可用行情。';$('run-button').disabled=true;}
+    refreshError=e.message||'请稍后刷新。';renderRuntimeStatus();
+    $('run-button').disabled=!dataset||busy;
   }finally{loading=false;$('refresh-status').disabled=false;}
 }
 for(const id of ['fee','slippage'])$(id).addEventListener('input',updateDraftStatus);
@@ -128,4 +146,15 @@ $('research-form').addEventListener('submit',async event=>{event.preventDefault(
 $('export').addEventListener('click',()=>{if(current)download(`books-research-${current.id}.json`,current);});
 $('refresh-status').addEventListener('click',refresh);
 readBrowserRecords();renderHistory();refresh();
+function checkSnapshot(maxAge){
+  renderRuntimeStatus();
+  if(!document.hidden&&!busy&&Date.now()-lastRefreshAttemptAt>=maxAge)refresh();
+}
+// Recheck the source candle time even when the published file is unchanged.
+// These GETs read the existing website snapshot; they never start collection.
+setInterval(()=>checkSnapshot(SNAPSHOT_REFRESH_MS),60_000);
+document.addEventListener('visibilitychange',()=>checkSnapshot(RESUME_REFRESH_MS));
+addEventListener('focus',()=>checkSnapshot(RESUME_REFRESH_MS));
+addEventListener('pageshow',()=>checkSnapshot(RESUME_REFRESH_MS));
+addEventListener('online',()=>checkSnapshot(RESUME_REFRESH_MS));
 let resizeTimer;addEventListener('resize',()=>{clearTimeout(resizeTimer);resizeTimer=setTimeout(()=>{if(current)drawEquity(current.report);},50);});
