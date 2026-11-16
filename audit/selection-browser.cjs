@@ -102,6 +102,8 @@ async function check(page,captures,{screenshot}={}) {
   const upstream=members.filter(s=>upstreamCodes.includes(s.code));
   await counts(upstream.length);
   assert.deepEqual((await displayed.evaluateAll(rows=>rows.map(row=>row.dataset.code))).sort(),upstream.map(s=>s.code).sort());
+  await page.locator('#pick-segments').getByRole('button',{name:'全部环节'}).click();
+  await counts(members.length);
   await page.locator('#pick-reset').click();
   const query=page.locator('#pick-query');
   await query.fill('不存在的证券 600519xxx');
@@ -120,7 +122,7 @@ async function check(page,captures,{screenshot}={}) {
   await save.click();
   assert.equal(await save.getAttribute('aria-pressed'),'true');
   await page.reload({waitUntil:'domcontentloaded'});
-  await page.locator('[data-selection][data-state=ready]').waitFor({timeout:35000});
+  await desk.waitFor({timeout:40000});
   await page.locator('#pick-saved').check();
   await counts(1);
   assert.equal(await displayed.first().getAttribute('data-code'),ticker);
