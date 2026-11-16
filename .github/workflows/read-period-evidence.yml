@@ -12,47 +12,33 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: '22'
-      - name: Read official public profile and rolling-window returns
+      - name: Verify paired historical window boundaries
         shell: node {0}
         run: |
-          (async()=>{
-            const base='https://www.binance.com/bapi/futures/v1/',path='friendly/future/copy-trade/home-page/query-list';
-            const wait=()=>new Promise(r=>setTimeout(r,450));let stop=false;const candidates=new Map();
-            async function read(url,post){
-             const opts=post?{method:'POST',headers:{accept:'application/json','content-type':'application/json'},body:JSON.stringify(post)}:{headers:{accept:'application/json'}};
-             const res=await fetch(url,{...opts,redirect:'error',signal:AbortSignal.timeout(15000)});const bytes=Buffer.from(await res.arrayBuffer()),receivedAt=new Date().toISOString();
-             if([202,401,403,418,429,451].includes(res.status)) {stop=true; console.log('STOP '+res.status);return null;}
-             if(res.status!==200){console.log('UNAVAILABLE '+res.status);return null;}
-             let body;try{body=JSON.parse(bytes);}catch{return null;}if(body.code!=='000000'||body.success!==true){console.log('REASON '+JSON.stringify([body.code,body.message]));return null;}
-             return {data:body.data,bodyBase64:bytes.toString('base64'),receivedAt};
+          'use strict';
+          const fs=require('node:fs/promises');
+          async function main() {
+            const ids=["0x1f250df59a777d61cb8bd043c12970f3afe4f925","0x20717220daa3fa24cd9ed4c8d8fabe79921ba513","0x1f57058d2a45568f9879ccc746d55dd16cf99671","0x37b9efbb4c16e2b1cd03fc03e65e2e45f722b61d","0x069ad3d4dd1ca686ef78d065fbc6208fdcede58d","0x8190ff234a578aba075fbb6bbc3b8a77f42b44fe","0x97f21dfa04ba0d74defe9fc4de1fd19a6d078f6f","0x3fccfafa0915bb70e077c381a4c49315b72b78d4","0x7c27f4de1cad1b759fefa780e1158c8c8976c626","0x184cd9380cc279c34443052775ab42fe63356b5e"];
+            for (const id of ids) {
+              if(!/^0x[0-9a-f]{40}$/.test(id)) throw Error('invalid account');
+              const res=await fetch('https://api.hyperliquid.xyz/info',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({type:'portfolio',user:id}),signal:AbortSignal.timeout(12000)});
+              if([403,429].includes(res.status)) { console.log('Stopped after HTTP '+res.status); return; }
+              if(!res.ok) {console.log(JSON.stringify({account:id,http:res.status}));return;}
+              const data=await res.json();
+              const all=data.find(tuple=>tuple[0]==='perpAllTime')?.[1];
+              const pnl=all?.pnlHistory;
+              const eq=all?.accountValueHistory;
+              if(!Array.isArray(pnl)||!Array.isArray(eq)||!pnl.length){console.log(JSON.stringify({account:id,error:'missing paired series'}));continue;}
+              const equityTimes=new Set(eq.map(x=>x[0]));
+              const times=pnl.map(x=>x[0]).filter(t=>equityTimes.has(t)).sort((a,b)=>a-b);
+              const end=times.at(-1),endGapHours=(Date.now()-end)/3600000;
+              const windows={};
+              for(const days of [90,365]){
+                const start=end-86400000*days;
+                windows[days]={hasStart:times.includes(start),historyDays:(end-times[0])/86400000,coveredDays:(end-times.find(t=>t>=start))/86400000};
+              }
+              console.log(JSON.stringify({account:id,asOf:new Date(end).toISOString(),ageHours:endGapHours,windows}));
+              await new Promise(resolve=>setTimeout(resolve,2100));
             }
-            for(let pageNumber=1;pageNumber<=2&&!stop;pageNumber++){
-             const val=await read(base+path,{pageNumber,pageSize:50,timeRange:'365D',dataType:'PNL',favoriteOnly:false,hideFull:false,order:'DESC',userAsset:0,portfolioType:'PUBLIC'});
-             const lst=val?.data?.list??val?.data?.rows;if(!Array.isArray(lst)){console.log('NO_LIST '+JSON.stringify(Object.keys(val?.data??{})));break;}
-             if(!lst.length)break;
-             if(pageNumber===1)console.log('KEYS '+JSON.stringify(Object.keys(lst[0])));
-             for(const row of lst){
-              const id=row.leadPortfolioId??row.portfolioId??row.portfolio?.leadPortfolioId??row.id;
-              if(typeof id!=='string'||!/^\d{12,22}$/.test(id)||candidates.has(id))continue;
-              candidates.set(id,row);
-             }
-             console.log('GOT '+pageNumber+' '+lst.length+' '+candidates.size);await wait();
-            }
-            const vals=[...candidates];for(const [id,x] of vals.slice(0,3))console.log('SAMPLE '+JSON.stringify({id,name:x.nickname||x.nickName,days:x.leadDays,time:x.startTime,keys:Object.fromEntries(Object.entries(x).filter(([k])=>/day|time/i.test(k)&&k!=='roiData'))}).slice(0,580));
-            const possible=vals.filter(([id,x])=>x.leadDays==null||Number(x.leadDays)>=365).slice(0,32);
-            let n=0;
-            for(const [id,x] of possible){
-             if(n>=8||stop) break;
-             const url=base+'friendly/future/copy-trade/lead-portfolio/detail?portfolioId='+id;
-             const item=await read(url);await wait();const d=item?.data;
-             if(!d||d.leadPortfolioId!==id||d.status!=='ACTIVE'||!Number.isFinite(Number(d.startTime))||Number(d.startTime)<=0||Date.parse(item.receivedAt)-Number(d.startTime)<365*86400000)continue;
-             console.log('PERIOD_RECORD '+JSON.stringify({id,p:'profile',url,receivedAt:item.receivedAt,status:200,raw:item.bodyBase64}));
-             for(const p of ['90D','365D']){
-               const url=base+'public/future/copy-trade/lead-portfolio/performance?portfolioId='+id+'&timeRange='+p;
-               const m=await read(url);if(stop) break;
-               if(m&&m.data.timeRange===p&&Number.isFinite(m.data.roi))console.log('PERIOD_RECORD '+JSON.stringify({id,p,url,receivedAt:m.receivedAt,status:200,raw:m.bodyBase64}));
-               await wait();
-             }
-             n++;
-            }console.log('MATCHING '+n);
-          })().catch(e=>{console.error(e);process.exitCode=1;});
+          }
+          main().catch(e=>{console.error(e.message);process.exitCode=1;});
