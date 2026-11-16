@@ -114,7 +114,7 @@ function create(options={}){
   };
   try{
    const raw=await post({type:'portfolio',user},20),s=source(raw,period,now());
-   if(s.pnl.length<2)return calculate(raw,null,user,period,now());
+   if(s.pnl.length<2)return prefer(cached,calculate(raw,null,user,period,now()));
    const start=s.pnl[0][0],end=s.pnl.at(-1)[0],rows=[],seen=new Map();let cursor=start,exhausted=false,pageCount=0;
    for(;pageCount<10;){
     const batch=await post({type:'userNonFundingLedgerUpdates',user,startTime:cursor,endTime:end},120);pageCount++;
