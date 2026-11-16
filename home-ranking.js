@@ -2,7 +2,7 @@
 'use strict';
 const PERIODS=['30D','90D','365D'];
 const LABELS={'30D':'月度','90D':'季度','365D':'年度'};
-const FILES={periodReturns:{url:'trader/binance/period-returns.json',limit:524288,validate:'validatePeriodReturns'},feed:{url:'trader/feed.json',limit:2097152,validate:'validateFeed'},portfolios:{url:'trader/portfolios.json',limit:4194304,validate:'validatePortfolios'},analytics:{url:'trader/analytics.json',limit:2097152,validate:'validateAnalytics'},binance:{url:'trader/binance/portfolios.json',limit:2097152,validate:'validateBinance'},reference:{url:'trader/aoying-history.js',limit:2097152,validate:'validateReference',wrapped:true}};
+const FILES={okxPeriods:{url:'trader/okx/period-returns.json',limit:1048576,validate:'validateOKXPeriods'},periodReturns:{url:'trader/binance/period-returns.json',limit:524288,validate:'validatePeriodReturns'},feed:{url:'trader/feed.json',limit:2097152,validate:'validateFeed'},portfolios:{url:'trader/portfolios.json',limit:4194304,validate:'validatePortfolios'},analytics:{url:'trader/analytics.json',limit:2097152,validate:'validateAnalytics'},binance:{url:'trader/binance/portfolios.json',limit:2097152,validate:'validateBinance'},reference:{url:'trader/aoying-history.js',limit:2097152,validate:'validateReference',wrapped:true}};
 function dataAPI(){return typeof module!=='undefined'&&module.exports?require('./home-trader-data.js'):global.HomeTraderData;}
 function fail(){throw Error('Invalid ranking snapshot');}
 const numbers=new Intl.NumberFormat('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -18,6 +18,7 @@ function node(doc,tag,text,cls){const el=doc.createElement(tag);if(text!==undefi
 function title(el,text){el.setAttribute('title',text);return el;}
 function metric(doc,label,value,description,cls=''){const box=node(doc,'div',undefined,'home-rank-metric');box.append(node(doc,'span',label),title(node(doc,'strong',value,cls),description));return box;}
 function roiDescription(row,period){
+  if(row.exchange==='OKX')return 'OKX 公布的近'+parseInt(period,10)+'天带单收益率。';
   if(row.exchange==='Binance')return '币安公布的近'+parseInt(period,10)+'天收益率。';
   if(period==='30D')return Number.isFinite(row.roi)?'来源公布的同期收益率。':'来源未提供同期收益率，不以收益额代替。';
   const e=row.roiEvidence;
@@ -34,18 +35,18 @@ function renderRow(doc,row,index,period,Data){
   const value=node(doc,'div',undefined,'home-rank-profit');value.append(headline);
   top.append(identity,value);
   const metrics=node(doc,'div',undefined,'home-rank-metrics');
-  const binance=row.exchange==='Binance',currency=binance?'USDT':'USD';
+  const platform=row.exchange==='Binance'?'币安':row.exchange||'Hyperliquid',sourcePeriod=['币安','OKX'].includes(platform),currency=row.currency||'USD';
   if(Number.isFinite(row.pnl))metrics.append(metric(doc,'同期盈亏 · '+currency,amount(row.pnl),decimal(row.pnl)+' '+currency+' · 采集 '+time(row.performanceFetchedAt,true),row.pnl<0?'home-rank-negative':'home-rank-positive'));
-  if(binance){
-    if(Number.isFinite(row.mdd))metrics.append(metric(doc,'同期最大回撤',percent(row.mdd),'币安在所选周期公布的最大回撤。'));
-    if(Number.isFinite(row.winRate))metrics.append(metric(doc,'同期胜率',percent(row.winRate),'币安在所选周期公布的胜率。'));
+  if(sourcePeriod){
+    if(Number.isFinite(row.mdd))metrics.append(metric(doc,'同期最大回撤',percent(row.mdd),platform+'在所选周期公布的最大回撤。'));
+    if(Number.isFinite(row.winRate))metrics.append(metric(doc,'同期胜率',percent(row.winRate),platform+'在所选周期公布的胜率。'));
   }else{
   if(Number.isFinite(row.mdd))metrics.append(metric(doc,'采样盈亏回撤',percent(row.mdd),'基于来源盈亏及权益采样，可能超过100%；不是资金流调整净值最大回撤。采样截至 '+time(row.mddAsOf,true)+'；采集 '+time(row.mddFetchedAt,true)+'。'+(row.mddStale?' 历史采样，等待更新。':'')));
   if(Number.isFinite(row.winRate))metrics.append(metric(doc,'近期片段胜率',percent(row.winRate),`${row.winCount}个近期永续平仓片段；样本 ${time(row.winStart,true)} 至 ${time(row.winEnd,true)}；采集 ${time(row.winFetchedAt,true)}。已扣平仓手续费，未计开仓手续费及资金费；独立于所选周期，不参与排行。${row.winStale?' 历史样本，等待更新。':''}`));
   }
   const timing=row.performanceAsOf?'收益截至 '+time(row.performanceAsOf,true):'采集于 '+time(row.performanceFetchedAt,true);
-  const meta=node(doc,'p',(binance?'币安':'Hyperliquid')+' · '+timing+(row.performanceStale?' · 历史快照':''),'home-rank-timing');
-  title(meta,binance?'币安周期统计 · 来源未标明统计截止时刻。':(row.startAt&&row.endAt?'实际采样区间 '+time(row.startAt,true)+' 至 '+time(row.endAt,true)+'；':'')+'收益采集 '+time(row.performanceFetchedAt,true)+'；持仓核验 '+time(row.positionCheckedAt,true)+'。');
+  const meta=node(doc,'p',platform+' · '+timing+(row.performanceStale?' · 历史快照':''),'home-rank-timing');
+  title(meta,sourcePeriod?platform+'周期统计 · '+(row.performanceAsOf?'来源标注截止时间。':'来源未标明统计截止时刻。'):(row.startAt&&row.endAt?'实际采样区间 '+time(row.startAt,true)+' 至 '+time(row.endAt,true)+'；':'')+'收益采集 '+time(row.performanceFetchedAt,true)+'；持仓核验 '+time(row.positionCheckedAt,true)+'。');
   if(row.evidencePath){
     const proof=node(doc,'a','收益凭证','home-rank-evidence');
     proof.href='trader/'+row.evidencePath;proof.setAttribute('target','_blank');proof.setAttribute('rel','noopener');
@@ -112,10 +113,12 @@ function rejectOlder(kind,next,before){
       return;
     }
     compare(next.generatedAt,before.generatedAt);
-    if(kind==='periodReturns'){
-      const older=new Map(before.accounts.map(row=>[row.portfolioId,row]));
-      for(const item of next.accounts)for(const [p,w] of Object.entries(item.performance.byPeriod)){
-        compare(w.lastSuccessAt,older.get(item.portfolioId)?.performance.byPeriod[p]?.lastSuccessAt);
+    if(kind==='periodReturns'||kind==='okxPeriods'){
+      const key=kind==='periodReturns'?'portfolioId':'uniqueCode';
+      const older=new Map(before.accounts.map(row=>[row[key],row]));
+      for(const item of next.accounts){
+        const prior=older.get(item[key])?.performance,current=item.performance.byPeriod||item.performance;
+        for(const [p,w] of Object.entries(prior?.byPeriod||prior||{}))compare(current[p]?.lastSuccessAt,w.lastSuccessAt);
       }
       return;
     }
@@ -167,7 +170,7 @@ function mount(doc,options={}){
   observer?.observe(radar);
   measureRadar();
   let period='30D',inflight=null,destroyed=false,pending=false;
-  const view=()=>snapshots.feed||snapshots.binance||snapshots.reference||snapshots.periodReturns?Data.rank({...snapshots,failures:{...failures}},period,now(),desktop?.matches?Infinity:3):null;
+  const view=()=>snapshots.feed||snapshots.binance||snapshots.reference||snapshots.periodReturns||snapshots.okxPeriods?Data.rank({...snapshots,failures:{...failures}},period,now(),desktop?.matches?Infinity:3):null;
   function draw(){if(!destroyed)render(doc,view(),period,Data,pending);}
   function onLayout(){measureRadar();draw();}
   desktop?.addEventListener('change',onLayout);
