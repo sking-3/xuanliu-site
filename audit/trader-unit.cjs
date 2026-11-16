@@ -643,6 +643,10 @@ await test('official OKX and Bitget ROI and PnL controls use their source series
      const row=adapter.parse(JSON.parse(read(exchange+'/period-returns.json'))).accounts[0];
      const r={...adapter.trader(row),activity:row.activity,windows:{},positions:[],points:[],orders:[]};a.openDetail(r,'30D');
      const view=find(ids['detail-body'],x=>x.className==='lead-curve');
+     const controls=find(view,x=>x.attrs['aria-label']==='官方日线指标');
+     assert.equal(controls.className,'lead-metric-switch');assert.equal(controls.attrs.role,'group');
+     assert.equal(find(view,x=>x.className==='period-switch'),undefined);
+     const periodGroup=find(ids['detail-body'],x=>x.className==='period-switch');assert.equal(periodGroup.attrs['aria-label'],'收益统计周期');
      if(exchange==='okx')for(let i=0;i<40&&!find(view,x=>x.textContent==='盈亏');i++)await new Promise(res=>setTimeout(res,2));
      const pnl=find(view,x=>x.textContent==='盈亏');assert.ok(pnl);pnl.click();assert.match(content(view),/官方每日盈亏/);
      const svg=find(view,x=>x.attrs?.role==='img');assert.ok(svg.attrs['aria-label'].includes(r.currency));
