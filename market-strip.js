@@ -3,7 +3,7 @@
   const widget = document.querySelector('.tradingview-widget-container');
   const links = document.querySelector('.strip-links');
   const vendor = 'https://www.tradingview-widget.com';
-  let available = false;
+  let state = 'loading';
 
   function reportSize() {
     const current = document.body.dataset.stripMode === 'provider' ? widget : links;
@@ -12,7 +12,7 @@
   }
 
   function display() {
-    const show = available && !links.contains(document.activeElement);
+    const show = state === 'rendered' && !links.contains(document.activeElement);
     document.body.dataset.stripMode = show ? 'provider' : 'links';
     widget.inert = !show;
     reportSize();
@@ -24,9 +24,18 @@
       return;
     }
     if (event.origin !== vendor || !event.source || event.source !== widget.querySelector('iframe')?.contentWindow) return;
-    if (event.data?.name === 'tv-widget-ready') available = true;
-    else if (event.data?.name === 'tv-widget-no-data') available = false;
-    else return;
+    const message = event.data;
+    if (message?.name === 'tv-widget-no-data') {
+      state = 'unavailable';
+    } else if (message?.name === 'tv-widget-ready') {
+      state = 'rendered';
+    } else if (message?.name === 'tv-widget-resize-iframe' && state === 'loading'
+      && Number.isFinite(message.data?.height) && message.data.height > 0) {
+      // Ticker Tape reports its mounted layout even when it omits the ready event.
+      state = 'rendered';
+    } else {
+      return;
+    }
     display();
   });
   links.addEventListener('focusout', () => setTimeout(display, 0));

@@ -303,17 +303,6 @@ async function liveCrypto(page) {
 }
 
 async function liveUS(page) {
-  await page.addInitScript(() => {
-    if (!location.pathname.endsWith('/market-strip.html')) return;
-    window.__stripEvents = [];
-    window.addEventListener('message', event => {
-      const frame = document.querySelector('.tradingview-widget-container iframe');
-      if (event.source !== frame?.contentWindow) return;
-      const payload = event.data;
-      const kind = typeof payload === 'string' ? payload.slice(0,80) : payload?.name || payload?.type || Object.keys(payload || {});
-      window.__stripEvents.push([event.origin,kind,payload?.data?.height]);
-    });
-  });
   const scans=[];
   page.on('response',async res=>{
     try {
@@ -364,11 +353,17 @@ async function liveUS(page) {
   const text=ticker ? await ticker.locator('body').innerText({timeout:4000}).catch(()=>'') : '';
   const stripMode=await strip.locator('body').getAttribute('data-strip-mode');
   const providerHasQuotes=/\d[,.\d]*\s*[%％]/.test(text);
-  console.log('Index frame lifecycle',await strip.locator('body').evaluate(() => window.__stripEvents));
   console.log('Index strip',stripMode,providerHasQuotes,text.slice(0,200));
   assert.ok(['links','provider'].includes(stripMode),'expected a defined ticker state');
   assert.ok(!providerHasQuotes || stripMode==='provider','ticker has quoted indices but links cover it: '+text.slice(0,175));
-  return {cardGeometry,observed,stripMode,providerHasQuotes};
+  assert.ok(providerHasQuotes,'expected a real percentage in the index tape during online acceptance');
+  const reachable=await strip.locator('.tradingview-widget-container iframe').evaluate(frame=>{
+    const box=frame.getBoundingClientRect();
+    return document.elementFromPoint(box.left+box.width/2,box.top+box.height/2)===frame;
+  });
+  assert.ok(reachable,'index tape is covered or outside its viewport');
+  await page.locator('#index-ticker').screenshot({path:path.join(out,'real-index-tape.png')});
+  return {cardGeometry,observed,stripMode,providerHasQuotes,reachable};
 }
 
 function ocrScreenerQuotes(tsv,symbols) {

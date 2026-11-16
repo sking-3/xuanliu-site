@@ -30,7 +30,7 @@ vm.runInNewContext(fs.readFileSync('market-strip.js','utf8'),{
  ResizeObserver:class{constructor(fn){resize=fn}observe(element){observed.push(element)}}
 });
 const provider='https://www.tradingview-widget.com';
-const notify=(from,source,name)=>childEvents.message({origin:from,source,data:{name}});
+const notify=(from,source,name,data)=>childEvents.message({origin:from,source,data:{name,data}});
 check('first paint offers four source-specific index charts without an external request',()=>{
  const html=fs.readFileSync('market-strip.html','utf8');
  const nav=html.match(/<nav class="strip-links".*?<\/nav>/s)[0];
@@ -43,13 +43,23 @@ check('only the live provider frame may replace the links with its complete widg
  notify('https://other.example',vendorFrame.contentWindow,'tv-widget-ready');notify(provider,{},'tv-widget-ready');
  notify(provider,vendorFrame.contentWindow,'tv-widget-load');
  assert.equal(childDocument.body.dataset.stripMode,'links');
- notify(provider,vendorFrame.contentWindow,'tv-widget-ready');
+ for (const h of [0,-1,Infinity,'58']) notify(provider,vendorFrame.contentWindow,'tv-widget-resize-iframe',{height:h});
+ notify(provider,{},'tv-widget-resize-iframe',{height:58});
+ notify('https://other.example',vendorFrame.contentWindow,'tv-widget-resize-iframe',{height:58});
+ assert.equal(childDocument.body.dataset.stripMode,'links');
+ notify(provider,vendorFrame.contentWindow,'tv-widget-resize-iframe',{height:58});
  assert.equal(childDocument.body.dataset.stripMode,'provider');assert.equal(widget.inert,false);
  assert.deepEqual(observed,[widget,links]);assert.equal(reports.at(-1).data.height,44.5);
  height=78;resize();assert.equal(reports.at(-1).data.height,79);
 });
 check('an explicit no-data message restores keyboard-accessible native chart links',()=>{
  notify(provider,vendorFrame.contentWindow,'tv-widget-no-data');assert.equal(childDocument.body.dataset.stripMode,'links');assert.equal(widget.inert,true);assert.equal(reports.at(-1).data.height,45);
+});
+check('late layout messages cannot hide an explicit outage, but ready can restore the widget',()=>{
+ notify(provider,vendorFrame.contentWindow,'tv-widget-resize-iframe',{height:58});
+ assert.equal(childDocument.body.dataset.stripMode,'links');
+ notify(provider,vendorFrame.contentWindow,'tv-widget-ready');
+ assert.equal(childDocument.body.dataset.stripMode,'provider');
 });
 check('tape only accepts same-origin parent measurement messages',()=>{
  const n=reports.length;

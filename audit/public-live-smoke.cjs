@@ -49,7 +49,16 @@ async function home(page) {
     const sizes=markets.map(card=>card[key]);
     assert.ok(Math.min(...sizes)>0 && Math.max(...sizes)-Math.min(...sizes)<=2,'unequal market card '+key);
   }
-  return markets;
+  const header = page.frameLocator('#index-ticker iframe');
+  const provider = header.locator('.tradingview-widget-container iframe');
+  await provider.contentFrame().locator('body').filter({hasText:/[0-9][.,0-9]*\s*[%％]/}).waitFor({timeout:30000});
+  await header.locator('body[data-strip-mode="provider"]').waitFor();
+  assert.ok(await provider.evaluate(frame => {
+    const box = frame.getBoundingClientRect();
+    return document.elementFromPoint(box.left+box.width/2,box.top+box.height/2) === frame;
+  }), 'index quotes must be visible and reachable');
+  const quotes = await provider.contentFrame().locator('body').innerText();
+  return {markets,indexQuotes:quotes.split(/\s+/).slice(0,12).join(' ')};
 }
 
 async function aShares(page) {
