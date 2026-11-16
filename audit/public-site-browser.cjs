@@ -53,7 +53,7 @@ async function check(context,label,action) {
   } catch(error) {
     failures.push(label+': '+error.message);
     report.checks.push({name:label,status:'failed',reason:error.message});
-    console.error('FAIL',label,error.message);
+    console.error('FAIL',label,error.stack||error.message);
     await page.screenshot({path:path.join(out,'failed-'+slug(label)+'.png'),timeout:7000}).catch(()=>{});
   } finally { await page.close(); }
 }

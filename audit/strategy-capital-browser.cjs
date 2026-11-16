@@ -22,11 +22,11 @@ module.exports=async function checkStrategyCapital(page,base){
  for(const label of ['余额对照','盈亏金额','策略收益']){await chart.getByRole('button',{name:label,exact:true}).click();assert.equal(await chart.getByRole('button',{name:label,exact:true}).getAttribute('aria-pressed'),'true');assert.equal(await chart.locator('svg path').count(),1);}
  assert.equal(await analysis.locator('.sa-flows tbody tr').count(),report.cashflows.length);
  await analysis.getByRole('combobox',{name:'资金流水类型'}).selectOption('in');
- assert.equal(await analysis.locator('.sa-flows tbody tr').count(),report.cashflows.filter(x=>x.value>0).length);
+ assert.equal(await analysis.locator('.sa-flows tbody tr').count(),report.cashflows.filter(x=>x.value>0).length,'inbound cashflow filter');
  await analysis.getByRole('combobox',{name:'资金流水类型'}).selectOption('out');
  assert.equal(await analysis.locator('.sa-flows tbody tr').count(),report.cashflows.filter(x=>x.value<0).length);
  const links=await analysis.locator('.sa-flows a').evaluateAll(es=>es.map(e=>e.href));for(const flow of report.cashflows.filter(x=>x.value<0))assert.ok(links.includes('https://app.hyperliquid.xyz/explorer/tx/'+flow.hash));
  const idb=await require('./position-observations-idb.cjs').check(page);assert.equal(idb.snapshots,4);assert.equal(idb.events,4);
- await dialog.getByRole('button',{name:'关闭详情',exact:true}).click();assert.equal(await page.locator('#detail[open]').count(),0);assert.equal(await page.locator('.strategy-analysis').count(),0);
+ await dialog.getByRole('button',{name:'关闭详情',exact:true}).click();await page.locator('.strategy-analysis').waitFor({state:'detached'});assert.equal(await page.locator('#detail[open]').count(),0,'closed account dialog');assert.equal(await page.locator('.strategy-analysis').count(),0,'disposed account analysis');
  return {account,period:'30D',scope:report.scope,samples:report.summary.sampleCount,cashflows:report.cashflows.length,estimatedReturn:report.summary.strategyReturnPct,sampledDrawdown:report.summary.sampledMddPct,indexedDB:idb};
 };
