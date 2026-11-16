@@ -310,3 +310,15 @@ th{color:#728098;font-weight:500;background:#fbfcfe}
 .books-shell.trader-page .position-notice{margin:12px 0 16px;padding:10px 14px;border:1px solid #e1e6ec;border-radius:8px;background:#f8fafb;color:#536779;font-size:12px;line-height:1.7}
 
 .ranking-boundary{margin:8px 0 0;color:#68788e;font-size:11px;line-height:1.7;max-width:760px}
+
+#detail .period-switch { display:flex; flex-wrap:wrap; gap:8px; margin:12px 0 18px; }
+#detail .period-switch button { min-height:38px; width:auto; padding:6px 13px; border:1px solid #d5dfe0; border-radius:7px; background:#fff; color:#4a6065; }
+#detail .period-switch button[aria-pressed=true] { background:#9f410f; border-color:#9f410f; color:white; font-weight:650; }
+#detail .period-switch button:disabled { background:#f3f5f5; color:#737f82; border-color:#e2e7e7; cursor:default; }
+.lead-curve { margin:16px 0; }
+.lead-curve h4 { margin:0 0 8px; }
+.lead-curve small { display:inline-block; margin:6px 12px 0 0; color:#657882; }
+.lead-source-links { display:flex; flex-wrap:wrap; gap:8px 14px; margin:12px 0; }
+.lead-detail-metrics { display:flex; flex-wrap:wrap; gap:10px 32px; padding-block:10px; }
+.lead-detail-metrics :is(small,strong) { display:block; }
+.lead-detail-metrics small { color:#657882; margin-bottom:3px; }

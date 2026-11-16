@@ -21,13 +21,43 @@ function note(text){return el('p',text,'ta-note');}
 function empty(title,text){const n=el('div',undefined,'ta-empty');n.append(el('strong',title),note(text));return n;}
 function isHL(r){return r.exchange==='Hyperliquid'&&/^0x[0-9a-f]{40}$/.test(r.accountId);}
 function official(c){return c.context.binanceView?.closedPositions?.rows||[];}
+function isAoying(r){return !r._local&&r.exchange==='Binance'&&r.sourceKind==='copy_trade'&&r.accountId==='5075281354358777856';}
 function rebuild(c){
- c.events=c.context.r.exchange==='Binance'?M.binanceEvents(c.records?.allRows||c.context.binanceView?.orders?.rows||[]):isHL(c.context.r)?M.hyperliquidEvents(c.history?.rows||[]):[];
- const extra=c.context.r.accountId==='5075281354358777856'?c.officialHistory?.rows||[]:official(c);
- c.cycles=M.cycles(c.events,extra);
+ if(c.archiveSource==='alphafox'){
+   c.events=c.alphaEvents||[];c.cycles=c.alphaCycles||[];
+ }else{
+   c.events=c.context.r.exchange==='Binance'?M.binanceEvents(c.records?.allRows||c.context.binanceView?.orders?.rows||[]):isHL(c.context.r)?M.hyperliquidEvents(c.history?.rows||[]):[];
+   const extra=isAoying(c.context.r)?c.officialHistory?.rows||[]:official(c);
+   c.cycles=M.cycles(c.events,extra);
+ }
  if(!c.cycles.some(x=>x.id===c.selected))c.selected=c.cycles[0]?.id||null;
 }
+async function readAlphaArchive(c,force=false){
+ if(c.alphaPending||c.alpha&&!force)return;
+ c.alphaPending=true;c.alphaError=null;
+ try{
+   const response=await env.fetch('binance/aoying-public-archive.json',{credentials:'omit',redirect:'error',cache:'no-cache'});
+   if(!response.ok||Number(response.headers.get('content-length'))>10000000)throw Error('第三方归档暂不可读');
+   const text=await response.text();if(text.length>10000000)throw Error('归档文件过大');
+   const adapter=env.BooksAoyingPublicArchive,archive=adapter.parse(JSON.parse(text)),events=adapter.events(archive),cycles=adapter.cycles(archive,events);
+   c.alpha=archive;c.alphaEvents=events;c.alphaCycles=cycles;
+ }catch(error){c.alphaError=error.message;}
+ finally{
+   c.alphaPending=false;
+   if(current===c&&c.archiveSource==='alphafox'&&!c.paused){rebuild(c);draw(c);}
+ }
+}
+function switchArchive(c,source){
+ if(c.archiveSource===source)return;
+ c.archiveSource=source;c.selected=null;c.expanded.clear();c.filter='all';
+ if(source==='alphafox')readAlphaArchive(c);
+ rebuild(c);draw(c);
+}
 function status(c){
+ if(c.archiveSource==='alphafox'){
+   if(!c.alpha)return c.alphaError?'AlphaFox 公开归档本次读取失败':'正在读取 AlphaFox 公开归档…';
+   return 'AlphaFox 第三方归档 · '+c.events.length+' 条流水 · '+c.cycles.length+' 条已平仓记录 · '+date(c.alpha.fetchedAt)+(c.alphaError?' · 更新失败，保留上次归档':'');
+ }
  const at=c.records?.checkedAt||c.history?.fetchedAt||c.officialHistory?.fetchedAt||c.context.binanceView?.orders?.fetchedAt;
  const old=at&&Date.now()-new Date(at).getTime()>120000;
  return [c.loading?'正在更新公开记录':c.error?'本次更新未成功，保留历史':old?'历史记录 · 待更新':'已保存的公开记录',`${c.events.length} 条操作 · ${c.cycles.filter(x=>x.official).length} 条官方历史仓位`,at?'最近读取 '+date(at):'尚未取得逐条记录'].join(' · ');
@@ -38,14 +68,24 @@ function draw(c){
  if(c!==current||!c.root.isConnected)return;
  teardown(c);c.root.replaceChildren();c.root.classList.add('trade-analysis');
  const toolbar=el('div',undefined,'ta-toolbar'),s=el('p',status(c),'ta-status');s.setAttribute('role','status');
- const refresh=btn(c.loading?'更新中…':'刷新记录',()=>load(c,true));refresh.disabled=!!c.loading;toolbar.append(s,refresh);c.root.append(toolbar);
+ const alpha=c.archiveSource==='alphafox',loading=alpha?c.alphaPending:c.loading;
+ const refresh=btn(loading?'更新中…':'刷新记录',()=>alpha?readAlphaArchive(c,true):load(c,true));refresh.disabled=!!loading;toolbar.append(s,refresh);c.root.append(toolbar);
+ if(isAoying(c.context.r)&&env.BooksAoyingPublicArchive){
+   const switches=el('div',undefined,'period-switch ta-archive-switch');switches.setAttribute('aria-label','历史记录来源');
+   for(const [key,label]of [['official','本站官方归档'],['alphafox','AlphaFox 公开归档']]){
+     const control=btn(label,()=>switchArchive(c,key));control.setAttribute('aria-pressed',String((c.archiveSource||'official')===key));switches.append(control);
+   }
+   c.root.append(switches);
+ }
+ if(alpha&&!c.alpha){c.root.append(note(c.alphaError?'第三方档案暂不可读，请刷新记录重试。':'正在读取已保存的第三方操作与已平仓记录…'));return;}
+
  if(c.context.tab==='analysis')analysis(c);
  if(c.context.tab==='positions')positions(c);
  if(c.context.tab==='orders')orders(c,c.root,c.events);
  if(c.context.tab==='points')points(c);
  const details=el('details',undefined,'ta-method'),summary=el('summary','来源、覆盖范围与计算口径');details.append(summary);
  const r=c.context.r;
- details.append(note(r.exchange==='Binance'?'币安公开操作记录是聚合成交记录，没有订单 ID；更新时间不等于每笔撮合时间。“开仓 / 加仓方向”不能单独确认新开仓。历史仓位汇总来自币安官方历史接口，逐条操作只包含本站已保存的有限样本。当前持仓与挂单未取得时均显示未知。':'Hyperliquid 只读 userFills 返回最近最多 2000 笔成交；默认永续市场之外的现货不混入仓位重建。以每笔 startPosition 校验数量连续性，发生缺口便中断归组，不把样本当完整账户历史。'));
+ details.append(note(alpha?'历史仓位与流水按 AlphaFox 公开归档显示，估算盈亏单独标出。账户收益率与盈亏曲线沿用币安所选周期。':r.exchange==='Binance'?'币安公开操作记录是聚合成交记录，没有订单 ID；更新时间不等于每笔撮合时间。“开仓 / 加仓方向”不能单独确认新开仓。历史仓位汇总来自币安官方历史接口，逐条操作只包含本站已保存的有限样本。当前持仓与挂单未取得时均显示未知。':'Hyperliquid 只读 userFills 返回最近最多 2000 笔成交；默认永续市场之外的现货不混入仓位重建。以每笔 startPosition 校验数量连续性，发生缺口便中断归组，不把样本当完整账户历史。'));
  details.append(note('观测数量净变化 = 已见开 / 加方向数量 − 已见减 / 平方向数量。期初仓位未知或记录版本存在歧义时，不据此断言当前持仓。官方仓位的开平均价只是汇总，不伪造成图上的逐笔买卖点。'));
  if(c.context.metricNote)details.append(note(c.context.metricNote));
  const periodMetric=c.context.metrics;
@@ -54,8 +94,9 @@ function draw(c){
 
  if(c.error)details.append(note('更新状态：'+c.error+'。403 / 429 会停止相应来源请求，不切换接口绕过。'));
  if(isHL(r))details.append(note('成交流水的来源已实现盈亏未扣手续费、资金费；手续费按原费用币单列。首次发现时间是本机读取此成交的时间，不当作开仓时间。'));
- if(c.officialHistory)details.append(note(`历史仓位分页：${c.officialHistory.rows.length} / 来源本次总数 ${c.officialHistory.sourceTotal}；${c.officialHistory.pages} 页，每页 20 条。读取 ${date(c.officialHistory.fetchedAt)}；不是账户完整交割单。`));
+ if(!alpha&&c.officialHistory)details.append(note(`历史仓位分页：${c.officialHistory.rows.length} / 来源本次总数 ${c.officialHistory.sourceTotal}；${c.officialHistory.pages} 页，每页 20 条。读取 ${date(c.officialHistory.fetchedAt)}；不是账户完整交割单。`));
  if(c.officialHistory?.performanceByPeriod)details.append(note('熬鹰 7D、30D、90D、180D、365D 表现和对应 PNL 曲线均直接读取币安公开接口；每个周期单独保存采集时间与证据，不用操作样本估算。来源未提供独立统计截止时间；当前仓位由来源标记为不可见，不能按空数组判定空仓。'));
+ if(alpha){const record=el('a','AlphaFox 公开资料 ↗');record.href=c.alpha.sourceUrl;record.target='_blank';record.rel='noopener noreferrer';details.append(record,note('第三方记录和本站官方归档分别计数。'));}
  const link=el('a','打开官方来源 ↗');link.href=r.sourceUrl||r.url||(isHL(r)?'https://app.hyperliquid.xyz/explorer/address/'+r.accountId:'https://www.binance.com/zh-CN/copy-trading/lead-details/'+r.accountId);link.target='_blank';link.rel='noopener noreferrer';details.append(link);c.root.append(details);
 }
 function analysis(c){
@@ -74,6 +115,10 @@ function analysis(c){
  [c.context.r.exchange==='Binance'?'币安来源回撤':'采样盈亏回撤',percentage(w.mdd),null,c.context.r.exchange==='Binance'?'沿用平台口径':'非标准净值最大回撤'],
  [c.context.r.exchange==='Binance'?'已平仓仓位胜率':'近期平仓片段胜率',percentage(w.winRate),null,c.context.winNote||'资料不足时留空']];
  for(const [label,value,n,caption]of data){const item=el('div',undefined,'ta-metric');item.append(el('span',label),tone(el('strong',value),n),el('small',caption));grid.append(item);}statsRoot.append(grid);
+ if(c.archiveSource==='alphafox'){
+  const profit=el('section',undefined,'ta-analysis-section');profit.append(el('h3','币安官方盈亏曲线'));profitCurve(profit,c.context.curve,'Binance');statsRoot.append(profit);
+  const links=el('div',undefined,'ta-summary-links');links.append(btn('AlphaFox 历史仓位 '+c.cycles.length,()=>c.context.activate('positions')),btn('AlphaFox 公开流水 '+c.events.length,()=>c.context.activate('orders')));statsRoot.append(links);return;
+ }
  const end=new Date(c.officialHistory?.fetchedAt||c.context.binanceView?.closedPositions?.fetchedAt||c.history?.fetchedAt||Date.now()).getTime(),days=Number.parseInt(c.context.period,10)||Math.max(1,Math.ceil((end-Math.min(end,...c.cycles.map(x=>x.closed||end)))/86400000)+1),stats=M.summary(c.cycles,days,end);
  const samples=el('div',undefined,'ta-sample-metrics');
  for(const [label,value,caption]of [['分析仓位样本',String(stats.count),'官方已平仓 / 连续闭合样本'],['平均持仓时间',stats.averageDuration===null?'—':duration(1,stats.averageDuration+1),'按样本数量等权'],['历史样本杠杆均值',stats.averageLeverage===null?'—':fmt(stats.averageLeverage,2)+'×',stats.leverageCount+' 个有来源杠杆的样本'],['多 / 空样本',stats.longs+' / '+stats.shorts,'按已闭合仓位数量']]){const item=el('div',undefined,'ta-sample-metric');item.append(el('span',label),el('strong',value),el('small',caption));samples.append(item);}statsRoot.append(samples);
@@ -117,23 +162,23 @@ function profitCurve(target,data,exchange){
 }
 function duration(a,b){if(!a||!b)return '—';const m=Math.max(0,Math.round((b-a)/60000));return (m>=1440?Math.floor(m/1440)+'天 ':'')+(m>=60?Math.floor(m%1440/60)+'时 ':'')+m%60+'分';}
 function positions(c){
- c.root.append(note('官方历史仓位与公开操作片段分开标注。展开查看已归档操作；回放仅使用这些操作，不补造缺失买卖点。'));
+ c.root.append(note(c.archiveSource==='alphafox'?'AlphaFox 第三方已平仓汇总，估算盈亏逐条标注。':'官方历史仓位与公开操作片段分开标注。展开查看已归档操作；回放仅使用这些操作，不补造缺失买卖点。'));
  if(!c.cycles.length){c.root.append(empty('暂无历史仓位或操作片段','数据读入后自动显示；未取得历史不代表账户没有交易。'));return;}
  const t=table(['合约','来源 / 状态','来源已实现盈亏','平仓数量','开仓均价','平仓均价','持有时长','结束 / 最近操作','操作']);
  for(const [i,x]of c.cycles.entries()){
   const tr=el('tr'),contract=cell(tr,undefined,'ta-contract');contract.append(el('span',side(x.positionSide),'ta-side ta-'+x.positionSide),el('strong',x.symbol));
-  const coverage=cell(tr);coverage.append(el('span',x.status,'ta-tag'),el('small',x.official?'币安官方 · '+x.events.length+' 条已见操作':x.events.length+' 条操作 · 非完整仓位'));
-  tone(cell(tr,signed(x.pnl)+' '+x.quote),x.pnl);cell(tr,fmt(x.quantity,8));cell(tr,fmt(x.avgEntry,8));cell(tr,fmt(x.avgExit,8));cell(tr,duration(x.opened,x.closed));cell(tr,shortDate(x.lastTime));
+  const coverage=cell(tr);coverage.append(el('span',x.status,'ta-tag'),el('small',c.archiveSource==='alphafox'?'AlphaFox 第三方归档'+(x.origin==='exchange'?' · 来源标注为交易所':''):x.official?'币安官方 · '+x.events.length+' 条已见操作':x.events.length+' 条操作 · 非完整仓位'));
+  tone(cell(tr,signed(x.pnl)+' '+x.quote+(x.pnlEstimated?' · 估算':'')),x.pnl);cell(tr,fmt(x.quantity,8));cell(tr,fmt(x.avgEntry,8));cell(tr,fmt(x.avgExit,8));cell(tr,duration(x.opened,x.closed));cell(tr,shortDate(x.lastTime));
   const actions=cell(tr,undefined,'ta-row-actions'),replay=btn('',()=>jump(c,x),'ta-button ta-replay'),expand=btn('',()=>{const open=!detail.hidden;detail.hidden=open;expand.setAttribute('aria-expanded',String(!open));if(open)c.expanded.delete(x.id);else c.expanded.add(x.id);},'ta-button ta-expand');replay.append(icon('replay'),document.createTextNode('回放'));expand.append(icon('points'));expand.title='查看这笔仓位的已见操作';
   expand.setAttribute('aria-label','展开 '+x.symbol+' 的已见操作');expand.setAttribute('aria-expanded',String(c.expanded.has(x.id)));expand.setAttribute('aria-controls','ta-events-'+i);actions.append(replay,expand);t.body.append(tr);
-  const detail=el('tr',undefined,'ta-expanded');detail.id='ta-events-'+i;detail.hidden=!c.expanded.has(x.id);const td=cell(detail);td.colSpan=9;td.append(note(x.coverage));orders(c,td,x.events,true);t.body.append(detail);
+  const detail=el('tr',undefined,'ta-expanded');detail.id='ta-events-'+i;detail.hidden=!c.expanded.has(x.id);const td=cell(detail);td.colSpan=9;td.append(note(x.coverage));if(x.reference&&x.sourcePositionId)td.append(note('第三方仓位记录标识 '+x.sourcePositionId));orders(c,td,x.events,true);t.body.append(detail);
  }c.root.append(t.wrap);
 }
 function orders(c,target,events,compact=false){
- if(!compact)target.append(note('实际公开成交 / 聚合成交记录；不包含未成交挂单。来源时间与本系统首次发现时间独立展示。'));
+ if(!compact)target.append(note(c.archiveSource==='alphafox'?'以下为 AlphaFox 保存的第三方公开操作。':'实际公开成交 / 聚合成交记录；不包含未成交挂单。来源时间与本系统首次发现时间独立展示。'));
  if(!events.length){target.append(empty('尚未归档逐条操作','仅有开平仓汇总时可查看均价；无法回放未取得的操作。'));return;}
- const t=table(['来源时间（北京）','合约','动作 / 方向','买卖','成交均价','数量','来源已实现盈亏','手续费',isHL(c.context.r)?'本机首次发现':'系统首次发现','订单 ID']);
- for(const x of [...events].reverse()){const tr=el('tr');cell(tr,date(x.time));cell(tr,x.symbol,'ta-contract');cell(tr,x.action+(x.ambiguous?' · 版本待核':''));cell(tr,x.side==='buy'?'买':'卖');cell(tr,fmt(x.price,8)+' '+x.quote);cell(tr,fmt(x.quantity,8));tone(cell(tr,signed(x.pnl)+' '+x.quote),x.pnl);cell(tr,x.fee===null?'—':fmt(x.fee,8)+' '+(x.feeToken||'来源费用币未知'));cell(tr,date(x.firstSeenAt));cell(tr,x.orderId===null?'来源未提供':String(x.orderId));t.body.append(tr);}target.append(t.wrap);
+ const t=table(['来源时间（北京）','合约','动作 / 方向','买卖','成交均价','数量','来源已实现盈亏','手续费',isHL(c.context.r)?'本机首次发现':'系统首次发现','订单 ID',...(c.archiveSource==='alphafox'?['归档记录标识']:[])]);
+ for(const x of [...events].reverse()){const tr=el('tr');cell(tr,date(x.time));cell(tr,x.symbol,'ta-contract');cell(tr,x.action+(x.ambiguous?' · 版本待核':''));cell(tr,x.side==='buy'?'买':'卖');cell(tr,fmt(x.price,8)+' '+x.quote);cell(tr,fmt(x.quantity,8));tone(cell(tr,signed(x.pnl)+' '+x.quote+(x.pnlEstimated?' · 估算':'')),x.pnl);cell(tr,x.fee===null?'—':fmt(x.fee,8)+' '+(x.feeToken||'来源费用币未知'));cell(tr,date(x.firstSeenAt));cell(tr,x.orderId==null?'来源未提供':String(x.orderId));if(c.archiveSource==='alphafox')cell(tr,x.id);t.body.append(tr);}target.append(t.wrap);
 }
 function jump(c,x){c.selected=x.id;c.filter='all';c.context.activate('points');}
 function points(c){
@@ -150,7 +195,7 @@ function points(c){
  const tools=el('div',undefined,'ta-chart-tools'),interval=el('select');interval.setAttribute('aria-label','K 线周期');for(const v of ['15m','1h','4h','1d']){const o=el('option',({'15m':'15 分钟','1h':'1 小时','4h':'4 小时','1d':'日线'})[v]);o.value=v;interval.append(o);}interval.value=c.interval||'1h';interval.onchange=()=>{c.interval=interval.value;draw(c);};tools.append(el('span','K 线与已见买卖点'),interval);right.append(tools);
  const chart=el('div',undefined,'ta-chart'),message=note('正在读取官方 K 线…');chart.setAttribute('aria-label',x.symbol+' K 线及公开操作点位');right.append(chart,message);
  const attribution=el('p',undefined,'ta-attribution'),a=el('a','TradingView Lightweight Charts™');a.href='https://www.tradingview.com/';a.target='_blank';a.rel='noopener noreferrer';const license=el('a','Apache 2.0');license.href='../vendor/lightweight-charts-5.3.0/LICENSE';license.target='_blank';const notice=el('a','署名');notice.href='../vendor/lightweight-charts-5.3.0/NOTICE';notice.target='_blank';attribution.append(a,document.createTextNode(' · '),license,document.createTextNode(' · '),notice);right.append(attribution);
- if(!x.events.length)right.append(note('仅取得官方仓位汇总，暂无逐条操作；不会用开平均价伪造买卖点。'));
+ if(!x.events.length)right.append(note('仅有仓位汇总，尚无可关联的逐条操作。'));
  else right.append(note('鼠标悬浮标记查看明细；点击可固定，手机可轻触查看。'+x.events[0].precision+'；多笔操作逐条打点，过密时保留汇总入口。'));
  const playback=el('div',undefined,'ta-playback');right.append(playback);
  const events=el('div',undefined,'ta-event-list');for(const e of x.events){const b=btn('',()=>c.focusEvent?.(e),'ta-event');b.append(el('span',e.side==='buy'?'买':'卖','ta-side '+(e.side==='buy'?'ta-long':'ta-short')),el('strong',e.action),el('span',fmt(e.price,8)+' '+e.quote),el('small',shortDate(e.time)+' · '+fmt(e.quantity,8)));events.append(b);}right.append(events);
@@ -171,21 +216,22 @@ async function buildChart(c,x,container,message,playback){
  }catch(e){if(current===c&&version===c.chartVersion)message.textContent='K 线暂不可用（'+e.message+'）。已归档的操作仍可查看。';}
 }
 async function load(c,force=false){
+ if(c.archiveSource==='alphafox'){if(force)await readAlphaArchive(c,true);return;}
  if(c.loading)return;c.loading=true;c.error=null;const before=c.events.map(x=>x.id).join('|'),r=c.context.r;syncStatus(c);
  try{
-  if(r.exchange==='Binance'&&r.accountId==='5075281354358777856'){const data=await c.context.publicReader.read();if(current!==c)return;c.records=data;}
+  if(isAoying(r)){const data=await c.context.publicReader.read();if(current!==c)return;c.records=data;}
   else if(isHL(r)){const data=await D.fills(r.accountId,force);if(current!==c)return;c.history=data;}
   // Other exchanges retain their validated saved samples; no speculative requests.
  }catch(e){c.error=e.message;}
  finally{c.loading=false;if(current===c){rebuild(c);if(!c.paused){if(before!==c.events.map(x=>x.id).join('|'))draw(c);else syncStatus(c);}}}
 }
-function syncStatus(c){if(c.paused)return;const s=c.root.querySelector('.ta-status'),b=c.root.querySelector('.ta-toolbar button');if(s){s.textContent=status(c);s.title=c.error||'';}if(b){b.textContent=c.loading?'更新中…':'刷新记录';b.disabled=!!c.loading;}}
+function syncStatus(c){if(c.paused||c.archiveSource==='alphafox')return;const s=c.root.querySelector('.ta-status'),b=c.root.querySelector('.ta-toolbar button');if(s){s.textContent=status(c);s.title=c.error||'';}if(b){b.textContent=c.loading?'更新中…':'刷新记录';b.disabled=!!c.loading;}}
 function render(root,context){
  root.closest('dialog').classList.add('ta-detail');
  const key=context.r.exchange+':'+context.r.accountId;
  if(!current||current.key!==key){dispose();root.closest('dialog').classList.add('ta-detail');current={key,root,context,events:[],cycles:[],expanded:new Set(),filter:'all',selected:null,chartVersion:0};
-  current.records=context.r.accountId==='5075281354358777856'?context.publicReader?.last():null;current.history=isHL(context.r)?D.cached(context.r.accountId):null;
-  if(context.r.accountId==='5075281354358777856'&&env.BooksAoyingHistory)current.officialHistory=env.BooksAoyingHistory;
+  current.records=isAoying(context.r)?context.publicReader?.last():null;current.history=isHL(context.r)?D.cached(context.r.accountId):null;
+  if(isAoying(context.r)&&env.BooksAoyingHistory)current.officialHistory=env.BooksAoyingHistory;
   rebuild(current);draw(current);load(current);const owner=current;current.refreshTimer=setInterval(()=>{if(current===owner&&!owner.paused&&document.visibilityState!=='hidden'&&root.closest('dialog').open&&owner.context.tab!=='live')load(owner);},60000);return;
  }
  const changed=current.context.tab!==context.tab||current.context.period!==context.period,updated=context.tab==='analysis'&&(JSON.stringify(current.context.metrics)!==JSON.stringify(context.metrics)||JSON.stringify(current.context.curve)!==JSON.stringify(context.curve));if(context.tab!=='analysis')stopFloating(current);current.context=context;current.root=root;current.paused=false;rebuild(current);if(changed||updated||current.needsDraw||!root.firstChild){const scroller=root.closest('dialog'),offset=scroller.scrollTop;current.needsDraw=false;draw(current);scroller.scrollTop=changed?0:offset;}

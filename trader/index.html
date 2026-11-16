@@ -7,24 +7,25 @@
   <meta name="referrer" content="no-referrer">
   <meta name="robots" content="noindex,nofollow">
   <title>Books · 带单员广场</title>
-  <link rel="stylesheet" href="plaza.css?v=27a1bd7e">
+  <link rel="stylesheet" href="plaza.css?v=1bb021a5">
   <script defer src="source-policy.js?v=533f3992"></script><script defer src="account-live.js?v=b283995c"></script>
   <script defer src="public-focus.js?v=29aabec1"></script>
   <script defer src="period-roi.js?v=a01c8451"></script>
   <script defer src="account-analytics.js?v=b27b43ff"></script>
   <script defer src="binance-data.js?v=5bbea14a"></script><script defer src="okx-period-data.js?v=fd467983"></script>
-  <script defer src="replay-seed.js?v=fd30886c"></script>
-  <script defer src="aoying-history.js"></script>
+  <script defer src="okx-trades.js"></script><script defer src="bitget-period-data.js"></script>
+  <script defer src="replay-seed.js"></script>
+  <script defer src="aoying-history.js"></script><script defer src="aoying-public-archive.js"></script>
   <script defer src="reference-data.js?v=8cc44459"></script>
-  <script defer src="public-executions.js?v=f59102b4"></script>
+  <script defer src="public-executions.js?v=75ab9c33"></script>
   <script defer src="../vendor/lightweight-charts-5.3.0/lightweight-charts.standalone.production.js"></script>
   <script defer src="trade-replay-model.js?v=0b3726dd"></script>
   <script defer src="trade-replay-data.js?v=b8099704"></script>
   <script defer src="trade-chart.js?v=2c25a722"></script>
   <script defer src="position-market.js?v=cc260b84"></script>
   <script defer src="floating-pnl.js?v=188f80ce"></script>
-  <script defer src="trade-analysis.js?v=05407fd9"></script>
-  <script defer src="plaza.js?v=a0f16eda"></script>
+  <script defer src="trade-analysis.js?v=7fb3a83d"></script>
+  <script defer src="plaza.js?v=ff665d52"></script>
   <link rel="stylesheet" href="../books-ui.css?v=089506ce">
   <link rel="stylesheet" href="trade-analysis.css?v=7f1be1b5">
   <link rel="stylesheet" href="../index-ticker.css?v=d6459a25">
@@ -49,7 +50,7 @@
   </aside>
   <main id="main">
     <header class="page-header">
-      <div><p class="eyebrow">LEADER RESEARCH</p><h1>带单员广场</h1><p class="page-intro">币安带单员与 Hyperliquid 公开账户，历史资料和持仓核验分开展示。</p><p class="ranking-boundary">排名仅覆盖本站已核验公开样本，收益率沿用来源周期字段，不代表全市场；账户数量、来源时间和覆盖范围见下方资料说明。</p></div>
+      <div><p class="eyebrow">LEADER RESEARCH</p><h1>带单员广场</h1><p class="page-intro">查询币安、OKX、Bitget 带单员和 Hyperliquid 公开账户的收益与交易记录。</p><p class="ranking-boundary">排名仅覆盖本站已核验公开样本，收益率沿用来源周期字段，不代表全市场；账户数量、来源时间和覆盖范围见下方资料说明。</p></div>
       <details class="record-tools"><summary>资料管理</summary><div class="actions page-actions">
         <button id="add-trader" type="button">添加带单员</button><span class="local-total">本机资料 <span id="local-count">0</span></span>
       </div></details>
@@ -67,9 +68,9 @@
     <section class="plaza" aria-labelledby="plaza-title">
       <div class="heading">
         <div><h2 id="plaza-title">研究名单</h2><p id="count" aria-live="polite">0 个研究账户</p></div>
-        <div class="actions"><a class="evidence-entry" href="exchange.html">公开成交证据</a><button id="reset" type="button">重置筛选</button><button id="refresh" type="button">刷新</button></div>
+        <div class="actions"><a class="evidence-entry" href="?exchange=Binance&amp;account=5075281354358777856&amp;view=orders">熬鹰资本 · 历史流水</a><a class="evidence-entry" href="exchange.html">公开成交证据</a><button id="reset" type="button">重置筛选</button><button id="refresh" type="button">刷新</button></div>
       </div>
-      <nav class="platform-switch" aria-label="选择账户平台"><button type="button" id="platform-all" aria-pressed="true">全部平台</button><button type="button" id="platform-hl" aria-pressed="false">Hyperliquid</button><button type="button" id="platform-binance" aria-pressed="false">币安</button><button type="button" id="platform-okx" aria-pressed="false">OKX</button></nav>
+      <nav class="platform-switch" aria-label="选择账户平台"><button type="button" id="platform-all" aria-pressed="true">全部平台</button><button type="button" id="platform-hl" aria-pressed="false">Hyperliquid</button><button type="button" id="platform-binance" aria-pressed="false">币安</button><button type="button" id="platform-okx" aria-pressed="false">OKX</button><button type="button" id="platform-bitget" aria-pressed="false">Bitget</button></nav>
       <div class="filters">
         <label class="search" for="search">搜索<input id="search" type="search" placeholder="名称、账号或交易所" maxlength="100"></label>
         <label for="period">统计周期<select id="period"><option value="7D">周度 / 7D</option><option value="30D" selected>月度 / 30D</option><option value="90D">季度 / 90D</option><option value="180D">半年 / 180D</option><option value="365D">年度 / 365D</option><option value="ALL">来源累计</option></select></label>

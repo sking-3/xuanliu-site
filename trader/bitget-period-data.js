@@ -1,0 +1,78 @@
+(function (root, factory) {
+  const api = factory();
+  if (typeof module === 'object' && module.exports) module.exports = api;
+  else root.BooksBitgetPeriodData = api;
+})(globalThis, function () {
+  'use strict';
+  const day = 86400000;
+  const days = {'30D': 30, '90D': 90};
+  const source = 'bitget_public_lead';
+  const rankUrl = 'https://www.bitget.com/copy-trading/futures';
+  const profileUrl = id => 'https://www.bitget.com/copy-trading/futures-trader/' + id;
+  const validId = id => typeof id === 'string' && /^[1-9]\d{18}$/.test(id);
+  const evidencePath = (name, sha) => 'bitget/evidence/' + name + '-' + sha + '.json';
+  const number = Number.isFinite;
+  const whole = value => Number.isSafeInteger(value) && value >= 0;
+  function check(value) { if (!value) throw Error('Invalid Bitget public snapshot'); }
+  function timestamp(value, now) {
+    return typeof value === 'string' && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(value)
+      && Number.isFinite(Date.parse(value)) && Date.parse(value) <= now + 5000;
+  }
+  function evidence(part, name, now) {
+    check(part && /^[a-f0-9]{64}$/.test(part.evidenceSha256) && part.evidencePath === evidencePath(name, part.evidenceSha256)
+      && timestamp(part.fetchedAt,now));
+  }
+  function parse(raw, now = Date.now()) {
+    check(raw && raw.schemaVersion === 1 && raw.source === source && timestamp(raw.generatedAt,now));
+    const end = Date.parse(raw.generatedAt);
+    check(raw.rankSourceUrl === rankUrl && Array.isArray(raw.accounts) && raw.accounts.length > 0 && raw.accounts.length <= 6);
+    evidence(raw.rankEvidence,'leaders-aum',end);
+    const seen = new Set();
+    for (const row of raw.accounts) {
+      const id = row.portfolioId;
+      check(validId(id) && !seen.has(id) && typeof row.name === 'string' && row.name.trim() && row.name.length <= 150);
+      seen.add(id);
+      check(row.sourceUrl === profileUrl(id) && whole(row.leadDays) && row.leadDays >= 90
+        && whole(row.copyTraderNum) && row.copyTraderNum > 0 && row.performance?.['90D']?.roi > 0);
+      evidence(row.profileEvidence,id+'-profile',end);
+      for (const [period,part] of Object.entries(row.performance)) {
+        check(Object.hasOwn(days,period) && part.sourcePeriod === period && part.sourceUrl === row.sourceUrl
+          && part.currency === 'USD' && part.sourceAsOf === null && part.lastSuccessAt === part.fetchedAt);
+        evidence(part,id+'-p'+days[period],end);
+        evidence({fetchedAt:part.curveFetchedAt,evidencePath:part.curveEvidencePath,evidenceSha256:part.curveEvidenceSha256},id+'-curve'+days[period],end);
+        check(Array.isArray(part.curve) && part.curve.length>0 && part.curve.length<=days[period]+1
+          && part.curve.every((point,i)=>number(point.value) && timestamp(point.time,Date.parse(part.curveFetchedAt))
+            && (!i || part.curve[i-1].time<point.time)));
+        check(number(part.roi) && number(part.pnl) && (part.mdd === null || number(part.mdd) && part.mdd >= 0)
+          && (part.winRate === null || number(part.winRate) && part.winRate >= 0 && part.winRate <= 100));
+      }
+      for (const [key,suffix] of [['positions','open'],['history','closed']]) {
+        const part = row.activity?.[key];
+        evidence(part,id+'-'+suffix,end);
+        check(part.sourceUrl === row.sourceUrl+'/current' && Array.isArray(part.rows)
+          && (part.rows.length ? part.status === 'ready' : ['empty','restricted'].includes(part.status)));
+        check(key === 'positions' || part.status === 'ready' && part.rows.length <= 10);
+        for (const trade of part.rows) {
+          check(typeof trade.symbol === 'string' && /^[A-Za-z0-9_.-]{1,40}$/.test(trade.symbol)
+            && ['long','short'].includes(trade.side) && timestamp(trade.openedAt,Date.parse(part.fetchedAt))
+            && number(trade.entryPrice) && trade.entryPrice > 0 && number(trade.quantity) && trade.quantity > 0
+            && (trade.leverage === null || number(trade.leverage) && trade.leverage > 0));
+          if (key === 'history') check(timestamp(trade.closedAt,Date.parse(part.fetchedAt)) && trade.openedAt <= trade.closedAt
+            && validId(trade.id) && number(trade.exitPrice) && trade.exitPrice > 0
+            && number(trade.realizedPnl) && /^[A-Z0-9]{2,12}$/.test(trade.currency));
+        }
+      }
+    }
+    return raw;
+  }
+  function performance(row, period, now = Date.now()) {
+    const part = row?.performance?.[period];
+    return part ? {...part, status: now-Date.parse(part.lastSuccessAt)>day?'stale':'ready',
+      accountAgeDays:row.leadDays,fullPeriod:row.leadDays>=days[period],periodSupported:true} : null;
+  }
+  function trader(row) {
+    return {id:'bitget-'+row.portfolioId,accountId:row.portfolioId,name:row.name,sourceKind:source,exchange:'Bitget',
+      currency:'USD',sourceUrl:row.sourceUrl,bitgetRecord:row};
+  }
+  return {parse,performance,trader,validId,rankUrl,profileUrl,evidencePath,source,days};
+});
