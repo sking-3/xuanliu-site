@@ -45,8 +45,9 @@ function shanghaiDay(value) {
   return new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(value));
 }
 
-async function chinaDaily(page) {
-  const response = await page.request.get(dailySource,{timeout});
+async function chinaDaily(page, upstream) {
+  const response = await upstream;
+  assert.ok(response, 'The browser must request the closing archive');
   assert.ok(response.ok(), 'Upstream closing archive HTTP ' + response.status());
   const source = await response.json();
   assert.ok(Array.isArray(source.stocks) && source.stocks.length === source.stockCount && source.stockCount > 1000,
@@ -82,42 +83,87 @@ async function chinaDaily(page) {
   }
 }
 
-async function chinaWatch(page) {
-  const frame = page.locator('[data-mover-market="a"] [data-equity-watch]').frameLocator('iframe');
+async function compactWatch(page) {
+  const board = page.locator('.radar-stocks > [data-equity-watch]');
+  await page.waitForFunction(() => window.watchWidgetEvents.length > 0 || document.querySelector('[data-equity-watch]')?.dataset.watchMode === 'fallback',null,{timeout});
+  const health = await page.evaluate(() => window.watchWidgetEvents);
+  assert.ok(health.some(message => message.status === 'ready' && message.count === 8),
+    'Expected eight live compact quotes, received '+JSON.stringify(health)+'; selected view: '+await board.getAttribute('data-watch-mode'));
+  assert.equal(await board.getAttribute('data-watch-mode'),'compact');
+  const watch = board.frameLocator('iframe[src*="home-watch-quotes.html"]');
+  const symbols = [...watchSymbols.SSE,...watchSymbols.SZSE];
+  assert.deepEqual((await watch.locator('[data-watch-symbol]').evaluateAll(rows=>rows.map(row=>row.dataset.watchSymbol))).sort(),symbols.sort());
+  assert.ok(await watch.locator('html').evaluate(el=>el.scrollWidth<=el.clientWidth+1),'no horizontal overflow inside the compact frame');
+  const values = [];
+  for (const symbol of symbols) {
+    const row = watch.locator('[data-watch-symbol="'+symbol+'"]');
+    const change = row.locator('tv-ticker-tag tv-ticker-pill .change').filter({hasText:percentage});
+    await change.waitFor({timeout});
+    assert.match(await row.innerText(),/\p{Script=Han}/u,'named stock '+symbol);
+    const text = await change.innerText();
+    assert.ok(Number.isFinite(numeric(text)),symbol+' '+text);
+    assert.ok(await change.evaluate(el=>{
+      const box=el.getBoundingClientRect();
+      return box.width>0 && box.height>0 && box.left>=-1 && box.right<=document.documentElement.clientWidth+1;
+    }),symbol+' change fits in the quote viewport');
+    values.push({symbol,change:text});
+  }
+  console.log('Eight live TradingView compact changes',page.viewportSize().width,values);
+}
+
+async function fullWatch(page) {
+  const board = page.locator('.radar-stocks > [data-equity-watch]');
+  const fallback = (await board.getAttribute('data-watch-mode')) === 'fallback';
+  if (!fallback) await board.locator('button[data-watch-view="quotes"]').click();
+  const frame = board.frameLocator('.radar-mover-stage iframe:not([src*="home-watch-quotes.html"])');
   const panel = frame.locator('body');
   const wuliangye = panel.locator('.js-quote-ticker[data-symbol="SZSE:000858"]:visible');
   await wuliangye.locator('.js-symbol-last').filter({hasText:price}).waitFor({timeout});
   await wuliangye.locator('.js-symbol-change-pt').filter({hasText:percentage}).waitFor({timeout});
   const [shanghai,shenzhen] = await Promise.all([watchRows(panel,'SSE'),watchRows(panel,'SZSE')]);
   assert.ok(shenzhen.some(row => row.symbol === 'SZSE:000858'), 'Expected a priced Wuliangye quote');
-  console.log('Live Shanghai and Shenzhen watchlist',shanghai,shenzhen);
+  console.log('Live Shanghai and Shenzhen full-quote observation',await board.getAttribute('data-watch-mode'),shanghai,shenzhen);
+  assert.equal(await board.getAttribute('data-watch-mode'),fallback ? 'fallback' : 'quotes');
 }
 
-async function us(page) {
+async function us(page, direction) {
   const board = page.locator('[data-mover-market="us"]');
-  for (const direction of ['gains','losses']) {
-    if (direction === 'losses') await board.locator('[data-kind="losers"]').click();
-    const frame = board.frameLocator('iframe');
-    const rows = frame.locator('tr[data-symbol]:visible:has(td[data-field-key="change"])');
-    const changes = rows.locator('td[data-field-key="change"]').filter({hasText:percentage});
-    await changes.nth(1).waitFor({timeout});
-    const values = await rows.evaluateAll(elements => elements.slice(0,2).map(row => ({
-      symbol: row.getAttribute('data-symbol'),
-      change: row.querySelector('td[data-field-key="change"]').textContent.trim()
-    })));
-    assert.equal(new Set(values.map(row=>row.symbol)).size,2);
-    for (const row of values) {
-      assert.match(row.symbol,/^[A-Z0-9]+:[A-Z0-9.-]+$/);
-      assert.ok(percentage.test(row.change) && (direction === 'gains' ? numeric(row.change) > 0 : numeric(row.change) < 0), JSON.stringify(row));
-    }
-    console.log('Live US ' + direction, values);
+  if (direction === 'losses') await board.locator('[data-kind="losers"]').click();
+  const frame = board.frameLocator('iframe');
+  const rows = frame.locator('tr[data-symbol]:visible:has(td[data-field-key="change"])');
+  const changes = rows.locator('td[data-field-key="change"]').filter({hasText:percentage});
+  await changes.nth(1).waitFor({timeout});
+  const values = await rows.evaluateAll(elements => elements.slice(0,2).map(row => ({
+    symbol: row.getAttribute('data-symbol'),
+    change: row.querySelector('td[data-field-key="change"]').textContent.trim()
+  })));
+  assert.equal(new Set(values.map(row=>row.symbol)).size,2);
+  for (const row of values) {
+    assert.match(row.symbol,/^[A-Z0-9]+:[A-Z0-9.-]+$/);
+    assert.ok(percentage.test(row.change) && (direction === 'gains' ? numeric(row.change) > 0 : numeric(row.change) < 0), JSON.stringify(row));
   }
+  console.log('Live US ' + direction, values);
 }
 
-async function check() {
-  const browser = await chromium.launch();
+async function inspect(browser,width) {
+  const mobile = width === 390;
+  const page = await browser.newPage({viewport:{width,height:mobile?844:900},isMobile:mobile,hasTouch:mobile,locale:'zh-CN',timezoneId:'Asia/Shanghai'});
+  const failures = [];
+  async function verify(name, action) {
+    try { await action(); }
+    catch (error) { failures.push(width+' '+name+': '+error.message); }
+  }
   try {
-    const page = await browser.newPage({viewport:{width:1440,height:900}});
+    await page.addInitScript(() => {
+      if (window !== top) return;
+      window.watchWidgetEvents = [];
+      addEventListener('message', event => {
+        const frame = document.querySelector('[data-equity-watch] iframe[src*="home-watch-quotes.html"]');
+        if (event.origin === location.origin && frame?.contentWindow === event.source && event.data?.type === 'books:watch-widget') {
+          window.watchWidgetEvents.push({status:event.data.status,count:event.data.count});
+        }
+      },true);
+    });
     page.on('requestfailed', request => {
       const url = new URL(request.url());
       if (url.origin + url.pathname === dailySource || url.hostname.endsWith('tradingview.com') || url.hostname.endsWith('tradingview-widget.com'))
@@ -128,17 +174,40 @@ async function check() {
       if (url.origin + url.pathname === dailySource && response.status() >= 400)
         console.log('Closing archive HTTP',response.status());
     });
+    const upstream = page.waitForResponse(response => {
+      const url = new URL(response.url());
+      return url.origin + url.pathname === dailySource;
+    },{timeout}).catch(()=>null);
     await page.goto(home, {waitUntil:'domcontentloaded'});
     const board = page.locator('.radar-stocks');
     await board.scrollIntoViewIfNeeded();
-    const failures = [];
-    for (const verify of [chinaDaily,chinaWatch,us]) {
-      try { await verify(page); }
-      catch (error) { failures.push(verify.name + ': ' + error.message); }
+    await verify('compact watch',()=>compactWatch(page));
+    if (!mobile) {
+      await verify('closing ranks',()=>chinaDaily(page,upstream));
+      await verify('US gainers',()=>us(page,'gains'));
     }
+    await verify('default layout',async()=>{
+      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth<=innerWidth+1),'no horizontal overflow on homepage');
+      assert.equal(await page.locator('[data-mover-market="us"] [data-kind="gainers"]').getAttribute('aria-pressed'),'true');
+    });
+    await board.screenshot({path:output+'/provider-'+width+'-default-radar.png'});
+    await board.locator('[data-equity-watch]').screenshot({path:output+'/provider-'+width+'-default-watch.png'});
+    if (!mobile) {
+      await verify('full or backup quotes',()=>fullWatch(page));
+      await verify('US losers',()=>us(page,'losses'));
+      await board.screenshot({path:output+'/provider-boards.png'});
+    }
+  } finally { await page.close(); }
+  return failures;
+}
+
+async function check() {
+  const browser = await chromium.launch();
+  try {
     fs.mkdirSync(output,{recursive:true});
-    await board.screenshot({path:output + '/provider-boards.png'});
-    assert.ok(!failures.length, failures.join('\n'));
+    const failures = [];
+    for (const width of [1440,390]) failures.push(...await inspect(browser,width));
+    assert.ok(!failures.length,failures.join('\n'));
   } finally { await browser.close(); }
 }
 

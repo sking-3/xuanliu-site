@@ -79,14 +79,17 @@
     };
     const title = el('h2', '市场异动');
     const header = el('header', null, 'radar-head');
-    header.append(title, el('span', '行情时间均为北京时间'));
+    header.append(title, el('span', '北京时间'));
     const crypto = el('section', null, 'radar-crypto');
     const cryptoHead = el('div', null, 'radar-section-heading');
     cryptoHead.append(el('h3','加密现货'), link('Bitget 行情 ↗','crypto.html'));
     const cryptoStatus = el('p','正在连接 Bitget 现货报价…','radar-status');
     const cryptoRowsNode = el('ul',null,'radar-rows');
-    const cryptoRule = el('p','页面打开时监测近 1 分钟涨跌，绝对值达到 1% 提示异动。','radar-rule');
-    crypto.append(cryptoHead, cryptoStatus, cryptoRowsNode, cryptoRule);
+    const cryptoColumns = el('div', null, 'radar-crypto-columns');
+    const cryptoWindow = el('span');
+    cryptoColumns.append(el('span','交易对'), cryptoWindow);
+    cryptoColumns.hidden = true;
+    crypto.append(cryptoHead, cryptoStatus, cryptoColumns, cryptoRowsNode);
 
     const stockNodes = {};
     const stocks = el('div', null, 'radar-stocks');
@@ -94,12 +97,14 @@
     rules.append(el('summary', '异动计算规则'),
       el('p', '加密现货比较最新价格与约 60 秒前的价格（允许相差 5 秒）。涨跌达到 ±1% 时，按涨跌绝对值列出最多 3 对。积累样本期间或没有触发时，展示滚动 24 小时涨跌绝对值最大的 3 对。'),
       el('p', '股票分钟成交额达到过去同一交易时段、同一分钟成交额中位数的 3 倍，标记为放量观察。最多取最近 20 个有效交易日，至少需 10 天。同时一分钟涨跌达到 ±1%，标记为量价异动。A 股日榜按同一批公开快照的日涨跌幅分别降序、升序排列，涨榜和跌榜各取 3 只，同幅按代码升序。仅纳入有有效价格和涨跌幅的证券。'));
-    host.replaceChildren(header,crypto,stocks,rules);
+    const minutes = el('section', null, 'radar-minutes');
+    minutes.setAttribute('aria-label','股票分钟异动');
+    host.replaceChildren(header,stocks,minutes,rules);
 
-    function mountQuotePanel(panel, market) {
+    function mountQuotePanel(panel, market, toolbar, board) {
       const tabs = el('div', null, 'radar-mover-tabs');
       tabs.setAttribute('role','group');
-      tabs.setAttribute('aria-label', '美股榜单方向');
+      tabs.setAttribute('aria-label', market === 'us' ? '美股榜单方向' : '沪深观察视图');
       const stage = el('div', null, 'radar-mover-stage');
       const source = link('', '');
       source.target = '_blank'; source.rel = 'noopener nofollow';
@@ -113,30 +118,40 @@
       retry.type = 'button'; retry.hidden = true;
       const recovery = el('div', null, 'radar-recovery');
       recovery.append(feedback, retry);
-      if (market === 'us') panel.append(tabs);
+      toolbar.append(tabs);
       panel.append(stage, recovery, sources);
 
       let direction = 'gainers', cleanup, retryTimer, lastFailure = 0;
       const buttons = new Map();
-      const choices = market === 'us' ? [['gainers','涨幅'],['losers','跌幅']] : [];
+      let watchView = 'compact';
+      const choices = market === 'us' ? [['gainers','涨幅'],['losers','跌幅']] : [['compact','简表'],['quotes','报价']];
       for (const [kind, label] of choices) {
         const button = el('button',label);
         button.type = 'button';
-        button.dataset.kind = kind;
+        if (market === 'us') button.dataset.kind = kind;
+        else button.dataset.watchView = kind;
         button.addEventListener('click', () => {
-          if (kind === direction) return;
-          direction = kind;
+          if (market === 'us') {
+            if (kind === direction) return;
+            direction = kind;
+          } else {
+            if (kind === watchView && board.dataset.watchMode !== 'fallback') return;
+            watchView = kind;
+          }
           load(true);
         });
         tabs.append(button);
         buttons.set(kind,button);
       }
-      function load(autoRetry) {
+      function load(autoRetry, fallback = false) {
         cleanup?.();
         clearTimeout(retryTimer);
         lastFailure = 0;
         const config = moverConfig(market,direction);
-        for (const [kind, button] of buttons) button.setAttribute('aria-pressed',String(kind === direction));
+        const compact = market === 'watch' && watchView === 'compact' && !fallback;
+        const selected = market === 'us' ? direction : compact ? 'compact' : 'quotes';
+        if (market === 'watch') board.dataset.watchMode = compact ? 'compact' : fallback ? 'fallback' : 'quotes';
+        for (const [kind, button] of buttons) button.setAttribute('aria-pressed',String(kind === selected));
         source.href = config.source;
         source.textContent = market === 'us' ? config.label + '原榜 ↗' : '中国股票行情 ↗';
         if (market === 'us') {
@@ -145,18 +160,19 @@
           alternate.textContent = opposite.label + '原榜 ↗';
         }
         alternate.hidden = true;
+        sources.hidden = true;
         retry.hidden = true;
         stage.hidden = false;
         stage.setAttribute('aria-busy','true');
         feedback.textContent = '正在读取' + config.label + '…';
 
-        let active = true, timer, observer;
+        let active = true, timer, observer, messageListener;
         function observeFrame(frame) {
           frame.addEventListener('load', () => {
             if (!active) return;
             clearTimeout(timer);
             stage.setAttribute('aria-busy','false');
-            feedback.textContent = '';
+            feedback.textContent = fallback ? '简表暂不可用，已显示完整报价。' : '';
           }, {once:true});
           frame.addEventListener('error', unavailable, {once:true});
         }
@@ -164,6 +180,7 @@
           active = false;
           clearTimeout(timer);
           observer?.disconnect();
+          if (messageListener) env.removeEventListener('message',messageListener);
           stage.replaceChildren();
         }
         function unavailable() {
@@ -172,12 +189,33 @@
           stage.hidden = true;
           stage.setAttribute('aria-busy','false');
           lastFailure = Date.now();
+          sources.hidden = false;
           alternate.hidden = market !== 'us';
           feedback.textContent = config.label + (autoRetry ? '连接失败，稍后自动重试。' : '暂时无法加载，可打开行情来源。');
           retry.hidden = false;
-          if (autoRetry) retryTimer = setTimeout(() => { if (!doc.hidden) load(false); }, 20000);
+          if (autoRetry) retryTimer = setTimeout(() => { if (!doc.hidden) load(false, fallback); }, 20000);
         }
         cleanup = dispose;
+        if (compact) {
+          const frame = el('iframe');
+          frame.title = '沪深八股日涨跌';
+          frame.src = 'home-watch-quotes.html?v=785767ef';
+          const useFullQuotes = () => { if (active) load(autoRetry,true); };
+          messageListener = event => {
+            if (!active || event.origin !== env.location.origin || event.source !== frame.contentWindow ||
+                event.data?.type !== 'books:watch-widget') return;
+            if (event.data.status === 'ready' && event.data.count === 8) {
+              clearTimeout(timer);
+              stage.setAttribute('aria-busy','false');
+              feedback.textContent = '';
+            } else if (event.data.status === 'unavailable') useFullQuotes();
+          };
+          env.addEventListener('message', messageListener);
+          frame.addEventListener('error',useFullQuotes,{once:true});
+          timer = setTimeout(useFullQuotes,20000);
+          stage.replaceChildren(frame);
+          return;
+        }
         timer = setTimeout(unavailable,15000);
         const wrapper = el('div',null,'tradingview-widget-container');
         const target = el('div',null,'tradingview-widget-container__widget');
@@ -202,16 +240,16 @@
         script.addEventListener('error',unavailable,{once:true});
         wrapper.append(script);
       }
-      retry.addEventListener('click', () => load(true));
-      env.addEventListener('online', () => { if (lastFailure && !doc.hidden) load(true); });
+      retry.addEventListener('click', () => load(true, board.dataset.watchMode === 'fallback'));
+      env.addEventListener('online', () => { if (lastFailure && !doc.hidden) load(true, board.dataset.watchMode === 'fallback'); });
       doc.addEventListener('visibilitychange', () => {
-        if (!doc.hidden && lastFailure && Date.now()-lastFailure >= 20000) load(true);
+        if (!doc.hidden && lastFailure && Date.now()-lastFailure >= 20000) load(true, board.dataset.watchMode === 'fallback');
       });
       load(true);
     }
     function mountDailyBoard(panel) {
       const path = 'wenyuanw/a-share-heatmap/main/src/lib/data/market-heatmap-fallback.json';
-      const source = link('快照来源 ↗', 'https://github.com/' + path.replace('/main/', '/blob/main/'));
+      const source = link('数据来源 ↗', 'https://github.com/' + path.replace('/main/', '/blob/main/'));
       source.target = '_blank'; source.rel = 'noopener';
       const footer = el('div', null, 'radar-mover-sources');
       const info = el('p', '正在读取最近收盘榜…', 'radar-cadence');
@@ -237,7 +275,7 @@
         const when = el('time', new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Shanghai'}).format(new Date(data.asOf)));
         when.dateTime = data.asOf;
         when.dataset.dailyAsof = '';
-        info.replaceChildren(when, ' 收盘快照 · ' + data.priced.toLocaleString('zh-CN') + ' 只有效报价');
+        info.replaceChildren(when, ' 收盘 · ' + data.priced.toLocaleString('zh-CN') + ' 只有效报价');
         distribution.replaceChildren();
         for (const [key,title] of [['gainers','涨幅前三'],['losers','跌幅前三']]) {
           const group = el('section');
@@ -284,38 +322,48 @@
       setInterval(refresh, 15 * minute);
       doc.addEventListener('visibilitychange',refresh);
     }
-    function mountStockBoard(market, href) {
-      const board = el('section', null, 'radar-stock-board');
-      board.dataset.moverMarket = market;
-      const heading = el('div', null, 'radar-section-heading');
-      heading.append(el('h3', market === 'a' ? 'A 股收盘涨跌榜' : '美股日涨跌榜'), link('行情筛选 →', href));
-      const primary = el('div', null, 'radar-main-body');
-      board.append(heading, el('p', market === 'a' ? '按日涨跌幅排序 · 含沪深北' :
-        '按交易日涨跌幅排序 · 行情可能延迟', 'radar-cadence'), primary);
-      stocks.append(board);
-      if (market === 'a') {
-        mountDailyBoard(primary);
-        const watch = el('section', null, 'radar-equity-watch');
-        watch.dataset.equityWatch = '';
-        watch.append(el('h4', '沪深观察'), el('p', '8 只固定观察股 · 日终', 'radar-cadence'));
-        board.append(watch);
-        mountQuotePanel(watch, 'watch');
-      } else {
-        mountQuotePanel(primary, 'us');
-      }
-      const intraday = market === 'a' ?
-        link('盘口异动 ↗', 'https://quote.eastmoney.com/changes/') :
-        link('停复牌公告 ↗', 'https://www.nasdaqtrader.com/trader.aspx?id=TradeHalts');
-      intraday.target = '_blank'; intraday.rel = 'noopener';
+    function marketHeading(name, action, href) {
+      const heading = el('div',null,'radar-section-heading');
+      heading.append(el('h3',name),link(action,href));
+      return heading;
+    }
+
+    const daily = el('section',null,'radar-stock-board radar-daily');
+    daily.dataset.moverMarket = 'a';
+    const dailyBody = el('div',null,'radar-main-body');
+    daily.append(marketHeading('A 股收盘涨跌榜','A 股筛选 →','screening/index.html#public-market-title'),dailyBody);
+    const us = el('section',null,'radar-stock-board radar-quotes');
+    us.dataset.moverMarket = 'us';
+    const watch = el('section',null,'radar-equity-watch radar-quotes');
+    watch.dataset.equityWatch = '';
+    stocks.append(daily,crypto,us,watch);
+    mountDailyBoard(dailyBody);
+
+    function quoteBoard(board, market, heading, cadence) {
+      const toolbar = el('div',null,'radar-quote-toolbar');
+      toolbar.append(el('span',cadence,'radar-cadence'));
+      const panel = el('div',null,'radar-main-body');
+      board.append(heading,toolbar,panel);
+      mountQuotePanel(panel,market,toolbar,board);
+    }
+    quoteBoard(us,'us',marketHeading('美股日涨跌榜','美股筛选 →','us.html#public-market-title'),'交易日涨跌 · 可能延迟');
+    const watchHeading = el('div',null,'radar-section-heading');
+    watchHeading.append(el('h3','沪深观察'));
+    quoteBoard(watch,'watch',watchHeading,'8 只观察股 · 日终');
+
+    function minuteMarket(market, name, sourceLabel, sourceUrl) {
+      const group = el('section',null,'radar-minute-market');
+      group.dataset.minuteMarket = market;
       const status = el('p','正在读取分钟记录…','radar-status');
       const list = el('ul',null,'radar-rows');
-      const foot = el('div', null, 'radar-section-heading');
-      foot.append(status, intraday);
-      board.append(foot, list);
-      stockNodes[market] = {status, list};
+      const source = link(sourceLabel,sourceUrl);
+      source.target = '_blank'; source.rel = 'noopener';
+      group.append(el('h4',name + '分钟异动'),status,source,list);
+      minutes.append(group);
+      stockNodes[market] = {status,list};
     }
-    mountStockBoard('a','screening/index.html#public-market-title');
-    mountStockBoard('us','us.html#public-market-title');
+    minuteMarket('a','A 股','盘口异动 ↗','https://quote.eastmoney.com/changes/');
+    minuteMarket('us','美股','停复牌公告 ↗','https://www.nasdaqtrader.com/trader.aspx?id=TradeHalts');
     const history = new Map();
     let feed = {quotes:[], total:20, unavailable:false};
     let snapshot, stockError = false, pending = false;
@@ -324,6 +372,7 @@
       const now = Date.now();
       const rows = cryptoRows(history,feed.quotes,now);
       cryptoRowsNode.replaceChildren();
+      cryptoColumns.hidden = !rows.length;
       if (!rows.length) {
         const last = feed.quotes.reduce((t,row)=>Math.max(t,row.ts),0);
         cryptoStatus.textContent = last ? '报价已过期 · 最近来源时间 ' + stamp(last) :
@@ -337,9 +386,10 @@
       const minuteState = alerts.length ? alerts.length + ' 个分钟异动' : comparable.length ?
         comparable.length + ' 对有分钟对照，未触发 1%' : '正在积累 1 分钟对照';
       cryptoStatus.textContent = rows.length + '/' + feed.total + ' 对有报价 · ' + minuteState + ' · ' + localTime(latest);
+      cryptoWindow.textContent = alerts.length ? '近 1 分钟异动' : '24 小时涨跌';
       for (const row of (alerts.length ? alerts : observed).slice(0,3)) {
         const item = el('li'), value = alerts.length ? row.delta : row.change;
-        item.append(el('strong',row.id),el('span',alerts.length ? '近 1 分钟异动' : '24 小时涨跌'),el('b',percent(value),value>0?'radar-up':value<0?'radar-down':''));
+        item.append(el('strong',row.id),el('span',alerts.length ? '近 1 分钟异动' : '24 小时涨跌','sr-only'),el('b',percent(value),value>0?'radar-up':value<0?'radar-down':''));
         cryptoRowsNode.append(item);
       }
     }
@@ -356,7 +406,7 @@
           continue;
         }
         const info = stockView(snapshot,market,Date.now());
-        nodes.status.textContent = !info.last ? '分钟量价异动 · 暂无公开分钟样本' :
+        nodes.status.textContent = !info.last ? '暂无公开分钟样本' :
           !info.count ? '最近分钟样本 ' + stamp(info.last) + ' · 已过期' :
           info.count + ' 只证券有分钟样本 · ' + (info.alerts.length ? info.alerts.length + ' 条异动' : '本批无已发布异动') + ' · ' + localTime(info.last);
         if (stockError) nodes.status.textContent += ' · 本次刷新失败';

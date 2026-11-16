@@ -1,0 +1,38 @@
+:root {
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+  color: #25323a;
+  background: #fff;
+  font-size: 14px;
+}
+* { box-sizing: border-box; }
+body { margin: 0; }
+.watch-meta {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+  padding: 5px 4px; font-size: 11px; color: #505e65;
+}
+a { color: #265060; text-decoration: none; }
+a:hover { text-decoration: underline; }
+a:focus-visible { outline: 2px solid #267b82; outline-offset: 2px; }
+ul {
+  list-style: none; display: grid; grid-template-columns: minmax(0,1fr);
+  gap: 0 14px; margin: 0; padding: 0;
+}
+li {
+  display: flex; align-items: center; justify-content: space-between; gap: 5px;
+  min-width: 0; min-height: 35px; padding: 3px 4px; border-top: 1px solid #e5ebee;
+}
+.stock {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 1px 6px;
+  min-width: 0; color: inherit; font-size: 12px; font-weight: 600;
+}
+.stock span { white-space: nowrap; }
+.stock small { color: #50606b; font: 11px ui-monospace, monospace; }
+tv-ticker-tag { flex: 0 0 auto; }
+tv-ticker-tag:not(:defined) { color: #657680; font-size: 11px; }
+[data-watch-status] { margin: 3px 4px; font-size: 11px; color: #50606b; }
+@media (min-width: 390px) {
+  ul { grid-template-columns: repeat(2,minmax(0,1fr)); }
+}
+
+/* Share the quote viewport with the US board without an empty lower half. */
+@media (min-width:390px) { li { min-height: clamp(36px, calc((100vh - 29px)/4), 56px); } }

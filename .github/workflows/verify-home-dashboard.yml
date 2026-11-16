@@ -7,6 +7,7 @@ on:
       - 'index.html'
       - 'home*.js'
       - 'home*.css'
+      - 'home-watch-quotes.html'
       - 'audit/home-dashboard-browser.cjs'
       - 'audit/home-provider-browser.cjs'
       - 'research-data/a-daily-movers.json'

@@ -9,6 +9,9 @@ const site = new URL(process.env.HOME_BROWSER_URL || 'http://127.0.0.1:8784/');
 const output = path.join(__dirname, 'browser-output/home-dashboard');
 const viewports = [{width:1440,height:900}, {width:390,height:844}];
 const heatmapRepo = 'https://github.com/wenyuanw/a-share-heatmap';
+const watchTagsModule = 'https://widgets.tradingview-widget.com/w/zh_CN/tv-ticker-tag.js';
+const observed = ['SSE:600519','SZSE:000858','SSE:601398','SZSE:000333','SSE:600036','SZSE:002594','SSE:601318','SZSE:300750'];
+const compactChanges = Object.fromEntries(observed.map((symbol,index)=>[symbol,['+1.25%','−0.50%','0.00%','+2.91%','+0.70%','−0.41%','+0.88%','−0.96%'][index]]));
 const intradaySources = {
   a: 'https://quote.eastmoney.com/changes/',
   us: 'https://www.nasdaqtrader.com/trader.aspx?id=TradeHalts',
@@ -45,7 +48,17 @@ async function inspect(browser, viewport) {
   const prefix = path.join(output,engine+'-'+viewport.width);
   page.on('pageerror', err => errors.push(err.message));
   let firstTime, tickerSocket;
-  let failUs = false, failWatch = false;
+  let failUs = false, failWatch = false, failTags = false;
+  await context.addInitScript(() => {
+    if (window !== top) return;
+    window.watchWidgetEvents = [];
+    addEventListener('message', event => {
+      const frame = document.querySelector('[data-equity-watch] iframe[src*="home-watch-quotes.html"]');
+      if (event.origin === location.origin && frame?.contentWindow === event.source && event.data?.type === 'books:watch-widget') {
+        window.watchWidgetEvents.push({status:event.data.status,count:event.data.count});
+      }
+    }, true);
+  });
   // Deterministic read-only Bitget input goes through the site's normal REST and socket adapters.
   await context.routeWebSocket('**/v2/ws/public', socket => {tickerSocket = socket;});
   await context.route('**/*', async route => {
@@ -57,6 +70,29 @@ async function inspect(browser, viewport) {
       return route.abort();
     }
     if (url.origin === site.origin) return route.continue();
+    if (url.href === watchTagsModule) {
+      if (failTags === 'offline') return route.abort();
+      return route.fulfill({contentType:'text/javascript',headers:{'access-control-allow-origin':'*'},body:`
+        const dailyChanges=${JSON.stringify(compactChanges)};
+        customElements.define('tv-ticker-pill',class extends HTMLElement {
+          connectedCallback() {
+            if (this.shadowRoot) return;
+            this.attachShadow({mode:'open'}).innerHTML='<span class="name"></span><span class="change"></span>';
+            const symbol=this.getAttribute('symbol');
+            this.shadowRoot.querySelector('.name').textContent=symbol.split(':')[1];
+            this.shadowRoot.querySelector('.change').textContent=(${JSON.stringify(failTags)} === 'partial' && symbol === 'SZSE:300750') ? '—' : dailyChanges[symbol];
+          }
+        });
+        customElements.define('tv-ticker-tag',class extends HTMLElement {
+          connectedCallback() {
+            if (this.shadowRoot) return;
+            const root=this.attachShadow({mode:'open'}), pill=document.createElement('tv-ticker-pill');
+            pill.setAttribute('symbol',this.getAttribute('symbol'));
+            root.append(pill);
+          }
+        });
+      `});
+    }
     if(url.href==='https://s3.tradingview.com/external-embedding/embed-widget-mini-symbol-overview.js'){
       return route.fulfill({contentType:'application/javascript',body:`
         const fixtureFrame=document.createElement('iframe');
@@ -97,7 +133,7 @@ async function inspect(browser, viewport) {
   };
   const boards = {
     daily: panels.a.locator('.radar-main-body'),
-    watch: panels.a.locator('[data-equity-watch]'),
+    watch: page.locator('.radar-stocks > [data-equity-watch]'),
     us: panels.us,
   };
   async function inspectDaily() {
@@ -127,9 +163,9 @@ async function inspect(browser, viewport) {
   }
   async function inspectBoard(key, direction='gainers') {
     const board = boards[key];
-    const frames = board.locator('.radar-mover-stage iframe');
+    const frames = board.locator('.radar-mover-stage iframe[src*="home-widget-test.html?"]');
     await frames.waitFor({state:'visible'});
-    assert.equal(await frames.count(),1);
+    assert.equal(await board.locator('.radar-mover-stage iframe').count(),1);
     const src = await frames.getAttribute('src');
     const params = new URL(src,site).searchParams;
     const config = JSON.parse(params.get('config'));
@@ -149,13 +185,36 @@ async function inspect(browser, viewport) {
     }
     return src;
   }
+  async function compactWatch() {
+    const frame = boards.watch.locator('.radar-mover-stage iframe[src*="home-watch-quotes.html"]');
+    await page.waitForFunction(() => window.watchWidgetEvents.some(event => event.status === 'ready' && event.count === 8));
+    await frame.waitFor();
+    const rows = frame.contentFrame().locator('[data-watch-symbol]');
+    await rows.nth(7).waitFor();
+    assert.equal(await rows.count(),8);
+    const symbols = await rows.evaluateAll(elements => elements.map(row=>row.dataset.watchSymbol));
+    assert.deepEqual([...symbols].sort(),[...observed].sort());
+    for (const symbol of observed) {
+      const row = frame.contentFrame().locator('[data-watch-symbol="'+symbol+'"]');
+      assert.match(await row.innerText(),/\p{Script=Han}/u);
+      const stockURL = new URL(await row.locator('a.stock').getAttribute('href'),site);
+      assert.equal(stockURL.searchParams.get('tvwidgetsymbol'),symbol);
+      await row.locator('tv-ticker-tag .change').filter({hasText:compactChanges[symbol]}).waitFor();
+    }
+    assert.equal(await boards.watch.getAttribute('data-watch-mode'),'compact');
+    return frame;
+  }
   try {
     await page.goto(new URL('index.html', site).href, {waitUntil:'domcontentloaded'});
     const initial = {};
     initial.daily = await inspectDaily();
-    for (const board of ['watch','us']) initial[board] = await inspectBoard(board);
+    const initialCompact = await compactWatch();
+    await initialCompact.evaluate(frame => {frame.dataset.testIdentity='initial';});
+    initial.us = await inspectBoard('us');
     for (const market of ['a','us']) {
-      const actualSources = await panels[market].locator('a').evaluateAll(links => links.map(link => link.href));
+      const minute = page.locator('.radar-minutes [data-minute-market="'+market+'"]');
+      assert.equal(await minute.locator('.radar-status').count(),1);
+      const actualSources = await minute.locator('a').evaluateAll(links => links.map(link => link.href));
       assert.ok(actualSources.includes(intradaySources[market]),'market-specific intraday source for '+market);
     }
     console.log(engine,viewport.width,'native daily lists, eight Shanghai/Shenzhen stocks and US gainers loaded before interaction',initial.daily);
@@ -167,7 +226,7 @@ async function inspect(browser, viewport) {
     await page.locator('.radar-crypto .radar-rows').getByText('近 1 分钟异动').waitFor();
     assert.match(await page.locator('.radar-crypto .radar-rows').innerText(),/\+2\.00%/);
     await page.waitForFunction(() => {
-      const sections = [...document.querySelectorAll('.radar-stocks .radar-status')];
+      const sections = [...document.querySelectorAll('.radar-minutes .radar-status')];
       return sections.length === 2 && sections.every(el => !/正在读取|无法读取/.test(el.textContent));
     });
 
@@ -178,12 +237,21 @@ async function inspect(browser, viewport) {
           const footer=card.querySelector('.insight-footer');
           return {rowTop:box(card).y,bottom:footer.getBoundingClientRect().bottom,sourceY:box(footer.querySelector('.insight-source')).y};
         }),
+        radar:['[data-mover-market=a]','.radar-crypto','[data-mover-market=us]','[data-equity-watch]'].map(selector=>box(document.querySelector('.radar-stocks > '+selector))),
+        quoteStages:['[data-mover-market=us]','[data-equity-watch]'].map(selector=>box(document.querySelector('.radar-stocks > '+selector+' .radar-mover-stage'))),
         overview:box(document.querySelector('#market-insights')),index:box(document.querySelector('.index-labels')),macro:document.querySelector('#insight-macro').innerText};
     });
     console.log(engine,JSON.stringify(geometry));
     fs.writeFileSync(prefix+'-layout.json',JSON.stringify(geometry,null,2));
     assert.equal(geometry.cards.length,3);
     assert.ok(geometry.scrollWidth <= viewport.width+1,'no horizontal overflow');
+    if (!mobile) {
+      const [a,crypto,us,watch] = geometry.radar;
+      assert.ok(Math.abs(a.y-crypto.y)<=1 && Math.abs(us.y-watch.y)<=1 && us.y>a.y,'two radar rows');
+      assert.ok(Math.abs(a.x-us.x)<=1 && Math.abs(crypto.x-watch.x)<=1 && crypto.x>a.x,'two radar columns');
+      const [left,right] = geometry.quoteStages;
+      assert.ok(left.height>0 && Math.abs(left.height-right.height)<=1 && Math.abs(left.y-right.y)<=1,'quote viewports align');
+    }
     for(const card of geometry.cards){
       assert.ok(Math.abs(card.width-geometry.cards[0].width)<=1 && Math.abs(card.height-geometry.cards[0].height)<=1,'equal quote cards');
       assert.ok(card.height>100 && card.height<=450,'compact positive card height');
@@ -220,16 +288,32 @@ async function inspect(browser, viewport) {
       await panels.us.locator('.radar-mover-sources a[href$="/stocks-usa/market-movers-'+kind+'/"]').waitFor();
     }
     assert.deepEqual(await inspectDaily(),initial.daily);
-    assert.equal(await inspectBoard('watch'),initial.watch);
+    assert.equal(await initialCompact.getAttribute('data-test-identity'),'initial');
     await panels.us.locator('.radar-retry').click();
-    await inspectBoard('us','losers');
+    const usLosers = await inspectBoard('us','losers');
     assert.deepEqual(await inspectDaily(),initial.daily);
-    assert.equal(await inspectBoard('watch'),initial.watch);
+    assert.equal(await initialCompact.getAttribute('data-test-identity'),'initial');
     await page.locator('.radar-stocks').screenshot({path:prefix+'-stock-radar.png'});
     await checkLinks(page);
 
-    // The remote daily snapshot is still blocked. An independent outage in
-    // the quote widget must leave the dated on-site lists readable.
+    await boards.watch.locator('[data-watch-view="quotes"]').click();
+    await inspectBoard('watch');
+    assert.equal(await boards.watch.getAttribute('data-watch-mode'),'quotes');
+    assert.equal(await inspectBoard('us','losers'),usLosers);
+    await boards.watch.locator('[data-watch-view="compact"]').click();
+    await compactWatch();
+    assert.equal(await inspectBoard('us','losers'),usLosers);
+
+    failTags = 'partial';
+    await page.reload({waitUntil:'domcontentloaded'});
+    await inspectBoard('watch');
+    assert.equal(await boards.watch.getAttribute('data-watch-mode'),'fallback');
+    assert.ok(await page.evaluate(()=>window.watchWidgetEvents.some(event => event.status === 'unavailable' && event.count === 7)),
+      'seven quoted stocks cannot pass as a complete eight-stock watch');
+    assert.deepEqual(await inspectDaily(),initial.daily);
+    await inspectBoard('us');
+
+    failTags = 'offline';
     failWatch = true;
     await page.reload({waitUntil:'domcontentloaded'});
     await boards.watch.locator('.radar-retry').waitFor();
@@ -238,6 +322,9 @@ async function inspect(browser, viewport) {
     failWatch = false;
     await boards.watch.locator('.radar-retry').click();
     await inspectBoard('watch');
+    failTags = false;
+    await boards.watch.locator('[data-watch-view="compact"]').click();
+    await compactWatch();
     assert.deepEqual(await inspectDaily(),initial.daily);
     assert.equal(await inspectBoard('us'),usOnReload);
     console.log(engine,viewport.width,'native lists survive remote outage and both quote widgets recover independently');
