@@ -11,7 +11,6 @@
     loader.id = 'books-load-screen';
     loader.className = 'books-load-screen';
     loader.setAttribute('aria-hidden', 'true');
-    loader.innerHTML = '<div class="books-load-core"><div class="books-load-wordmark">Books</div><div class="books-load-rule" aria-hidden="true"></div><div class="books-load-note">Research Studio · preparing workspace</div></div>';
     body.appendChild(loader);
     const dismiss = () => { loader.classList.add('is-done'); window.setTimeout(() => loader.remove(), 360); };
     window.addEventListener('load', dismiss, {once:true});

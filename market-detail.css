@@ -1,0 +1,37 @@
+.market-detail {min-width:0}
+.market-detail > header {display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.market-detail > header h2,.market-detail h3 {margin:0}
+.market-detail > header a,.market-detail-actions a,.market-detail a {color:#205563;text-underline-offset:3px}
+.market-detail .market-asof,.market-detail #a-close-health {margin:6px 0;color:#495e71;font-size:13px;line-height:1.5}
+.market-detail #a-close-health:empty {display:none}
+.market-ranks {display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:12px 0}
+.market-ranks section {min-width:0;padding:0}
+.market-ranks h3 {font-size:14px}
+.market-ranks ol {list-style-position:inside;padding:0;margin:5px 0;font-variant-numeric:tabular-nums}
+.market-ranks li,#a-close-matches li {border-top:1px solid #e1e6eb;font-size:13px}
+.market-ranks li::marker {color:#637081}
+.market-ranks a,#a-close-matches a {display:inline-flex;align-items:center;gap:8px;padding:6px 0;text-decoration:none}
+.market-ranks a:hover,#a-close-matches a:hover {text-decoration:underline}
+.market-ranks a span,#a-close-matches a span {color:#566679;font-size:12px}
+.market-search {display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:8px 0}
+.market-search label {font-size:14px;font-weight:650}
+.market-search input {font:inherit;width:min(100%,220px);padding:7px 9px;min-height:36px;border:1px solid #aebbc6;border-radius:5px;background:#fff;color:#24323e}
+.market-search [role=status],.market-detail-actions {font-size:13px;color:#536577}
+.market-detail-actions {display:flex;align-items:center;flex-wrap:wrap;gap:8px 18px}
+#a-close-matches {max-height:16rem;overflow:auto;padding:0;list-style:none;margin:4px 0 10px}
+.market-detail [hidden] {display:none!important}
+.market-detail [data-scope=full] .crypto-native-head a,.market-detail [data-scope=full] .crypto-native-note {display:none}
+.market-detail [data-scope=full] .crypto-quote-row {grid-template-columns:minmax(0,1fr) auto;gap:2px 8px;padding:7px 0}
+.market-detail [data-scope=full] .crypto-quote-row a {color:#243c51;text-underline-offset:3px;font-size:14px}
+.market-detail [data-scope=full] .crypto-quote-value strong {font-size:14px}
+.market-detail [data-scope=full] .crypto-quote-row small,.market-detail [data-scope=full] .crypto-native-head {font-size:12px;color:#526477}
+.market-detail [data-scope=full] .crypto-quote-list {gap:0 26px}
+@media(max-width:680px) {
+  .market-detail > header a,.market-detail-actions a,.market-ranks a,#a-close-matches a,.market-detail .symbol-shortcuts summary {min-height:44px;display:inline-flex;align-items:center}
+  .market-ranks {gap:10px}
+  .market-ranks li {display:flex;min-height:47px}
+  .market-ranks a {flex-wrap:wrap;gap:2px 6px;padding:4px}
+  .market-search input {min-height:44px;min-width:0;flex:1}
+  .market-search [role=status]:not(:empty) {flex-basis:100%}
+  .market-detail [data-scope=full] .crypto-quote-row a {display:flex;align-items:center;min-height:44px}
+}

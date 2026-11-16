@@ -1,0 +1,41 @@
+name: Verify public research site
+on:
+  push:
+    branches: [ui/public-site-review-20261116]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  public-site:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, webkit]
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Install isolated browser tools
+        run: |
+          npm install --prefix "$RUNNER_TEMP/public-ui-browser" --no-audit --no-fund --ignore-scripts playwright@1.56.1
+          "$RUNNER_TEMP/public-ui-browser/node_modules/.bin/playwright" install --with-deps "${{ matrix.browser }}"
+      - name: Verify navigation, real source values and outages
+        env:
+          UI_BROWSER: ${{ matrix.browser }}
+        run: |
+          python3 -m http.server 8789 --bind 127.0.0.1 > "$RUNNER_TEMP/public-ui-http.log" 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid"' EXIT
+          curl --fail --retry 6 --retry-connrefused --silent --output /dev/null http://127.0.0.1:8789/index.html
+          NODE_PATH="$RUNNER_TEMP/public-ui-browser/node_modules" node audit/public-site-browser.cjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: public-site-${{ matrix.browser }}
+          path: audit/browser-output/public-site/
+          retention-days: 7

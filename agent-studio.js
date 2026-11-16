@@ -42,7 +42,13 @@
       const strategy=clip(params.get('strategy')||'',160).trim();
       const status=clip(params.get('status')||'',80).trim();
       const reasons=clip(params.get('reasons')||'',800).trim();
-      if(symbol)fields.symbol.value=symbol;
+      if (symbol) {
+        const previous = fields.symbol.value.trim().toUpperCase();
+        if (previous && previous !== symbol.toUpperCase()) {
+          for (const field of [fields.evidence, fields.unknowns, ...Object.values(layers)]) field.value = '';
+        }
+        fields.symbol.value = symbol;
+      }
       if(Object.hasOwn(labels,horizon))fields.horizon.value=horizon;
       if(symbol&&(market||strategy||status||reasons)){
         const context=[market&&`候选市场：${market}`,strategy&&`策略：${strategy}`,status&&`批次状态：${status}`,reasons&&`页面证据/待核：${reasons}`].filter(Boolean).join('；');
@@ -66,6 +72,9 @@
   function normalizeAi(result){const notes={};if(!result||typeof result!=='object'||!result.roles||typeof result.roles!=='object')return notes;for(const id of roleOrder){const value=result.roles[id];if(typeof value==='string'&&value.trim())notes[id]=value.trim().slice(0,limits.aiNote);}return notes;}
   function render(aiNotes={}){
     const rules=ruleResult(),symbol=safeField(fields.symbol,limits.symbol).trim()||'未命名标的';state.textContent=rules.hasEvidence?(rules.decision==='等待确认'?'已完成规则层 · 等待确认':'已完成规则层 · 仍需人工核验'):'等待证据包';version.textContent=rules.hasEvidence?'LOCAL-'+new Date().toISOString().slice(0,16).replace(/[-:T]/g,''):'—';
+    cards.hidden = false;
+    cards.toggleAttribute?.('data-empty', !rules.hasEvidence);
+    if (layerSummary) layerSummary.hidden = !rules.hasEvidence;
     if(layerSummary)layerSummary.innerHTML=rules.snapshots.map(layer=>`<span class="agent-layer-status is-${layer.status}"><b>${layer.label}</b>${layer.status==='ready'?'已核验':layer.status==='unverified'?'待补来源/时间':'缺失'}</span>`).join('');
     cards.innerHTML=roles.map((role,index)=>{const note=aiNotes[role.id]?`<div class="agent-ai-note"><span>AI 补充 · 未改变规则结论</span><p>${esc(aiNotes[role.id])}</p></div>`:'';return `<article class="agent-card agent-${role.tone}"><header><span class="agent-role-index">0${index+1}</span><div><h3>${role.name}</h3><small>${role.en} · ${role.focus}</small></div><span class="agent-card-state">${rules.ready?'已完成规则层':rules.hasEvidence?'待核':'待输入'}</span></header><p>${esc(role.body(rules))}</p>${note}<div class="agent-evidence"><span>研究对象</span><b>${esc(symbol)}</b><span>规则结论</span><b>${esc(rules.decision)}</b><span>下一步</span><b>${esc(role.next)}</b></div></article>`;}).join('')+`<aside class="agent-unknowns"><strong>五层规则底线</strong><p>${esc(rules.reason)}。支持因素：${esc(rules.support.join('、')||'未识别')}；反证/风险：${esc(rules.risk.join('、')||'未识别')}。</p></aside>`;
   }
@@ -73,8 +82,33 @@
   let runToken=0;
   async function run(){const token=++runToken;save();render();if(fields.mode.value!=='hybrid'){updateAiState('规则模式运行中 · 未调用 AI');return;}const adapter=window.BooksAgentAdapter;if(!adapter||typeof adapter.analyze!=='function'){updateAiState('AI 接口未连接 · 已回退规则层');return;}updateAiState('AI 增强请求中 · 规则结论保持锁定');try{const response=await withTimeout(adapter.analyze(request()),8000);if(token!==runToken)return;render(normalizeAi(response));updateAiState('AI 增强已返回 · 仅补充解释，未改变规则结论');}catch{if(token===runToken)updateAiState('AI 接口失败 · 已回退规则层');}}
   $('agent-run').addEventListener('click',run);
-  $('agent-reset').addEventListener('click',()=>{runToken++;inputFields.forEach(field=>field.value='');localStorage.removeItem(storageKey);saved.textContent='已清空本机草稿';updateAiState('规则模式运行中 · 未调用 AI');render();});
-  inputFields.forEach(field=>{field.addEventListener('input',()=>{runToken++;save();if(field===fields.mode)render();});field.addEventListener('change',()=>{runToken++;save();if(field===fields.mode)render();});});
+  $('agent-reset').addEventListener('click', () => {
+    runToken++;
+    for (const field of inputFields) field.value = '';
+    fields.mode.value = 'rules';
+    fields.horizon.value = 'mid';
+    try {
+      localStorage.removeItem(storageKey);
+      saved.textContent = '已清空本机草稿';
+    } catch {
+      saved.textContent = '本次输入已清空，本机存储不可用';
+    }
+    updateAiState('规则模式运行中 · 未调用 AI');
+    render();
+  });
+  function invalidateResult() {
+    runToken++;
+    save();
+    cards.hidden = true;
+    if (layerSummary) layerSummary.hidden = true;
+    version.textContent = '—';
+    state.textContent = '证据或参数有改动，请重新运行推演';
+    updateAiState(fields.mode.value === 'hybrid' ? '已选 AI 增强，等待运行' : '规则模式 · 等待运行');
+  }
+  for (const field of inputFields) {
+    field.addEventListener('input', invalidateResult);
+    field.addEventListener('change', invalidateResult);
+  }
   window.BooksAgentBridge={version:'books.agent.bridge.v1',schema:standard.schema,getRequest:request,setAdapter(adapter){window.BooksAgentAdapter=adapter;updateAiState('AI 适配器已注册 · 运行时仍受规则层约束');},run};
   load();loadCandidateContext();render();
 })();

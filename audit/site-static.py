@@ -15,7 +15,7 @@ def check(ok,msg):
 pages=list(root.rglob('*.html'))
 nav_destinations=[('市场总览','index.html'),('A股选股','screening/index.html'),('美股选股','us.html'),('带单员广场','trader/index.html'),('公司研究','research.html'),('历史研究','screening/history.html'),('研究工具','tools.html')]
 shared_versions={name:hashlib.sha256((root/name).read_bytes()).hexdigest()[:8] for name in ('books-shell.js','books-ui.css')}
-attribution_counts={'index.html':5,'a-shares.html':1,'screening/index.html':1,'us.html':1,'crypto.html':1,'chart.html':1,'market-strip.html':1}
+attribution_counts={'index.html':5,'a-shares.html':1,'screening/index.html':1,'us.html':1,'chart.html':1,'market-strip.html':1}
 for p in pages:
  tree=html.fromstring(p.read_text())
  ids=tree.xpath('//@id')
@@ -57,6 +57,11 @@ for p in pages:
   columns=len(table.xpath('.//thead/tr[1]/th'))
   for td in table.xpath('.//tbody/tr/td[@colspan]'):check(int(td.get('colspan'))==columns,f'{p}: empty row matches {columns} columns')
  for section in tree.xpath('//section[contains(concat(" ",@class," ")," public-feed ") and not(contains(concat(" ",@class," ")," stock-public-market "))]'):
+  if p==root/'crypto.html' and section.get('data-local-feed')=='crypto':
+   check(len(section.xpath('.//*[@data-crypto-feed and @data-scope="full"]'))==1,f'{p}: full Bitget feed')
+   check(bool(section.xpath('.//header/a[starts-with(@href,"https://www.bitget.com/")]')),f'{p}: Bitget attribution')
+   check(bool(section.xpath('.//nav/a[contains(@href,"BITGET%3ABTCUSDT")]')),f'{p}: native crypto chart navigation')
+   continue
   configs=section.xpath('.//script[@data-feed-config]');check(len(configs)==1,f'{p}: one feed config')
   config=json.loads(configs[0].text)
   for cls in ['feed-status','feed-retry','feed-source']:

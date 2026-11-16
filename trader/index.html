@@ -29,8 +29,8 @@
   <link rel="stylesheet" href="trade-analysis.css?v=7f1be1b5">
   <link rel="stylesheet" href="../index-ticker.css?v=d6459a25">
   <script defer src="../index-ticker.js?v=c49031ee"></script>
-  <script src="../books-shell.js?v=62a22f51"></script>
-</head>
+  <script src="../books-shell.js?v=35acfa43"></script>
+<link rel="stylesheet" href="../desk-skin.css?v=8bbcb084"></head>
 <body class="books-shell trader-page">
   <section class="index-ticker" id="index-ticker" aria-label="全球指数行情"><iframe src="../market-strip.html?v=c24133bb" title="全球指数行情"></iframe></section>
   <a class="skip" href="#main">跳至内容</a>
@@ -44,7 +44,7 @@
       <a href="../research.html">公司研究</a>
       <a href="../screening/history.html">历史研究</a>
       <a href="../tools.html">研究工具</a>
-    </nav>
+    </nav><nav class="books-shortcuts" aria-label="行情快捷入口"><a href="../a-shares.html">A 股行情</a><a href="../us-live.html">美股监控</a><a href="../crypto.html">加密行情</a></nav>
     <p class="books-side-note">独立研究 · 证据优先</p>
   </aside>
   <main id="main">
@@ -67,7 +67,7 @@
     <section class="plaza" aria-labelledby="plaza-title">
       <div class="heading">
         <div><h2 id="plaza-title">研究名单</h2><p id="count" aria-live="polite">0 个研究账户</p></div>
-        <div class="actions"><button id="reset" type="button">重置筛选</button><button id="refresh" type="button">刷新</button></div>
+        <div class="actions"><a class="evidence-entry" href="exchange.html">公开成交证据</a><button id="reset" type="button">重置筛选</button><button id="refresh" type="button">刷新</button></div>
       </div>
       <nav class="platform-switch" aria-label="选择账户平台"><button type="button" id="platform-all" aria-pressed="true">全部平台</button><button type="button" id="platform-hl" aria-pressed="false">Hyperliquid</button><button type="button" id="platform-binance" aria-pressed="false">币安</button></nav>
       <div class="filters">
