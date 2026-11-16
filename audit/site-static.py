@@ -15,7 +15,7 @@ def check(ok,msg):
 pages=list(root.rglob('*.html'))
 nav_destinations=[('市场总览','index.html'),('A股选股','screening/index.html'),('美股选股','us.html'),('带单员广场','trader/index.html'),('公司研究','research.html'),('历史研究','screening/history.html'),('研究工具','tools.html')]
 shared_versions={name:hashlib.sha256((root/name).read_bytes()).hexdigest()[:8] for name in ('books-shell.js','books-ui.css')}
-attribution_counts={'index.html':5,'a-shares.html':1,'screening/index.html':1,'chart.html':1,'market-strip.html':1}
+attribution_counts={'index.html':5,'a-shares.html':1,'screening/index.html':1,'chart.html':1}
 for p in pages:
  tree=html.fromstring(p.read_text())
  ids=tree.xpath('//@id')
@@ -195,22 +195,26 @@ check(hashlib.sha256((root/'index-ticker.js').read_bytes()).hexdigest().startswi
 shell_script=(root/'books-shell.js').read_text(); shell_style=re.sub(r'\s+','',(root/'books-ui.css').read_text())
 check('--books-side:92px' in shell_style and '.books-nav-icon' in shell_style and '.books-nav-label' in shell_style,'shared desktop rail uses compact 92px width with icons and text labels')
 check("link.setAttribute('aria-label', name)" in shell_script and "icon.setAttribute('aria-hidden', 'true')" in shell_script,'decorative navigation icons preserve accessible link names')
-# The header is intentionally in scope: verify its replacement configuration instead.
+# Verify the six navigable index quotes that first paint uses even with no external connection.
 strip=html.fromstring((root/'market-strip.html').read_text())
-loader='https://s3.tradingview.com/external-embedding/embed-widget-ticker-tape.js'
-scripts=strip.xpath('//script[@src=$src]',src=loader)
-check(len(scripts)==1,'one official scrolling ticker loader')
-ticker=json.loads(scripts[0].text)
 symbols=['SSE:000001','SZSE:399001','SZSE:399006','SSE:000688','HSI:HSI','FRED:NDQCOM']
 titles=['上证指数','深证成指','创业板指','科创50','恒生指数','纳斯达克综合']
-check(ticker['symbols']==[{'proName':k,'title':v} for k,v in zip(symbols,titles)],'ticker symbols and Chinese names preserved')
-check(ticker.get('displayMode')=='regular','ticker uses regular height on all viewport sizes')
-check(ticker.get('largeChartUrl')=='https://sking-3.github.io/xuanliu-site/chart.html','ticker links remain in site')
-check(ticker.get('locale')=='zh_CN' and ticker.get('showSymbolLogo') is False,'ticker language and symbol-logo settings preserved')
+items=strip.xpath('//*[@data-tape-group]//a')
+check(len(items)==len(symbols),'all six first-paint ticker quotes are available offline')
+for item,symbol,title in zip(items,symbols,titles):
+ url=urlsplit(item.get('href'))
+ check(url.path=='chart.html' and parse_qs(url.query).get('tvwidgetsymbol')==[symbol], 'ticker opens the matching local chart')
+ check(title in item.text_content() and item.get('target')=='_parent', 'ticker chart has a visible index name and opens in its parent')
+ points=float(item.get('data-close'))
+ previous=float(item.get('data-previous-close'))
+ check(all(math.isfinite(value) and value>0 for value in [points,previous]),'index snapshot has positive finite closes')
+ index_day=item.xpath('.//time/@datetime')
+ check(len(index_day)==1 and datetime.strptime(index_day[0],'%Y-%m-%d').date()<=datetime.now().date(),'every index displays its own market date')
+ source=urlsplit(item.get('data-source-url') or '')
+ check(source.scheme=='https' and bool(source.netloc),'each initial index value has a source URL')
+check(not strip.xpath('//iframe | //script[starts-with(@src,"http")]'),'an external widget cannot cover the local moving quotes')
 check('--books-ticker-height:45px' in re.sub(r'\s+','',(root/'index-ticker.css').read_text()),'compact header starts at 45px')
-check(len(strip.xpath('//body/div[@data-books-attribution][@hidden]'))==1,'duplicate ticker caption stays outside measured provider frame')
-check('zoom:.75' in (root/'market-strip.css').read_text(),'ticker restores original full-component scale')
-for path in ['market-feed.css','chart.css','market-strip.css']:
+for path in ['market-feed.css','chart.css']:
  check('[data-books-attribution][hidden]{display:none!important}' in re.sub(r'\s+','',(root/path).read_text()),f'{path}: site duplicate caption follows hidden attribute')
 for p in pages:
  tree=html.fromstring(p.read_text())

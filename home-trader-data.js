@@ -123,10 +123,10 @@ function binanceObservations(input,period,now){
  }
  return rows;
 }
-function rank(input,period,now=Date.now()){
+function rank(input,period,now=Date.now(),limit=3){
  const rows=observations(input,period,now).concat(binanceObservations(input,period,now)).filter(row=>Number.isFinite(row.roi));
  rows.sort((a,b)=>b.roi-a.roi||a.id.localeCompare(b.id));
- const top=rows.slice(0,3);
+ const top=rows.slice(0,limit);
  return {period,rows:top,eligibleCount:rows.length,stale:top.some(r=>r.stale),
    asOf:top.length&&top.every(r=>r.performanceAsOf)?top.map(r=>r.performanceAsOf).sort((a,b)=>Date.parse(a)-Date.parse(b))[0]:null,
    scope:'本站收录的币安与 Hyperliquid 公开账户',note:'按近'+parseInt(period,10)+'天收益率排序，各平台单独计算。'};
