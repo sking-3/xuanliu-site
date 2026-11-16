@@ -62,7 +62,7 @@ function activity(source,history,sourceUrl) {
   if (!history) expect(typeof data.strategySafe==='boolean','missing strategy protection status');
   const restricted=!history && data.strategySafe;
   expect(!restricted || data.rows.length===0,'unexpected protected position data');
-  const rows=data.rows.slice(0,history?10:undefined).map(row=>{
+  const rows=data.rows.map(row=>{
     expect(row.holdSide===1 || row.holdSide===2,'invalid Bitget position side');
     const record={symbol:row.symbolDisplayName || String(row.symbolId).split('_')[0],side:row.holdSide===1?'long':'short',
       openedAt:iso(row.openTime),entryPrice:number(row.averageOpenPrice),quantity:number(row.total),leverage:optional(row.lever)};
@@ -72,6 +72,51 @@ function activity(source,history,sourceUrl) {
   });
   return {...ref(source),sourceUrl:sourceUrl+'/current',status:restricted?'restricted':rows.length?'ready':'empty',
     rows,...(history?{hasMore:data.nextFlag===true}:{publicDelayMinutes:60})};
+}
+function pageRef(part,id,pageNo) {
+  return {...ref(part),requestUrl:endpoint('historyPosition'),method:'POST',postedBody:{portfolioId:id,pageNo,pageSize:10},
+    rowCount:part.rows.length,hasMore:part.hasMore};
+}
+const recentFirst=(a,b)=>b.closedAt.localeCompare(a.closedAt)||b.id.localeCompare(a.id);
+function withPage(trade,page,sourceUrl) {
+  return {...trade,evidencePath:page.evidencePath,sourceUrl,postedBody:page.postedBody};
+}
+async function historyPages(readPart,id,sourceUrl) {
+  const pages=[],records=new Map();
+  let first;
+  for (let pageNo=1;pageNo<=10;pageNo++) {
+    const suffix=pageNo===1?'closed':'closed-'+pageNo;
+    const source=await readPart(suffix,'historyPosition',{pageNo,pageSize:10});
+    expect(typeof source.data.nextFlag==='boolean','missing Bitget history pagination');
+    const part=activity(source,true,sourceUrl);
+    expect(part.rows.length<=10 && (!part.hasMore || part.rows.length>0),'invalid Bitget page');
+    if (!first) first=part;
+    const page=pageRef(part,id,pageNo),previousSize=records.size;
+    pages.push(page);
+    for (const trade of part.rows) {
+      if (!records.has(trade.id)) records.set(trade.id,withPage(trade,page,part.sourceUrl));
+    }
+    expect(!part.rows.length || records.size>previousSize,'repeated Bitget history page');
+    if (!part.hasMore) break;
+  }
+  const last=pages.at(-1);
+  return {...first,rows:[...records.values()].sort(recentFirst),pages,pagesFetched:pages.length,hasMore:last.hasMore,truncated:last.hasMore,
+    fetchedAt:pages.map(p=>p.fetchedAt).sort().at(-1)};
+}
+function normalizeLegacyHistory(part,id) {
+  if(part.pages)return part;
+  const page=pageRef(part,id,1);
+  return {...part,rows:part.rows.map(row=>withPage(row,page,part.sourceUrl)),pages:[page],pagesFetched:1,truncated:part.hasMore};
+}
+function mergeHistory(current,old,id) {
+  if(!old)return current;
+  const prior=normalizeLegacyHistory(old,id);
+  const rows=new Map(prior.rows.map(row=>[row.id,row]));
+  for(const row of current.rows)rows.set(row.id,row);
+  const pages=new Map([...(prior.priorPages||[]),...prior.pages].map(p=>[p.evidencePath,p]));
+  for(const p of current.pages)pages.delete(p.evidencePath);
+  return {...current,rows:[...rows.values()].sort(recentFirst),
+    ...(pages.size?{priorPages:[...pages.values()]}:{})};
 }
 function normalizePerformance(source,charts,n,sourceUrl) {
   const d=source.data,series=charts.data.roiRows;
@@ -99,7 +144,7 @@ async function collect(read) {
     const profile=await readPart('profile','details',{cycleTime:90}),detail=profile.data.publicDetail;
     expect(detail?.portfolioId===id && profile.data.traderAccountId===candidate.traderUid,'mismatched Bitget profile');
     if (number(detail.tradingDays)<90 || number(detail.curFollowCount)<1 || number(detail.aum)<25000) continue;
-    const history=activity(await readPart('closed','historyPosition',{pageNo:1,pageSize:10}),true,sourceUrl);
+    const history=await historyPages(readPart,id,sourceUrl);
     if (!history.rows.length) continue;
     const performance={};
     for (const n of [90,30]) {
@@ -128,6 +173,18 @@ async function publish(dir,{bundle,archive}) {
     let old;
     try {old=JSON.parse(await fs.readFile(dest,'utf8'));} catch (e) {if(e.code!=='ENOENT')throw e;}
     expect(!old || Date.parse(old.rankEvidence.fetchedAt)<=Date.parse(bundle.rankEvidence.fetchedAt),'newer Bitget snapshot exists');
+    if (old) {
+      model.parse(old);
+      expect(Date.parse(old.generatedAt)<=Date.parse(bundle.generatedAt),'newer Bitget archive exists');
+      const prior=new Map((old.archivedHistories||[]).map(r=>[r.portfolioId,r.history]));
+      for(const row of old.accounts)prior.set(row.portfolioId,row.activity.history);
+      for(const row of bundle.accounts) {
+        row.activity.history=mergeHistory(row.activity.history,prior.get(row.portfolioId),row.portfolioId);
+        prior.delete(row.portfolioId);
+      }
+      if(prior.size)bundle.archivedHistories=[...prior].map(([portfolioId,history])=>({portfolioId,history:normalizeLegacyHistory(history,portfolioId)}));
+      model.parse(bundle);
+    }
     for (const e of archive) {
       const file=path.join(dir,'evidence',path.basename(e.evidencePath));
       try {await fs.writeFile(file,e.bytes,{flag:'wx'});}
@@ -149,5 +206,5 @@ async function main(args) {
   await publish(options.get('--out')||path.resolve(__dirname,'../trader/bitget'),result);
   console.log('Bitget verified '+result.bundle.accounts.length+' public portfolios with 30D/90D returns and position history');
 }
-module.exports={collect,stored,receipt,select,activity,normalizePerformance,publish};
+module.exports={collect,stored,receipt,select,activity,historyPages,mergeHistory,normalizePerformance,publish};
 if (require.main===module) main(process.argv.slice(2)).catch(err=>{console.error(err.message);process.exitCode=1;});
