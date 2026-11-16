@@ -1,7 +1,7 @@
 name: Verify public research site
 on:
   push:
-    branches: [ui/public-site-review-20261116, ui/research-evidence-desk, ui/a-share-stock-selection, ui/home-ticker-ranking-fit, ui/verified-long-period-roi, ui/okx-verified-lead-traders, ui/trader-history-bitget, ui/trader-deeplink-recovery, ui/trade-chart-zoom, ui/remove-tape-pause, ui/unified-trader-analysis]
+    branches: [ui/public-site-review-20261116, ui/research-evidence-desk, ui/a-share-stock-selection, ui/home-ticker-ranking-fit, ui/verified-long-period-roi, ui/okx-verified-lead-traders, ui/trader-history-bitget, ui/trader-deeplink-recovery, ui/trade-chart-zoom, ui/remove-tape-pause, ui/unified-trader-analysis, ui/compact-trader-follow]
   workflow_dispatch:
   workflow_run:
     workflows: [Deploy static Pages]
