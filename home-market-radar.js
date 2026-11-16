@@ -51,7 +51,7 @@
       label:spec.name + (direction === 'gainers' ? '涨幅榜' : '跌幅榜'),
       source:'https://www.tradingview.com/markets/stocks-' + spec.path + '/market-movers-' + direction + '/',
       widget:{market:spec.id,defaultScreen:'top_' + direction,defaultColumn:'overview',
-        width:'100%',height:'100%',showToolbar:true,locale:'zh_CN',colorTheme:'light'}
+        width:'100%',height:'100%',showToolbar:false,locale:'zh_CN',colorTheme:'light'}
     };
   }
 
@@ -81,90 +81,136 @@
 
     const stockNodes = {};
     const stocks = el('div', null, 'radar-stocks');
-    for (const [market, name, href] of [['a','A 股','screening/index.html#public-market-title'],['us','美股','us.html#public-market-title']]) {
-      const section = el('section'), heading = el('div',null,'radar-section-heading');
-      heading.append(el('h3',name),link('行情筛选 →',href));
+    const rules = el('details', null, 'radar-rules');
+    rules.append(el('summary', '异动计算规则'),
+      el('p', '加密现货比较最新价格与约 60 秒前的价格（允许相差 5 秒）。涨跌达到 ±1% 时，按涨跌绝对值列出最多 3 对。积累样本期间或没有触发时，展示滚动 24 小时涨跌绝对值最大的 3 对。'),
+      el('p', '股票分钟成交额达到过去同一交易时段、同一分钟成交额中位数的 3 倍，标记为放量观察。最多取最近 20 个有效交易日，至少需 10 天。同时一分钟涨跌达到 ±1%，标记为量价异动。下方交易日涨跌榜由 TradingView 提供。'));
+    host.replaceChildren(header,crypto,stocks,rules);
+
+    function mountStockBoard(market, name, href) {
+      const board = el('section', null, 'radar-stock-board');
+      board.dataset.moverMarket = market;
+      board.setAttribute('aria-label', name + '日涨跌榜与分钟异动');
+      const heading = el('div', null, 'radar-section-heading');
+      heading.append(el('h3', name + '日涨跌榜'), link('行情筛选 →', href));
+      const cadence = market === 'a' ? '按交易日涨跌幅排序 · 沪深日终行情' :
+        '按交易日涨跌幅排序 · 报价可能延迟';
+      const tabs = el('div', null, 'radar-mover-tabs');
+      tabs.setAttribute('role','group');
+      tabs.setAttribute('aria-label', name + '榜单方向');
+      const stage = el('div', null, 'radar-mover-stage');
+      const source = link('', '');
+      source.target = '_blank'; source.rel = 'noopener nofollow';
+      const alternate = link('', '');
+      alternate.hidden = true; alternate.target = '_blank'; alternate.rel = 'noopener nofollow';
+      const intraday = market === 'a' ?
+        link('盘口异动 ↗', 'https://quote.eastmoney.com/changes/') :
+        link('停复牌公告 ↗', 'https://www.nasdaqtrader.com/trader.aspx?id=TradeHalts');
+      intraday.target = '_blank'; intraday.rel = 'noopener';
+      const sources = el('div', null, 'radar-mover-sources');
+      sources.append(source, alternate, intraday);
+      const feedback = el('p', '', 'radar-mover-feedback');
+      feedback.setAttribute('role','status');
+      const retry = el('button', '重新连接', 'radar-retry');
+      retry.type = 'button'; retry.hidden = true;
+      const recovery = el('div', null, 'radar-recovery');
+      recovery.append(feedback, retry);
       const status = el('p','正在读取分钟记录…','radar-status');
       const list = el('ul',null,'radar-rows');
-      section.append(heading,status,list); stocks.append(section); stockNodes[market] = {status,list};
-    }
-    const controls = el('div',null,'radar-mover-tabs');
-    const moverTitle = el('h3');
-    const moverHead = el('div',null,'radar-section-heading');
-    const close = el('button','收起榜单'); close.type = 'button';
-    moverHead.append(moverTitle,close);
-    const stage = el('div',null,'radar-mover-stage');
-    const note = el('p',null,'radar-status');
-    note.setAttribute('role','status');
-    const sources = el('nav',null,'radar-mover-sources');
-    sources.setAttribute('aria-label','TradingView 来源榜单');
-    const movers = el('section',null,'radar-movers');
-    movers.hidden = true;
-    movers.id = 'home-stock-movers';
-    movers.append(moverHead,controls,note,stage,sources);
-    const launchers = {};
-    let selected, direction, cleanup;
-    for (const [market,nodes] of Object.entries(stockNodes)) {
-      const launch = el('button','查看涨跌榜'); launch.type = 'button';
-      launch.setAttribute('aria-expanded','false'); launch.setAttribute('aria-controls',movers.id);
-      launch.onclick = () => openMovers(market,'gainers');
-      nodes.status.after(launch);
-      launchers[market] = launch;
-    }
-    for (const [key,label] of [['gainers','涨幅'],['losers','跌幅']]) {
-      const tab = el('button',label); tab.type = 'button'; tab.dataset.kind = key;
-      tab.onclick = () => openMovers(selected,key);
-      controls.append(tab);
-    }
-    close.onclick = () => {
-      cleanup?.(); movers.hidden = true;
-      launchers[selected].setAttribute('aria-expanded','false');
-      launchers[selected].focus();
-      selected = null;
-    };
-    function openMovers(market,kind) {
-      if (selected === market && direction === kind && !movers.hidden) return;
-      cleanup?.();
-      const config = moverConfig(market,kind);
-      selected = market; direction = kind; movers.hidden = false;
-      for (const [id,button] of Object.entries(launchers)) button.setAttribute('aria-expanded',String(id === market));
-      for (const tab of controls.children) tab.setAttribute('aria-pressed',String(tab.dataset.kind === kind));
-      moverTitle.textContent = config.label;
-      note.textContent = market === 'a' ? '按交易日涨跌排序 · 沪深免费组件为日终行情' :
-        '按交易日涨跌排序 · 报价时效以来源标记为准';
-      sources.replaceChildren();
-      for (const type of ['gainers','losers']) {
-        const source = moverConfig(market,type);
-        const direct = link('TradingView ' + source.label + ' ↗',source.source);
-        direct.target = '_blank'; direct.rel = 'noopener nofollow'; sources.append(direct);
+      board.append(heading, el('p', cadence, 'radar-cadence'), tabs, stage, recovery, sources, status, list);
+      stocks.append(board);
+      stockNodes[market] = {status, list};
+
+      let direction = 'gainers', cleanup, retryTimer, lastFailure = 0;
+      const buttons = new Map();
+      for (const [kind, label] of [['gainers','涨幅'],['losers','跌幅']]) {
+        const button = el('button',label);
+        button.type = 'button';
+        button.dataset.kind = kind;
+        button.addEventListener('click', () => {
+          if (kind === direction) return;
+          direction = kind;
+          load(true);
+        });
+        tabs.append(button);
+        buttons.set(kind,button);
       }
-      const wrapper = el('div',null,'tradingview-widget-container');
-      const target = el('div',null,'tradingview-widget-container__widget');
-      wrapper.append(target); stage.hidden = false; stage.replaceChildren(wrapper);
-      let active = true, timer;
-      const observer = new env.MutationObserver(() => {
-        const frame = wrapper.querySelector('iframe');
-        if (frame && active) {
+      function load(autoRetry) {
+        cleanup?.();
+        clearTimeout(retryTimer);
+        lastFailure = 0;
+        const config = moverConfig(market,direction);
+        for (const [kind, button] of buttons) button.setAttribute('aria-pressed',String(kind === direction));
+        source.href = config.source;
+        source.textContent = config.label + '原榜 ↗';
+        const opposite = moverConfig(market, direction === 'gainers' ? 'losers' : 'gainers');
+        alternate.href = opposite.source;
+        alternate.textContent = opposite.label + '原榜 ↗';
+        alternate.hidden = true;
+        retry.hidden = true;
+        stage.hidden = false;
+        stage.setAttribute('aria-busy','true');
+        feedback.textContent = '正在读取' + config.label + '…';
+
+        const wrapper = el('div',null,'tradingview-widget-container');
+        const target = el('div',null,'tradingview-widget-container__widget');
+        const credit = el('div',null,'tradingview-widget-copyright');
+        const attribution = link(config.label + ' · TradingView',config.source);
+        attribution.target = '_blank'; attribution.rel = 'noopener nofollow';
+        credit.append(attribution);
+        wrapper.append(target,credit);
+        stage.replaceChildren(wrapper);
+
+        let active = true, timer;
+        const observer = new env.MutationObserver(() => {
+          const frame = wrapper.querySelector('iframe');
+          if (!frame || !active) return;
           observer.disconnect();
-          frame.addEventListener('load', () => { if (active) clearTimeout(timer); },{once:true});
+          frame.title = config.label + ' · TradingView';
+          frame.addEventListener('load', () => {
+            if (!active) return;
+            clearTimeout(timer);
+            stage.setAttribute('aria-busy','false');
+            feedback.textContent = '';
+          }, {once:true});
+          frame.addEventListener('error', unavailable, {once:true});
+        });
+        function dispose() {
+          active = false;
+          clearTimeout(timer);
+          observer.disconnect();
+          stage.replaceChildren();
         }
-      });
-      observer.observe(wrapper,{subtree:true,childList:true});
-      const script = el('script');
-      script.src = 'https://s3.tradingview.com/external-embedding/embed-widget-screener.js';
-      script.async = true;
-      script.textContent = JSON.stringify(config.widget);
-      function unavailable() {
-        if (!active) return;
-        active = false; clearTimeout(timer); observer.disconnect(); stage.replaceChildren(); stage.hidden = true;
-        note.textContent = '嵌入来源未响应，请直接打开下方的涨幅榜或跌幅榜。';
+        function unavailable() {
+          if (!active) return;
+          dispose();
+          stage.hidden = true;
+          stage.setAttribute('aria-busy','false');
+          lastFailure = Date.now();
+          alternate.hidden = false;
+          feedback.textContent = config.label + (autoRetry ? '连接失败，稍后自动重试。' : '暂时无法加载，可查看来源原榜。');
+          retry.hidden = false;
+          if (autoRetry) retryTimer = setTimeout(() => { if (!doc.hidden) load(false); }, 20000);
+        }
+        cleanup = dispose;
+        observer.observe(wrapper, {subtree:true,childList:true});
+        const script = el('script');
+        script.src = 'https://s3.tradingview.com/external-embedding/embed-widget-screener.js';
+        script.async = true;
+        script.textContent = JSON.stringify(config.widget);
+        script.addEventListener('error',unavailable,{once:true});
+        timer = setTimeout(unavailable,15000);
+        wrapper.append(script);
       }
-      cleanup = () => {active = false; clearTimeout(timer); observer.disconnect(); stage.replaceChildren();};
-      script.addEventListener('error',unavailable,{once:true});
-      timer = setTimeout(unavailable,9000);
-      wrapper.append(script);
+      retry.addEventListener('click', () => load(true));
+      env.addEventListener('online', () => { if (lastFailure && !doc.hidden) load(true); });
+      doc.addEventListener('visibilitychange', () => {
+        if (!doc.hidden && lastFailure && Date.now()-lastFailure >= 20000) load(true);
+      });
+      load(true);
     }
-    host.replaceChildren(header,crypto,stocks,movers);
+    mountStockBoard('a','A 股','screening/index.html#public-market-title');
+    mountStockBoard('us','美股','us.html#public-market-title');
     const history = new Map();
     let feed = {quotes:[], total:20, unavailable:false};
     let snapshot, stockError = false, pending = false;
@@ -205,7 +251,7 @@
           continue;
         }
         const info = stockView(snapshot,market,Date.now());
-        nodes.status.textContent = !info.last ? '尚未发布可公开展示的分钟样本' :
+        nodes.status.textContent = !info.last ? '分钟量价异动 · 暂无公开分钟样本' :
           !info.count ? '最近分钟样本 ' + stamp(info.last) + ' · 已过期' :
           info.count + ' 只证券有分钟样本 · ' + (info.alerts.length ? info.alerts.length + ' 条异动' : '本批无已发布异动') + ' · ' + localTime(info.last);
         if (stockError) nodes.status.textContent += ' · 本次刷新失败';

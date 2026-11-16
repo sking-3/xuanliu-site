@@ -8,6 +8,10 @@ const engine = process.env.HOME_BROWSER_ENGINE || 'chromium';
 const site = new URL(process.env.HOME_BROWSER_URL || 'http://127.0.0.1:8784/');
 const output = path.join(__dirname, 'browser-output/home-dashboard');
 const viewports = [{width:1440,height:900}, {width:390,height:844}];
+const intradaySources = {
+  a: 'https://quote.eastmoney.com/changes/',
+  us: 'https://www.nasdaqtrader.com/trader.aspx?id=TradeHalts',
+};
 
 async function checkLinks(page) {
   const urls = await page.locator('.index-labels a, .research-actions a, [data-home-radar] a').evaluateAll(links => links.map(a => a.href));
@@ -16,6 +20,7 @@ async function checkLinks(page) {
     const url = new URL(href);
     if(url.origin!==site.origin){
       assert.equal(url.protocol,'https:');
+      if (Object.values(intradaySources).includes(url.href)) continue;
       assert.ok(['www.tradingview.com','cn.tradingview.com'].includes(url.hostname),href);
       assert.match(url.pathname,/^\/markets\/stocks-(?:china|usa)\/market-movers[-/]/);
       continue;
@@ -36,6 +41,7 @@ async function inspect(browser, viewport) {
   const prefix = path.join(output,engine+'-'+viewport.width);
   page.on('pageerror', err => errors.push(err.message));
   let firstTime, tickerSocket;
+  let failNextScreener = false;
   // Deterministic read-only Bitget input goes through the site's normal REST and socket adapters.
   await context.routeWebSocket('**/v2/ws/public', socket => {tickerSocket = socket;});
   await context.route('**/*', async route => {
@@ -51,14 +57,49 @@ async function inspect(browser, viewport) {
         document.currentScript.parentNode.querySelector('.tradingview-widget-container__widget').append(fixtureFrame);
       `});
     }
+    if (url.href === 'https://s3.tradingview.com/external-embedding/embed-widget-screener.js') {
+      if (failNextScreener) {
+        failNextScreener = false;
+        return route.abort();
+      }
+      return route.fulfill({contentType:'application/javascript',body:`
+        (() => {
+          const script = document.currentScript;
+          const config = JSON.parse(script.textContent);
+          const frame = document.createElement('iframe');
+          const sequence = window.screenerTestSequence = (window.screenerTestSequence || 0) + 1;
+          frame.src = '/home-widget-test.html?' + new URLSearchParams({market:config.market, screen:config.defaultScreen, sequence});
+          script.parentNode.querySelector('.tradingview-widget-container__widget').append(frame);
+        })();
+      `});
+    }
     if (url.hostname === 'api.bitget.com' && url.pathname === '/api/v2/spot/market/tickers') {
       firstTime ??= Date.now() - 60000;
       return route.fulfill({json:{code:'00000',data:[{symbol:'BTCUSDT',lastPr:'100',change24h:'0.025',ts:String(firstTime)}]},headers:{'access-control-allow-origin':'*'}});
     }
     return route.abort();
   });
+  const panels = {
+    a:page.locator('.radar-stocks [data-mover-market="a"]'),
+    us:page.locator('.radar-stocks [data-mover-market="us"]'),
+  };
+  async function readScreener(market, direction) {
+    const panel = panels[market], country = market === 'a' ? 'china' : 'america';
+    const frame = panel.locator('.radar-mover-stage iframe[src*="market='+country+'"][src*="screen=top_'+direction+'"]');
+    await frame.waitFor({state:'visible'});
+    assert.equal(await panel.locator('.radar-mover-stage iframe').count(),1);
+    assert.equal(await panel.locator('button[data-kind="'+direction+'"]').getAttribute('aria-pressed'),'true');
+    return frame.getAttribute('src');
+  }
   try {
     await page.goto(new URL('index.html', site).href, {waitUntil:'domcontentloaded'});
+    const initial = {};
+    for (const market of ['a','us']) {
+      initial[market] = await readScreener(market,'gainers');
+      const actualSources = await panels[market].locator('a').evaluateAll(links => links.map(link => link.href));
+      assert.ok(actualSources.includes(intradaySources[market]),'market-specific intraday source for '+market);
+    }
+    console.log(engine,viewport.width,'both markets loaded before interaction',initial);
     await page.locator('#insight-macro').getByText(/国家统计局/).first().waitFor();
     await page.locator('.radar-crypto .radar-rows').getByText('BTC-USDT').waitFor();
     assert.ok(tickerSocket, 'Bitget socket connected');
@@ -112,16 +153,33 @@ async function inspect(browser, viewport) {
     await drawer.screenshot({path:prefix+'-expanded-chart.png'});
     await drawer.locator('summary').click();
     await page.locator('.market-card-grid').screenshot({path:prefix+'-markets.png'});
-    for (const [i, market] of ['china','usa'].entries()) {
-      await page.locator('.radar-stocks button').nth(i).click();
-      const panel = page.locator('#home-stock-movers');
-      for (const kind of ['gainers','losers']) {
-        await panel.locator('[data-kind="'+kind+'"]').click();
-        assert.equal(await panel.locator('[aria-pressed="true"]').getAttribute('data-kind'), kind);
-        const source = panel.locator('.radar-mover-sources a[href$="market-movers-'+kind+'/"]');
-        assert.ok((await source.getAttribute('href')).includes('/stocks-'+market+'/'));
-      }
+    await panels.a.locator('[data-kind="losers"]').click();
+    const aLosers = await readScreener('a','losers');
+    assert.equal(await readScreener('us','gainers'), initial.us);
+    failNextScreener = true;
+    await panels.us.locator('[data-kind="losers"]').click();
+    await panels.us.locator('.radar-retry').waitFor();
+    assert.equal(await panels.us.locator('.radar-mover-stage iframe').count(),0);
+    for (const kind of ['gainers','losers']) {
+      const fallback = panels.us.locator('.radar-mover-sources a[href$="/stocks-usa/market-movers-'+kind+'/"]');
+      await fallback.waitFor({state:'visible'});
     }
+    assert.equal(await readScreener('a','losers'), aLosers);
+    await panels.us.locator('.radar-retry').click();
+    const usLosers = await readScreener('us','losers');
+    assert.equal(await readScreener('a','losers'), aLosers);
+    failNextScreener = true;
+    await panels.a.locator('[data-kind="gainers"]').click();
+    await panels.a.locator('.radar-retry').waitFor();
+    assert.equal(await panels.a.locator('.radar-mover-stage iframe').count(),0);
+    await panels.a.locator('.radar-mover-sources a[href$="/stocks-china/market-movers-gainers/"]').waitFor();
+    await panels.a.locator('.radar-mover-sources a[href$="/stocks-china/market-movers-losers/"]').waitFor();
+    assert.equal(await readScreener('us','losers'), usLosers);
+    await panels.a.locator('.radar-retry').click();
+    await readScreener('a','gainers');
+    assert.equal(await readScreener('us','losers'), usLosers);
+    console.log(engine,viewport.width,'both markets switch, fail and recover independently');
+    await page.locator('.radar-stocks').screenshot({path:prefix+'-stock-radar.png'});
     await checkLinks(page);
 
     const ranking = page.locator('#home-trader-ranking');

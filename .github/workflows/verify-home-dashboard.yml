@@ -8,6 +8,7 @@ on:
       - 'home*.js'
       - 'home*.css'
       - 'audit/home-dashboard-browser.cjs'
+      - 'audit/home-provider-browser.cjs'
       - '.github/workflows/verify-home-dashboard.yml'
 permissions:
   contents: read
@@ -39,6 +40,15 @@ jobs:
           trap 'kill "$site_pid" || true' EXIT
           curl --fail --retry 5 --retry-connrefused -s -o /dev/null http://127.0.0.1:8784/index.html
           NODE_PATH="$RUNNER_TEMP/home-browser/node_modules" node audit/home-dashboard-browser.cjs
+      - name: Read actual stock rows from both automatic TradingView boards
+        if: matrix.engine == 'chromium'
+        continue-on-error: true
+        run: |
+          python3 -m http.server 8784 --bind 127.0.0.1 > "$RUNNER_TEMP/home-live-http.log" 2>&1 &
+          site_pid=$!
+          trap 'kill "$site_pid" || true' EXIT
+          curl --fail --retry 5 --retry-connrefused -s -o /dev/null http://127.0.0.1:8784/index.html
+          NODE_PATH="$RUNNER_TEMP/home-browser/node_modules" node audit/home-provider-browser.cjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:
