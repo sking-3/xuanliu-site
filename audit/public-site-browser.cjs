@@ -587,6 +587,7 @@ async function main() {
     for(const route of publicPages()) await check(offline,'layout '+route,page=>shell(page,route));
     for(const [name,fn] of [
       ['published desk inputs',economicFiles],['published daily ranks with upstream offline',dailyFallback],
+      ['trade chart zoom preserves text',page=>require('./trade-chart-zoom-browser.cjs')(page,base.href)],
       ['annual trader performance and detail',annualReturn],['public execution archive and filter',publicExecutions],
       ['research pages and source filter',researchFiles],['five-agent rules without AI',fiveAgents],['public watchlist add restore remove',publicWatchlist],['Bitget unavailable and retry',cryptoFailure]
     ])await check(offline,name,fn);
