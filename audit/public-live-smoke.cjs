@@ -113,10 +113,10 @@ async function main() {
   const browser=await ({chromium,webkit})[engine].launch();
   try {
     const context=await browser.newContext(engine==='webkit' ? devices['iPhone 13'] : {viewport:{width:1440,height:900}});
-    for (const [route,check] of [['index.html',home],['trader/index.html',page=>require('./public-trader-detail-browser.cjs')(page,site)],['screening/index.html',aShares],['research.html',disclosures],['tools.html',tools],['crypto.html',crypto],['company-dossier.html',require('./company-dossier-browser.cjs')]]) {
+    for (const [route,check,scenario] of [['index.html',home],['trader/index.html',page=>require('./trade-chart-zoom-browser.cjs')(page,site),'chart-zoom-test-fixture'],['trader/index.html',page=>require('./public-trader-detail-browser.cjs')(page,site)],['screening/index.html',aShares],['research.html',disclosures],['tools.html',tools],['crypto.html',crypto],['company-dossier.html',require('./company-dossier-browser.cjs')]]) {
       const page=await context.newPage();
       page.setDefaultTimeout(15000);
-      const record={route};
+      const record={route,scenario:scenario||null};
       report.pages.push(record);
       const captures=route==='screening/index.html' ? selection.observe(page) : null;
       try {
@@ -128,7 +128,7 @@ async function main() {
         record.status='failed';record.reason=error.message;
         process.exitCode=1;
       } finally {
-        const screenshot=route.replace(/[/\.]/g,'-')+'.png';
+        const screenshot=(scenario||route).replace(/[/\.]/g,'-')+'.png';
         await page.screenshot({path:path.join(output,screenshot),timeout:8000}).then(()=>{record.screenshot=screenshot;}).catch(error=>{record.screenshotError=error.message;process.exitCode=1;});
         fs.writeFileSync(path.join(output,'report.json'),JSON.stringify(report,null,2));
         console.log(record.status,route,record.reason || JSON.stringify(record.evidence));
