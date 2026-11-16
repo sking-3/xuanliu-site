@@ -4,6 +4,12 @@ const root=path.resolve(__dirname,'..'),read=f=>fs.readFileSync(path.join(root,f
 test('both publication paths serialize without canceling a live deployment',()=>{
  for(const f of ['deploy-static-pages','refresh-traders'])assert.match(read('.github/workflows/'+f+'.yml'),/concurrency:\n  group: pages\n  queue: max\n  cancel-in-progress: false/);
 });
+test('all browser release jobs use the same supported runner as the PR gate',()=>{
+ for(const f of ['deploy-static-pages','refresh-traders','verify-public-site-ui','verify-home-dashboard']){
+  const w=read('.github/workflows/'+f+'.yml'),runners=[...w.matchAll(/runs-on: (.+)/g)].map(m=>m[1]);
+  assert.ok(runners.length>0);assert.ok(runners.every(r=>r==='ubuntu-24.04'),f+' must not drift with ubuntu-latest');
+ }
+});
 test('each public artifact passes the shared offline gate before staging and deployment',()=>{
  for(const f of ['deploy-static-pages','refresh-traders']){
   const w=read('.github/workflows/'+f+'.yml');
