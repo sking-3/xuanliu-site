@@ -199,9 +199,9 @@ function points(c){
  else right.append(note('鼠标悬浮标记查看明细；点击可固定，手机可轻触查看。'+x.events[0].precision+'；多笔操作逐条打点，过密时保留汇总入口。'));
  const playback=el('div',undefined,'ta-playback');right.append(playback);
  const events=el('div',undefined,'ta-event-list');for(const e of x.events){const b=btn('',()=>c.focusEvent?.(e),'ta-event');b.append(el('span',e.side==='buy'?'买':'卖','ta-side '+(e.side==='buy'?'ta-long':'ta-short')),el('strong',e.action),el('span',fmt(e.price,8)+' '+e.quote),el('small',shortDate(e.time)+' · '+fmt(e.quantity,8)));events.append(b);}right.append(events);
- buildChart(c,x,chart,message,playback);
+ buildChart(c,x,chart,message,playback,tools);
 }
-async function buildChart(c,x,container,message,playback){
+async function buildChart(c,x,container,message,playback,toolbar){
  const version=++c.chartVersion,interval=c.interval||'1h',sec=({'15m':900,'1h':3600,'4h':14400,'1d':86400})[interval];
  const begin=Math.floor((x.firstTime-24*sec*1000)/(sec*1000))*sec*1000,end=Math.floor(Math.min(Date.now(),x.lastTime+24*sec*1000)/(sec*1000))*sec*1000,start=Math.max(begin,end-1480*sec*1000);
  try{
@@ -210,7 +210,7 @@ async function buildChart(c,x,container,message,playback){
   if(!data.bars.length){message.textContent='官方来源未返回此区间的 K 线；保留操作记录，不绘制假行情。';return;}
   if(!env.LightweightCharts)throw Error('chart_library_unavailable');
   if(!env.BooksTradeChart)throw Error('chart_interaction_module_unavailable');
-  const view=env.BooksTradeChart.mount(container,playback,{bars:data.bars,events:x.events,seconds:sec,cycle:x,name:c.context.r.name,onOutside:()=>{message.textContent='该操作超出本次 K 线覆盖范围；请选择更大的 K 线周期查看。';}});
+  const view=env.BooksTradeChart.mount(container,playback,{bars:data.bars,events:x.events,seconds:sec,cycle:x,name:c.context.r.name,toolbar,onOutside:()=>{message.textContent='该操作超出本次 K 线覆盖范围；请选择更大的 K 线周期查看。';}});
   c.chartView=view;c.chart=view.chart;c.focusEvent=e=>view.focusEvent(e);
   message.textContent=`${data.source} · ${x.symbol} · ${interval} · ${data.bars.length} 根真实 K 线 · 读取 ${date(data.fetchedAt)} · 图表与操作均为北京时间`+(start>begin?' · 受单次 1500 根限制，左侧区间已裁剪':'');
  }catch(e){if(current===c&&version===c.chartVersion)message.textContent='K 线暂不可用（'+e.message+'）。已归档的操作仍可查看。';}
