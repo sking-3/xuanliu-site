@@ -1,0 +1,41 @@
+.dossier {max-width:1160px;margin-inline:auto}
+.dossier .section-body,.dossier .query-bar {padding:var(--desk-pad)}
+.dossier .query-bar,.dossier form:not(#report-form),.dossier .actions,.dossier .query-bar nav {display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px}
+.dossier .query-bar {justify-content:space-between}
+.dossier .query-bar nav a,.dossier details summary {display:inline-flex;align-items:center;min-height:44px}
+.dossier label,.dossier summary,.dossier h3 {font-size:14px;font-weight:600}
+.dossier :is(input,textarea,button) {font:inherit;font-size:14px;border:1px solid #a9bbbf;border-radius:5px;padding:8px 10px;max-width:100%;box-sizing:border-box}
+.dossier input,.dossier button {min-height:44px}
+.dossier input,.dossier textarea {color:var(--desk-ink);background:#fff;min-width:0}
+.dossier button {cursor:pointer;background:var(--desk-accent);color:white;border-color:var(--desk-accent)}
+.dossier button:disabled {opacity:.6;cursor:wait}
+.dossier :focus-visible {outline:2px solid #187a78;outline-offset:2px}
+.dossier p,.dossier .credits {color:var(--desk-muted);font-size:13px;line-height:1.65;margin:5px 0}
+.dossier p:empty,.dossier [hidden] {display:none!important}
+.dossier .latest strong {color:var(--desk-ink);font-size:28px;letter-spacing:-.03em}
+.dossier .latest span {margin-left:10px}
+.dossier canvas {display:block;width:100%;height:130px}
+.dossier summary {cursor:pointer;color:var(--desk-accent)}
+.dossier .bar-table {max-height:270px;overflow:auto}
+.dossier table {border-collapse:collapse;width:100%;font-size:13px}
+.dossier td,.dossier th {text-align:right;padding:6px 4px;border-bottom:1px solid var(--desk-border)}
+.dossier tr>:first-child,.dossier caption {text-align:left}
+.dossier .two-col,.dossier .expectations {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 24px}
+.dossier h3 {margin:12px 0 4px}
+.dossier dl {display:grid;grid-template-columns:1fr auto;margin:5px 0;font-size:13px}
+.dossier dt,.dossier dd {margin:0;border-bottom:1px solid var(--desk-border);padding:5px 0}
+.dossier dd {text-align:right}
+.dossier #report-form label {display:block;margin-top:8px}
+.dossier #report-form :is(input,textarea) {display:block;width:100%;margin-top:5px}
+.dossier .actions {margin:12px 0 0}
+.dossier #download {background:white;color:var(--desk-accent)}
+.dossier pre {white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;font-size:14px;line-height:1.75;padding:12px;background:var(--desk-canvas)}
+.dossier .credits a {color:var(--desk-accent)}
+@media(max-width:620px){.dossier .two-col,.dossier .expectations{grid-template-columns:minmax(0,1fr)}.dossier form:not(#report-form) label{width:100%}.dossier form:not(#report-form) input{flex:1;width:120px}}
+
+.dossier-indices {display:flex;align-items:center;gap:clamp(4px,2vw,24px);padding-inline:10px;box-sizing:border-box;font-size:13px;white-space:nowrap}
+.dossier-indices span {color:var(--desk-muted);font-size:12px}
+.dossier-indices a {display:inline-flex;align-items:center;min-height:44px;color:var(--desk-ink);text-decoration:none}
+.dossier-indices a:hover {text-decoration:underline}
+
+#vibe-command {display:block;white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;color:var(--desk-muted)}

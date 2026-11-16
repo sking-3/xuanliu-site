@@ -40,7 +40,11 @@
     count.textContent = result.length > 20 ? '共 ' + result.length + ' 条，显示前 20 条' : '找到 ' + result.length + ' 条' + (published ? '' : ' · 本站榜单');
     for (const stock of result.slice(0, 20)) {
       const li = document.createElement('li');
-      li.append(stockLink(stock));
+      const dossier = document.createElement('a');
+      dossier.href = 'company-dossier.html?symbol=' + encodeURIComponent(stock.code);
+      dossier.textContent = '个股研究';
+      dossier.setAttribute('aria-label', stock.name + '个股研究');
+      li.append(stockLink(stock), dossier);
       matches.append(li);
     }
   }

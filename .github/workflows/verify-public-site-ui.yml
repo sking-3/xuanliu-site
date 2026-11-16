@@ -1,7 +1,7 @@
 name: Verify public research site
 on:
   push:
-    branches: [ui/public-site-review-20261116]
+    branches: [ui/public-site-review-20261116, ui/research-evidence-desk]
   workflow_dispatch:
   workflow_run:
     workflows: [Deploy static Pages]
