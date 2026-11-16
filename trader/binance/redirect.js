@@ -11,7 +11,10 @@
     if (ids.length && (ids.length !== 1 || !IDS.includes(ids[0]))) return null;
     const target = new URL('../', current);
     target.searchParams.set('exchange', 'Binance');
-    if (ids.length) target.searchParams.set('q', ids[0]);
+    if (ids.length) {
+      target.searchParams.set('q', ids[0]);
+      target.searchParams.set('account', ids[0]);
+    }
     return target.href;
   }
   function start(env) {
