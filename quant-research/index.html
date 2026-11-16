@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Books · 策略研究</title>
+  <link rel="stylesheet" href="style.css">
+  <script type="module" src="app.mjs"></script>
+</head>
+<body>
+  <a class="skip" href="#content">跳至策略研究</a>
+  <aside>
+    <a class="brand" href="../tools.html">Books<span>RESEARCH STUDIO</span></a>
+    <nav aria-label="研究导航">
+      <a href="../tools.html">研究工作台</a>
+      <a href="#content" aria-current="page">策略研究</a>
+      <a href="#experiments">参数实验</a>
+      <a href="#history">研究记录</a>
+      <a href="#method">研究方法</a>
+    </nav>
+    <p class="side-note">规则计算 · 可复现<br>现货研究 · 无账户连接</p>
+  </aside>
+  <main id="content" tabindex="-1">
+    <header class="heading"><div><h1>策略研究</h1><p>让规则接受历史检验。先看样本外，再判断是否值得继续观察。</p></div><a class="text-link" id="local-link" href="http://127.0.0.1:4318/" target="_blank" rel="noopener">打开本机研究服务</a></header>
+    <section class="runtime" aria-labelledby="runtime-heading">
+      <div><h2 id="runtime-heading">本机自动研究</h2><p id="runtime-status" role="status">正在检查研究服务…</p><p id="runtime-detail" class="muted"></p><p id="runtime-data" class="muted"></p></div>
+      <div class="actions"><button id="refresh-status" type="button">刷新状态</button><button id="schedule-toggle" type="button" disabled>暂停自动研究</button></div>
+    </section>
+    <section class="paper" aria-labelledby="config-heading">
+      <header class="section-heading"><h2 id="config-heading">研究输入</h2><span>日线 · 现货多仓 / 空仓 · 1 倍资金</span></header>
+      <form id="research-form">
+        <div class="fields">
+          <label>数据来源<select id="data-source"><option value="local">本机公开行情 · Kraken BTC/USD</option><option value="file">导入自己的 OHLCV 文件</option></select></label>
+          <label>单边手续费（基点）<input id="fee" type="number" value="10" min="0" max="100" step="1" required><small>10 基点 = 0.10%</small></label>
+          <label>单边滑点（基点）<input id="slippage" type="number" value="5" min="0" max="100" step="1" required><small>买入加价，卖出减价</small></label>
+        </div>
+        <div id="file-panel" hidden><label class="file-label">选择 CSV / JSON<input id="data-file" type="file" accept=".csv,.json,text/csv,application/json"></label><p class="muted">CSV 表头：time,open,high,low,close,volume。时间为 UTC ISO、秒或毫秒时间戳；严格连续日线，至少 300 根。文件仅在此浏览器计算，不上传。<button type="button" id="download-template" class="text-button">下载格式说明</button></p></div>
+        <div class="run-row"><p id="data-status" class="muted">公开数据自动剔除未收盘 K 线；不会补造缺失价格。</p><button id="run-button" class="primary" type="submit">运行策略研究</button></div>
+      </form>
+      <p id="message" role="status" class="message" hidden></p>
+    </section>
+    <section class="paper" id="results" aria-labelledby="result-heading">
+      <header class="section-heading"><h2 id="result-heading">本次研究结论</h2><button id="export" type="button" disabled>导出可复现记录</button></header>
+      <div id="empty" class="empty"><h3>还没有本次研究结果</h3><p>连接本机研究服务，或导入连续日线文件。训练集用于选择参数，验证集与最终留存集分开报告。</p></div>
+      <div id="report" hidden>
+        <div class="result-intro"><strong id="verdict"></strong><p id="selection"></p><p id="result-cost"></p><p id="draft-status" class="muted"></p><p id="provenance" class="muted"></p></div>
+        <div class="table-scroll" tabindex="0" role="region" aria-label="分段验证结果"><table><caption>各段重新以 10,000 初始资金开始，分段结果不可直接相加。</caption><thead><tr><th>数据区间</th><th>净收益</th><th>买入持有</th><th>最大回撤</th><th>Sharpe</th><th>完成交易</th><th>胜率</th></tr></thead><tbody id="metrics"></tbody></table></div>
+        <div class="chart-wrap"><h3>最终留存集净值</h3><p class="muted">策略与同区间买入持有，均扣除费用与滑点。</p><svg id="equity" viewBox="0 0 960 230" role="img" aria-label="最终留存集净值对比"></svg><p class="legend"><span>实线：策略</span><span>虚线：买入持有</span></p></div>
+        <details><summary>风险与成本明细</summary><div class="table-scroll" tabindex="0" role="region" aria-label="风险与成本明细"><table><thead><tr><th>区间</th><th>年化收益</th><th>持仓时间占比</th><th>手续费</th><th>滑点估计</th></tr></thead><tbody id="cost-rows"></tbody></table></div></details>
+        <ul id="warnings" class="warnings"></ul>
+      </div>
+    </section>
+    <section class="paper" id="experiments" aria-labelledby="experiments-heading">
+      <header class="section-heading"><h2 id="experiments-heading">参数实验与滚动验证</h2><span>完整记录尝试次数，避免只展示最好的一次</span></header>
+      <details><summary>训练集参数比较 · 24 组</summary><div class="table-scroll" tabindex="0" role="region" aria-label="训练参数结果"><table><thead><tr><th>策略 / 参数</th><th>净收益</th><th>回撤</th><th>Sharpe</th><th>完成交易</th></tr></thead><tbody id="trial-rows"><tr><td colspan="5">运行后显示预先固定的全部参数实验。</td></tr></tbody></table></div></details>
+      <details><summary>只用过去数据选参的滚动验证</summary><div class="table-scroll" tabindex="0" role="region" aria-label="滚动验证结果"><table><thead><tr><th>测试区间</th><th>选中参数</th><th>净收益</th><th>回撤</th><th>交易数</th></tr></thead><tbody id="fold-rows"><tr><td colspan="5">运行后显示滚动验证。</td></tr></tbody></table></div></details>
+    </section>
+    <section class="paper" id="history" aria-labelledby="history-heading"><header class="section-heading"><h2 id="history-heading">研究记录</h2><span id="history-storage">当前浏览器与本机记录分别保留</span></header><div id="history-list" class="history-list"><p class="muted">尚未读取记录。</p></div></section>
+    <section class="method" id="method"><h2>如何理解这份研究</h2><p>均线趋势与均值回归使用固定参数网格，不调用 AI。收盘后形成信号，下一根开盘成交，双边计入成本；不假设能按已经知道的收盘价成交。先按时间划分训练 60%、验证 20%、最终留存 20%，参数只由训练段选择。</p><p>滚动验证每轮只从过去选择参数；已看过的留存集再次用于修改策略后，就不再是独立证据。多次尝试、低交易数、不同市场环境和费用变化都会影响结论。结果用于筛选后续观察候选，不能证明未来收益。</p><p>首版仅适用于连续交易的加密现货日线。不含做空、杠杆、资金费、融资、股票复权、停牌、涨跌停和订单簿冲击模型；不应将结果直接用于期货或股票。Kraken 单次最多返回约 720 根 K 线，不能据此声称覆盖完整市场周期。</p><p><a href="https://docs.kraken.com/api-reference/market-data/get-ohlc-data" target="_blank" rel="noopener noreferrer">数据来源与 K 线定义</a> · 个人导入记录保存在当前浏览器；请导出备份。本机服务仅监听回环地址，不提供任何下单或交易所密钥接口。</p></section>
+  </main>
+</body>
+</html>
