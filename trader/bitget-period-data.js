@@ -22,6 +22,32 @@
     check(part && /^[a-f0-9]{64}$/.test(part.evidenceSha256) && part.evidencePath === evidencePath(name, part.evidenceSha256)
       && timestamp(part.fetchedAt,now));
   }
+  function checkHistory(part,id,now) {
+    const url=profileUrl(id)+'/current';
+    check(part.status==='ready' && part.sourceUrl===url && Array.isArray(part.rows));
+    if (!part.pages) {check(part.rows.length<=10);return;} // Earlier published snapshots contain one page.
+    check(Array.isArray(part.pages) && part.pages.length>=1 && part.pages.length<=10 && part.pagesFetched===part.pages.length
+      && part.pages[0].evidencePath===part.evidencePath && part.truncated===part.hasMore
+      && part.hasMore===part.pages[part.pages.length-1].hasMore);
+    const pages=new Map();
+    for (const page of [...part.pages,...(part.priorPages||[])]) {
+      const body=page.postedBody, n=body?.pageNo;
+      check(body?.portfolioId===id && body.pageSize===10 && whole(n) && n>=1 && n<=10
+        && page.requestUrl==='https://www.bitget.com/v1/trigger/public/uta/historyPosition' && page.method==='POST'
+        && typeof page.hasMore==='boolean' && whole(page.rowCount) && page.rowCount<=10 && !pages.has(page.evidencePath));
+      evidence(page,id+'-closed'+(n===1?'':'-'+n),now);
+      pages.set(page.evidencePath,page);
+    }
+    check(part.pages.every((p,i)=>p.postedBody.pageNo===i+1 && (i===part.pages.length-1 || p.hasMore)));
+    const ids=new Set();
+    for(const row of part.rows) {
+      const page=pages.get(row.evidencePath);
+      check(page && row.sourceUrl===url && row.postedBody?.portfolioId===id && row.postedBody?.pageSize===10
+        && row.postedBody?.pageNo===page.postedBody.pageNo && validId(row.id) && !ids.has(row.id)
+        && timestamp(row.closedAt,Date.parse(page.fetchedAt)));
+      ids.add(row.id);
+    }
+  }
   function parse(raw, now = Date.now()) {
     check(raw && raw.schemaVersion === 1 && raw.source === source && timestamp(raw.generatedAt,now));
     const end = Date.parse(raw.generatedAt);
@@ -51,7 +77,7 @@
         evidence(part,id+'-'+suffix,end);
         check(part.sourceUrl === row.sourceUrl+'/current' && Array.isArray(part.rows)
           && (part.rows.length ? part.status === 'ready' : ['empty','restricted'].includes(part.status)));
-        check(key === 'positions' || part.status === 'ready' && part.rows.length <= 10);
+        if(key==='history') checkHistory(part,id,end);
         for (const trade of part.rows) {
           check(typeof trade.symbol === 'string' && /^[A-Za-z0-9_.-]{1,40}$/.test(trade.symbol)
             && ['long','short'].includes(trade.side) && timestamp(trade.openedAt,Date.parse(part.fetchedAt))
@@ -61,6 +87,14 @@
             && validId(trade.id) && number(trade.exitPrice) && trade.exitPrice > 0
             && number(trade.realizedPnl) && /^[A-Z0-9]{2,12}$/.test(trade.currency));
         }
+      }
+    }
+    if(raw.archivedHistories) {
+      check(Array.isArray(raw.archivedHistories));
+      for(const entry of raw.archivedHistories) {
+        check(validId(entry.portfolioId) && !seen.has(entry.portfolioId));
+        seen.add(entry.portfolioId);
+        checkHistory(entry.history,entry.portfolioId,end);
       }
     }
     return raw;

@@ -17,12 +17,26 @@
   function check(ok) {if (!ok) throw Error('Invalid AlphaFox public archive');}
   function parse(raw,now=Date.now()) {
     const fields=['schemaVersion','sourceId','sourceUrl','portfolioId','sourceBodySha256','projection','polledAt','fetchedAt',
-      'eventPnlAvailable','latestOrders','closedPositions'];
+      'eventPnlAvailable','latestOrders','closedPositions','archiveReceipts'];
     check(only(raw,fields) && raw.schemaVersion===1 && raw.projection==='public-historical-records-v1'
       && raw.sourceId===sourceId && raw.portfolioId===portfolioId && raw.sourceUrl===sourceUrl && raw.eventPnlAvailable===false
       && typeof raw.sourceBodySha256==='string' && /^[a-f0-9]{64}$/.test(raw.sourceBodySha256));
     const polled=Date.parse(raw.polledAt),fetched=Date.parse(raw.fetchedAt);
     check(timestamp(fetched,now+5000) && timestamp(polled,fetched+5000));
+    if (Object.hasOwn(raw,'archiveReceipts')) {
+      const receipts=raw.archiveReceipts;
+      check(Array.isArray(receipts) && receipts.length>=2);
+      let previous=0;
+      for (const r of receipts) {
+        check(only(r,['sourceBodySha256','polledAt','fetchedAt']) && typeof r.sourceBodySha256==='string'
+          && /^[a-f0-9]{64}$/.test(r.sourceBodySha256));
+        const poll=Date.parse(r.polledAt),received=Date.parse(r.fetchedAt);
+        check(timestamp(received,now+5000) && timestamp(poll,received+5000) && poll>previous);
+        previous=poll;
+      }
+      const last=receipts[receipts.length-1];
+      check(last.sourceBodySha256===raw.sourceBodySha256 && last.polledAt===raw.polledAt && last.fetchedAt===raw.fetchedAt);
+    }
     check(Array.isArray(raw.closedPositions) && raw.closedPositions.length>0 && raw.closedPositions.length<=10000
       && Array.isArray(raw.latestOrders) && raw.latestOrders.length>0 && raw.latestOrders.length<=25000);
     const positionIds=new Set(),fingerprints=new Set();

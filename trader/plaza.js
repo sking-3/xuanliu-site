@@ -1186,7 +1186,7 @@ function leadActivityNote(r,key,part){
   if(part.status==='unsupported')return key==='orders'?'平台未提供逐笔成交流水':'';
   if(!observed&&hidden)return title+' · 来源隐藏了 '+hidden+' 条明细';
   const old=part.status==='stale'||(key==='positions'&&Date.now()-Date.parse(part.fetchedAt)>1800000);
-  return title+' · '+observed+' 条公开记录'+(hidden?' · 另有 '+hidden+' 条隐藏明细':'')+(part.truncated||part.hasMore?' · 仅收录已获取的分页':'')+(old?' · 上次观察，当前状态待更新':'');
+  return title+' · '+observed+' 条公开记录'+(hidden?' · 另有 '+hidden+' 条隐藏明细':'')+(part.pagesFetched?' · 本轮读取 '+part.pagesFetched+' 页':'')+(part.truncated||part.hasMore?' · 平台还有更早记录':'')+(old?' · 上次观察，当前状态待更新':'');
 }
 function renderLeadActivity(r,b,key){
   const part=r.activity[key],current=key==='positions',orders=key==='orders';
