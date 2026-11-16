@@ -3,6 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const {avatarUrl} = require('../trader/binance-data.js');
 
 const ids = [
   '5156287639231681792','5139646755272846081','5178595252342363392',
@@ -45,7 +46,7 @@ function profile(decoded) {
   if (!Number.isSafeInteger(data.startTime) || data.startTime<=0 || data.startTime>Date.parse(receivedAt) ||
       typeof data.nickname!=='string' || !data.nickname.trim() || data.nickname.length>200 ||
       typeof data.positionShow!=='boolean') throw Error('invalid_public_profile');
-  return {portfolioId:id,name:data.nickname.trim(),startTime:data.startTime,positionShow:data.positionShow,
+  return {portfolioId:id,name:data.nickname.trim(),avatarUrl:avatarUrl(data.avatarUrl),startTime:data.startTime,positionShow:data.positionShow,
     profileSourceUrl:sourceUrl,profileEvidencePath:evidencePath,profileEvidenceSha256:sha256,profileFetchedAt:receivedAt};
 }
 

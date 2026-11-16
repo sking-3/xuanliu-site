@@ -22,7 +22,7 @@ for(const [id,values]of Object.entries({period:['7D','30D','90D','180D','365D','
 let remoteBinance,binanceFetches=0,binanceFetchError=false;let remoteFeed,remoteAnalytics={schemaVersion:1,methodVersion:'closing-fill-v1',generatedAt:new Date().toISOString(),accounts:{}},fetches=0,analyticsFetches=0,analyticsFetchError=false,feedGate=null,analyticsGate=null,remotePortfolios={schemaVersion:1,methodVersion:'portfolio-periods-v2',generatedAt:new Date().toISOString(),accounts:{}},portfolioFetches=0,portfolioFetchError=false,portfolioGate=null,storageError=false;const saved=new Map(),localStorage={getItem:key=>saved.get(key)||null,setItem(key,value){if(storageError)throw Error('QUOTA');saved.set(key,value);}};
 const location={href:'https://example.com/trader/?page=2&q=SYNTHETIC#main'},history={pushState(_,__,url){location.href=new URL(url,location.href).href;},replaceState(_,__,url){location.href=new URL(url,location.href).href;}};
 const context={document,location,history,URL,Date,Blob,TextDecoder,AbortController,crypto:require('node:crypto').webcrypto,localStorage,confirm:()=>true,setTimeout,clearTimeout,fetch:async url=>{if(url==='binance/portfolios.json'){binanceFetches++;if(binanceFetchError)throw Error('binance unavailable');return new Response(JSON.stringify(remoteBinance));}if(url==='portfolios.json'){portfolioFetches++;if(portfolioGate)await portfolioGate;await new Promise(r=>setTimeout(r,5));if(portfolioFetchError)throw Error('unavailable');return new Response(JSON.stringify(remotePortfolios),{headers:{'Content-Type':'application/json'}});}if(url==='analytics.json'){analyticsFetches++;if(analyticsGate)await analyticsGate;await new Promise(r=>setTimeout(r,5));if(analyticsFetchError)throw Error('unavailable');return new Response(JSON.stringify(remoteAnalytics),{headers:{'Content-Type':'application/json'}});}fetches++;if(feedGate)await feedGate;await new Promise(r=>setTimeout(r,5));return new Response(JSON.stringify(remoteFeed));}};
-const source=fs.readFileSync(path.join(__dirname,'../trader/plaza.js'),'utf8').split("for(const id of controls)$(id).addEventListener")[0]+"globalThis.api={validate,date,win,value,readURL,saveURL,render,refresh,state,openDetail,openEditor,saveRecord,captureWindow,changeEditorPeriod,commitLocal,loadLocal,mergeRows,choosePeriod,updateView,stampLabel,hasMetrics,removeRecord,validateSource,sourceIsStale,positionSummary,positionStatus,statusText,renderSource,displayPeriod,isPublicAccount,canReadLive,activateDetailTab,stopLive,renderDetail,liveDirection,liveSide,renderLiveData,qualifiedPosition,eligiblePublicRows,reevaluatePositions,observeEmptyPositions,compactMoney,metrics,card,refreshAnalyticsViews,startVisibleAnalytics,validateWinCache,cachedWin,winCacheIsStale,winCacheDescription,refreshWinCache,validatePortfolioCache,refreshPortfolioCache,portfolioSection,performanceWindow,performanceRange,sortValue,binancePerformance,binanceChart,binanceChartArea,hasBinancePerformance,retainedPublicRows,isBinanceTrader,binanceView,currentHolding,selectPlatform,mixPlatforms,installBinance,refreshBinance,savePublicSnapshot,publicCacheKeys,publicSnapshots,hydratePublicSnapshots,rejectOlderFeed,safeAvatarUrl,sourceIdentity,avatar,openLinkedAccount};})();";
+const source=fs.readFileSync(path.join(__dirname,'../trader/plaza.js'),'utf8').split("for(const id of controls)$(id).addEventListener")[0]+"globalThis.api={validate,date,win,value,readURL,saveURL,render,refresh,state,openDetail,acceptDetailPositions,openEditor,saveRecord,captureWindow,changeEditorPeriod,commitLocal,loadLocal,mergeRows,choosePeriod,updateView,stampLabel,hasMetrics,removeRecord,validateSource,sourceIsStale,positionSummary,positionStatus,statusText,renderSource,displayPeriod,isPublicAccount,canReadLive,activateDetailTab,stopLive,renderDetail,liveDirection,liveSide,renderLiveData,qualifiedPosition,eligiblePublicRows,reevaluatePositions,observeEmptyPositions,compactMoney,metrics,card,privateCardActions,privateLeaderRoutingReady,refreshAnalyticsViews,startVisibleAnalytics,validateWinCache,cachedWin,winCacheIsStale,winCacheDescription,refreshWinCache,validatePortfolioCache,refreshPortfolioCache,portfolioSection,performanceWindow,performanceRange,sortValue,binancePerformance,binanceChart,binanceChartArea,hasBinancePerformance,retainedPublicRows,isBinanceTrader,binanceView,currentHolding,selectPlatform,mixPlatforms,installBinance,refreshBinance,savePublicSnapshot,publicCacheKeys,publicSnapshots,hydratePublicSnapshots,rejectOlderFeed,safeAvatarUrl,sourceIdentity,avatar,openLinkedAccount,setPeriodReturns:records=>{periodReturns=records;}};})();";
 vm.createContext(context);vm.runInContext(fs.readFileSync(path.join(__dirname,'../trader/period-roi.js'),'utf8'),context);vm.runInContext(source,context);const a=context.api;
 const stamp='2026-01-15T12:00:00Z';
 const row=i=>({id:`synthetic-${i}`,name:`SYNTHETIC ${i}`,exchange:'Binance',currency:'USDT',featured:false,paid:false,observedAt:stamp,sourceUrl:'https://example.com/synthetic',windows:{'30D':{asOf:stamp,roi:i,pnl:i,mdd:i,wins:i,closedTrades:20,curve:[{time:'2026-01-14T12:00:00Z',value:0},{time:stamp,value:i}]}},positions:[],points:[],orders:[]});
@@ -105,6 +105,25 @@ await test('fill direction labels preserve close and reversal meaning',()=>{asse
 
 await test('a stale ranking snapshot does not label independent live activity stale',()=>{a.openDetail({...qualifiedPublished.traders[0],_local:false},'30D');a.state.lastReadFailed=true;a.activateDetailTab('live');assert.match(ids['detail-data-status'].textContent,/排行快照待更新.*账户明细独立读取/);a.stopLive();a.state.lastReadFailed=false;});
 
+await test('fresh account observations supersede an expired ranking status only in detail and expire on the source clock',()=>{
+ const old=Date.now,at=old(),prior=structuredClone(qualifiedPublished.traders[0]),r={...prior,_local:false},ttl=require('../trader/floating-pnl.js').FRESH;
+ r.positionCheck={...r.positionCheck,checkedAt:new Date(at-4000000).toISOString(),sourceTime:new Date(at-4000100).toISOString()};
+ a.openDetail(r,'30D');assert.match(ids['detail-data-status'].textContent,/当前仓位未知/);
+ const item={coin:'ETH',side:'long',quantity:2,positionValue:3000,unrealizedPnl:10},part={status:'ready',sourceTime:at,fetchedAt:at,rows:[item]};
+ try{
+   Date.now=()=>at;a.acceptDetailPositions(r,part,ttl);
+   const status=ids['detail-data-status'];assert.equal(status.hidden,false);assert.match(status.textContent,/观测时 1 个仓位/);assert.doesNotMatch(status.textContent,/当前仓位未知/);assert.match(content(ids['detail-overview']),/观测时 1 个仓位/);
+   assert.equal(a.qualifiedPosition(r),false);const oldCheck=r.positionCheck.checkedAt;
+   a.acceptDetailPositions({...r,accountId:qualifiedPublished.traders[1].accountId},{...part,rows:[]},ttl);
+   a.acceptDetailPositions(r,{...part,status:'error',rows:[],sourceTime:at+1},ttl);
+   a.acceptDetailPositions(r,{...part,sourceTime:at+80000,rows:[]},ttl);
+   assert.match(status.textContent,/观测时 1 个仓位/);
+   Date.now=()=>at+ttl;a.renderSource();assert.match(status.textContent,/观测时 1 个仓位/);
+   Date.now=()=>at+ttl+1;a.renderSource();assert.match(status.textContent,/仓位快照已过期/);assert.match(content(ids['detail-overview']),/观测时 1 个仓位/);
+   a.acceptDetailPositions(r,{...part,rows:[],sourceTime:Date.now(),fetchedAt:Date.now()});assert.match(status.textContent,/观测时 0 个仓位/);
+   assert.equal(r.positionCheck.checkedAt,oldCheck);assert.equal(a.qualifiedPosition(r),false);
+ }finally{Date.now=old;a.openDetail(r,'30D');}
+});
 await test('an old successful position response is visibly stale independently of the connected stream',()=>{a.openDetail({...qualifiedPublished.traders[0],_local:false},'30D');a.activateDetailTab('live');const current=liveInstances.at(-1),data=liveSnapshot(qualifiedPublished.traders[0].accountId);data.positions.sourceTime=Date.now()-121000;current.options.onChange(data);assert.match(a.state.liveView.connection.textContent,/实时推送已连接/);assert.match(a.state.liveView.sections.positions.status.textContent,/来源快照较旧/);assert.equal(a.state.liveView.sections.positions.status.attrs['data-state'],'stale');a.stopLive();});
 function installQualified(p=qualifiedPublished) {a.state.publicRows=a.validate(p);a.state.source=a.validateSource(p,a.state.publicRows);a.state.positionExclusions=Object.create(null);a.state.lastReadFailed=false;filters();a.updateView();return a.state.rows.find(r=>!r._local);}
 await test('qualification accepts a later independent position check than the leaderboard read',()=>{const rows=a.validate(qualifiedPublished),source=a.validateSource(qualifiedPublished,rows);assert.equal(rows[0].positionCheck.count,3);assert.equal(rows[0].positionCheck.checkedAt,qualifiedPublished.traders[0].positionCheck.checkedAt);assert.equal(source.positionVerification.checkedAccounts,rows.length);assert.ok(Date.parse(rows[0].positionCheck.checkedAt)>Date.parse(rows[0].observedAt));});
@@ -528,6 +547,23 @@ await test('platform avatars accept only source-specific HTTPS image origins and
  const wrapper=a.avatar({exchange:'Binance',avatarUrl:good}),image=wrapper.children.find(c=>c.src);assert.ok(image);assert.equal(image.referrerPolicy,'no-referrer');assert.equal(image.loading,'eager');assert.equal(image.alt,'');assert.equal(image.hidden,true);image.events.load();assert.equal(image.hidden,false);image.events.error();assert.equal(wrapper.children.length,1);assert.equal(wrapper.children[0].textContent,'Bi');assert.equal(wrapper.children[0].hidden,false);image.events.load();assert.equal(wrapper.children.length,1);
  assert.equal(a.sourceIdentity({exchange:'Binance',sourceKind:'copy_trade',accountId:'0012345678901234567'}),'组合 ID 0012345678901234567');assert.equal(a.sourceIdentity({exchange:'Hyperliquid',sourceKind:'public_account',accountId:wallet}),'钱包地址 '+wallet);assert.equal(a.sourceIdentity({exchange:'OKX',accountId:'ABCDEF1234567890'}),'带单代码 ABCDEF1234567890');assert.doesNotMatch(a.sourceIdentity({exchange:'OKX',id:'internal-only'}),/internal-only|UID/);
 });
+await test('Bitget profile image and Binance period fallback stay bound to the matching account',()=>{
+ context.BooksBitgetPeriodData=require('../trader/bitget-period-data.js');
+ const bitget='https://img.bgstatic.com/otc/images/20260806/1786008410868.png';
+ assert.equal(a.safeAvatarUrl(bitget,'Bitget'),bitget);
+ assert.equal(a.safeAvatarUrl(bitget,'Binance'),null);
+ assert.equal(a.safeAvatarUrl('https://img.bgstatic.com.attacker.invalid/otc/images/test.png','Bitget'),null);
+ unifiedSetup();
+ const catalog=context.BinanceData.parsePeriodReturns(require('../trader/binance/period-returns.json'));
+ const source=a.state.binanceRows[0],id=source.accountId,saved=source.avatarUrl;
+ const period=catalog.accounts.find(r=>r.portfolioId===id);
+ try {
+  source.avatarUrl=null;a.setPeriodReturns(catalog);a.mergeRows();
+  assert.equal(a.state.rows.find(r=>r.accountId===id).avatarUrl,period.avatarUrl);
+  source.avatarUrl='https://public.bnbstatic.com/image/avatar/new.jpg';a.mergeRows();
+  assert.equal(a.state.rows.find(r=>r.accountId===id).avatarUrl,source.avatarUrl);
+ } finally {source.avatarUrl=saved;a.setPeriodReturns(null);a.mergeRows();}
+});
 await test('source avatars and original identifiers survive normalization and appear in card and detail',()=>{
  const raw=structuredClone(qualifiedPublished);raw.traders[0].avatarUrl='https://public.bnbstatic.com/image/unsafe-for-hl.png';assert.equal(a.validate(raw)[0].avatarUrl,null);
  const source=structuredClone(qualifiedPublished.traders[0]);delete source.sourceKind;delete source.positionCheck;source.exchange='OKX';source.currency='USDT';source.accountId='ABCDEF1234567890';source.avatarUrl='https://static.okx.com/cdn/okex/users/headimages/source.png';source.windows={};const row=a.validate({schemaVersion:1,status:'ready',traders:[source]})[0];assert.equal(row.avatarUrl,source.avatarUrl);assert.equal(row.accountId,source.accountId);const card=a.card(row,'30D');assert.match(content(card),/带单代码 ABCDEF1234567890/);assert.ok(descendants(card).some(e=>e.src===source.avatarUrl));a.openDetail(row,'30D');assert.match(ids['detail-meta'].textContent,/带单代码 ABCDEF1234567890/);assert.ok(descendants(ids['detail-avatar']).some(e=>e.src===source.avatarUrl));
@@ -592,18 +628,38 @@ await test('equivalent ISO success timestamps cannot disguise a rewritten succes
 });
 await test('independent Aoying public performance participates in default Binance ROI ranking',()=>{
  unifiedSetup();context.BooksReferenceData=require('../trader/reference-data.js');const bundle={};vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../trader/aoying-history.js'),'utf8'),bundle);context.BooksAoyingHistory=bundle.BooksAoyingHistory;
- ids.exchange.value='Binance';ids.sort.value='roi';ids.period.value='30D';a.render();assert.equal(ids.leaders.children.length,1);assert.match(content(ids.leaders),/熬鹰资本/);const r=a.state.binanceRows.find(x=>x.accountId==='5075281354358777856');assert.equal(a.sortValue(r,'30D','roi'),bundle.BooksAoyingHistory.performance.roi);assert.equal(a.binanceView(r).currentPositionCount,null);assert.equal(a.binanceChart(r,'30D').pointCount,30);
+ ids.exchange.value='Binance';ids.sort.value='roi';ids.period.value='30D';a.render();assert.equal(ids.leaders.children.length,a.state.binanceRows.length);assert.match(content(ids.leaders.children[0]),/熬鹰资本/);assert.match(content(ids.leaders.children[1]),/暂无已核实收益率/);const r=a.state.binanceRows.find(x=>x.accountId==='5075281354358777856');assert.equal(a.sortValue(r,'30D','roi'),bundle.BooksAoyingHistory.performance.roi);assert.equal(a.binanceView(r).currentPositionCount,null);assert.equal(a.binanceChart(r,'30D').pointCount,30);
 });
 await test('search finds Aoying by name and exact public ID without switching away from ROI',()=>{
  for(const query of ['熬鹰','5075281354358777856']){ids.search.value=query;a.render();assert.equal(ids.leaders.children.length,1);assert.match(content(ids.leaders),/熬鹰资本/);assert.equal(ids.sort.value,'roi');}
 });
 await test('search keeps a missing-period identity visible without borrowing monthly performance',()=>{
- ids.period.value='90D';ids.search.value='熬鹰';a.render();assert.equal(ids.leaders.children.length,1);assert.doesNotMatch(content(ids.leaders),/95\.90|95\.9%/);assert.match(ids['sort-hint'].textContent,/不计入收益率排名/);ids.search.value='not-a-registered-account';const before=binanceFetches;a.render();assert.doesNotMatch(content(ids.leaders),/熬鹰资本/);assert.match(content(ids.leaders),/暂无可排名账户/);assert.equal(binanceFetches,before);
+ ids.period.value='90D';ids.search.value='熬鹰';a.render();assert.equal(ids.leaders.children.length,1);assert.doesNotMatch(content(ids.leaders),/95\.90|95\.9%/);assert.match(ids['sort-hint'].textContent,/不计入收益率排名/);ids.search.value='not-a-registered-account';const before=binanceFetches;a.render();assert.doesNotMatch(content(ids.leaders),/熬鹰资本/);assert.match(content(ids.leaders),/没有符合条件的账户/);assert.equal(binanceFetches,before);
  delete context.BooksReferenceData;delete context.BooksAoyingHistory;
 });
-await test('public cards expose research and source only, including legacy Follow URLs',()=>{
- const r={...row(1),accountId:'5075281354358777856',name:'熬鹰资本'};a.state.cardControls=[];a.card(r,'30D');const controls=a.state.cardControls.at(-1);assert.equal(controls.followButton,undefined);assert.ok(controls.sourceLink);assert.equal(controls.sourceLink.href,r.sourceUrl);assert.equal(controls.sourceLink.textContent,'来源 ↗');
- a.openDetail(r,'30D');for(const tab of ['paper','follow','api']){a.activateDetailTab(tab);assert.equal(a.state.tab,'analysis');}
+await test('card name opens public research and unavailable owner actions explain the selected account',()=>{
+ const r=a.state.binanceRows.find(x=>x.accountId==='5075281354358777856');a.state.cardControls=[];a.card(r,'30D');const controls=a.state.cardControls.at(-1);
+ assert.equal(controls.detailButton.textContent,r.name);
+ if(!a.privateLeaderRoutingReady)assert.equal(controls.followLink.href,undefined);
+ const unavailable=a.privateCardActions(r,false);
+ for(const [control,label] of [[unavailable.paperLink,'模拟'],[unavailable.followLink,'跟单']]){
+   assert.equal(control.href,undefined);assert.equal(control.type,'button');assert.equal(control.attrs['aria-haspopup'],'dialog');
+   const previous=location.href;control.click();const dialog=document.body.children.at(-1);
+   assert.equal(dialog.open,true);assert.equal(dialog.children[0].textContent,r.name+' · '+label);
+   assert.equal(dialog.attrs['aria-labelledby'],dialog.children[0].id);assert.equal(dialog.attrs['aria-describedby'],dialog.children[1].id);
+   assert.equal(dialog.children[1].textContent,'账户设置暂不可用，请稍后重试。');assert.equal(dialog.children[2],document.activeElement);
+   dialog.children[2].click();assert.equal(dialog.open,false);assert.equal(location.href,previous);
+ }
+ controls.detailButton.click();assert.equal(a.state.detail.accountId,r.accountId);for(const tab of ['paper','follow','api']){a.activateDetailTab(tab);assert.equal(a.state.tab,'analysis');}
+ a.card({...r,_local:true},'30D');assert.equal(a.state.cardControls.at(-1).followLink,undefined);
+});
+await test('enabled owner actions URL-encode only the selected public account and mode',()=>{
+ const r={...a.state.binanceRows[0],name:'甲 & 乙#?mode=other'},actions=a.privateCardActions(r,true);
+ for(const [mode,link,title] of [['paper',actions.paperLink,'模拟'],['follow',actions.followLink,'跟单']]){
+   const url=new URL(link.href);assert.equal(url.origin,'https://books-private-follow.rr7jp4d56w.chatgpt.site');assert.equal(url.pathname,'/');assert.equal(url.hash,'');assert.deepEqual(Object.fromEntries(url.searchParams),{exchange:'Binance',sourceAccountId:r.accountId,name:r.name,mode});assert.equal(link.rel,'noopener noreferrer');assert.equal(link.textContent,title);
+ }
+ assert.equal(a.privateCardActions({...r,accountId:'https://example.com/'},true),null);
+ assert.equal(a.privateCardActions({...r,_local:true},true),null);
 });
 await test('cards omit repeated position warnings while the source notice preserves stale state',()=>{
  const before={source:a.state.source,lastReadFailed:a.state.lastReadFailed,positionExclusions:a.state.positionExclusions};const exchange=ids.exchange.value;ids.exchange.value='Hyperliquid';try{const f=qualify(published,Date.now()-3700000),rows=a.validate(f);a.state.source=a.validateSource(f,rows);a.state.lastReadFailed=false;a.state.positionExclusions={};const r=rows[0];assert.doesNotMatch(content(a.card(r,'7D')),/当前仓位未知|上次持仓|核验时持仓|快照过期|北京时间/);a.renderSource();assert.match(ids['position-notice'].textContent,/核验已过期.*当前仓位未知/);assert.match(ids['position-notice'].textContent,/详情查看/);assert.equal(a.currentHolding(r),false);a.state.lastReadFailed=true;assert.doesNotMatch(content(a.card(r,'7D')),/快照读取失败|当前仓位未知/);a.renderSource();assert.match(ids['position-notice'].textContent,/快照读取失败/);}finally{ids.exchange.value=exchange;Object.assign(a.state,before);}
@@ -669,7 +725,8 @@ await test('Aoying displays the dated independent NVDA observation alongside a h
    assert.equal(a.binanceView(r).currentPositionCount,null);
    const reference=receipt.positionSnapshots.filter(p=>p.rows.length).at(-1),position=reference.rows[0];
    const text=content(ids['detail-overview']);
-   assert.match(text,/币安未公开当前仓位/);assert.match(text,/AlphaFox 最后观测到的仓位/);
+   assert.match(text,/最后观测持仓.*AlphaFox 第三方快照/);assert.match(text,/币安当前仓位仍未公开/);
+   const disclosure=ids['detail-overview'].children.find(n=>n.className==='reference-positions');assert.equal(disclosure.open,false);a.activateDetailTab('live');assert.equal(a.state.tab,'live');assert.equal(ids['detail-overview'].children.find(n=>n.className==='reference-positions').open,true);
    assert.ok(text.includes(position.symbol)&&text.includes(a.value(position.quantity))&&text.includes(a.value(position.entryPrice)));
    assert.ok(text.includes('第三方公开档案'));assert.match(text,/快照实际杠杆/);
  }finally{context.fetch=before;delete context.BooksAoyingPublicArchive;delete context.BooksReferenceData;}

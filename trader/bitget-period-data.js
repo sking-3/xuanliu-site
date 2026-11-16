@@ -48,6 +48,14 @@
       ids.add(row.id);
     }
   }
+  function avatarUrl(value) {
+    if (typeof value !== 'string' || value.length>2048 || /[\s\\\u0000-\u001f\u007f]/.test(value)) return null;
+    try {
+      const url = new URL(value);
+      return url.protocol === 'https:' && !url.username && !url.password && !url.port && !url.hash &&
+        url.hostname === 'img.bgstatic.com' && (url.pathname.startsWith('/otc/images/') || url.pathname.startsWith('/image/third/avatar-default-')) ? url.href : null;
+    } catch { return null; }
+  }
   function parse(raw, now = Date.now()) {
     check(raw && raw.schemaVersion === 1 && raw.source === source && timestamp(raw.generatedAt,now));
     const end = Date.parse(raw.generatedAt);
@@ -134,7 +142,7 @@
   }
   function trader(row) {
     return {id:'bitget-'+row.portfolioId,accountId:row.portfolioId,name:row.name,sourceKind:source,exchange:'Bitget',
-      currency:'USD',sourceUrl:row.sourceUrl,bitgetRecord:row};
+      currency:'USD',sourceUrl:row.sourceUrl,avatarUrl:avatarUrl(row.avatarUrl),bitgetRecord:row};
   }
-  return {parse,performance,trader,validId,rankUrl,profileUrl,evidencePath,source,days};
+  return {parse,performance,trader,avatarUrl,validId,rankUrl,profileUrl,evidencePath,source,days};
 });

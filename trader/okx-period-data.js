@@ -18,6 +18,14 @@
   const whole=n=>Number.isSafeInteger(n) && n>=0;
   const stamp=(s,now)=>typeof s==='string' && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(s) && Number.isFinite(Date.parse(s)) && Date.parse(s)<=now+5000;
   function check(value) {if(!value)throw Error('Invalid OKX public performance snapshot');}
+  function avatarUrl(value) {
+    if (typeof value !== 'string' || value.length>2048 || /[\s\\\u0000-\u001f\u007f]/.test(value)) return null;
+    try {
+      const url = new URL(value);
+      return url.protocol === 'https:' && !url.username && !url.password && !url.port && !url.hash &&
+        url.hostname === 'static.okx.com' && url.pathname.startsWith('/cdn/okex/users/headimages/') ? url.href : null;
+    } catch { return null; }
+  }
   function parse(raw,now=Date.now()){
     check(raw?.schemaVersion===1 && raw.source==='okx_public_lead' && stamp(raw.generatedAt,now));
     check(raw.rankSourceUrl===rankUrl && hashOk(raw.rankEvidenceSha256) && raw.rankEvidencePath===evidencePath('leaders',raw.rankEvidenceSha256));
@@ -49,7 +57,7 @@
   }
   function trader(row){
     return {id:'okx-'+row.uniqueCode,accountId:row.uniqueCode,name:row.name,sourceKind:'okx_public_lead',exchange:'OKX',
-      currency:'USDT',sourceUrl:row.sourceUrl,okxRecord:row};
+      currency:'USDT',sourceUrl:row.sourceUrl,avatarUrl:avatarUrl(row.avatarUrl),okxRecord:row};
   }
-  return {parse,performance,trader,rankUrl,curveUrl,accountSourceUrl,evidencePath,validId,days,ranges,limit};
+  return {parse,performance,trader,avatarUrl,rankUrl,curveUrl,accountSourceUrl,evidencePath,validId,days,ranges,limit};
 });

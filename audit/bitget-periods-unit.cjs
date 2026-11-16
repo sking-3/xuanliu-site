@@ -19,6 +19,7 @@ for (const row of snapshot.accounts) {
   assert.equal(model.performance(row,'365D',asOf),null);
   const profile=evidence(row.profileEvidence);
   assert.equal(profile.publicDetail.portfolioId,row.portfolioId);
+  assert.equal(model.trader(row).avatarUrl,model.avatarUrl(profile.headPic));
   assert.equal(profile.publicDetail.tradingDays,row.leadDays);
   if(row.balance) {
     assert.equal(profile.publicDetail.showBalance,true);
@@ -77,6 +78,9 @@ for (const row of snapshot.accounts) {
   const proof=structuredClone(snapshot);proof.accounts.find(x=>x.portfolioId===row.portfolioId).activity.history=merged;
   model.parse(proof,asOf);
 }
+for(const bad of [undefined,'http://img.bgstatic.com/otc/images/invalid.png','https://img.bgstatic.com.evil.example/otc/images/a.png','https://img.bgstatic.com/image/other.png'])
+  assert.equal(model.trader({...snapshot.accounts[0],avatarUrl:bad}).avatarUrl,null);
+assert.equal(model.avatarUrl('https://img.bgstatic.com/image/third/avatar-default-1747644203.png'),'https://img.bgstatic.com/image/third/avatar-default-1747644203.png');
 const invalid=structuredClone(snapshot);
 invalid.accounts[0].performance['365D']=invalid.accounts[0].performance['90D'];
 assert.throws(()=>model.parse(invalid,asOf));

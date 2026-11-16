@@ -70,3 +70,20 @@ test('an explicit source restriction stops the run and never queries private tra
   },async()=>{});
   assert.equal(count,2);assert.equal(receipts.length,1);assert.equal(failures[0].code,'http_451');
 });
+
+test('period directory assigns each account its own archived Binance avatar',()=>{
+  const model=require('../trader/binance-data.js');
+  const root=path.join(__dirname,'../trader'),raw=JSON.parse(fs.readFileSync(path.join(root,'binance/period-returns.json')));
+  const view=model.parsePeriodReturns(raw,Date.parse(raw.generatedAt));
+  for (const row of view.accounts) {
+    const bytes=fs.readFileSync(path.join(root,row.profileEvidencePath));
+    assert.equal(require('node:crypto').createHash('sha256').update(bytes).digest('hex'),row.profileEvidenceSha256);
+    const data=JSON.parse(bytes).data;
+    assert.equal(data.leadPortfolioId,row.portfolioId);
+    assert.equal(model.periodTrader(row).avatarUrl,model.avatarUrl(data.avatarUrl));
+  }
+  const avatar='https://public.bnbstatic.com/image/avatar/202407/official.jpg';
+  assert.equal(profile(decode(receipt('profile',{...profileData,avatarUrl:avatar}))).avatarUrl,avatar);
+  assert.equal(model.periodTrader({...view.accounts[0],avatarUrl:'https://example.org/other.png'}).avatarUrl,null);
+  assert.equal(model.periodTrader({...view.accounts[0],avatarUrl:undefined}).avatarUrl,null);
+});

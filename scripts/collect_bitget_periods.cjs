@@ -194,7 +194,7 @@ async function collect(read,readActivity=read) {
     }
     if (!performance['90D']) continue;
     const positions=activity(await readPart('open','currentPosition',{pageNo:1,pageSize:10}),false,sourceUrl);
-    accounts.push({portfolioId:id,name:profile.data.displayName.trim(),sourceUrl,leadDays:detail.tradingDays,copyTraderNum:detail.curFollowCount,
+    accounts.push({portfolioId:id,name:profile.data.displayName.trim(),avatarUrl:model.avatarUrl(profile.data.headPic),sourceUrl,leadDays:detail.tradingDays,copyTraderNum:detail.curFollowCount,
       profileEvidence:ref(profile),performance,balance,transfers:detail.showBalance===true?await transferPages(readPart,id,sourceUrl):null,
       activity:{positions,history}});
     archive.push(...sources);

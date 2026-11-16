@@ -1,0 +1,96 @@
+/* Dense account content; keep the established dialog dimensions and browser zoom. */
+#detail{font-size:13px;line-height:1.45}
+#detail.ta-detail{padding-inline:20px;padding-bottom:18px}
+#detail .dialog-head,#detail.ta-detail .dialog-head{min-height:58px;padding-top:10px;padding-bottom:7px;gap:12px;align-items:center}
+#detail .dialog-head h2,#detail.ta-detail .dialog-head h2{font-size:19px;line-height:1.3;margin:0;letter-spacing:-.01em}
+#detail .detail-avatar .avatar{width:34px;height:34px;border-radius:8px;font-size:12px}
+#detail .detail-avatar .avatar img{width:100%;height:100%;object-fit:cover}
+#detail .icon-button{width:34px;min-height:34px;flex-basis:34px;padding:5px}
+#detail #detail-meta,#detail.ta-detail #detail-meta{margin:0 0 8px;font-size:12px;line-height:1.5}
+#detail #detail-data-status{font-size:11px;line-height:1.5;margin:3px 0 7px}
+#detail #tabs,#detail.ta-detail #tabs{top:58px;gap:3px;margin:0;padding:4px 0 8px}
+#detail #tabs button,#detail.ta-detail #tabs button{padding:6px 11px;min-height:34px;font-size:13px;line-height:1.4;border-radius:6px}
+#detail .detail-overview,#detail .detail-history{margin:10px 0;padding:10px 12px}
+#detail .overview-heading,#detail .overview-figures{gap:6px 20px}
+#detail .overview-heading strong{font-size:13px}
+#detail .overview-position-state{font-size:12px;line-height:1.5;margin:4px 0}
+#detail .overview-figures{margin-top:7px}
+#detail .overview-figures small{font-size:11px;line-height:1.45}
+#detail .overview-figures strong{font-size:15px;line-height:1.5}
+#detail .reference-positions{margin-top:7px;padding-top:4px}
+#detail .reference-positions>summary{font-size:12px;cursor:pointer;line-height:1.6}
+#detail .reference-positions p{margin:5px 0;font-size:11px;line-height:1.5}
+#detail table{font-size:12px;font-variant-numeric:tabular-nums}
+#detail th,#detail td,#detail .ta-table th,#detail .ta-table td{padding:7px 9px;line-height:1.5}
+#detail .table-wrap,#detail .ta-table-wrap{margin:7px 0}
+#detail .ta-period-bar{margin:10px 0;gap:12px}
+#detail .ta-period{min-height:32px;padding:4px 10px;font-size:12px}
+#detail .ta-account-facts{gap:12px;padding:4px 0 10px}
+#detail .ta-account-facts>div+div{padding-left:12px}
+#detail .ta-account-facts strong{font-size:17px;line-height:1.4;margin-top:4px}
+#detail .ta-account-facts>div:last-child strong{font-size:12px}
+#detail .trade-analysis{padding-top:10px;font-size:13px}
+#detail .ta-toolbar{gap:10px}
+#detail .ta-status{font-size:11px;line-height:1.5}
+#detail .ta-metrics,#detail .ta-sample-metrics{gap:9px;margin:10px 0}
+#detail .ta-metric,#detail .ta-sample-metric{padding:10px 12px;min-height:72px;border-radius:8px;gap:5px}
+#detail .ta-metric>strong,#detail .ta-sample-metric>strong{font-size:22px;line-height:1.2;letter-spacing:-.02em}
+#detail .ta-metric>span,#detail .ta-sample-metric>span{font-size:12px}
+#detail .ta-metric>small,#detail .ta-sample-metric>small{font-size:11px;line-height:1.4}
+#detail .ta-analysis-visuals{margin:18px 0;gap:22px}
+#detail .ta-analysis-section>h3{font-size:14px;margin-bottom:10px}
+#detail .ta-note{font-size:12px;line-height:1.5;margin:7px 0}
+#detail .ta-distribution{padding:7px 0 12px}
+#detail .ta-distribution-legend{margin-top:8px;font-size:11px}
+#detail .ta-coins{margin:16px 0;padding-top:14px}
+#detail .ta-empty{padding:15px;margin:10px 0}
+#detail .ta-floating{margin:12px 0;padding-bottom:10px}
+#detail .ta-floating-layout{margin:10px 0;gap:16px}
+#detail .ta-floating-total{font-size:24px}
+#detail .ta-floating-chart svg{height:120px}
+#detail .ta-position-market{margin-top:16px}
+#detail .ta-historical{margin:12px 0;padding:10px 0}
+#detail .strategy-analysis{margin-block:14px;padding-block:14px}
+#detail .strategy-analysis h3{font-size:16px}
+#detail .strategy-analysis h4{font-size:14px;margin:16px 0 9px}
+#detail .sa-heading{gap:10px}
+#detail .sa-metrics{margin:12px 0;gap:12px}
+#detail .sa-metrics dd{font-size:23px;margin:5px 0;line-height:1.3}
+#detail .sa-metrics dt,#detail .sa-metrics small{font-size:12px;line-height:1.5}
+#detail .sa-status,#detail .sa-caption{font-size:11px;line-height:1.5;margin:7px 0}
+#detail .sa-chart-nav{gap:5px}
+#detail .sa-chart-nav button,#detail .strategy-analysis .sa-heading button{min-height:32px;padding:5px 10px;font-size:12px}
+#detail .sa-chart svg{min-height:180px;max-height:260px}
+#detail .sa-breakdown dl{gap:3px}
+#detail .sa-breakdown dl>div{padding-block:6px}
+#detail .lead-detail-metrics{gap:9px 24px;padding-block:7px}
+#detail .lead-curve{margin:10px 0}
+#detail .lead-sample-analysis,#detail .lead-capital{margin:12px 0}
+#detail :is(.period-switch,.lead-metric-switch){margin:8px 0 11px;gap:5px}
+#detail :is(.period-switch,.lead-metric-switch) button{min-height:32px;padding:5px 10px;font-size:12px}
+/* Names are ordinary text links, without a button-shaped box. */
+.books-shell.trader-page .card h3 .trader-name-button{display:inline;width:auto;max-width:100%;min-height:0;margin:0;padding:0;border:0;border-radius:0;background:transparent;box-shadow:none;text-align:left;font:inherit;line-height:inherit;font-weight:inherit;color:inherit;overflow-wrap:anywhere;white-space:normal}
+.books-shell.trader-page .card h3 .trader-name-button:hover{color:#205969;background:transparent;text-decoration:underline;text-underline-offset:3px}
+.books-shell.trader-page .card .card-links{gap:5px}
+.books-shell.trader-page .card .card-links :is(.private-paper,.private-follow){display:inline-flex;align-items:center;justify-content:center;min-height:34px;padding:5px 9px;border:1px solid #d9e1e6;border-radius:6px;font-size:12px;line-height:1.4;white-space:nowrap;text-decoration:none;color:#3a5863;background:#fff}
+.books-shell.trader-page .card .card-links .private-follow{background:#a84511;border-color:#a84511;color:white}
+.books-shell.trader-page .card .card-links a:hover{filter:brightness(.96)}
+.private-action-notice{width:min(380px,calc(100vw - 32px));padding:20px;border:1px solid #d9e1e6;border-radius:12px;color:#243449}
+.private-action-notice::backdrop{background:rgb(24 39 48 / .35)}
+.private-action-notice h2{margin:0 0 10px;font-size:17px;line-height:1.4}
+.private-action-notice p{margin:0 0 18px;font-size:14px;line-height:1.6}
+.private-action-notice button{min-height:40px;padding:6px 16px}
+@media(max-width:640px){
+ #detail.ta-detail{padding-inline:12px;padding-bottom:12px}
+ #detail .dialog-head,#detail.ta-detail .dialog-head{min-height:54px;padding-top:8px;gap:9px}
+ #detail .dialog-head h2,#detail.ta-detail .dialog-head h2{font-size:18px}
+ #detail #tabs,#detail.ta-detail #tabs{top:54px;gap:1px;flex-wrap:nowrap;overflow-x:auto;padding-bottom:5px}
+ #detail #tabs button,#detail.ta-detail #tabs button{flex:0 0 auto;min-height:44px;padding:6px 9px;font-size:12px;white-space:nowrap}
+ #detail .ta-metric,#detail .ta-sample-metric{padding:10px;min-height:70px}
+ #detail .ta-metric>strong,#detail .ta-sample-metric>strong,#detail .sa-metrics dd{font-size:21px}
+ #detail .ta-account-facts>div+div{padding-left:0}
+ #detail .sa-chart-nav button,#detail .strategy-analysis .sa-heading button,#detail :is(.period-switch,.lead-metric-switch) button{min-height:44px;padding:6px 9px}
+ #detail .sa-metrics{gap:12px 10px}
+ #detail .sa-metrics dt,#detail .sa-metrics small{font-size:12px}
+ .books-shell.trader-page .card .card-links :is(.private-paper,.private-follow){min-height:44px;padding:7px 10px}
+}

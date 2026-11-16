@@ -57,3 +57,21 @@ test('published evidence remains intact on a rejected replacement, supports retr
     assert.equal(await fs.readFile(out,'utf8'),old);
   }finally{await fs.rm(dir,{recursive:true,force:true});}
 });
+
+test('directory photos map each portfolio to its head image in the hash-verified rank archive',async()=>{
+  const root=path.join(__dirname,'../trader');
+  const raw=JSON.parse(await fs.readFile(path.join(root,'okx/period-returns.json')));
+  const bytes=await fs.readFile(path.join(root,raw.rankEvidencePath));
+  assert.equal(require('node:crypto').createHash('sha256').update(bytes).digest('hex'),raw.rankEvidenceSha256);
+  const rank=JSON.parse(bytes).data[0].ranks;
+  for(const row of m.parse(raw,Date.parse(raw.generatedAt)).accounts){
+    const pub=rank.find(r=>r.uniqueCode===row.uniqueCode);
+    assert.ok(pub);
+    assert.equal(m.trader(row).avatarUrl,m.avatarUrl(pub.portLink));
+  }
+  const url='https://static.okx.com/cdn/okex/users/headimages/predefined/0008.png';
+  const good=await collect(fixture({leaders:board([{...leader,portLink:url}])}));
+  assert.equal(m.trader(good.bundle.accounts[0]).avatarUrl,url);
+  for(const bad of [undefined,'https://static.okx.com.other.com/cdn/okex/users/headimages/1','https://static.okx.com/cdn/unrelated'])
+    assert.equal(m.trader({...good.bundle.accounts[0],avatarUrl:bad}).avatarUrl,null);
+});

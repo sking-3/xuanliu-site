@@ -79,7 +79,7 @@ async function collect(read,wait=async()=>{}){
       if(Date.parse(source.receivedAt)>Date.parse(generatedAt))generatedAt=source.receivedAt;
     }
     if(!performance['90D'])continue;
-    accounts.push({uniqueCode:id,name:r.nickName.trim(),leadDays:number(r.leadDays),copyTraderNum:number(r.copyTraderNum),
+    accounts.push({uniqueCode:id,name:r.nickName.trim(),avatarUrl:model.avatarUrl(r.portLink),leadDays:number(r.leadDays),copyTraderNum:number(r.copyTraderNum),
       sourceUrl:model.accountSourceUrl(id),performance});
   }
   const bundle={schemaVersion:1,source:'okx_public_lead',generatedAt,rankEvidencePath:leaderboard.evidencePath,rankEvidenceSha256:leaderboard.sha,
