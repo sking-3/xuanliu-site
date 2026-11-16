@@ -9,6 +9,7 @@ for (const id of api.IDS) {
   assert.equal(target.pathname, '/xuanliu-site/trader/');
   assert.equal(target.searchParams.get('exchange'), 'Binance');
   assert.equal(target.searchParams.get('q'), id);
+  assert.equal(target.searchParams.get('account'), id);
 }
 for (const suffix of ['?portfolioId=unknown', '?portfolioId=', '?portfolioId=5156287639231681792&portfolioId=5139646755272846081'])
   assert.equal(api.destination(base + suffix), null);

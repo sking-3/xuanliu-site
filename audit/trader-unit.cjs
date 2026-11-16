@@ -608,6 +608,25 @@ await test('public cards expose research and source only, including legacy Follo
 await test('cards omit repeated position warnings while the source notice preserves stale state',()=>{
  const before={source:a.state.source,lastReadFailed:a.state.lastReadFailed,positionExclusions:a.state.positionExclusions};try{const f=qualify(published,Date.now()-3700000),rows=a.validate(f);a.state.source=a.validateSource(f,rows);a.state.lastReadFailed=false;a.state.positionExclusions={};const r=rows[0];assert.doesNotMatch(content(a.card(r,'7D')),/当前仓位未知|上次持仓|核验时持仓|快照过期|北京时间/);a.renderSource();assert.match(ids['position-notice'].textContent,/核验已过期.*当前仓位未知/);assert.match(ids['position-notice'].textContent,/详情查看/);assert.equal(a.currentHolding(r),false);a.state.lastReadFailed=true;assert.doesNotMatch(content(a.card(r,'7D')),/快照读取失败|当前仓位未知/);a.renderSource();assert.match(ids['position-notice'].textContent,/快照读取失败/);}finally{Object.assign(a.state,before);}
 });
+await test('published Bitget and OKX details retain real windows, records, and hidden-position states',async()=>{
+ const read=rel=>JSON.parse(fs.readFileSync(path.resolve(__dirname,'../trader',rel),'utf8'));
+ const bitget=context.BooksBitgetPeriodData=require('../trader/bitget-period-data.js');
+ const okx=context.BooksOKXPeriodData=require('../trader/okx-period-data.js');
+ const activity=require('../trader/okx-trades.js').parse(read('okx/trades.json'));
+ const bg=bitget.parse(read('bitget/period-returns.json')),ox=okx.parse(read('okx/period-returns.json'));
+ const real=(r,adapter,group)=>({...adapter.trader(r),activity:group,windows:{},positions:[],points:[],orders:[]});
+ const visible=bg.accounts.find(r=>r.activity.positions.rows.length),b=real(visible,bitget,visible.activity);
+ a.openDetail(b,'365D');assert.equal(a.state.window,'90D');assert.match(content(ids['detail-body']),/365D 暂无可核实收益/);assert.match(content(ids['detail-body']),/Bitget 90D 收益率/);assert.match(content(ids['detail-body']),/官方每日收益率/);
+ a.activateDetailTab('positions');assert.match(content(ids['detail-body']),new RegExp(visible.activity.history.rows[0].symbol));assert.match(content(ids['detail-body']),/已平仓仓位/);
+ a.activateDetailTab('live');assert.match(content(ids['detail-body']),new RegExp(visible.activity.positions.rows[0].symbol));assert.match(content(ids['detail-body']),/延迟约 1 小时/);
+ a.activateDetailTab('orders');assert.equal(a.state.tab,'live');
+ const shielded=bg.accounts.find(r=>r.activity.positions.status==='restricted');
+ a.openDetail(real(shielded,bitget,shielded.activity),'30D');assert.match(content(ids['detail-body']),/策略保护/);a.activateDetailTab('live');assert.equal(a.state.tab,'analysis');
+ const hidden=activity.accounts.find(a=>a.activity.positions.hiddenCount&&!a.activity.positions.rows.length);
+ const record=ox.accounts.find(r=>r.uniqueCode===hidden.uniqueCode);
+ a.openDetail(real(record,okx,hidden.activity),'90D');assert.match(content(ids['detail-body']),/来源隐藏了/);a.activateDetailTab('positions');assert.match(content(ids['detail-body']),new RegExp(hidden.activity.history.rows[0].symbol));
+ delete context.BooksBitgetPeriodData;delete context.BooksOKXPeriodData;
+});
 console.log(`${passed} logic and DOM-model tests passed. Synthetic fixtures stay local; the published feed is checked separately.`);
 })().catch(e=>{console.error(e);process.exitCode=1;});
 

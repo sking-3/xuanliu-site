@@ -30,3 +30,26 @@ test('403 and 429 stop subsequent reads, including across reader instances',asyn
 test('oversized checkpoint is rejected without retaining partial data',async()=>{
  const r=api.reader(environment(async()=>new Response(' '.repeat(900001))));await assert.rejects(r.read(),/too_large/);assert.equal(r.last(),null);
 });
+test('rolling checkpoint, older site archive and cached checkpoints retain distinct fingerprints',async()=>{
+ const old=fixture(),recent=fixture();
+ const unique=record('c','f');
+ recent.lastSuccessAt=new Date(NOW).toISOString();
+ recent.records={[unique.fingerprint]:unique};
+ const env=environment(async()=>new Response(JSON.stringify(recent)));
+ env.BooksPublicRecordSeed=old;
+ const initial=api.reader(env);
+ assert.equal(initial.last().retainedRecords,1);
+ const update=await initial.read();
+ assert.equal(update.checkedAt,recent.lastSuccessAt);
+ assert.deepEqual(new Set(update.allRows.map(r=>r.id)),new Set([...Object.keys(old.records),unique.fingerprint]));
+ const hydrated=api.reader(env);
+ assert.equal(hydrated.last().retainedRecords,2);
+ assert.equal((await hydrated.read()).retainedRecords,2);
+});
+test('a new empty checkpoint keeps prior observations and their own source times',async()=>{
+ const old=fixture(), empty={...old,lastSuccessAt:new Date(NOW).toISOString(),records:{}};
+ const env=environment(async()=>new Response(JSON.stringify(empty)));
+ env.BooksPublicRecordSeed=old;
+ const last=await api.reader(env).read();
+ assert.equal(last.retainedRecords,1);assert.equal(last.allRows[0].updatedAt,NOW-2000);assert.equal(last.checkedAt,empty.lastSuccessAt);
+});
