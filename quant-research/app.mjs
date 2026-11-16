@@ -126,7 +126,7 @@ async function refresh(){
     const response=await fetch('data/latest.json',{cache:'no-store',signal:AbortSignal.timeout(15000)});
     if(!response.ok)throw Error(response.status===404?'网站尚未发布第一份行情与研究结果。':'网站数据暂时无法读取。');
     const data=await response.json();const verified=await validateDataset(data);
-    dataset=verified;latestSnapshot=data;refreshError=null;lastCheckedAt=Date.now();renderRuntimeStatus();
+    dataset=verified;latestSnapshot=data;refreshError=null;lastCheckedAt=new Date().toISOString();renderRuntimeStatus();
     $('data-status').textContent=verified?`${verified.bars.length} 根完整日线 · ${day(verified.bars[0].time)} 至 ${day(verified.bars.at(-1).time)}（UTC 开盘日）`:'等待网站提供可核验的行情数据。';
     $('run-button').disabled=!verified||busy;
     if(verified?.report&&(!current||current.origin==='website')){const r={id:verified.dataHash,createdAt:verified.runAt,source:verified.source,dataHash:verified.dataHash,bars:verified.bars,report:verified.report,origin:'website'};render(r);}
