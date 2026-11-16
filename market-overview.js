@@ -186,7 +186,10 @@ function mount(doc,options={}){
       if(bytes>MAX_BYTES){await reader.cancel();fail();}
       chunks.push(value);
     }
-    return JSON.parse(await new Blob(chunks).text());
+    const payload=new Uint8Array(bytes);let offset=0;
+    for(const chunk of chunks){payload.set(chunk,offset);offset+=chunk.byteLength;}
+    const decoded=new TextDecoder('utf-8',{fatal:true}).decode(payload);
+    return JSON.parse(decoded);
   }
   function regresses(before,after){
     return !!before?.data&&(!after.data||Date.parse(after.fetchedAt)<Date.parse(before.fetchedAt)||Date.parse(after.asOf)<Date.parse(before.asOf));

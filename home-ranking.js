@@ -146,7 +146,10 @@ async function readJSON(fetcher,spec){
     if(!response.ok||!appropriateType||Number(response.headers.get('content-length'))>spec.limit)fail();
     const reader=response.body.getReader(),chunks=[];let bytes=0;
     for(;;){const {done,value}=await reader.read();if(done)break;bytes+=value.byteLength;if(bytes>spec.limit){await reader.cancel();fail();}chunks.push(value);}
-    let body=await new Blob(chunks).text();
+    const payload=new Uint8Array(bytes);let offset=0;
+    for(const chunk of chunks){payload.set(chunk,offset);offset+=chunk.byteLength;}
+    const decoded=new TextDecoder('utf-8',{fatal:true}).decode(payload);
+    let body=decoded;
     if(spec.wrapped){
       // The existing collector publishes a single JS assignment. Read its JSON as data only.
       const match=/^\s*(?:\/\*[\s\S]*?\*\/\s*)?globalThis\.BooksAoyingHistory\s*=\s*(\{[\s\S]*\})\s*;?\s*$/.exec(body);
