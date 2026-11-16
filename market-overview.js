@@ -42,29 +42,37 @@ function data(id,d,now){
     if(!plain(e))fail();return {title:str(e.title,160),startAt:stamp(e.startAt,now,true),url:link(e.url)};
   }).sort((a,b)=>Date.parse(a.startAt)-Date.parse(b.startAt))};
 }
+function validateCard(id,c,generatedAt,now){
+  if(!plain(c)||!['ready','stale','unavailable'].includes(c.status))fail();
+  const card={status:c.status,sourceName:str(c.sourceName,80),sourceUrl:link(c.sourceUrl),sourceUpdatedAt:c.sourceUpdatedAt===null?null:stamp(c.sourceUpdatedAt,now),fetchedAt:c.fetchedAt===null?null:stamp(c.fetchedAt,now),lastAttemptAt:c.lastAttemptAt===null?null:stamp(c.lastAttemptAt,now),asOf:c.asOf===null?null:stamp(c.asOf,now),errorCode:c.errorCode===null?null:str(c.errorCode,80),data:null};
+  for(const field of ['fetchedAt','lastAttemptAt'])if(card[field]&&Date.parse(card[field])>Date.parse(generatedAt)+5000)fail();
+  if(c.status==='unavailable'){if(c.data!==null)fail();}
+  else{
+    if(!card.fetchedAt||!card.asOf||Date.parse(card.asOf)>Date.parse(card.fetchedAt)+300000)fail();card.data=data(id,c.data,now);
+    if(card.sourceUpdatedAt&&Date.parse(card.sourceUpdatedAt)>Date.parse(card.fetchedAt)+300000)fail();
+    if(id==='flows'&&new Date(card.asOf).toISOString().slice(0,7)!==card.data.period)fail();
+    if(id==='active'){
+      if(Date.parse(card.asOf)!==Math.min(...card.data.items.map(r=>Date.parse(r.lastUpdated))))fail();
+      for(let i=1;i<card.data.items.length;i++)if(card.data.items[i].volumeUsd>card.data.items[i-1].volumeUsd)fail();
+    }
+    if(id==='macro'&&(Date.parse(card.asOf)!==Date.parse(card.data.latest.publishedAt)||(card.data.latest.updatedAt&&Date.parse(card.data.latest.updatedAt)<Date.parse(card.data.latest.publishedAt))))fail();
+  }
+  return card;
+}
 function validate(p,now=Date.now()){
   if(!plain(p)||p.schemaVersion!==1||!plain(p.cards))fail();
   const generatedAt=stamp(p.generatedAt,now),cards={};
-  for(const id of IDS){
-    const c=p.cards[id];if(!plain(c)||!['ready','stale','unavailable'].includes(c.status))fail();
-    const card={status:c.status,sourceName:str(c.sourceName,80),sourceUrl:link(c.sourceUrl),sourceUpdatedAt:c.sourceUpdatedAt===null?null:stamp(c.sourceUpdatedAt,now),fetchedAt:c.fetchedAt===null?null:stamp(c.fetchedAt,now),lastAttemptAt:c.lastAttemptAt===null?null:stamp(c.lastAttemptAt,now),asOf:c.asOf===null?null:stamp(c.asOf,now),errorCode:c.errorCode===null?null:str(c.errorCode,80),data:null};
-    for(const field of ['fetchedAt','lastAttemptAt'])if(card[field]&&Date.parse(card[field])>Date.parse(generatedAt)+5000)fail();
-    if(c.status==='unavailable'){if(c.data!==null)fail();}
-    else{
-      if(!card.fetchedAt||!card.asOf||Date.parse(card.asOf)>Date.parse(card.fetchedAt)+300000)fail();card.data=data(id,c.data,now);
-      if(card.sourceUpdatedAt&&Date.parse(card.sourceUpdatedAt)>Date.parse(card.fetchedAt)+300000)fail();
-      if(id==='flows'&&new Date(card.asOf).toISOString().slice(0,7)!==card.data.period)fail();
-      if(id==='active'){
-        if(Date.parse(card.asOf)!==Math.min(...card.data.items.map(r=>Date.parse(r.lastUpdated))))fail();
-        for(let i=1;i<card.data.items.length;i++)if(card.data.items[i].volumeUsd>card.data.items[i-1].volumeUsd)fail();
-      }
-      if(id==='macro'&&(Date.parse(card.asOf)!==Date.parse(card.data.latest.publishedAt)||(card.data.latest.updatedAt&&Date.parse(card.data.latest.updatedAt)<Date.parse(card.data.latest.publishedAt))))fail();
-    }
-    cards[id]=card;
-  }
+  for(const id of IDS)cards[id]=validateCard(id,p.cards[id],generatedAt,now);
   return {schemaVersion:1,generatedAt,cards};
 }
-function stale(id,c,now=Date.now(),readFailed=false){return !!c.data&&(readFailed||c.status!=='ready'||now-Date.parse(c.asOf)>MAX_AGE_DAYS[id]*86400000);}
+function isStatisticsLink(value){
+  const hostname=new URL(value).hostname;
+  return hostname==='www.stats.gov.cn'||hostname==='stats.gov.cn';
+}
+function stale(id,c,now=Date.now(),readFailed=false){
+  const missedDailyChecks=id==='macro'&&isStatisticsLink(c.sourceUrl)&&now-Date.parse(c.fetchedAt)>2*86400000;
+  return !!c.data&&(readFailed||c.status!=='ready'||missedDailyChecks||now-Date.parse(c.asOf)>MAX_AGE_DAYS[id]*86400000);
+}
 function dateLabel(v,time=false){return new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',month:'2-digit',day:'2-digit',...(time?{hour:'2-digit',minute:'2-digit',hour12:false}:{year:'numeric'})}).format(new Date(v));}
 function decimal(v,n=2){return v.toLocaleString('zh-CN',{minimumFractionDigits:n,maximumFractionDigits:n});}
 function signed(v,n=2){return (v>0?'+':'')+decimal(v,n);}
@@ -89,14 +97,19 @@ function employmentHeadline(t){
   if(!m||!months.includes(m[3]))return t;
   return `${months.indexOf(m[3])+1}月非农 ${m[1].toLowerCase()==='falls'?'−':'+'}${decimal(Number(m[2].replace(/,/g,''))/1e4,1)}万 · 失业率 ${m[4]}%`;
 }
-function macroSnapshot(payload,base,now){
-  if(!plain(payload)||payload.schemaVersion!==1||!plain(payload.card))return null;
-  const card=payload.card;
-  const generated=[base.generatedAt,payload.generatedAt,card.fetchedAt,card.lastAttemptAt].filter(Boolean).map(Date.parse).filter(Number.isFinite);
-  if(!generated.length)return null;
+function chineseRelease(payload,now){
+  if(!plain(payload)||payload.schemaVersion!==1)fail();
+  const generatedAt=stamp(payload.generatedAt,now);
+  const card=validateCard('macro',payload.card,generatedAt,now);
+  if(!isStatisticsLink(card.sourceUrl)||card.sourceName!=='国家统计局')fail();
+  if(card.data&&(!isStatisticsLink(card.data.latest.url)||card.data.events.some(event=>!isStatisticsLink(event.url))))fail();
+  return {generatedAt,card};
+}
+function macroSnapshot(payload,base,now=Date.now()){
   try{
-    const probe={schemaVersion:1,generatedAt:new Date(Math.max(...generated)).toISOString(),cards:{...base.cards,macro:card}};
-    return validate(probe,now);
+    const {generatedAt,card}=chineseRelease(payload,now);
+    const latest=Date.parse(generatedAt)>Date.parse(base.generatedAt)?generatedAt:base.generatedAt;
+    return {...base,generatedAt:latest,cards:{...base.cards,macro:card}};
   }catch(_){return null;}
 }
 function node(doc,tag,text,cls){const el=doc.createElement(tag);if(text!==undefined)el.textContent=text;if(cls)el.className=cls;return el;}
@@ -105,7 +118,8 @@ function renderCard(doc,host,id,c,now,readFailed){
   const status=stale(id,c,now,readFailed)?'stale':c.data?'ready':'unavailable';
   const head=node(doc,'div',undefined,'insight-heading');head.append(node(doc,'h2',LABELS[id]));
   head.append(node(doc,'span',status==='ready'?({sentiment:'日度',valuation:'月末',flows:'月度',active:'快照',macro:'官方发布'})[id]:status==='stale'?'待更新':'暂无数据','insight-state'));
-  const scope=node(doc,'p',SCOPES[id],'insight-scope'),body=node(doc,'div',undefined,'insight-body');
+  const foreignMacro=id==='macro'&&!isStatisticsLink(c.sourceUrl);
+  const scope=node(doc,'p',foreignMacro?'美国宏观 · 备用发布与日历':SCOPES[id],'insight-scope'),body=node(doc,'div',undefined,'insight-body');
   const metric=(value,unit,label)=>{const line=node(doc,'div',undefined,'insight-metric');line.append(node(doc,'strong',value));if(unit)line.append(node(doc,'span',unit));body.append(line);if(label)body.append(node(doc,'p',label,'insight-caption'));};
   const row=(label,value)=>{const r=node(doc,'div',undefined,'insight-row');r.append(node(doc,'span',label),node(doc,'strong',value));body.append(r);};
   if(c.data){const d=c.data;
@@ -126,10 +140,11 @@ function renderCard(doc,host,id,c,now,readFailed){
       const headline=anchor(doc,employmentHeadline(d.latest.title),d.latest.url,'insight-headline');headline.setAttribute('title',d.latest.title);body.append(headline,node(doc,'p','发布 '+dateLabel(d.latest.publishedAt),'insight-caption'));
       const events=d.events.filter(e=>Date.parse(e.startAt)>=now).slice(0,2);
       for(const e of events){const a=anchor(doc,eventTitle(e.title),e.url,'insight-event');a.append(node(doc,'time',dateLabel(e.startAt,true)+' 北京时间'));body.append(a);}
-      if(!events.length)body.append(node(doc,'p','暂无未来已核验发布，等待下一次官方日历更新','insight-caption'));
+      if(!events.length&&foreignMacro)body.append(node(doc,'p','暂无未来已核验发布，等待下一次官方日历更新','insight-caption'));
     }
   }else body.append(node(doc,'p',status==='stale'?'最近一次快照已过期，等待来源恢复':'暂无可核验快照，来源未返回数据','insight-empty'));
-  const cadence=node(doc,'p',CADENCE[id]+(c.errorCode?(c.errorCode==='http_403'||c.errorCode==='http_429'?' · 来源访问已停止':' · 本次读取失败，保留旧值'):''),'insight-cadence');
+  const cadenceText=foreignMacro?'中文快照暂不可用 · 美国官方备用来源':CADENCE[id];
+  const cadence=node(doc,'p',cadenceText+(c.errorCode?(c.errorCode==='http_403'||c.errorCode==='http_429'?' · 来源访问已停止':' · 本次读取失败，保留旧值'):''),'insight-cadence');
   const foot=node(doc,'footer',undefined,'insight-footer');foot.append(anchor(doc,c.sourceName+' ↗',c.sourceUrl,'insight-source'));
   if(c.asOf){const time=node(doc,'time','截至 '+dateLabel(c.asOf,id==='active'),'insight-asof');time.dateTime=c.asOf;time.setAttribute('title','来源统计时间（北京时间）；采集于 '+dateLabel(c.fetchedAt,true)+(c.sourceUpdatedAt?'；来源更新 '+dateLabel(c.sourceUpdatedAt,true):''));foot.append(time);}
   host.setAttribute('data-state',status);host.setAttribute('aria-busy','false');host.replaceChildren(head,scope,body,cadence,foot);
@@ -138,39 +153,71 @@ function mount(doc,options={}){
   const root=doc.getElementById('market-insights');if(!root)return null;
   const hosts=Object.fromEntries(IDS.map(id=>[id,doc.getElementById('insight-'+id)]));if(IDS.some(id=>!hosts[id]))return null;
   const fetcher=options.fetch||global.fetch.bind(global),now=options.now||Date.now;
-  let snapshot=null,inflight=null,readFailed=false;
-  function render(){if(!snapshot)return;const active=doc.activeElement,focusId=IDS.find(id=>hosts[id].contains?.(active)),href=active?.href;
-    for(const id of IDS)renderCard(doc,hosts[id],id,snapshot.cards[id],now(),readFailed);
-    if(focusId&&href){const replacement=[...hosts[focusId].querySelectorAll('a')].find(a=>a.href===href);replacement?.focus();}}
+  let aggregate=null,chinese=null,inflight=null,aggregateFailed=false,chineseFailed=false;
+  function getSnapshot(){
+    if(!aggregate||!chinese)return aggregate;
+    const generatedAt=Date.parse(chinese.generatedAt)>Date.parse(aggregate.generatedAt)?chinese.generatedAt:aggregate.generatedAt;
+    return {...aggregate,generatedAt,cards:{...aggregate.cards,macro:chinese.card}};
+  }
+  function render(){
+    const active=doc.activeElement,focusId=IDS.find(id=>hosts[id].contains?.(active)),href=active?.href;
+    for(const id of IDS){
+      const source=id==='macro'&&chinese?chinese.card:aggregate?.cards[id];
+      if(source){
+        const failed=id==='macro'?(chineseFailed||(!chinese&&aggregateFailed)):aggregateFailed;
+        renderCard(doc,hosts[id],id,source,now(),failed);
+      }else{
+        hosts[id].setAttribute('aria-busy','false');
+        const state=hosts[id].querySelector('.insight-state');
+        if(state)state.textContent='暂未取得数据';
+      }
+    }
+    if(focusId&&href){const replacement=[...hosts[focusId].querySelectorAll('a')].find(a=>a.href===href);replacement?.focus();}
+  }
+  async function readJson(path,signal){
+    const response=await fetcher(path,{cache:'no-cache',credentials:'omit',redirect:'error',signal});
+    if(!response.ok||!/application\/(?:[\w.+-]*\+)?json(?:;|$)/i.test(response.headers.get('content-type')||'')||Number(response.headers.get('content-length'))>MAX_BYTES)fail();
+    const reader=response.body.getReader(),chunks=[];
+    let bytes=0;
+    for(;;){
+      const {done,value}=await reader.read();
+      if(done)break;
+      bytes+=value.byteLength;
+      if(bytes>MAX_BYTES){await reader.cancel();fail();}
+      chunks.push(value);
+    }
+    return JSON.parse(await new Blob(chunks).text());
+  }
+  function regresses(before,after){
+    return !!before?.data&&(!after.data||Date.parse(after.fetchedAt)<Date.parse(before.fetchedAt)||Date.parse(after.asOf)<Date.parse(before.asOf));
+  }
+  async function readAggregate(signal){
+    const next=validate(await readJson('market-overview.json',signal),now());
+    if(aggregate&&Date.parse(next.generatedAt)<Date.parse(aggregate.generatedAt))fail();
+    if(aggregate)for(const id of IDS){
+      const before=aggregate.cards[id],after=next.cards[id];
+      if(regresses(before,after))next.cards[id]={...before,status:'stale',lastAttemptAt:after.lastAttemptAt,errorCode:after.errorCode||'older_snapshot'};
+    }
+    aggregate=next;
+  }
+  async function readChinese(signal){
+    const next=chineseRelease(await readJson('macro-cn.json',signal),now());
+    if(chinese&&(Date.parse(next.generatedAt)<Date.parse(chinese.generatedAt)||regresses(chinese.card,next.card)))fail();
+    chinese=next;
+  }
   async function read(){
     const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),10000);
     try{
-      const r=await fetcher('market-overview.json',{cache:'no-cache',credentials:'omit',redirect:'error',signal:controller.signal});
-      if(!r.ok||!/application\/(?:[\w.+-]*\+)?json(?:;|$)/i.test(r.headers.get('content-type')||'')||Number(r.headers.get('content-length'))>MAX_BYTES)fail();
-      const reader=r.body.getReader(),chunks=[];let bytes=0;for(;;){const {done,value}=await reader.read();if(done)break;bytes+=value.byteLength;if(bytes>MAX_BYTES){await reader.cancel();fail();}chunks.push(value);}
-      let next=validate(JSON.parse(await new Blob(chunks).text()),now());
-      // The aggregate snapshot keeps its existing last-good fallback. When
-      // that card is still on the retired BLS source, prefer the separate
-      // Chinese National Bureau of Statistics snapshot if one is available.
-      if(next.cards.macro.status!=='ready'){
-        try{
-          const macroResponse=await fetcher('macro-cn.json',{cache:'no-cache',credentials:'omit',redirect:'error'});
-          if(macroResponse.ok&&/application\/(?:[\w.+-]*\+)?json(?:;|$)/i.test(macroResponse.headers.get('content-type')||'')){
-            const macroPayload=await macroResponse.json();
-            next=macroSnapshot(macroPayload,next,now())||next;
-          }
-        }catch(_){/* keep the aggregate last-good card */}
-      }
-      if(snapshot&&Date.parse(next.generatedAt)<Date.parse(snapshot.generatedAt))fail();
-      if(snapshot)for(const id of IDS){const before=snapshot.cards[id],after=next.cards[id];if(before.data&&(!after.data||Date.parse(after.fetchedAt)<Date.parse(before.fetchedAt)||Date.parse(after.asOf)<Date.parse(before.asOf)))next.cards[id]={...before,status:'stale',lastAttemptAt:after.lastAttemptAt,errorCode:after.errorCode||'older_snapshot'};}
-      snapshot=next;readFailed=false;render();
-    }catch(_){readFailed=true;if(snapshot)render();else for(const id of IDS){hosts[id].setAttribute('aria-busy','false');const status=hosts[id].querySelector('.insight-state');if(status)status.textContent='暂未取得数据';}}
-    finally{clearTimeout(timer);}
+      const [overview,release]=await Promise.allSettled([readAggregate(controller.signal),readChinese(controller.signal)]);
+      aggregateFailed=overview.status==='rejected';
+      chineseFailed=release.status==='rejected';
+      render();
+    }finally{clearTimeout(timer);}
   }
   function refresh(){if(inflight)return inflight;inflight=read().finally(()=>{inflight=null;});return inflight;}
   const interval=setInterval(()=>{if(doc.visibilityState==='visible')refresh();else render();},600000);
   doc.addEventListener('visibilitychange',()=>{if(doc.visibilityState==='visible'){render();refresh();}});
-  refresh();return {refresh,render,getSnapshot:()=>snapshot,destroy:()=>clearInterval(interval)};
+  refresh();return {refresh,render,getSnapshot,destroy:()=>clearInterval(interval)};
 }
 const api={IDS,MAX_BYTES,MAX_AGE_DAYS,validate,validateSnapshot:validate,macroSnapshot,stale,dateLabel,employmentHeadline,eventTitle,renderCard,mount};
 if(typeof module!=='undefined'&&module.exports)module.exports=api;

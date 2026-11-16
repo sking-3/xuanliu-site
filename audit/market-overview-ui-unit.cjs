@@ -14,6 +14,12 @@ function fixture(){
   macro:{...meta('BLS','https://www.bls.gov/'),asOf:'2026-11-06T12:50:31.965Z',data:{latest:{title:'Payroll employment rises by 165,000 in October; unemployment rate changes little at 4.1%',url:'https://www.bls.gov/news.release/archives/empsit_11062026.htm',publishedAt:'2026-11-06T12:50:31.965Z',updatedAt:null},events:[{title:'Consumer Price Index',startAt:'2026-11-10T13:30:00Z',url:'https://www.bls.gov/schedule/'},{title:'Producer Price Index',startAt:'2026-11-13T13:30:00Z',url:'https://www.bls.gov/schedule/'}]}}
  }};
 }
+function chineseFixture(checked=T,published=checked-3600000,title='国家统计局最新发布'){
+  const date=iso(published),time=iso(checked);
+  const latest={title,url:'https://www.stats.gov.cn/sj/zxfb/test.html',publishedAt:date,updatedAt:null};
+  return {schemaVersion:1,generatedAt:time,card:{status:'ready',sourceName:'国家统计局',sourceUrl:'https://www.stats.gov.cn/sj/zxfb/rss.xml',sourceUpdatedAt:date,
+    fetchedAt:time,lastAttemptAt:time,asOf:date,errorCode:null,data:{latest,events:[]}}};
+}
 class Element{
  constructor(doc,tag='div'){this.doc=doc;this.tagName=tag;this.children=[];this.attrs={};this.className='';this.own='';}
  append(...nodes){this.children.push(...nodes);}
@@ -44,7 +50,55 @@ await test('BLS date rendering uses Beijing time and interprets only recognized 
 await test('all cards show source labels and accurate units without equity-market or ROI substitutions',()=>{const {doc,ids}=dom(),p=API.validate(fixture(),T);for(const id of API.IDS)API.renderCard(doc,ids['insight-'+id],id,p.cards[id],T,false);assert.match(ids['insight-sentiment'].textContent,/比特币.*32.*Alternative.me/);assert.match(ids['insight-valuation'].textContent,/12.61.*PE\(TTM\).*1.30/);assert.doesNotMatch(ids['insight-valuation'].textContent,/百分位/);assert.match(ids['insight-flows'].textContent,/美国长期证券.*3,007.24亿美元.*2026年08月/);assert.match(ids['insight-active'].textContent,/USDT.*BTC.*ETH.*含稳定币/);assert.doesNotMatch(ids['insight-active'].textContent,/热搜|全市场/);assert.match(ids['insight-macro'].textContent,/非农 \+16.5万.*CPI.*21:30.*北京时间/);});
 await test('calendar suppresses already released events without fabricating outcomes',()=>{const {doc,ids}=dom(),p=fixture();API.renderCard(doc,ids['insight-macro'],'macro',p.cards.macro,Date.parse('2026-11-11T00:00:00Z'),false);assert.doesNotMatch(ids['insight-macro'].textContent,/CPI/);assert.match(ids['insight-macro'].textContent,/PPI/);});
 await test('render uses text nodes for untrusted article content and no inline HTML',()=>{const {doc,ids}=dom(),p=fixture();p.cards.macro.data.latest.title='<img src=x onerror=alert(1)>';API.renderCard(doc,ids['insight-macro'],'macro',API.validate(p,T).cards.macro,T,false);assert.match(ids['insight-macro'].textContent,/<img/);assert.equal(ids['insight-macro'].querySelectorAll('img').length,0);});
-await test('mount requests only one same-origin aggregate and shares overlapping refreshes',async()=>{const {doc,ids}=dom();let release,calls=0;const app=API.mount(doc,{now:()=>T,fetch:async(url,options)=>{calls++;assert.equal(url,'market-overview.json');assert.equal(options.credentials,'omit');assert.equal(options.redirect,'error');await new Promise(r=>release=r);return response(fixture());}});try{const a=app.refresh(),b=app.refresh();assert.equal(a,b);release();await a;assert.equal(calls,1);assert.equal(ids['insight-sentiment'].attrs['data-state'],'ready');}finally{app.destroy();}});
+await test('both same-origin snapshots share one timeout and coalesce overlapping refreshes',async()=>{
+ const {doc,ids}=dom(),calls=[];let release;
+ const gate=new Promise(resolve=>release=resolve);
+ const app=API.mount(doc,{now:()=>T,fetch:async(url,options)=>{calls.push({url,options});await gate;return response(url==='macro-cn.json'?chineseFixture():fixture());}});
+ try{
+  const a=app.refresh();
+  assert.equal(a,app.refresh());release();await a;
+  assert.deepEqual(calls.map(x=>x.url).sort(),['macro-cn.json','market-overview.json']);
+  assert.equal(calls[0].options.signal,calls[1].options.signal);
+  for(const {options} of calls){assert.equal(options.credentials,'omit');assert.equal(options.redirect,'error');assert.ok(options.signal instanceof AbortSignal);}
+  assert.equal(ids['insight-sentiment'].attrs['data-state'],'ready');
+  assert.match(ids['insight-macro'].textContent,/国家统计局最新发布/);
+  assert.doesNotMatch(ids['insight-macro'].textContent,/BLS|美国|日历更新/);
+ }finally{app.destroy();}
+});
+await test('an independent release advances with unchanged or failed aggregate and cannot roll back',async()=>{
+ const {doc,ids}=dom();let published=T-3600000,checked=T,aggregateDown=false,releaseDown=false;
+ const app=API.mount(doc,{now:()=>T+60000,fetch:async url=>{
+  if(url==='macro-cn.json'){if(releaseDown)throw Error('offline');return response(chineseFixture(checked,published,'发布 '+published));}
+  if(aggregateDown)throw Error('offline');return response(fixture());
+ }});
+ try{
+  await app.refresh();checked+=30000;published+=30000;await app.refresh();
+  assert.equal(app.getSnapshot().cards.macro.asOf,iso(published));assert.equal(ids['insight-sentiment'].attrs['data-state'],'ready');
+  checked+=30000;published+=30000;aggregateDown=true;await app.refresh();
+  assert.equal(ids['insight-sentiment'].attrs['data-state'],'stale');assert.equal(ids['insight-macro'].attrs['data-state'],'ready');
+  const lastGood=iso(published);aggregateDown=false;releaseDown=true;await app.refresh();
+  assert.equal(ids['insight-sentiment'].attrs['data-state'],'ready');assert.equal(ids['insight-macro'].attrs['data-state'],'stale');
+  assert.equal(app.getSnapshot().cards.macro.asOf,lastGood);assert.doesNotMatch(ids['insight-macro'].textContent,/美国|BLS/);
+  releaseDown=false;published-=100000;await app.refresh();
+  assert.equal(app.getSnapshot().cards.macro.asOf,lastGood);assert.equal(ids['insight-macro'].attrs['data-state'],'stale');
+  published+=100000;await app.refresh();assert.equal(ids['insight-macro'].attrs['data-state'],'ready');
+ }finally{app.destroy();}
+});
+await test('an unavailable aggregate on first load still displays the Chinese release',async()=>{
+ const {doc,ids}=dom();const app=API.mount(doc,{now:()=>T,fetch:async url=>{
+  if(url==='macro-cn.json')return response(chineseFixture());throw Error('offline');
+ }});
+ try{await app.refresh();assert.match(ids['insight-macro'].textContent,/国家统计局最新发布/);assert.match(ids['insight-valuation'].textContent,/暂未取得数据/);}finally{app.destroy();}
+});
+await test('the fallback identifies its actual source when no Chinese snapshot can be validated',async()=>{
+ const {doc,ids}=dom();const invalid=chineseFixture();invalid.card.data.latest.url='https://www.bls.gov/';
+ const app=API.mount(doc,{now:()=>T,fetch:async url=>response(url==='macro-cn.json'?invalid:fixture())});
+ try{await app.refresh();assert.match(ids['insight-macro'].textContent,/美国宏观.*BLS/);assert.doesNotMatch(ids['insight-macro'].textContent,/国家统计局/);assert.equal(ids['insight-macro'].attrs['data-state'],'stale');}finally{app.destroy();}
+});
+await test('a missed daily collection is distinct from a quiet publication day',()=>{
+ const old=chineseFixture(T,T-5*86400000).card;
+ assert.equal(API.stale('macro',old,T+2*86400000),false);assert.equal(API.stale('macro',old,T+2*86400000+1),true);
+});
 await test('network failure retains last good values and visibly marks them stale',async()=>{const {doc,ids}=dom();let failed=false;const app=API.mount(doc,{now:()=>T,fetch:async()=>{if(failed)throw Error('offline');return response(fixture());}});try{await app.refresh();failed=true;await app.refresh();assert.match(ids['insight-sentiment'].textContent,/32/);assert.equal(ids['insight-sentiment'].attrs['data-state'],'stale');assert.match(ids['insight-sentiment'].textContent,/待更新/);}finally{app.destroy();}});
 await test('generation rollback and per-card older statistics never replace successful values',async()=>{const {doc,ids}=dom();let p=fixture();const app=API.mount(doc,{now:()=>T+60000,fetch:async()=>response(p)});try{await app.refresh();p=fixture();p.generatedAt=iso(T-60000);p.cards.sentiment.data.value=1;await app.refresh();assert.equal(app.getSnapshot().cards.sentiment.data.value,32);p=fixture();p.generatedAt=iso(T+30000);p.cards.sentiment.data.value=2;p.cards.sentiment.asOf=iso(T-7200000);await app.refresh();assert.equal(app.getSnapshot().cards.sentiment.data.value,32);assert.equal(ids['insight-sentiment'].attrs['data-state'],'stale');}finally{app.destroy();}});
 await test('failed first read leaves values empty and oversized or HTML responses fail closed',async()=>{for(const kind of ['html','oversized']){const {doc,ids}=dom();const app=API.mount(doc,{now:()=>T,fetch:async()=>kind==='html'?new Response('<h1>error</h1>',{headers:{'content-type':'text/html'}}):new Response('x'.repeat(API.MAX_BYTES+1),{headers:{'content-type':'application/json'}})});try{await app.refresh();assert.equal(app.getSnapshot(),null);assert.match(ids['insight-active'].textContent,/暂未取得数据/);assert.doesNotMatch(ids['insight-active'].textContent,/USDT|0%/);}finally{app.destroy();}}});
