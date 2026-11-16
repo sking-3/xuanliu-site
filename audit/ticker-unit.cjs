@@ -15,12 +15,47 @@ const size=(source,from,height)=>events.message({origin:from,source,data:{type:'
 check('host rejects wrong origin, wrong frame and invalid heights',()=>{for(const h of [NaN,Infinity,'45'])size(contentWindow,origin,h);size({},origin,100);size(contentWindow,'https://other.example',100);assert.deepEqual(properties,{})});
 check('host fits the entire scaled provider component without clipping',()=>{size(contentWindow,origin,44.5);assert.equal(properties['--books-ticker-height'],'45px');size(contentWindow,origin,86.25);assert.equal(properties['--books-ticker-height'],'87px')});
 check('host keeps safe minimum height',()=>{size(contentWindow,origin,10);assert.equal(properties['--books-ticker-height'],'40px')});
-let height=43.5,observed,resize;
-const childEvents={},reports=[];
+let height=43.5,resize;
+const observed=[],childEvents={},reports=[];
 const parent={postMessage:(data,target)=>reports.push({data,target})};
-const widget={getBoundingClientRect:()=>({height})};
-vm.runInNewContext(fs.readFileSync('market-strip.js','utf8'),{document:{querySelector:(selector)=>{assert.equal(selector,'.tradingview-widget-container');return widget}},window:{addEventListener:(type,fn)=>childEvents[type]=fn},location:{origin},parent,ResizeObserver:class{constructor(fn){resize=fn}observe(element){observed=element}}});
-check('tape reports full measured height and observes resize',()=>{assert.equal(observed,widget);assert.equal(reports[0].data.height,44.5);assert.equal(reports[0].target,origin);height=78;resize();assert.equal(reports.at(-1).data.height,79)});
-check('tape ignores untrusted measurement messages',()=>{const n=reports.length;childEvents.message({origin,source:{},data:{type:'books-market-strip-measure'}});childEvents.message({origin:'https://other.example',source:parent,data:{type:'books-market-strip-measure'}});assert.equal(reports.length,n)});
-check('tape accepts parent measurement and ignores transient zero size',()=>{const n=reports.length;childEvents.message({origin,source:parent,data:{type:'books-market-strip-measure'}});assert.equal(reports.length,n+1);height=0;resize();assert.equal(reports.length,n+1)});
+const vendorFrame={contentWindow:{}};
+const widget={getBoundingClientRect:()=>({height}),querySelector:()=>vendorFrame};
+const links={getBoundingClientRect:()=>({height:44}),contains:()=>false,addEventListener(){}};
+const childDocument={
+ body:{dataset:{}},
+ querySelector:selector=>selector==='.strip-links'?links:widget
+};
+vm.runInNewContext(fs.readFileSync('market-strip.js','utf8'),{
+ document:childDocument, window:{addEventListener:(type,fn)=>childEvents[type]=fn},location:{origin},parent,
+ ResizeObserver:class{constructor(fn){resize=fn}observe(element){observed.push(element)}}
+});
+const provider='https://www.tradingview-widget.com';
+const notify=(from,source,name)=>childEvents.message({origin:from,source,data:{name}});
+check('first paint offers four source-specific index charts without an external request',()=>{
+ const html=fs.readFileSync('market-strip.html','utf8');
+ const nav=html.match(/<nav class="strip-links".*?<\/nav>/s)[0];
+ const destinations=[...nav.matchAll(/href="chart\.html\?tvwidgetsymbol=([^"]+)"/g)].map(m=>decodeURIComponent(m[1]));
+ assert.deepEqual(destinations,['SSE:000001','SZSE:399001','HSI:HSI','FRED:NDQCOM']);
+ assert.equal((nav.match(/target="_parent"/g)||[]).length,4);
+ assert.equal(childDocument.body.dataset.stripMode,'links');assert.equal(reports[0].data.height,45);assert.equal(reports[0].target,origin);
+});
+check('only the live provider frame may replace the links with its complete widget',()=>{
+ notify('https://other.example',vendorFrame.contentWindow,'tv-widget-ready');notify(provider,{},'tv-widget-ready');
+ notify(provider,vendorFrame.contentWindow,'tv-widget-load');
+ assert.equal(childDocument.body.dataset.stripMode,'links');
+ notify(provider,vendorFrame.contentWindow,'tv-widget-ready');
+ assert.equal(childDocument.body.dataset.stripMode,'provider');assert.equal(widget.inert,false);
+ assert.deepEqual(observed,[widget,links]);assert.equal(reports.at(-1).data.height,44.5);
+ height=78;resize();assert.equal(reports.at(-1).data.height,79);
+});
+check('an explicit no-data message restores keyboard-accessible native chart links',()=>{
+ notify(provider,vendorFrame.contentWindow,'tv-widget-no-data');assert.equal(childDocument.body.dataset.stripMode,'links');assert.equal(widget.inert,true);assert.equal(reports.at(-1).data.height,45);
+});
+check('tape only accepts same-origin parent measurement messages',()=>{
+ const n=reports.length;
+ childEvents.message({origin,source:{},data:{type:'books-market-strip-measure'}});
+ childEvents.message({origin:'https://other.example',source:parent,data:{type:'books-market-strip-measure'}});
+ assert.equal(reports.length,n);childEvents.message({origin,source:parent,data:{type:'books-market-strip-measure'}});
+ assert.equal(reports.length,n+1);
+});
 console.log(`${count} ticker sizing/security DOM-model tests passed. Real rendering is verified separately.`);

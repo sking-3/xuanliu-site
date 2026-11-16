@@ -60,6 +60,26 @@ async function noOverflow(page) {
     'page width '+scroll+' / viewport '+width+' / device '+profile.viewport.width);
 }
 
+async function marketCardGeometry(page,sourceMode) {
+  const cards=page.locator('.market-card-grid > .feed-card');
+  assert.equal(await cards.count(),3);
+  for(const card of await cards.all()) await card.scrollIntoViewIfNeeded();
+  await page.evaluate(async()=>{await document.fonts.ready;await new Promise(done=>requestAnimationFrame(()=>requestAnimationFrame(done)));});
+  const sizes=await cards.evaluateAll(nodes=>nodes.map(card=>{
+    const box=card.getBoundingClientRect();
+    return {market:card.querySelector('h2,h3')?.textContent.trim(),width:box.width,height:box.height,x:box.left,y:box.top+scrollY};
+  }));
+  console.log('Homepage market cards',engine,sourceMode,JSON.stringify(sizes));
+  fs.writeFileSync(path.join(out,'home-card-sizes-'+sourceMode+'.json'),JSON.stringify(sizes,null,2));
+  assert.ok(sizes.every(box=>box.height>0 && box.width>0),'all three cards have measurable content');
+  assert.ok(Math.max(...sizes.map(box=>box.height))-Math.min(...sizes.map(box=>box.height))<=2,'unequal heights '+JSON.stringify(sizes));
+  assert.ok(Math.max(...sizes.map(box=>box.width))-Math.min(...sizes.map(box=>box.width))<=2,'unequal widths '+JSON.stringify(sizes));
+  if(mobile)assert.ok(sizes[0].y<sizes[1].y && sizes[1].y<sizes[2].y,'three stacked markets');
+  else assert.ok(sizes.every(box=>Math.abs(box.y-sizes[0].y)<=2),'three inline markets');
+  await page.locator('.market-card-grid').screenshot({path:path.join(out,'home-three-markets-'+sourceMode+'.png'),style:'.index-ticker {visibility:hidden !important}'});
+  return sizes;
+}
+
 async function shell(page,route) {
   await open(page,route);
   assert.ok((await page.title()).trim().length>=3,route+' title');
@@ -67,6 +87,17 @@ async function shell(page,route) {
     await page.waitForURL(url=>url.pathname==='/trader/' && url.searchParams.get('exchange')==='Binance');
   }
   if(embedded.has(route)) {
+    if(route==='market-strip.html'){
+      const links=page.locator('.strip-links a');
+      assert.equal(await links.count(),4);
+      const destinations=[];
+      for(const link of await links.all()){
+        await link.waitFor();
+        destinations.push(new URL(await link.getAttribute('href'),base).searchParams.get('tvwidgetsymbol'));
+      }
+      assert.deepEqual(destinations,['SSE:000001','SZSE:399001','HSI:HSI','FRED:NDQCOM']);
+      assert.equal(await page.locator('body').getAttribute('data-strip-mode'),'links');
+    }
     await noOverflow(page);
     return {component:true,title:await page.title()};
   }
@@ -143,7 +174,8 @@ async function dailyFallback(page) {
     assert.deepEqual(await rows.evaluateAll(nodes=>nodes.map(n=>n.dataset.code)),raw[side].map(s=>s.code));
     for(const [index,stock] of raw[side].entries()) assert.ok((await rows.nth(index).innerText()).includes(stock.name));
   }
-  return {scope:'public closing archive, upstream disconnected',asOf:raw.asOf,priced:raw.priced,gainers:raw.gainers,losers:raw.losers};
+  return {scope:'public closing archive, upstream disconnected',asOf:raw.asOf,priced:raw.priced,gainers:raw.gainers,losers:raw.losers,
+    cardGeometry:await marketCardGeometry(page,'offline')};
 }
 
 async function annualReturn(page) {
@@ -281,6 +313,7 @@ async function liveUS(page) {
     } catch {}
   });
   await open(page,'index.html');
+  const cardGeometry=await marketCardGeometry(page,'online');
   const board=page.locator('.radar-stocks [data-mover-market=us]');
   await board.locator('.radar-mover-stage').evaluate(el=>el.scrollIntoView({block:'center'}));
   const frame=board.frameLocator('iframe');
@@ -314,28 +347,67 @@ async function liveUS(page) {
     observed.push({direction,source:src.origin,values,verifiedChanges:values.map(item=>independent[item.symbol])});
     if(sign>0) await board.screenshot({path:path.join(out,'real-us-gainers.png')});
   }
-  return observed;
+  const strip=page.frameLocator('#index-ticker iframe');
+  const ticker=page.frames().find(f=>f.parentFrame()?.url().match(/\/market-strip\.html(?:\?|$)/));
+  const text=ticker ? await ticker.locator('body').innerText({timeout:4000}).catch(()=>'') : '';
+  const stripMode=await strip.locator('body').getAttribute('data-strip-mode');
+  const providerHasQuotes=/\d[,.\d]*\s*[%％]/.test(text);
+  console.log('Index strip',stripMode,providerHasQuotes,text.slice(0,200));
+  assert.ok(['links','provider'].includes(stripMode),'expected a defined ticker state');
+  assert.ok(!providerHasQuotes || stripMode==='provider','ticker has quoted indices but links cover it: '+text.slice(0,175));
+  return {cardGeometry,observed,stripMode,providerHasQuotes};
 }
 
 async function usQuotesPage(page) {
   await open(page,'us.html');
   await page.locator('.research-jumps a[href="#public-market-title"]').click();
   await page.locator('#public-market-title').waitFor();
-  const feed=page.locator('.public-feed[aria-label="美股行情"] .feed-widget-area');
+  const feed=page.locator('[data-public-market-widget]');
   await feed.evaluate(el=>el.scrollIntoView({block:'center'}));
-  const frame=feed.frameLocator('iframe');
   const symbols=['NASDAQ:AAPL','NASDAQ:MSFT'];
+  const until=Date.now()+35000;
+  let tableRoot,source;
+  while(Date.now()<until && !tableRoot) {
+    for(const frame of page.frames()){
+      if(frame===page.mainFrame()) {
+        if(await feed.locator('tr[data-symbol="NASDAQ:AAPL"]').count()){
+          tableRoot=feed;
+          source=new URL(await page.locator('[data-public-market-loader]').getAttribute('src'));
+          break;
+        }
+        continue;
+      }
+      let url;
+      try {url=new URL(frame.url());} catch {continue;}
+      if(!/(^|\.)tradingview(-widget)?\.com$/.test(url.hostname))continue;
+      if(!await frame.locator('tr[data-symbol="NASDAQ:AAPL"]').count().catch(()=>0))continue;
+      // A custom element may own the vendor iframe inside a closed shadow root.
+      // Inspect that frame's ordinary document and verify its host belongs to this screener.
+      const outer=await frame.frameElement();
+      const owner=await outer.evaluate(el=>{
+        let node=el;
+        while(node){
+          if(node.matches?.('[data-public-market-widget]'))return true;
+          node=node.parentElement || node.getRootNode()?.host;
+        }
+        return false;
+      }).catch(()=>false);
+      await outer.dispose();
+      if(owner){tableRoot=frame;source=url;break;}
+    }
+    if(!tableRoot)await page.waitForTimeout(300);
+  }
+  assert.ok(tableRoot,'Visible AAPL row required in the primary tv-screener. Frames: '+page.frames().map(f=>f.url().split('?')[0]).join(', '));
   const quotes=[];
   for(const symbol of symbols) {
-    const row=frame.locator('.js-quote-ticker[data-symbol="'+symbol+'"]');
-    await row.locator('.js-symbol-last').filter({hasText:/\d/}).waitFor({timeout:35000});
-    await row.locator('.js-symbol-change-pt').filter({hasText:/[%％]/}).waitFor({timeout:20000});
-    const price=numeric(await row.locator('.js-symbol-last').innerText());
-    const pct=numeric(await row.locator('.js-symbol-change-pt').innerText());
-    assert.ok(price>0 && Number.isFinite(pct),'actual '+symbol+' price and daily change');
+    const row=tableRoot.locator('tr[data-symbol="'+symbol+'"]');
+    const priceCell=row.locator('td[data-field-key="close"]'),changeCell=row.locator('td[data-field-key="change"]');
+    await priceCell.filter({hasText:/\d/}).waitFor();
+    await changeCell.filter({hasText:/[%％]/}).waitFor();
+    const price=numeric((await priceCell.innerText()).replace(/USD/ig,'')),pct=numeric(await changeCell.innerText());
+    assert.ok(price>0 && Number.isFinite(pct),'primary screener '+symbol+' price and daily change');
     quotes.push({symbol,price,pct});
   }
-  const source=new URL(await feed.locator('iframe').getAttribute('src'),base);
   assert.ok(/(^|\.)tradingview(-widget)?\.com$/.test(source.hostname));
   const reference=await page.request.post('https://scanner.tradingview.com/america/scan',{data:{symbols:{tickers:symbols},columns:['close','change']},timeout:15000});
   assert.ok(reference.ok(),'independent overview reference HTTP '+reference.status());
@@ -347,7 +419,7 @@ async function usQuotesPage(page) {
     quote.reference=ticks;
   }
   await feed.screenshot({path:path.join(out,'real-us-quote-page.png')});
-  return {scope:'US research page public observed stocks',source:source.origin,comparison:reference.url(),quotes};
+  return {scope:'US page primary public screener',source:source.origin,comparison:reference.url(),quotes};
 }
 
 async function researchFiles(page) {

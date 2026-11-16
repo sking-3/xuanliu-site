@@ -3,10 +3,15 @@ on:
   push:
     branches: [ui/public-site-review-20261116]
   workflow_dispatch:
+  workflow_run:
+    workflows: [Deploy static Pages]
+    branches: [main]
+    types: [completed]
 permissions:
   contents: read
 jobs:
   public-site:
+    if: github.event_name != 'workflow_run'
     runs-on: ubuntu-24.04
     timeout-minutes: 18
     strategy:
@@ -38,4 +43,42 @@ jobs:
         with:
           name: public-site-${{ matrix.browser }}
           path: audit/browser-output/public-site/
+          retention-days: 7
+  live-pages:
+    if: >-
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      contains(github.event.workflow_run.head_commit.message, '[ui-only]') &&
+      contains(github.event.workflow_run.head_commit.message, '[public-ui-smoke]')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, webkit]
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Install browser for public Pages checks
+        run: |
+          npm install --prefix "$RUNNER_TEMP/public-ui-browser" --no-audit --no-fund --ignore-scripts playwright@1.56.1
+          "$RUNNER_TEMP/public-ui-browser/node_modules/.bin/playwright" install --with-deps "${{ matrix.browser }}"
+      - name: Verify deployed HTML and visible public market data
+        env:
+          UI_BROWSER: ${{ matrix.browser }}
+          EXPECTED_SHA: ${{ github.event.workflow_run.head_sha }}
+          NODE_PATH: ${{ runner.temp }}/public-ui-browser/node_modules
+        run: node audit/public-live-smoke.cjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: live-pages-${{ matrix.browser }}-${{ github.event.workflow_run.head_sha }}
+          path: audit/browser-output/live-pages/
           retention-days: 7
