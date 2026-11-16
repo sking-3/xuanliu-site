@@ -104,18 +104,26 @@ function validateReference(raw,now=Date.now()){
  return data;
 }
 function binanceObservations(input,period,now){
- if(!input?.binance&&!input?.reference)return [];
+ if(!input?.binance&&!input?.reference&&!input?.periodReturns)return [];
  const adapter=binanceAdapter(),rows=[];
+ const recorded=new Map((input.periodReturns?.accounts||[]).map(row=>[row.portfolioId,row]));
  function add(accountId,name,performance,readFailed){
   if(!['ready','stale'].includes(performance.status)||!Number.isFinite(performance.roi)||Date.parse(performance.lastSuccessAt)>now+5000)return;
   const stale=performance.status==='stale'||!!readFailed;
   rows.push({accountId,id:'binance-'+accountId,name,exchange:'Binance',currency:'USDT',roiMethod:'source',
    roi:performance.roi,pnl:performance.pnl,mdd:performance.mdd,winRate:performance.winRate,
-   performanceAsOf:performance.sourceAsOf,performanceFetchedAt:performance.lastSuccessAt,performanceStale:stale,stale});
+   performanceAsOf:performance.sourceAsOf,performanceFetchedAt:performance.lastSuccessAt,performanceStale:stale,stale,
+   periodOnly:recorded.has(accountId),fullPeriod:performance.fullPeriod,accountAgeDays:performance.accountAgeDays,
+   evidencePath:performance.evidencePath,profileEvidencePath:performance.profileEvidencePath});
  }
  for(const feed of input.binance?.portfolios||[]){
+  if(recorded.get(feed.portfolioId)?.performance.byPeriod[period])continue;
   const performance=adapter.performance(feed,period,{now,requestFailed:input.failures?.binance,batchStopped:input.binance.source.refreshStopped});
   add(feed.portfolioId,adapter.PORTFOLIOS[feed.portfolioId],performance,input.failures?.binance);
+ }
+ for(const record of recorded.values()){
+  const performance=adapter.recordedPeriod(record,period,now,input.failures?.periodReturns);
+  if(performance)add(record.portfolioId,record.name,performance,input.failures?.periodReturns);
  }
  if(input.reference){
   const id=input.reference.portfolioId;
@@ -126,22 +134,25 @@ function binanceObservations(input,period,now){
 function rank(input,period,now=Date.now(),limit=3){
  const rows=observations(input,period,now).concat(binanceObservations(input,period,now)).filter(row=>Number.isFinite(row.roi));
  rows.sort((a,b)=>b.roi-a.roi||a.id.localeCompare(b.id));
- const top=rows.slice(0,limit);
- return {period,rows:top,eligibleCount:rows.length,stale:top.some(r=>r.stale),
+ const long=period==='90D'||period==='365D';
+ const eligible=rows.filter(row=>!long||row.exchange!=='Binance'||row.fullPeriod===true);
+ const short=long?rows.filter(row=>row.exchange==='Binance'&&row.fullPeriod===false&&Number.isFinite(row.accountAgeDays)):[];
+ const top=eligible.slice(0,limit);
+ return {period,rows:top,short,eligibleCount:eligible.length,stale:top.some(r=>r.stale),
    asOf:top.length&&top.every(r=>r.performanceAsOf)?top.map(r=>r.performanceAsOf).sort((a,b)=>Date.parse(a)-Date.parse(b))[0]:null,
    scope:'本站收录的币安与 Hyperliquid 公开账户',note:'按近'+parseInt(period,10)+'天收益率排序，各平台单独计算。'};
 }
-function accountHref(id,period,exchange='Hyperliquid'){
+function accountHref(id,period,exchange='Hyperliquid',periodOnly=false){
  if(!PERIODS.includes(period))fail();
  let account;
  if(exchange==='Binance'){
   const adapter=binanceAdapter();
-  if(!Object.hasOwn(adapter.PORTFOLIOS,id)&&!Object.hasOwn(adapter.REFERENCE_PORTFOLIOS,id))fail();
+  if(!Object.hasOwn(adapter.PORTFOLIOS,id)&&!Object.hasOwn(adapter.REFERENCE_PORTFOLIOS,id)&&!(periodOnly&&/^\d{19}$/.test(id)))fail();
   account=id;
  }else if(exchange==='Hyperliquid')account=address(typeof id==='string'&&id.startsWith('hl-')?id.slice(3):id);
  else fail();
  const params=new URLSearchParams({account,period,exchange,source:'public',sort:'roi',currency:exchange==='Binance'?'USDT':'USD',q:account});
  return 'trader/index.html?'+params.toString();
 }
-return {PERIODS,LIMITS,validateFeed,validatePortfolios,validateAnalytics,validateBinance,validateReference,observations,rank,accountHref};
+return {PERIODS,LIMITS,validateFeed,validatePortfolios,validateAnalytics,validateBinance,validateReference,validatePeriodReturns:(raw,now)=>binanceAdapter().parsePeriodReturns(raw,now),observations,rank,accountHref};
 });

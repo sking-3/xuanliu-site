@@ -23,7 +23,9 @@ function performance(data,id,period,{now=Date.now()}={}){
  const numeric=['roi','pnl','mdd','winRate'];
  if(!evidence(x,url,now)||x.sourcePeriod!==p||x.currency!=='USDT'||(x.asOf??null)!==null||!numeric.every(k=>typeof x[k]==='number'&&Number.isFinite(x[k]))||x.winRate<0||x.winRate>100||x.mdd<0||x.mdd>100)return {...empty,periodSupported:false,errorCode:'reference_performance_schema'};
  if(x.copierPnl!==undefined&&(typeof x.copierPnl!=='number'||!Number.isFinite(x.copierPnl)))return {...empty,periodSupported:false,errorCode:'reference_performance_schema'};
- return {...empty,periodSupported:true,status:now-Date.parse(x.fetchedAt)>MAX_AGE?'stale':'ready',lastSuccessAt:x.fetchedAt,...Object.fromEntries([...numeric,'copierPnl','winOrders','totalOrder','sharpRatio'].map(k=>[k,x[k]??null]))};
+ const result={...empty,periodSupported:true,status:now-Date.parse(x.fetchedAt)>MAX_AGE?'stale':'ready',lastSuccessAt:x.fetchedAt,sourceUrl:url,evidencePath:(/^binance\/evidence\/aoying-analysis-(?:current|[0-9]{8})\/performance-(?:7D|30D|90D|180D|365D)\.json$/.test(x.evidencePath)?x.evidencePath:null),...Object.fromEntries([...numeric,'copierPnl','winOrders','totalOrder','sharpRatio'].map(k=>[k,x[k]??null]))};
+ const adapter=typeof module==='object'&&module.exports?require('./binance-data.js'):globalThis.BinanceData;
+ return adapter?.periodCoverage?adapter.periodCoverage(result,profile(data,id,{now})?.startTime):result;
 }
 function chart(data,id,period,{now=Date.now()}={}){
  const p=keyPeriod(period),empty={status:'unavailable',periodSupported:false,currency:'USDT',sourcePeriod:p||period,points:[],pointCount:null,startAt:null,endAt:null,lastSuccessAt:null};

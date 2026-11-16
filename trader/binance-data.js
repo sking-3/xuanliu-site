@@ -18,6 +18,7 @@
   const MAX_AGE = 30 * 60 * 1000;
   const LIMIT = 5000;
   const PERFORMANCE_MAX_AGE = 60 * 60 * 1000;
+  const PERFORMANCE_PERIODS = ['30D','90D','365D'];
   const CHART_MAX_AGE = 60 * 60 * 1000;
   const STATES = ['ready', 'stale', 'unavailable', 'restricted'];
   const KINDS = ['baseline', 'appeared', 'increased', 'decreased', 'absent'];
@@ -65,7 +66,7 @@
   }
   function parsePerformance(value) {
     if (value === undefined) return {schemaVersion:1,byPeriod:{}};
-    if (!record(value) || value.schemaVersion !== 1 || !record(value.byPeriod) || Object.keys(value.byPeriod).some(period => period !== '30D')) throw new Error('BINANCE_PERFORMANCE_SCHEMA');
+    if (!record(value) || value.schemaVersion !== 1 || !record(value.byPeriod) || Object.keys(value.byPeriod).some(period => !PERFORMANCE_PERIODS.includes(period))) throw new Error('BINANCE_PERFORMANCE_SCHEMA');
     const output={schemaVersion:1,byPeriod:{}};
     for (const [period,part] of Object.entries(value.byPeriod)) {
       if (!record(part) || !['ready','stale','unavailable'].includes(part.status) ||
@@ -88,8 +89,8 @@
     return output;
   }
   function performance(feed,period,options) {
-    const opt=optionsView(options),base={status:'unavailable',periodSupported:period==='30D',sourcePeriod:period,currency:'USDT',lastAttemptAt:null,lastSuccessAt:null,sourceAsOf:null,roi:null,pnl:null,mdd:null,winRate:null,errorCode:null,evidence:null};
-    if (!feed || period !== '30D') return base;
+    const opt=optionsView(options),base={status:'unavailable',periodSupported:PERFORMANCE_PERIODS.includes(period),sourcePeriod:period,currency:'USDT',lastAttemptAt:null,lastSuccessAt:null,sourceAsOf:null,roi:null,pnl:null,mdd:null,winRate:null,errorCode:null,evidence:null};
+    if (!feed || !base.periodSupported) return base;
     const data=parseFeed(feed);
     if (data.profile.visibility==='restricted'||data.source.status==='restricted'||data.source.errorCode==='restricted') return {...base,status:'restricted'};
     if (data.profile.visibility!=='public') return base;
@@ -100,6 +101,56 @@
     const success=Date.parse(part.lastSuccessAt),fresh=Number.isFinite(success)&&opt.now-success<=PERFORMANCE_MAX_AGE&&success<=opt.now+300000;
     const status=part.status==='unavailable'||!part.lastSuccessAt?'unavailable':part.status==='ready'&&fresh&&!stopped&&!opt.requestFailed?'ready':'stale';
     return {...base,...part,status,...(status==='unavailable'?{roi:null,pnl:null,mdd:null,winRate:null}:{}),errorCode:part.errorCode||(stopped?(opt.batchErrorCode||data.source.errorCode):null)||(opt.requestFailed?'snapshot_read_failed':null)};
+  }
+  function periodCoverage(part,startTime) {
+    const days=Number.parseInt(part.sourcePeriod,10),end=Date.parse(part.sourceAsOf || part.lastSuccessAt);
+    if (!['90D','365D'].includes(part.sourcePeriod)) return part;
+    const age=Number.isSafeInteger(startTime) && startTime>0 && Number.isFinite(end) && end>=startTime
+      ? Math.floor((end-startTime)/86400000) : null;
+    return {...part,accountAgeDays:age,fullPeriod:age!==null && age>=days};
+  }
+
+  // Independently public performance does not establish positions or trade history.
+  function parsePeriodReturns(data,now=Date.now()) {
+    if(!record(data)||data.schemaVersion!==1||!iso(data.generatedAt)||Date.parse(data.generatedAt)>now+5000
+        ||!Array.isArray(data.accounts)||data.accounts.length>200) throw Error('BINANCE_PERIOD_RETURNS');
+    const ids=new Set();
+    const accounts=data.accounts.map(row=>{
+      const id=row?.portfolioId,base='binance/evidence/performance-v1/'+id+'/';
+      if(!record(row)||!/^\d{19}$/.test(id)||typeof id!=='string'||ids.has(id)||Object.hasOwn(REFERENCE_PORTFOLIOS,id)
+          ||!text(row.name)||!row.name.trim()||!ms(row.startTime)||row.startTime>now||typeof row.positionShow!=='boolean'
+          ||!/^[a-f0-9]{64}$/.test(row.profileEvidenceSha256)
+          ||row.profileEvidencePath!==base+'profile-'+row.profileEvidenceSha256+'.json'
+          ||row.profileSourceUrl!=='https://www.binance.com/bapi/futures/v1/friendly/future/copy-trade/lead-portfolio/detail?portfolioId='+id)throw Error('BINANCE_PERIOD_PROFILE');
+      ids.add(id);
+      const parsed=parsePerformance(row.performance);
+      for(const [period,part] of Object.entries(parsed.byPeriod)){
+        const raw=row.performance.byPeriod[period];
+        if(!['90D','365D'].includes(period)||part.lastSuccessAt && Date.parse(part.lastSuccessAt)>Date.parse(data.generatedAt)+5000)throw Error('BINANCE_PERIOD_EVIDENCE');
+        if(part.status==='unavailable')continue;
+        const url='https://www.binance.com/bapi/futures/v1/public/future/copy-trade/lead-portfolio/performance?portfolioId='+id+'&timeRange='+period;
+        if(raw.sourceUrl!==url||raw.evidencePath!==base+period+'-'+part.evidence.sha256+'.json'
+            ||raw.portfolioStartedAt!==new Date(row.startTime).toISOString()||!/^[a-f0-9]{64}$/.test(raw.profileEvidenceSha256)
+            ||raw.profileEvidencePath!==base+'profile-'+raw.profileEvidenceSha256+'.json')throw Error('BINANCE_PERIOD_EVIDENCE');
+        Object.assign(part,{sourceUrl:url,evidencePath:raw.evidencePath,profileEvidencePath:raw.profileEvidencePath});
+      }
+      return {portfolioId:id,name:row.name.trim(),startTime:row.startTime,positionShow:row.positionShow,
+        profileEvidencePath:row.profileEvidencePath,profileEvidenceSha256:row.profileEvidenceSha256,
+        profileSourceUrl:row.profileSourceUrl,performance:parsed};
+    });
+    return {schemaVersion:1,generatedAt:data.generatedAt,accounts};
+  }
+  function recordedPeriod(row,period,now=Date.now(),readFailed=false) {
+    const value=row?.performance.byPeriod[period];
+    if(!value)return null;
+    const stale=readFailed||value.status==='stale'||now-Date.parse(value.lastSuccessAt)>PERFORMANCE_MAX_AGE;
+    return periodCoverage({...value,periodSupported:true,status:value.status==='ready'&&stale?'stale':value.status},row.startTime);
+  }
+  function periodTrader(row) {
+    const id=row.portfolioId;
+    return {id:'binance-'+id,accountId:id,name:row.name,currency:'USDT',exchange:'Binance',sourceKind:'copy_trade',
+      sourceUrl:SOURCE_BASE+id,sourceName:row.name,periodOnly:true,periodRecord:row,
+      observedAt:null,featured:false,paid:false,windows:{},positions:[],points:[],orders:[],binance:null};
   }
   function parseChart(value) {
     if(value===undefined)return {schemaVersion:1,byPeriod:{}};
@@ -267,5 +318,5 @@
     });
     return rows;
   }
-  return Object.freeze({ PORTFOLIOS, REFERENCE_PORTFOLIOS, MAX_AGE, PERFORMANCE_MAX_AGE, CHART_MAX_AGE, parseCollection, toTraders, detail, performance, chart });
+  return Object.freeze({ PORTFOLIOS, REFERENCE_PORTFOLIOS, MAX_AGE, PERFORMANCE_MAX_AGE, CHART_MAX_AGE, parseCollection, parsePeriodReturns, periodCoverage, recordedPeriod, periodTrader, toTraders, detail, performance, chart });
 });

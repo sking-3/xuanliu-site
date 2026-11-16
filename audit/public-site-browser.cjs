@@ -172,20 +172,8 @@ async function dailyFallback(page) {
 }
 
 async function annualReturn(page) {
-  const source=fileJSON('trader/binance/evidence/aoying-analysis-current/performance-365D.json');
-  assert.equal(source.data.timeRange,'365D');
-  assert.ok(source.success && Number.isFinite(source.data.roi));
   await open(page,'index.html');
-  await page.locator('[data-ranking-period="365D"]').click();
-  const row=page.locator('#home-ranking-list .home-rank-row').filter({hasText:'熬鹰资本'});
-  await row.waitFor();
-  const roi=numeric(await row.locator('.home-rank-profit strong').innerText());
-  assert.ok(Math.abs(roi-source.data.roi)<=.006,'annual ROI '+roi+' vs Binance record '+source.data.roi);
-  await row.locator('a').first().click();
-  await page.locator('#detail[open]').waitFor();
-  assert.equal(await page.locator('#period').inputValue(),'365D');
-  assert.ok((await page.locator('#detail').innerText()).includes('熬鹰资本'));
-  return {name:'熬鹰资本',roi,period:'365D',source:'trader/binance/evidence/aoying-analysis-current/performance-365D.json'};
+  return require('./long-ranking-browser.cjs')(page);
 }
 
 async function publicExecutions(page) {

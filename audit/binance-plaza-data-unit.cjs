@@ -314,8 +314,17 @@ function withPerformance(feed=sampleFeed(),part=performancePart()) {feed.perform
 test('source performance preserves percent units, decimal PnL, drawdown sign and its evidence',()=>{
  const feed=withPerformance(),result=api.performance(feed,'30D',{now:NOW});assert.equal(result.status,'ready');assert.equal(result.roi,12.34);assert.equal(result.pnl,1234.56);assert.equal(result.mdd,-7.89);assert.equal(result.winRate,65.43);assert.equal(result.sourceAsOf,null);assert.equal(result.currency,'USDT');assert.deepEqual(result.evidence,feed.performance.byPeriod['30D'].evidence);
 });
-test('performance supports exactly 30D and never borrows values for another period or reference',()=>{
- const feed=withPerformance();for(const period of ['7D','90D','180D','365D','ALL']){const result=api.performance(feed,period,{now:NOW});assert.equal(result.periodSupported,false);for(const key of ['roi','pnl','mdd','winRate'])assert.equal(result[key],null);}
+test('performance accepts only independently recorded month, quarter and year statistics',()=>{
+ const feed=withPerformance();
+ for(const period of ['7D','180D','ALL'])assert.equal(api.performance(feed,period,{now:NOW}).periodSupported,false);
+ for(const [period,roi] of [['90D',0],['365D',-28.04]]){
+  const missing=api.performance(feed,period,{now:NOW});assert.equal(missing.periodSupported,true);assert.equal(missing.roi,null);
+  feed.performance.byPeriod[period]={...performancePart(),sourcePeriod:period,roi};
+  assert.equal(api.performance(feed,period,{now:NOW}).roi,roi);
+ }
+ assert.equal(api.performance(feed,'30D',{now:NOW}).roi,12.34);
+ feed.performance.byPeriod['365D'].sourcePeriod='90D';
+ assert.equal(api.performance(feed,'365D',{now:NOW}).roi,null);
  assert.equal(api.performance(null,'30D').roi,null);assert.equal(api.performance(sampleFeed(),'30D').roi,null);
 });
 test('performance expires independently at the 60-minute boundary without refreshing positions',()=>{

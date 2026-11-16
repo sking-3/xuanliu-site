@@ -42,3 +42,10 @@
   }
   #home-ranking-list:focus-visible { outline: 2px solid #bd6c29; outline-offset: -2px; }
 }
+
+#home-ranking-short { margin: 4px 16px; font-size: 12px; color: #526174; }
+#home-ranking-short[hidden] { display: none; }
+#home-ranking-short summary { padding: 7px 0; cursor: pointer; }
+#home-ranking-short [data-short-rows] { max-height: 8rem; overflow-y: auto; }
+.home-rank-short-row { margin: 0 0 6px; }
+.home-rank-evidence, .home-rank-short-row a { color: #365c82; }

@@ -340,15 +340,16 @@ async function inspect(browser, viewport) {
 
     const ranking = page.locator('#home-trader-ranking');
     await ranking.scrollIntoViewIfNeeded();
-    let detailURL;
+    let detailURL, detailName;
     for(const period of ['30D','90D','365D']){
       await ranking.locator('[data-ranking-period="'+period+'"]').click();
       await page.waitForFunction(() => document.querySelector('#home-ranking-list[aria-busy="false"] .home-rank-row'));
       const list = ranking.locator('#home-ranking-list');
       if(period!=='30D'){
-        const row = list.locator('.home-rank-row').filter({hasText:'熬鹰资本'});
+        const row = list.locator('.home-rank-row').first();
+        detailName = await row.locator('.home-rank-name').innerText();
         assert.match(await row.innerText(),/USDT/);
-        detailURL = new URL(await row.locator('a').getAttribute('href'),site);
+        detailURL = new URL(await row.locator('.home-rank-identity').getAttribute('href'),site);
         assert.equal(detailURL.searchParams.get('period'),period);
         assert.equal(detailURL.searchParams.get('exchange'),'Binance');
       }
@@ -360,7 +361,7 @@ async function inspect(browser, viewport) {
     await ranking.screenshot({path:prefix+'-ranking.png'});
     await page.goto(detailURL.href,{waitUntil:'domcontentloaded'});
     await page.locator('#detail[open]').waitFor({timeout:30000});
-    assert.match(await page.locator('#detail').innerText(),/熬鹰资本/);
+    assert.ok((await page.locator('#detail').innerText()).includes(detailName));
     assert.equal(await page.locator('#period').inputValue(),'365D');
     assert.deepEqual(errors,[]);
   } catch (error) {

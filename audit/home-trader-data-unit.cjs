@@ -59,23 +59,33 @@ test('body limits are enforced for each independent snapshot',()=>{for(const [ki
 test('detail href accepts only supported periods and actual account addresses',()=>{const link=API.accountHref('hl-'+addr(1),'365D'),url=new URL(link,'https://site.invalid/');assert.equal(url.pathname,'/trader/index.html');assert.equal(url.searchParams.get('account'),addr(1));assert.equal(url.searchParams.get('period'),'365D');assert.equal(url.searchParams.get('sort'),'roi');for(const value of ['https://evil.invalid','javascript:alert(1)',addr(1)+'"><script>','0x123'])assert.throws(()=>API.accountHref(value,'30D'));assert.throws(()=>API.accountHref(addr(1),'ALL'));});
 test('empty snapshots and missing optional caches stay empty without fake zeros',()=>{const r=API.rank({},'30D',T);assert.equal(r.rows.length,0);assert.equal(r.asOf,null);const p=checked();delete p.analytics;delete p.portfolios;const row=API.rank(p,'30D',T).rows[0];assert.equal(row.winRate,null);assert.equal(row.mdd,null);assert.equal(row.winFetchedAt,null);});
 test('actual committed files validate and rank against an independently sorted projection',()=>{const root=path.join(__dirname,'..'),raw={};for(const k of ['feed','portfolios','analytics'])raw[k]=JSON.parse(fs.readFileSync(path.join(root,'trader',k+'.json'),'utf8'));const now=Math.max(Date.now(),Date.parse(raw.feed.source.lastAttemptAt));const p=checked(raw,now);for(const period of API.PERIODS){const expected=raw.feed.traders.filter(r=>r.positionCheck&&raw.feed.source.positionVerification).map(r=>({id:r.id,w:period==='30D'?r.windows['30D']:raw.portfolios.accounts[r.accountId]?.portfolio?.windows[period]})).filter(x=>x.w&&Number.isFinite(x.w.roi)&&(period==='30D'||x.w.coverageStatus==='full'&&x.w.roiEvidence?.historyComplete===true)).sort((a,b)=>b.w.roi-a.w.roi||a.id.localeCompare(b.id));const actual=API.rank(p,period,now);assert.deepEqual(actual.rows.map(r=>r.id),expected.slice(0,3).map(r=>r.id));assert.equal(actual.eligibleCount,expected.length);assert.equal(actual.rows.length,Math.min(expected.length,3));}console.log('REAL SNAPSHOT',JSON.stringify(Object.fromEntries(API.PERIODS.map(period=>[period,API.rank(p,period,now).rows.map(r=>({id:r.id,roi:r.roi,performanceStale:r.performanceStale,currentHolding:r.currentHolding}))]))));});
-test('merged 30D, 90D and 365D results match eligible public IDs and official same-period percentages',()=>{
- const root=path.join(__dirname,'..','trader'),binance=require('../trader/binance-data.js'),reference=require('../trader/reference-data.js');
- const publicData=JSON.parse(fs.readFileSync(path.join(root,'binance/portfolios.json'),'utf8'));
+test('published leaderboard prices and tenure match the per-account Binance receipts',()=>{
+ const root=path.join(__dirname,'..','trader'),crypto=require('node:crypto');
+ const read=p=>JSON.parse(fs.readFileSync(path.join(root,p),'utf8'));
+ const publicData=read('binance/portfolios.json'),catalog=read('binance/period-returns.json');
  const ref=JSON.parse(fs.readFileSync(path.join(root,'aoying-history.js'),'utf8').split('globalThis.BooksAoyingHistory=')[1].trim().replace(/;$/,''));
- const now=Math.max(Date.now(),Date.parse(ref.latestPublicFetchAt),Date.parse(publicData.generatedAt));
- const input=checked(fixtures(),T);
- input.reference=API.validateReference(ref,now);input.binance=API.validateBinance(publicData,now);
- for(const period of API.PERIODS){
-  const expected=API.observations(input,period,now).filter(row=>Number.isFinite(row.roi));
-  for(const r of binance.toTraders(publicData,{now})){
-   const metrics=r.referenceOnly?reference.performance(ref,r.accountId,period,{now}):binance.performance(r.binance,period,{now,batchStopped:publicData.source.refreshStopped});
-   if(Number.isFinite(metrics.roi))expected.push({id:r.id,roi:metrics.roi});
-  }
-  expected.sort((a,b)=>b.roi-a.roi||a.id.localeCompare(b.id));
-  const actual=API.rank(input,period,now);
-  assert.equal(actual.eligibleCount,expected.length);
-  assert.deepEqual(actual.rows.map(r=>[r.id,r.roi]),expected.slice(0,3).map(r=>[r.id,r.roi]));
+ const now=Math.max(Date.now(),Date.parse(ref.latestPublicFetchAt),Date.parse(catalog.generatedAt));
+ const input={periodReturns:API.validatePeriodReturns(catalog,now),reference:API.validateReference(ref,now),binance:API.validateBinance(publicData,now)};
+ for(const period of ['90D','365D']){
+   const candidates=[];
+   for(const row of catalog.accounts){
+     const part=row.performance.byPeriod[period];if(!part?.evidence)continue;
+     const bytes=fs.readFileSync(path.join(root,part.evidencePath));
+     assert.equal(crypto.createHash('sha256').update(bytes).digest('hex'),part.evidence.sha256);
+     const raw=JSON.parse(bytes).data,profile=read(row.profileEvidencePath).data;
+     assert.equal(raw.timeRange,period);assert.equal(profile.leadPortfolioId,row.portfolioId);
+     if(typeof raw.roi==='number')candidates.push({id:'binance-'+row.portfolioId,roi:raw.roi,
+       full:(Date.parse(part.lastSuccessAt)-profile.startTime)>=parseInt(period)*86400000});
+   }
+   const p=ref.performanceByPeriod[period],profile=read(ref.profile.evidencePath).data;
+   if(p)candidates.push({id:'binance-'+ref.portfolioId,roi:read(p.evidencePath).data.roi,
+     full:(Date.parse(p.fetchedAt)-profile.startTime)>=parseInt(period)*86400000});
+   candidates.sort((a,b)=>b.roi-a.roi||a.id.localeCompare(b.id));
+   const full=candidates.filter(c=>c.full),short=candidates.filter(c=>!c.full),actual=API.rank(input,period,now,Infinity);
+   assert.ok(full.length>1);
+   assert.equal(actual.eligibleCount,full.length);
+   assert.deepEqual(actual.rows.map(r=>[r.id,r.roi]),full.map(r=>[r.id,r.roi]));
+   assert.deepEqual(actual.short.map(r=>[r.id,r.roi]),short.map(r=>[r.id,r.roi]));
  }
 });
 console.log('PASS '+tests+' homepage trader data checks. No source requests.');
