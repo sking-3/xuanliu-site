@@ -72,5 +72,5 @@
   let ready=Promise.resolve();const reason=stopped();if(reason)hold(reason);else if(doc.hidden)pause('页面当前隐藏，未读取 RSS；请在可见页面手动刷新。');else ready=refresh();
   return {refresh,ready,stop:()=>pause('RSS 读取已停止；请手动刷新。')};
  }
- return {parse,mount,FEED_URL:FEED,STOP_KEY,META_KEY};
+ return {parse,mount,readResponse:bounded,FEED_URL:FEED,STOP_KEY,META_KEY};
 });

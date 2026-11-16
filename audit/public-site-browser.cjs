@@ -86,7 +86,11 @@ async function shell(page,route) {
     }
     assert.ok(await nav.locator('a[aria-current]').count()>=1,route+' active section');
     const targets=await nav.locator('a[href]').evaluateAll(links=>links.map(a=>a.href));
-    assert.ok(targets.length>=7,route+' nav items');
+    assert.equal(targets.length,7,route+' seven primary entrances');
+    const shortcuts=page.locator('.books-shortcuts');
+    await shortcuts.waitFor();
+    const quick=await shortcuts.locator('a').evaluateAll(links=>links.map(a=>new URL(a.href).pathname).sort());
+    assert.deepEqual(quick,['/a-shares.html','/crypto.html','/us-live.html']);
     for(const href of targets){
       const url=new URL(href);
       assert.equal(url.origin,base.origin);
@@ -120,12 +124,11 @@ async function economicFiles(page) {
   const daily=fileJSON('research-data/a-daily-movers.json'), latest=fileJSON('macro-cn.json').card.data.latest;
   assert.ok(daily.priced>=5000 && latest.url.startsWith('https://www.stats.gov.cn/'));
   const close=page.locator('#tools-close'), release=page.locator('#tools-release');
-  await close.getByText(new RegExp(daily.priced.toLocaleString('en-US').replace(',','[,，]?'), 'u')).first().waitFor();
+  await close.filter({hasText:new RegExp(daily.priced.toLocaleString('en-US').replace(',','[,，]?'))}).waitFor();
   assert.ok(normalizeDate(await close.innerText()).includes(day(daily.asOf)),'dated coverage for A shares');
-  await release.getByText(latest.title,{exact:false}).first().waitFor();
+  await release.filter({hasText:latest.title}).waitFor();
   assert.ok(normalizeDate(await release.innerText()).includes(day(latest.publishedAt)),'dated Chinese official release');
-  await release.locator('a').filter({hasText:latest.title}).first().waitFor({timeout:2000}).catch(()=>{});
-  assert.ok((await release.locator('a').evaluateAll(nodes=>nodes.map(a=>a.href))).includes(latest.url),'direct source article');
+  assert.equal(await page.locator('#tools-release-source').getAttribute('href'),latest.url,'direct source article');
   return {asOf:daily.asOf,priced:daily.priced,macroTitle:latest.title,macroPublishedAt:latest.publishedAt,macroURL:latest.url};
 }
 
@@ -167,11 +170,20 @@ async function publicExecutions(page) {
   await open(page,'trader/exchange.html');
   const rows=page.locator('#evidence-rows tr[data-id]');
   await rows.first().waitFor();
-  const sample=await rows.evaluateAll(nodes=>nodes.slice(0,4).map(row=>({id:row.dataset.id,text:row.innerText})));
-  for(const {id,text} of sample){
+  const sample=await rows.evaluateAll(nodes=>nodes.slice(0,4).map(row=>({
+    id:row.dataset.id,updatedAt:row.querySelector('time').dateTime,symbol:row.cells[1].querySelector('strong').innerText,
+    direction:row.cells[1].querySelector('small').innerText,quantity:row.cells[2].innerText,price:row.cells[3].innerText
+  })));
+  const directions={opening_or_increasing_long:'开多/加多方向',opening_or_increasing_short:'开空/加空方向',reducing_or_closing_long:'减多/平多方向',reducing_or_closing_short:'减空/平空方向',one_way_direction_unresolved:'单向仓位，开平未知'};
+  for(const row of sample){
+    const {id}=row;
     const source=raw.records[id];
     assert.ok(source,'observed record '+id);
-    assert.ok(text.includes(source.symbol) && digits(text).includes(String(Number(source.executedQty))) && digits(text).includes(String(Number(source.avgPrice))),text);
+    assert.equal(row.updatedAt,new Date(source.orderUpdateTime).toISOString());
+    assert.equal(row.symbol,source.symbol);
+    assert.equal(row.direction,directions[source.direction]);
+    assert.equal(row.quantity,source.executedQty+' '+source.baseAsset);
+    assert.equal(row.price,source.avgPrice+' '+source.quoteAsset);
   }
   const symbol=raw.records[sample[0].id].symbol;
   await page.locator('#evidence-symbol').selectOption(symbol);
@@ -185,13 +197,33 @@ async function fiveAgents(page) {
   await open(page,'agent-studio.html');
   await page.locator('#agent-symbol').fill(stock.code);
   await page.locator('#agent-evidence').fill(stock.name+' 出现在已归档的 A 股日涨幅名单。');
+  assert.ok(await page.locator('#agent-cards').isHidden(),'old conclusions hidden after evidence changes');
   await page.locator('#agent-run').click();
   assert.equal(await page.locator('#agent-cards article').count(),5);
   assert.match(await page.locator('#agent-ai-state').innerText(),/未调用 AI|规则模式/);
   assert.match(await page.locator('#agent-output-state').innerText(),/等待|不足|待核|未评估/);
   await page.reload({waitUntil:'domcontentloaded'});
   assert.equal(await page.locator('#agent-symbol').inputValue(),stock.code);
+  await page.locator('#agent-reset').click();
+  assert.equal(await page.locator('#agent-mode').inputValue(),'rules');
+  assert.equal(await page.locator('#agent-horizon').inputValue(),'mid');
   return {symbol:stock.code,roles:5,mode:'rules',incompleteEvidence:await page.locator('#agent-output-state').innerText()};
+}
+
+async function publicWatchlist(page) {
+  await open(page,'us-live.html');
+  const input=page.locator('#public-watch-symbol');
+  const row=page.locator('#public-watchlist li').filter({has:page.getByText('NVDA',{exact:true})});
+  await input.fill('NVDA');
+  await input.press('Enter');
+  await row.waitFor();
+  await page.reload({waitUntil:'domcontentloaded'});
+  await row.waitFor();
+  await row.getByRole('button',{name:/移除/}).click();
+  await row.waitFor({state:'detached'});
+  await page.reload({waitUntil:'domcontentloaded'});
+  assert.equal(await row.count(),0);
+  return {symbol:'NVDA',persistedAcrossReload:true,removed:true,brokerAccountUsed:false};
 }
 
 async function cryptoFailure(page) {
@@ -285,6 +317,39 @@ async function liveUS(page) {
   return observed;
 }
 
+async function usQuotesPage(page) {
+  await open(page,'us.html');
+  await page.locator('.research-jumps a[href="#public-market-title"]').click();
+  await page.locator('#public-market-title').waitFor();
+  const feed=page.locator('.public-feed[aria-label="美股行情"] .feed-widget-area');
+  await feed.evaluate(el=>el.scrollIntoView({block:'center'}));
+  const frame=feed.frameLocator('iframe');
+  const symbols=['NASDAQ:AAPL','NASDAQ:MSFT'];
+  const quotes=[];
+  for(const symbol of symbols) {
+    const row=frame.locator('.js-quote-ticker[data-symbol="'+symbol+'"]');
+    await row.locator('.js-symbol-last').filter({hasText:/\d/}).waitFor({timeout:35000});
+    await row.locator('.js-symbol-change-pt').filter({hasText:/[%％]/}).waitFor({timeout:20000});
+    const price=numeric(await row.locator('.js-symbol-last').innerText());
+    const pct=numeric(await row.locator('.js-symbol-change-pt').innerText());
+    assert.ok(price>0 && Number.isFinite(pct),'actual '+symbol+' price and daily change');
+    quotes.push({symbol,price,pct});
+  }
+  const source=new URL(await feed.locator('iframe').getAttribute('src'),base);
+  assert.ok(/(^|\.)tradingview(-widget)?\.com$/.test(source.hostname));
+  const reference=await page.request.post('https://scanner.tradingview.com/america/scan',{data:{symbols:{tickers:symbols},columns:['close','change']},timeout:15000});
+  assert.ok(reference.ok(),'independent overview reference HTTP '+reference.status());
+  const input=(await reference.json()).data;
+  for(const quote of quotes) {
+    const ticks=input.find(entry=>entry.s===quote.symbol)?.d;
+    assert.ok(ticks?.every(Number.isFinite) && ticks[0]>0 && Math.abs(ticks[0]-quote.price)<=Math.max(0.10,ticks[0]*0.0015) && Math.abs(ticks[1]-quote.pct)<=0.15,
+      'delayed quote and current reference differ outside the observation tolerance: '+JSON.stringify({quote,reference:ticks}));
+    quote.reference=ticks;
+  }
+  await feed.screenshot({path:path.join(out,'real-us-quote-page.png')});
+  return {scope:'US research page public observed stocks',source:source.origin,comparison:reference.url(),quotes};
+}
+
 async function researchFiles(page) {
   await open(page,'screening/index.html');
   const close=page.locator('[data-closing-ranks][data-state=ready]');
@@ -294,19 +359,30 @@ async function researchFiles(page) {
   for(const row of [...snapshot.gainers,...snapshot.losers]) assert.ok(listed.includes(row.code) && listed.includes(row.name),row.code);
   assert.ok(normalizeDate(await close.locator('[data-closing-status]').innerText()).includes(day(snapshot.asOf)));
   await open(page,'research.html');
+  const docs=page.locator('[data-issuer-research][data-state=archive] [data-disclosure-rows] li');
+  await docs.nth(2).waitFor();
+  const archived=await docs.evaluateAll(nodes=>nodes.map(node=>({symbol:node.querySelector('span').innerText,
+    date:node.querySelector('time').dateTime,href:node.querySelector('a').href,kind:node.querySelector('small').innerText})));
+  for(const [symbol,date,domain,title] of [['600519','2026-10-31','static.cninfo.com.cn','季度报告'],['AAPL','2026-11-02','www.apple.com','季度业绩'],['NVDA','2026-10-28','nvidianews.nvidia.com','预告']]){
+    const actual=archived.find(row=>row.symbol.includes(symbol));
+    assert.ok(actual && actual.date===date && actual.kind.includes(title),symbol+' dated issuer disclosure');
+    assert.equal(new URL(actual.href).hostname,domain);
+  }
   const sourceLinks=await page.locator('.issuer-list a[href]').evaluateAll(links=>links.map(link=>({label:link.innerText,url:link.href})));
   assert.equal(sourceLinks.length,3);
-  for(const {url,label} of sourceLinks) assert.ok(new URL(url).protocol==='https:' && label.trim(),url);
+  assert.deepEqual(sourceLinks.map(s=>new URL(s.url).hostname).sort(),['investor.apple.com','investor.nvidia.com','www.sse.com.cn']);
+  assert.equal(new URL(sourceLinks.find(s=>new URL(s.url).hostname==='www.sse.com.cn').url).searchParams.get('productId'),'600519');
   const filter=page.locator('#integration-filter');
+  if(!await filter.isVisible()) await page.locator('details').filter({has:filter}).locator('summary').first().click();
   await filter.selectOption('private');
   await page.locator('[data-integrations-grid]').getByText('TigerOpen',{exact:true}).waitFor();
-  return {scope:'published close, issuer reference links and private account configuration labels',asOf:snapshot.asOf,sourceLinks};
+  return {scope:'published close and issuer disclosures available offline',asOf:snapshot.asOf,sourceLinks,archived};
 }
 
 async function fullA(page) {
   const upstream=page.waitForResponse(response=>new URL(response.url()).pathname.endsWith('/src/lib/data/market-heatmap-fallback.json'),{timeout:35000}).catch(()=>null);
   await open(page,'a-shares.html');
-  const board=page.locator('#a-market[data-close-source]');
+  const board=page.locator('#a-market[data-close-source=upstream]');
   await board.waitFor();
   const response=await upstream;
   assert.ok(response?.ok(),'actual A-share closing archive is unavailable');
@@ -317,6 +393,7 @@ async function fullA(page) {
   const stocks=data.stocks.filter(row=>Number.isFinite(row.price) && row.price>0 && Number.isFinite(row.changePct))
     .map(row=>({code:row.code.split('.')[0],name:row.name,change:row.changePct}));
   assert.ok(stocks.length>=5000 && Date.parse(data.updatedAt)<=Date.now()+300000);
+  assert.equal(Date.parse(await page.locator('#a-close-stamp time').getAttribute('datetime')),Date.parse(data.updatedAt));
   for(const [side,sign] of [['gainers',1],['losers',-1]]){
     const expected=stocks.filter(stock=>sign*stock.change>0).sort((a,b)=>sign*(b.change-a.change)||a.code.localeCompare(b.code)).slice(0,3);
     const rows=board.locator('[data-close-direction="'+side+'"] li[data-code]');
@@ -329,11 +406,81 @@ async function fullA(page) {
   assert.ok(stock);
   await search.fill(stock.code);
   await page.waitForFunction(({code,name})=>{
-    const visible=document.querySelector('#a-market').innerText.replace(/\s/g,'');
+    const visible=document.querySelector('#a-close-matches').innerText.replace(/\s/g,'');
     return visible.includes(code) && visible.includes(name.replace(/\s/g,''));
   },stock);
   await board.screenshot({path:path.join(out,'real-a-search.png')});
   return {source:response.url(),asOf:data.updatedAt,validQuotes:stocks.length,search:stock.code};
+}
+
+async function actualChart(page) {
+  const sessions=new Map();
+  page.on('websocket',socket=>{
+    const hostname=new URL(socket.url()).hostname;
+    if(!/(^|\.)tradingview\.com$/.test(hostname))return;
+    socket.on('framereceived',({payload})=>{
+      for(const piece of String(payload).split(/~m~\d+~m~/)){
+        if(!piece.startsWith('{'))continue;
+        let msg;
+        try {msg=JSON.parse(piece);} catch {continue;}
+        if(!Array.isArray(msg.p)||typeof msg.p[0]!=='string'||!msg.p[0].startsWith('cs_'))continue;
+        const state=sessions.get(msg.p[0])||{source:hostname};
+        sessions.set(msg.p[0],state);
+        if(msg.m==='symbol_resolved'){
+          const stock=msg.p[2];
+          if(stock?.name)state.symbol=stock.name;
+        }
+        if(!['timescale_update','du'].includes(msg.m) || !msg.p[1])continue;
+        for(const series of Object.values(msg.p[1])){
+          const bars=(series?.s||[]).map(row=>row.v).filter(v=>Array.isArray(v) && v.length>=5 &&
+            v.slice(0,5).every(Number.isFinite) && v[0]>1000000000 && v[0]<Date.now()/1000+86400 &&
+            v[3]>0 && v[2]>=Math.max(v[1],v[4]) && v[3]<=Math.min(v[1],v[4]));
+          if(bars.length>=(state.bars?.length || 3))state.bars=bars;
+        }
+      }
+    });
+  });
+  await open(page,'chart.html');
+  await page.locator('#chart-picker [data-chart-symbol="NASDAQ:AAPL"]').click();
+  assert.equal(new URL(page.url()).searchParams.get('tvwidgetsymbol'),'NASDAQ:AAPL');
+  const host=page.locator('#chart-widget');
+  await host.scrollIntoViewIfNeeded();
+  const frame=host.frameLocator('iframe');
+  const pane=frame.locator('canvas:visible').first();
+  await pane.waitFor({timeout:35000});
+  const until=Date.now()+22000;
+  let actual;
+  while(Date.now()<until) {
+    actual=[...sessions.values()].find(s=>s.symbol==='AAPL' && s.bars?.length>=3);
+    if(actual)break;
+    await page.waitForTimeout(250);
+  }
+  const src=new URL(await host.locator('iframe').getAttribute('src'),base);
+  assert.ok(/(^|\.)tradingview(-widget)?\.com$/.test(src.hostname));
+  const usable=await frame.locator('canvas:visible').evaluateAll(nodes=>nodes.some(canvas=>{
+    const box=canvas.getBoundingClientRect();return box.width>=130 && box.height>=90;
+  }));
+  assert.ok(usable,'chart canvas has a usable plotted area');
+  let proof;
+  if(actual) {
+    const bars=actual.bars.slice(-3);
+    assert.ok(bars[0][0]<bars[1][0] && bars[1][0]<bars[2][0],'sequence of distinct source dates');
+    proof={type:'actual TradingView websocket OHLC and rendered canvas',exchange:'NASDAQ',symbol:actual.symbol,source:actual.source,
+      candles:bars.map(v=>({time:new Date(v[0]*1000).toISOString(),open:v[1],high:v[2],low:v[3],close:v[4]}))};
+  } else {
+    // WebKit may omit iframe WebSocket events. Independently verify a visible legend price.
+    const reference=await page.request.post('https://scanner.tradingview.com/america/scan',{data:{symbols:{tickers:['NASDAQ:AAPL']},columns:['close']},timeout:15000});
+    assert.ok(reference.ok(),'chart reference price HTTP '+reference.status());
+    const row=(await reference.json()).data.find(entry=>entry.s==='NASDAQ:AAPL');
+    assert.ok(Number.isFinite(row?.d[0]) && row.d[0]>0,'independent AAPL price');
+    const legend=frame.locator('[data-name*="legend"]:visible');
+    const texts=await legend.allInnerTexts();
+    const values=texts.flatMap(text=>[...text.matchAll(/\b\d[\d,]*\.\d{1,4}\b/g)].map(match=>numeric(match[0])));
+    assert.ok(texts.some(text=>/Apple|苹果|AAPL/i.test(text)) && values.some(value=>Math.abs(value-row.d[0])<=0.10),'chart symbol and price correspond to independent quote');
+    proof={type:'rendered legend, chart canvas and independent TradingView quote',symbol:row.s,price:row.d[0],source:reference.url()};
+  }
+  await host.screenshot({path:path.join(out,'real-chart-aapl.png')});
+  return proof;
 }
 
 async function main() {
@@ -345,11 +492,11 @@ async function main() {
     for(const [name,fn] of [
       ['published desk inputs',economicFiles],['published daily ranks with upstream offline',dailyFallback],
       ['annual trader performance and detail',annualReturn],['public execution archive and filter',publicExecutions],
-      ['research pages and source filter',researchFiles],['five-agent rules without AI',fiveAgents],['Bitget unavailable and retry',cryptoFailure]
+      ['research pages and source filter',researchFiles],['five-agent rules without AI',fiveAgents],['public watchlist add restore remove',publicWatchlist],['Bitget unavailable and retry',cryptoFailure]
     ])await check(offline,name,fn);
     await offline.close();
     const online=await browser.newContext({...profile,locale:'zh-CN',timezoneId:'Asia/Shanghai',serviceWorkers:'block',reducedMotion:'reduce'});
-    for(const [name,fn] of [['live A-share closing source',fullA],['live US ranking data',liveUS],['live Bitget quote values',liveCrypto]])await check(online,name,fn);
+    for(const [name,fn] of [['live A-share closing source',fullA],['live US ranking data',liveUS],['US page real watch quotes',usQuotesPage],['live Bitget quote values',liveCrypto],['real chart from symbol picker',actualChart]])await check(online,name,fn);
     await online.close();
   } finally {
     fs.writeFileSync(path.join(out,'results.json'),JSON.stringify(report,null,2));

@@ -92,7 +92,7 @@
     try {
       const snapshot = await read(upstream, controller.signal);
       const summary = window.BooksDailyMovers.summarize(snapshot);
-      const universe = snapshot.stocks.map(stock => ({name:stock.name.replace(/(?<=[\u3400-\u9fff])\s+(?=[\u3400-\u9fff])/g,''),code:stock.code.slice(0,6),exchange:stock.exchange}));
+      const universe = snapshot.stocks.map(stock => ({name:stock.name.replace(/([\u3400-\u9fff])\s+(?=[\u3400-\u9fff])/g,'$1'),code:stock.code.slice(0,6),exchange:stock.exchange}));
       show(summary, 'upstream', universe);
       health.textContent = '';
     } catch {
