@@ -69,7 +69,7 @@ function analysis(c){
  const profile=c.context.profile;
  if(profile){const top=el('div',undefined,'ta-account-facts');for(const [label,value]of [['带单保证金余额 · USDT',fmt(profile.marginBalance,2)],['资产管理规模 AUM · USDT',fmt(profile.aumAmount,2)],['跟单用户数',fmt(profile.currentCopyCount,0)+' / '+fmt(profile.maxCopyCount,0)],['当前持仓',profile.positionShow?'以有效公开快照为准':'来源未公开 · 仓位未知'],['最近公开交易',profile.lastTradeAt?date(profile.lastTradeAt):'来源未提供']]){const item=el('div');item.append(el('small',label),el('strong',value));top.append(item);}statsRoot.append(top,note('组合资料读取 '+date(profile.fetchedAt)+(profile.status==='stale'?' · 历史快照':'')));}
  const w=c.context.metrics||{},grid=el('div',undefined,'ta-metrics');
- const data=[['所选周期收益率',w.roi===null||w.roi===undefined?'—':(w.roi>0?'+':'')+percentage(w.roi),w.roi,c.context.periodLabel||c.context.period],
+ const data=[['所选周期收益率',w.roi===null||w.roi===undefined?'—':(w.roi>0?'+':'')+percentage(w.roi),w.roi,w.coverageLabel||c.context.periodLabel||c.context.period],
  ['来源盈亏 · '+(w.currency||c.context.r.currency||'USD'),signed(w.pnl),w.pnl,w.asOf||w.sourceAsOf?'数据截至 '+date(w.asOf||w.sourceAsOf):w.fetchedAt||w.lastSuccessAt?'读取 '+date(w.fetchedAt||w.lastSuccessAt):'缺少有效周期数据'],
  [c.context.r.exchange==='Binance'?'币安来源回撤':'采样盈亏回撤',percentage(w.mdd),null,c.context.r.exchange==='Binance'?'沿用平台口径':'非标准净值最大回撤'],
  [c.context.r.exchange==='Binance'?'已平仓仓位胜率':'近期平仓片段胜率',percentage(w.winRate),null,c.context.winNote||'资料不足时留空']];
