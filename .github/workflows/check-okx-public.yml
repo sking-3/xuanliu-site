@@ -1,0 +1,35 @@
+name: Read official OKX public traders
+on:
+  push:
+    branches: [check/okx-public-period-review]
+    paths: ['.github/workflows/check-okx-public.yml']
+permissions: {}
+jobs:
+  official:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Sampler for the public contract leaderboard and cumulative PnL
+        shell: node {0}
+        run: |
+          (async()=>{
+            const zip=require('node:zlib');const url='https://www.okx.com/api/v5/copytrading/';let stopped=false;
+            async function read(name,path){
+             const u=url+path;const res=await fetch(u,{headers:{accept:'application/json'},redirect:'error',signal:AbortSignal.timeout(18000)});
+             const raw=Buffer.from(await res.arrayBuffer());const when=new Date().toISOString();let body;try{body=JSON.parse(raw)}catch{}
+             console.log('OKX_STATUS '+JSON.stringify({name,sourceUrl:u,httpStatus:res.status,receivedAt:when,code:body?.code??null,bytes:raw.length,msg:String(body?.msg??'').slice(0,160)}));
+             if(res.status!==200||body?.code!=='0'){stopped=true;return null;}
+             const data=zip.gzipSync(raw).toString('base64');for(let i=0;i<data.length;i+=4000)console.log('OKX_RAW '+JSON.stringify([name,data.slice(i,i+4000)]));
+             return body.data;
+            }
+            const ranks=(await read('leaders','public-lead-traders?instType=SWAP&sortType=pnl_ratio&minLeadDays=3&page=1&limit=20'))?.[0]?.ranks;
+            if(!Array.isArray(ranks)||stopped)return;
+            console.log('LEADERS '+JSON.stringify(ranks.map(r=>[r.uniqueCode,r.nickName,r.leadDays,r.pnlRatio,r.copyTraderNum,r.winRatio,r.ccy])));
+            const final=ranks.filter(x=>Number(x.leadDays)>=90&&Number(x.pnlRatio)>0&&Number(x.copyTraderNum)>0&&/^[A-Za-z0-9]{8,32}$/.test(x.uniqueCode)).sort((a,b)=>Number(b.pnlRatio)-Number(a.pnlRatio)||a.uniqueCode.localeCompare(b.uniqueCode)).slice(0,6);
+            for(const x of final){if(stopped)break;
+             for (const p of (Number(x.leadDays)>=365?[3,4]:[3])){await new Promise(f=>setTimeout(f,650));const data=await read(x.uniqueCode+'-'+p,'public-pnl?instType=SWAP&uniqueCode='+x.uniqueCode+'&lastDays='+p);
+             if(stopped)break;console.log('CURVE '+JSON.stringify([x.uniqueCode,p,data?.length,data?.[0],data?.at(-1)]));}
+            }
+          })().catch(e=>{console.error(e);process.exitCode=1;});
