@@ -4,39 +4,39 @@
   "messageDetail": null,
   "data": [
     {
-      "value": 23651.64551,
+      "value": 15104.620407,
       "dataType": "PNL",
       "dateTime": 1794268800000
     },
     {
-      "value": 38756.265917,
+      "value": 28145.567257,
       "dataType": "PNL",
       "dateTime": 1794355200000
     },
     {
-      "value": 51797.212767,
+      "value": 47732.489097,
       "dataType": "PNL",
       "dateTime": 1794441600000
     },
     {
-      "value": 71384.134607,
+      "value": 100379.012838,
       "dataType": "PNL",
       "dateTime": 1794528000000
     },
     {
-      "value": 124030.658348,
+      "value": 115654.212354,
       "dataType": "PNL",
       "dateTime": 1794614400000
     },
     {
-      "value": 139305.857864,
+      "value": 155416.123953,
       "dataType": "PNL",
       "dateTime": 1794700800000
     },
     {
-      "value": 162820.1056718,
+      "value": 127134.65495989,
       "dataType": "PNL",
-      "dateTime": 1794801600000
+      "dateTime": 1794812400000
     }
   ],
   "success": true

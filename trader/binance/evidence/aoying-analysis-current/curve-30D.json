@@ -4,154 +4,154 @@
   "messageDetail": null,
   "data": [
     {
-      "value": 13139.962971,
+      "value": -59210.581429,
       "dataType": "PNL",
       "dateTime": 1792281600000
     },
     {
-      "value": -46070.618458,
+      "value": -40234.287355,
       "dataType": "PNL",
       "dateTime": 1792368000000
     },
     {
-      "value": -27094.324384,
+      "value": -141949.862026,
       "dataType": "PNL",
       "dateTime": 1792454400000
     },
     {
-      "value": -128809.899055,
+      "value": -242821.864623,
       "dataType": "PNL",
       "dateTime": 1792540800000
     },
     {
-      "value": -229681.901652,
+      "value": 13636.657901,
       "dataType": "PNL",
       "dateTime": 1792627200000
     },
     {
-      "value": 26776.620872,
+      "value": -204404.978211,
       "dataType": "PNL",
       "dateTime": 1792713600000
     },
     {
-      "value": -191265.01524,
+      "value": -128573.662579,
       "dataType": "PNL",
       "dateTime": 1792800000000
     },
     {
-      "value": -115433.699608,
+      "value": -100519.412965,
       "dataType": "PNL",
       "dateTime": 1792886400000
     },
     {
-      "value": -87379.449994,
+      "value": -62161.961356,
       "dataType": "PNL",
       "dateTime": 1792972800000
     },
     {
-      "value": -49021.998385,
+      "value": 36561.072311,
       "dataType": "PNL",
       "dateTime": 1793059200000
     },
     {
-      "value": 49701.035282,
+      "value": 213576.509125,
       "dataType": "PNL",
       "dateTime": 1793145600000
     },
     {
-      "value": 226716.472096,
+      "value": 201915.675909,
       "dataType": "PNL",
       "dateTime": 1793232000000
     },
     {
-      "value": 215055.63888,
+      "value": 371988.56932,
       "dataType": "PNL",
       "dateTime": 1793318400000
     },
     {
-      "value": 385128.532291,
+      "value": 310419.608537,
       "dataType": "PNL",
       "dateTime": 1793404800000
     },
     {
-      "value": 323559.571508,
+      "value": 203788.479837,
       "dataType": "PNL",
       "dateTime": 1793491200000
     },
     {
-      "value": 216928.442808,
+      "value": 319823.599281,
       "dataType": "PNL",
       "dateTime": 1793577600000
     },
     {
-      "value": 332963.562252,
+      "value": 211313.115599,
       "dataType": "PNL",
       "dateTime": 1793664000000
     },
     {
-      "value": 224453.07857,
+      "value": -258461.214899,
       "dataType": "PNL",
       "dateTime": 1793750400000
     },
     {
-      "value": -245321.251928,
+      "value": 730021.919382,
       "dataType": "PNL",
       "dateTime": 1793836800000
     },
     {
-      "value": 743161.882353,
+      "value": 731420.102951,
       "dataType": "PNL",
       "dateTime": 1793923200000
     },
     {
-      "value": 744560.065922,
+      "value": 729896.593334,
       "dataType": "PNL",
       "dateTime": 1794009600000
     },
     {
-      "value": 743036.556305,
+      "value": 782050.251193,
       "dataType": "PNL",
       "dateTime": 1794096000000
     },
     {
-      "value": 795190.214164,
+      "value": 805701.896703,
       "dataType": "PNL",
       "dateTime": 1794182400000
     },
     {
-      "value": 818841.859674,
+      "value": 820806.51711,
       "dataType": "PNL",
       "dateTime": 1794268800000
     },
     {
-      "value": 833946.480081,
+      "value": 833847.46396,
       "dataType": "PNL",
       "dateTime": 1794355200000
     },
     {
-      "value": 846987.426931,
+      "value": 853434.3858,
       "dataType": "PNL",
       "dateTime": 1794441600000
     },
     {
-      "value": 866574.348771,
+      "value": 906080.909541,
       "dataType": "PNL",
       "dateTime": 1794528000000
     },
     {
-      "value": 919220.872512,
+      "value": 921356.109057,
       "dataType": "PNL",
       "dateTime": 1794614400000
     },
     {
-      "value": 934496.072028,
+      "value": 961118.020656,
       "dataType": "PNL",
       "dateTime": 1794700800000
     },
     {
-      "value": 958010.3198365,
+      "value": 932836.55166319,
       "dataType": "PNL",
-      "dateTime": 1794801600000
+      "dateTime": 1794812400000
     }
   ],
   "success": true
