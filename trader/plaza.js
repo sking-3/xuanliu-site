@@ -9,6 +9,13 @@ const storageKey = 'books.trader.records.v1', maxBytes = 2097152;
 const publicCacheKeys={feed:'books.trader.public.feed.v1',win:'books.trader.public.analytics.v1',binance:'books.trader.public.binance.v1'},publicSnapshots={feed:null,win:null,binance:null};
 const state = {status:'unavailable', publicRows:[], binanceRows:[], binanceCollection:null, binanceReadFailed:false, binanceCheckedAt:null, binanceText:null, localRows:[], rows:[], page:1, detail:null, window:'30D', tab:'analysis', loading:false, explicitPeriod:false, editor:null, storageReadError:false, revealId:null, source:null, lastReadFailed:false, feedText:null, liveClient:null, liveUser:null, liveData:null, liveView:null, liveVersion:0, positionExclusions:Object.create(null), analytics:Object.create(null), analyticsClient:null, analyticsViews:[], cardControls:[], analyticsTargets:[], winCache:Object.create(null), winCacheLoading:false, winCacheReadFailed:false, winCacheGeneratedAt:null, portfolioCache:Object.create(null), portfolioCacheLoading:false, portfolioCacheAttempted:false, portfolioCacheReadFailed:false, portfolioCacheGeneratedAt:null, performanceOrderPending:false, chartSeq:0};
 const fail = () => { throw Error('数据格式未通过校验，未展示此批记录。'); };
+// Decode bounded response bytes directly. Blob.text() can start an internal
+// blob-URL read in WebKit that outlives rapid account-page navigation.
+function decodeChunks(chunks){
+  const bytes=new Uint8Array(chunks.reduce((sum,chunk)=>sum+chunk.byteLength,0));let offset=0;
+  for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.byteLength;}
+  return new TextDecoder('utf-8',{fatal:true}).decode(bytes);
+}
 let linkedAccount=null;
 let periodReturns=null,periodReturnsFailed=false,okxReturns=null,okxReturnsFailed=false,bitgetReturns=null,bitgetReturnsFailed=false,okxTrades=null;
 const publicFocus={record:typeof BooksPublicFocus==='undefined'?null:BooksPublicFocus.identity(),snapshot:null,fromLive:false,readFailed:false,renderKey:null};
@@ -73,7 +80,7 @@ function refreshPublicFocus() {return sharedRequest('focusRequest',async()=>{
     if(!response.ok||Number(response.headers.get('content-length'))>BooksPublicFocus.maxBytes)throw Error('focus_unavailable');
     const reader=response.body.getReader(),chunks=[];let bytes=0;
     while(true){const {done,value}=await reader.read();if(done)break;bytes+=value.byteLength;if(bytes>BooksPublicFocus.maxBytes){await reader.cancel();throw Error('focus_oversized');}chunks.push(value);}
-    const snapshot=BooksPublicFocus.validate(JSON.parse(await new Blob(chunks).text())),previous=publicFocus.snapshot;
+    const snapshot=BooksPublicFocus.validate(JSON.parse(decodeChunks(chunks))),previous=publicFocus.snapshot;
     if(publicFocus.fromLive&&previous&&(Date.parse(snapshot.fetchedAt)<=Date.parse(previous.fetchedAt)||Date.parse(snapshot.sourceTime)<=Date.parse(previous.sourceTime)))return;
     if(previous&&(Date.parse(snapshot.fetchedAt)<Date.parse(previous.fetchedAt)||Date.parse(snapshot.sourceTime)<Date.parse(previous.sourceTime)))throw Error('focus_older');
     publicFocus.snapshot=snapshot;publicFocus.fromLive=false;publicFocus.readFailed=false;
@@ -351,7 +358,7 @@ async function readPortfolioCache() {
     if(!response.ok||!/application\/(?:[\w.+-]*\+)?json(?:\s*;|$)/i.test(response.headers.get('content-type')||'')||Number(response.headers.get('content-length'))>limit)fail();
     const reader=response.body.getReader(),chunks=[];let bytes=0;
     while(true){const {done,value}=await reader.read();if(done)break;bytes+=value.byteLength;if(bytes>limit){await reader.cancel();fail();}chunks.push(value);}
-    const raw=JSON.parse(await new Blob(chunks).text());globalThis.BooksSourcePolicy?.inspect('portfolios',raw);const payload=validatePortfolioCache(raw);if(state.portfolioCacheGeneratedAt&&Date.parse(payload.generatedAt)<Date.parse(state.portfolioCacheGeneratedAt))fail();
+    const raw=JSON.parse(decodeChunks(chunks));globalThis.BooksSourcePolicy?.inspect('portfolios',raw);const payload=validatePortfolioCache(raw);if(state.portfolioCacheGeneratedAt&&Date.parse(payload.generatedAt)<Date.parse(state.portfolioCacheGeneratedAt))fail();
     const before=state.rows.map(r=>sortValue(r,$('period').value,$('sort').value));
     for(const [address,incoming]of Object.entries(payload.accounts)){const previous=state.portfolioCache[address];if(previous?.portfolio&&(!incoming.portfolio||Date.parse(incoming.fetchedAt)<Date.parse(previous.fetchedAt)))payload.accounts[address]={...previous,status:'stale',lastAttemptAt:incoming.lastAttemptAt||previous.lastAttemptAt,errorCode:incoming.errorCode||'older_result'};}
     state.portfolioCache=payload.accounts;state.portfolioCacheGeneratedAt=payload.generatedAt;state.portfolioCacheReadFailed=false;
@@ -410,7 +417,7 @@ async function readWinCache() {
     if(!response.ok||!/application\/(?:[\w.+-]*\+)?json(?:\s*;|$)/i.test(response.headers.get('content-type')||'')||Number(response.headers.get('content-length'))>maxBytes)fail();
     const reader=response.body.getReader(),chunks=[];let bytes=0;
     while(true){const {done,value}=await reader.read();if(done)break;bytes+=value.byteLength;if(bytes>maxBytes){await reader.cancel();fail();}chunks.push(value);}
-    const raw=JSON.parse(await new Blob(chunks).text());globalThis.BooksSourcePolicy?.inspect('analytics',raw);const payload=validateWinCache(raw);
+    const raw=JSON.parse(decodeChunks(chunks));globalThis.BooksSourcePolicy?.inspect('analytics',raw);const payload=validateWinCache(raw);
     if(state.winCacheGeneratedAt&&Date.parse(payload.generatedAt)<Date.parse(state.winCacheGeneratedAt))fail();
     for(const [address,incoming]of Object.entries(payload.accounts)) {
       const previous=state.winCache[address];
@@ -550,7 +557,7 @@ function refreshBinance() {
       if(!response.ok||Number(response.headers.get('content-length'))>maxBytes)fail();
       const reader=response.body.getReader(),chunks=[];let bytes=0;
       while(true){const {done,value}=await reader.read();if(done)break;bytes+=value.byteLength;if(bytes>maxBytes){await reader.cancel();fail();}chunks.push(value);}
-      const parsed=BinanceData.parseCollection(JSON.parse(await new Blob(chunks).text()));
+      const parsed=BinanceData.parseCollection(JSON.parse(decodeChunks(chunks)));
       const collection={...parsed,portfolios:parsed.portfolios.map(feed=>{const next=hideBinancePayload(feed);return hiddenBinanceFeed(feed)||feed.source.refreshStopped||parsed.source.refreshStopped?withBinanceSafety(withBinanceSafety(next,feed),state.binanceCollection?.portfolios.find(p=>p.portfolioId===feed.portfolioId)):next;})};
       preserveBinanceSafety(collection);
       if(state.binanceCollection){const previous=state.binanceCollection,newer=Date.parse(collection.generatedAt)>Date.parse(previous.generatedAt);if(previous.source.refreshStopped&&!collection.source.refreshStopped&&(!newer||previous.portfolios.some(old=>{const next=collection.portfolios.find(p=>p.portfolioId===old.portfolioId);return !next||!(Date.parse(next.source.lastAttemptAt)>binanceSafetyWatermark(old));})))fail();for(const incoming of collection.portfolios){const old=previous.portfolios.find(p=>p.portfolioId===incoming.portfolioId);if(old&&((hiddenBinanceFeed(old)&&!hiddenBinanceFeed(incoming))||(old.source.refreshStopped&&!incoming.source.refreshStopped))&&(!newer||!(Date.parse(incoming.source.lastAttemptAt)>binanceSafetyWatermark(old))))fail();}}
@@ -1728,7 +1735,7 @@ async function revalidate(background=false) {
     if(Number(response.headers.get('content-length'))>maxBytes)fail();
     const reader=response.body.getReader(),chunks=[];let bytes=0;
     while(true){const {done,value}=await reader.read();if(done)break;bytes+=value.byteLength;if(bytes>maxBytes){await reader.cancel();fail();}chunks.push(value);}
-    const serialized=await new Blob(chunks).text(),data=JSON.parse(serialized);globalThis.BooksSourcePolicy?.inspect('feed',data);const rows=validate(data),source=validateSource(data,rows);
+    const serialized=decodeChunks(chunks),data=JSON.parse(serialized);globalThis.BooksSourcePolicy?.inspect('feed',data);const rows=validate(data),source=validateSource(data,rows);
     if(data.status==='unavailable'&&state.publicRows.length)throw Error('最新快照不可用');
     rejectOlderFeed(source,rows);
     const snapshot={schemaVersion:1,status:data.status,source:data.source,traders:rows},canonical=JSON.stringify(snapshot);
