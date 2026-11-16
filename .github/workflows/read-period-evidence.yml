@@ -1,0 +1,31 @@
+name: Read public period evidence
+on:
+  push:
+    branches: [ui/verified-long-period-roi]
+    paths: ['.github/workflows/read-period-evidence.yml']
+permissions: {}
+jobs:
+  read:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Read official public profile and rolling-window returns
+        shell: node {0}
+        run: |
+          (async()=>{
+            const indices=['5156287639231681792','5139646755272846081','5178595252342363392'];const base='https://www.binance.com/bapi/futures/v1/';
+            for (const id of indices) {
+              for (const p of ['profile','90D','365D']) {
+                const path=p==='profile'?'friendly/future/copy-trade/lead-portfolio/detail?portfolioId='+id:'public/future/copy-trade/lead-portfolio/performance?portfolioId='+id+'&timeRange='+p;
+                const url=base+path;
+                let res; try{res=await fetch(url,{headers:{accept:'application/json'},signal:AbortSignal.timeout(16000),redirect:'error'});}catch(e){console.log('FAIL '+id+' '+p+' '+e.message);continue;}
+                const data=Buffer.from(await res.arrayBuffer()),receivedAt=new Date().toISOString();
+                console.log('PERIOD_RECORD '+JSON.stringify({id,p,url,receivedAt,status:res.status,bytes:data.length,raw:data.length<32000&&res.status===200?data.toString('base64'):null}));
+                if([202,401,403,418,429,451].includes(res.status)){console.log('SOURCE_STOP '+res.status);process.exit(0);}
+                await new Promise(f=>setTimeout(f,400));
+              }
+            }
+          })().catch(e=>{console.error(e);process.exitCode=1;});
