@@ -56,7 +56,8 @@ async function home(page) {
   await page.locator('#index-ticker').screenshot({path:path.join(output,'visible-market-tape.png')});
   await page.locator('.home-grid').screenshot({path:path.join(output,'aligned-ranking.png')});
   const longPeriods=await require('./long-ranking-browser.cjs')(page);
-  return {markets,tape,ranking,longPeriods};
+  const okx=await require('./okx-period-browser.cjs').check(page,site);
+  return {markets,tape,ranking,longPeriods,okx};
 }
 
 async function aShares(page) {

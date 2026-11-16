@@ -107,7 +107,8 @@
     if (!['90D','365D'].includes(part.sourcePeriod)) return part;
     const age=Number.isSafeInteger(startTime) && startTime>0 && Number.isFinite(end) && end>=startTime
       ? Math.floor((end-startTime)/86400000) : null;
-    return {...part,accountAgeDays:age,fullPeriod:age!==null && age>=days};
+    const coverageLabel=age!==null && age<days?'币安 '+part.sourcePeriod+' 窗口 · 实际已带单 '+age+' 天 · 未入'+(days===365?'满年榜':'满季榜'):'';
+    return {...part,accountAgeDays:age,fullPeriod:age!==null && age>=days,coverageLabel};
   }
 
   // Independently public performance does not establish positions or trade history.

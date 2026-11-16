@@ -173,7 +173,9 @@ async function dailyFallback(page) {
 
 async function annualReturn(page) {
   await open(page,'index.html');
-  return require('./long-ranking-browser.cjs')(page);
+  const longPeriods=await require('./long-ranking-browser.cjs')(page);
+  const okx=await require('./okx-period-browser.cjs').check(page,base.href);
+  return {longPeriods,okx};
 }
 
 async function publicExecutions(page) {

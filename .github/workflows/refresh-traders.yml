@@ -75,6 +75,7 @@ jobs:
           node audit/home-trader-data-unit.cjs
           node audit/home-ranking-ui-unit.cjs
           node audit/binance-period-returns-unit.cjs
+          node --test audit/okx-periods-unit.cjs
           node --check books-shell.js
           node audit/shell-unit.cjs
           node audit/market-live-unit.cjs
@@ -121,6 +122,11 @@ jobs:
         if: steps.refresh-mode.outputs.mode == 'full'
         continue-on-error: true
         run: node scripts/collect_binance_periods.cjs
+
+      - name: Refresh verified OKX public trader returns
+        if: steps.refresh-mode.outputs.mode == 'full'
+        continue-on-error: true
+        run: node scripts/collect_okx_periods.cjs
 
       - name: Check persisted Hyperliquid source refusals
         id: hyperliquid-guard
@@ -246,7 +252,7 @@ jobs:
             echo '::error::main changed during collection. Skipping this deployment; a later run will use the new version.'
             exit 1
           fi
-          git add -- trader/feed.json trader/analytics.json trader/portfolios.json trader/binance/snapshot.json trader/binance/portfolios.json trader/aoying-history.js trader/binance/evidence/aoying-analysis-current trader/binance/period-returns.json trader/binance/evidence/performance-v1
+          git add -- trader/feed.json trader/analytics.json trader/portfolios.json trader/binance/snapshot.json trader/binance/portfolios.json trader/aoying-history.js trader/binance/evidence/aoying-analysis-current trader/binance/period-returns.json trader/binance/evidence/performance-v1 trader/okx
           if ! git diff --cached --quiet; then
             git config user.name 'github-actions[bot]'
             git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
