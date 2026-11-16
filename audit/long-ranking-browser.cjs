@@ -15,6 +15,12 @@ module.exports = async function checkPeriods(page) {
   const bundle=await json('binance/period-returns.json');
   const referenceId='5075281354358777856';
   const referenceProfile=(await json('binance/evidence/aoying-analysis-current/profile.json')).data;
+  const historyResponse=await page.request.get(new URL('aoying-history.js',trader).href);
+  assert.equal(historyResponse.status(),200);
+  const historyScript=await historyResponse.text();
+  const prefix='globalThis.BooksAoyingHistory=';
+  assert.ok(historyScript.includes(prefix));
+  const history=JSON.parse(historyScript.split(prefix)[1].trim().replace(/;$/,''));
   const summary={};
   const panel=page.locator('#home-trader-ranking');
   for(const period of ['90D','365D']) {
@@ -41,7 +47,7 @@ module.exports = async function checkPeriods(page) {
     }
     const reference=await json('binance/evidence/aoying-analysis-current/performance-'+period+'.json');
     assert.equal(reference.data.timeRange,period);
-    add(referenceId,reference.data.roi,referenceProfile.startTime,bundle.generatedAt);
+    add(referenceId,reference.data.roi,referenceProfile.startTime,history.performanceByPeriod[period].fetchedAt);
     assert.ok(full.size>=3,period+' requires multiple accounts with full-period evidence');
     await panel.locator('[data-ranking-period="'+period+'"]').click();
     const list=panel.locator('#home-ranking-list[aria-busy="false"]');

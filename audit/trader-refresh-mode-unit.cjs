@@ -51,7 +51,8 @@ test('peer checkpoint failures skip Binance without rewriting existing source st
  const report=step('Report blocked Binance collection without changing its snapshots');
  assert.match(report,/BINANCE_PEER_ALLOWED:.*steps.binance-peer-validate.outputs.allowed/);
  assert.doesNotMatch(report,/GITHUB_ENV|collect_binance|BINANCE_PREVIOUS_RUN_UNVERIFIED/);
- assert.equal((workflow.match(/continue-on-error: true/g)||[]).length,3);
+ const nonblocking=workflow.split(/^      - name: /m).slice(1).filter(block=>/^        continue-on-error: true$/m.test(block)).map(block=>block.split('\n')[0]);
+ assert.deepEqual(nonblocking.sort(),[...names,'Refresh verified public 90-day and 365-day returns','Refresh verified OKX public trader returns'].sort());
 });
 test('mode resolution failure cannot emit a mode or allow downstream always-run collectors',()=>{
  const output=[],raw=JSON.stringify(push('[ui-only]',OTHER));

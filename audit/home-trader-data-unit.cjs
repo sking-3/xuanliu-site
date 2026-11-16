@@ -88,4 +88,27 @@ test('published leaderboard prices and tenure match the per-account Binance rece
    assert.deepEqual(actual.short.map(r=>[r.id,r.roi]),short.map(r=>[r.id,r.roi]));
  }
 });
+test('OKX public futures returns use each chart window and case-sensitive official account link',()=>{
+ const root=path.join(__dirname,'..','trader');
+ const raw=JSON.parse(fs.readFileSync(path.join(root,'okx/period-returns.json'),'utf8'));
+ const now=Math.max(Date.now(),Date.parse(raw.generatedAt));
+ const input={okxPeriods:API.validateOKXPeriods(raw,now)};
+ for(const period of API.PERIODS){
+   const expected=raw.accounts.filter(a=>a.performance[period]).map(a=>{
+     const response=JSON.parse(fs.readFileSync(path.join(root,a.performance[period].evidencePath),'utf8'));
+     const last=response.data.reduce((x,y)=>Number(x.beginTs)>Number(y.beginTs)?x:y);
+     return {code:a.uniqueCode,roi:Number(last.pnlRatio)*100,pnl:Number(last.pnl)};
+   }).sort((a,b)=>b.roi-a.roi||a.code.localeCompare(b.code));
+   const actual=API.rank(input,period,now,Infinity), compact=API.rank(input,period,now,3);
+   assert.equal(actual.eligibleCount,expected.length);assert.equal(compact.rows.length,Math.min(3,expected.length));
+   for(const [i,row] of actual.rows.entries()){
+     assert.equal(row.exchange,'OKX');assert.equal(row.accountId,expected[i].code);
+     assert.ok(Math.abs(row.roi-expected[i].roi)<1e-8);assert.equal(row.pnl,expected[i].pnl);
+     const url=new URL(API.accountHref(row.accountId,period,row.exchange),'https://site.invalid');
+     assert.equal(url.searchParams.get('account'),expected[i].code);assert.equal(url.searchParams.get('exchange'),'OKX');
+     assert.equal(url.searchParams.get('period'),period);assert.equal(url.searchParams.get('currency'),'USDT');
+     assert.equal(row.mdd,null);assert.equal(row.winRate,null);
+   }
+ }
+});
 console.log('PASS '+tests+' homepage trader data checks. No source requests.');

@@ -351,7 +351,7 @@ async function inspect(browser, viewport) {
         assert.match(await row.innerText(),/USDT/);
         detailURL = new URL(await row.locator('.home-rank-identity').getAttribute('href'),site);
         assert.equal(detailURL.searchParams.get('period'),period);
-        assert.equal(detailURL.searchParams.get('exchange'),'Binance');
+        assert.ok(['Binance','OKX','Hyperliquid'].includes(detailURL.searchParams.get('exchange')));
       }
       const more = new URL(await ranking.locator('#home-ranking-more').getAttribute('href'),site);
       assert.equal(more.searchParams.get('period'),period);
