@@ -36,7 +36,7 @@ jobs:
             if(data.length>15000000||crypto.createHash('sha256').update(data).digest('hex')!==f.sha256)throw Error('invalid content hash');
             fs.mkdirSync(require('node:path').dirname(f.path),{recursive:true});fs.writeFileSync(f.path,data);
           }
-          fs.unlinkSync('site-update.json');fs.unlinkSync('.github/workflows/apply-reviewable-update.yml');
+          fs.unlinkSync('site-update.json');
           console.log('Applied '+p.files.length+' hash-verified public files.');
           JS
           git config user.name 'github-actions[bot]'
