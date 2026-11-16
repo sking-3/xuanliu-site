@@ -86,11 +86,30 @@ module.exports = async function checkPeriods(page) {
   const identity=panel.locator('#home-ranking-list .home-rank-identity').first();
   const selected=await identity.innerText();
   const href=new URL(await identity.getAttribute('href'),site);
-  await identity.click();
-  await page.locator('#detail[open]').waitFor({timeout:30000});
-  assert.equal(await page.locator('#period').inputValue(),'365D');
-  assert.equal(new URL(page.url()).searchParams.get('account'),href.searchParams.get('account'));
-  assert.ok((await page.locator('#detail').innerText()).includes(selected.trim().split(/\s*\n\s*/).at(-1)));
+  const manifests={Binance:'binance',Bitget:'bitget',OKX:'okx'};
+  const directory=manifests[href.searchParams.get('exchange')];
+  const manifest=directory && new URL(directory+'/period-returns.json',trader).href;
+  let attempts=0;
+  const routeCatalog=route=>++attempts===1?route.abort('failed'):route.fallback();
+  if(manifest)await page.route(manifest,routeCatalog);
+  try{
+    const check=async()=>{
+      await Promise.all([
+        page.waitForURL(url=>url.pathname===href.pathname && url.searchParams.get('account')===href.searchParams.get('account'),{waitUntil:'domcontentloaded'}),
+        identity.click()
+      ]);
+      await page.locator('#detail[open]').waitFor({timeout:30000});
+      assert.equal(await page.locator('#period').inputValue(),'365D');
+      assert.equal(new URL(page.url()).searchParams.get('account'),href.searchParams.get('account'));
+      assert.ok((await page.locator('#detail').innerText()).includes(selected.trim().split(/\s*\n\s*/).at(-1)));
+    };
+    if(manifest){
+      const [response]=await Promise.all([page.waitForResponse(manifest,{timeout:30000}),check()]);
+      assert.equal(response.status(),200);
+      assert.equal(attempts,2,'recover the selected account on exactly one directory retry');
+    }else await check();
+    summary.annualDetail={account:href.searchParams.get('account'),directoryRequests:attempts};
+  }finally{if(manifest)await page.unroute(manifest,routeCatalog);}
   await page.goBack({waitUntil:'domcontentloaded'});
   return summary;
 };
