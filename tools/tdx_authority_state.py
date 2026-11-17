@@ -106,7 +106,7 @@ class AuthorityStore:
         self._blocked = True
         self._last = self._record = None
         self._owned_token = self._capability = None
-        raise AuthorityError(reason)
+        raise AuthorityError(reason) from None
 
     def _call(self, operation, **fields):
         if self._blocked:
@@ -129,6 +129,12 @@ class AuthorityStore:
             _digest(reply)
         except Exception:
             self._fail("authority_response_unverified")
+        except BaseException:
+            # Interruption may follow a committed write. Never keep a retry key.
+            self._blocked = True
+            self._last = self._record = None
+            self._owned_token = self._capability = None
+            raise
         if reply["status"] == "conflict" and operation == "cas":
             self._blocked = True
             self._last = self._record = None

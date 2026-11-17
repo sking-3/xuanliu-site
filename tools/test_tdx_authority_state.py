@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import traceback
 import unittest
 from unittest.mock import Mock, patch
 
@@ -321,6 +322,73 @@ class AuthorityTests(unittest.TestCase):
             stored = db.execute("SELECT capability_hash FROM authority").fetchone()[0]
         self.assertNotEqual(stored, capability)
         self.assertEqual(stored, hashlib.sha256(capability.encode()).hexdigest())
+
+    def test_ambiguous_transport_diagnostic_does_not_expose_private_capability(self):
+        secrets_seen = []
+        def exchange(request):
+            reply = self.authority.exchange(request)
+            if request["operation"] == "cas":
+                secrets_seen.append(request["claim"])
+                raise RuntimeError("synthetic diagnostic " + request["claim"])
+            return reply
+        store = self.store(exchange=exchange)
+        revision, _ = store.read(g.SOURCE)
+        try:
+            store.compare_and_swap(g.SOURCE, revision, dict(READY, state="pending", token="fixture"))
+        except a.AuthorityError:
+            rendered = traceback.format_exc()
+        else:
+            self.fail("ambiguous reservation must fail closed")
+        self.assertNotIn(secrets_seen[0], rendered)
+        self.assertIsNone(store._capability)
+        self.assertEqual(self.authority.snapshot()["record"]["state"], "pending")
+        self.assert_closed(self.guard())
+
+    def test_lost_completion_reply_does_not_invent_a_persistent_stop(self):
+        def exchange(request):
+            reply = self.authority.exchange(request)
+            if request["operation"] == "cas" and request["record"]["state"] == "ready":
+                raise TimeoutError("synthetic lost completion reply")
+            return reply
+        callback = Mock(return_value=7)
+        store = self.store(exchange=exchange)
+        with self.assertRaises(g.SourceStopped):
+            g.Guard(store, migration_complete=True).run("tdx", callback)
+        callback.assert_called_once()
+        self.assert_closed(g.Guard(store, migration_complete=True))
+        self.assertEqual(self.authority.snapshot(), {"revision": 3, "record": READY})
+        # Authority confirmed completion internally; a fresh runner sees new ready.
+        self.assertEqual(self.guard().run("tdx", lambda: 8), 8)
+
+    def test_interrupted_completion_clears_ownership_before_any_retry(self):
+        for error_type in (KeyboardInterrupt, SystemExit):
+            for after_commit in (False, True):
+                with self.subTest(error=error_type, after_commit=after_commit):
+                    self.authority.administrative_state(READY)
+                    attempts = []
+                    def exchange(request):
+                        attempts.append(request["operation"])
+                        if request["operation"] == "cas" and request["record"]["state"] == "ready":
+                            if after_commit:
+                                self.authority.exchange(request)
+                            raise error_type()
+                        return self.authority.exchange(request)
+                    store = self.store(exchange=exchange)
+                    revision, _ = store.read(g.SOURCE)
+                    store.compare_and_swap(g.SOURCE, revision, dict(READY, state="pending", token="fixture"))
+                    pending, _ = store.read(g.SOURCE)
+                    with self.assertRaises(error_type):
+                        store.compare_and_swap(g.SOURCE, pending, READY)
+                    count = len(attempts)
+                    self.assertIsNone(store._capability)
+                    self.assertIsNone(store._owned_token)
+                    with self.assertRaises(a.AuthorityError):
+                        store.compare_and_swap(g.SOURCE, pending, READY)
+                    with self.assertRaises(a.AuthorityError):
+                        store.read(g.SOURCE)
+                    self.assertEqual(len(attempts), count)
+                    self.assertEqual(self.authority.snapshot()["record"]["state"],
+                                     "ready" if after_commit else "pending")
 
     def test_default_production_has_no_authority(self):
         self.assertIsNone(g.PRODUCTION_GUARD.store)
