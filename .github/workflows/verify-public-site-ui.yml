@@ -24,20 +24,3 @@ jobs:
           name: public-release-regressions
           path: audit/browser-output/release/
           retention-days: 7
-  exact-native-widget:
-    if: github.event_name == 'pull_request' && github.head_ref == 'codex/mootdx-feed'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 12
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-      - uses: ./.github/actions/setup-public-release
-      - name: Bounded real widget acceptance using exact candidate pages and CSP
-        run: node audit/accept-exact-tv-widget.cjs
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: exact-native-widget-acceptance
-          path: audit/browser-output/exact-widget/
-          retention-days: 7

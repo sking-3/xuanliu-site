@@ -10,7 +10,15 @@
 - https://www.tradingview.com/widget-docs/markets/asia-pacific/
 - https://www.tradingview.com/widget-docs/faq/general/
 
-离线浏览器回归拦截全部外部请求；仅用显式“合成组件测试”链接验证本站图表跳转、四种宽度和组件失败提示，不把这些测试当真实报价验收。一次性独立浏览器验收通过，记录于 https://github.com/sking-3/xuanliu-site/actions/runs/44023876434 （job 133839458810，artifact 14302815449）。页面在浏览器中模拟本站候选 origin，不代表已部署；TradingView 所有资源和站点规则请求均正常放行，活跃选项为选中状态，5 个 SSE 股票链接均指向本站 chart.html，未发现页面错误或桌面横向溢出，留存桌面和 390px 截图。未提取报价写入仓库，未独立核验行情日期（time 元素列表为空），不声称实时或最新交易日已验收。该验收与常规 CI 分开记录；新版 Web Component 在本环境发生 CORS 加载失败，没有代理或放松浏览器安全规则。最终首页采用官网仍支持的 iframe 版本。临时联网验收任务在候选完成后移除，日常 CI 仍不请求行情来源。
+离线浏览器回归拦截全部外部请求；显式“合成组件测试”仅验证本站路由和失败状态，不作为真实报价验收。初次精简预览 44023876434 的 CSP 较宽，且未覆盖三榜真实点击，不能代替完整验收。
+
+最终页面真实组件验收： https://github.com/sking-3/xuanliu-site/actions/runs/44026741877 （提交 721e9fe0b30e9c83d710c6e3ab12f5d278fb7ff8，job 133848790301，artifact 14303376822）。浏览器使用仓库实际 index.html、chart.html、JS/CSS 字节和原有 CSP，没有改写或放宽 CSP；仅在预期本站 origin 交付这些本地候选文件，不是部署。TradingView 回应均为真实网络内容，未伪造；既有其他行情入口在测试边界被阻断。
+
+在 1440px 和 390px 下分别切换活跃/涨幅榜/跌幅榜，每榜确认 5 条可见链接，再实际鼠标点击第一条，均进入本站 chart.html 并显示匹配的 SSE 代码及 TradingView 图表渲染器。三榜所点代码依次为 SSE:601929、SSE:688775、SSE:603536。六次点击全部成功，首页和图表 CSP 逐字相同，两个宽度无页面或榜单横向溢出，可见来源署名保留；12 张截图和报告在 artifact 中。报告未记录 CSP 违规或提供方 401/403/429。切榜时 DOM 保留不可见旧链接，验收只选择实际可见节点；没有更改这些隐藏的第三方 DOM。
+
+严格区分图表渲染与行情时点：图表有 canvas 且未出现无效代码提示，不能据此证明最新 K 线日期。六次检查的 time/日期文本列表均为空，因此 quoteDate=null、quoteDateVerified=false；仅根据官方文档标明日终，不写“今日”“实时”或已验证最近交易日。未从 Widget 抽取行情数据写入生产 JSON。跨域脚本 onload 也不证明行情可用：加载器保留 15 秒截止检查，以 script-loaded / unverified / unavailable 区分过程，永不显示行情成功状态；新增 5 个离线测试覆盖脚本成功但 iframe 空白/失败、晚到回调及脚本错误。
+
+临时真实联网验收任务与脚本随后移除，日常 CI 仍不请求行情来源。验收后 index.html 的 SHA-256 为 2e05c36ebb3f918daa9798221edd0e7e941c158a96486108d44da020e89bc33a，home-tv-movers.js 为 ee3446d0d2be5cb9bbcf75859f3027161d9174ff7ee01d091dd08282d10cf49e；最终清理提交必须保持这些页面字节并重新核对本提交 CI。
 
 以下自定义五日名单链路仍默认禁用，它不是沪市官方组件的数据源：
 
