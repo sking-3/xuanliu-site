@@ -33,6 +33,11 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - name: Verify publication routing without source or Actions inventory requests
+        run: node --test tools/mootdx_feed/test_release_plan.cjs
       - name: Install the full hash lock into a fresh environment
         run: |
           python -m venv "$RUNNER_TEMP/mootdx-feed"
