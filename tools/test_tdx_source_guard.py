@@ -336,5 +336,30 @@ class SharedGuardTests(unittest.TestCase):
         self.assertEqual(sdk_imports, [])
 
 
+
+    def test_direct_fixed_factory_false_connect_persists_stop_before_retry(self):
+        transport = Mock()
+        transport.connect.return_value = False
+        class FakeStdQuotes:
+            def __init__(self):
+                raise AssertionError("bootstrap forbidden")
+        api = Mock(return_value=transport)
+        sdk = SimpleNamespace(StdQuotes=FakeStdQuotes, TdxHq_API=api)
+        options = dict(market="std", server=("192.0.2.1", 7709), timeout=10,
+                       bestip=False, heartbeat=False, auto_retry=False, raise_exception=True)
+        with patch.object(g, "PRODUCTION_GUARD", self.first), \
+                patch.dict(sys.modules, {"mootdx": SimpleNamespace(), "mootdx.quotes": sdk}):
+            with self.assertRaisesRegex(new.FeedError, "provider_connection_failed"):
+                new.fixed_server_factory(**options)
+            self.assertEqual(self.store.read(g.SOURCE)[1]["state"], "stopped")
+        with patch.object(g, "PRODUCTION_GUARD", self.second), \
+                patch.dict(sys.modules, {"mootdx": SimpleNamespace(), "mootdx.quotes": sdk}):
+            with self.assertRaises(g.SourceStopped):
+                new.fixed_server_factory(**options)
+        api.assert_called_once()
+        transport.connect.assert_called_once_with("192.0.2.1", 7709, time_out=10)
+        transport.close.assert_called_once()
+
+
 if __name__ == "__main__":
     unittest.main()

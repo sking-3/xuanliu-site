@@ -165,7 +165,8 @@ def fixed_server_factory(**options):
         def reconnect(self):
             raise FeedError("automatic_reconnect_disabled")
 
-    return FixedServerQuotes()
+    # Constructor, connect and a false result all remain inside one reservation.
+    return source_call(FixedServerQuotes)
 
 
 @contextmanager
