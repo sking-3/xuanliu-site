@@ -572,7 +572,8 @@ class CollectorTests(unittest.TestCase):
             self.assertEqual(result[0]["close"], 11.0)
             api.assert_called_once_with(heartbeat=False, auto_retry=False, raise_exception=True)
             transport.connect.assert_called_once_with("192.0.2.1", 7709, time_out=10)
-            transport.get_security_bars.assert_called_once_with(9, 1, "600519", 0, 1000)
+            # The pinned SDK caps the requested 1000 rows to its 800-row limit.
+            transport.get_security_bars.assert_called_once_with(9, 1, "600519", 0, 800)
             for forbidden in (setup, scan, check, factory):
                 forbidden.assert_not_called()
         self.assertEqual(store.read(guard.SOURCE)[1]["state"], "ready")
