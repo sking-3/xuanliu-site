@@ -26,17 +26,26 @@ const {chromium}=require('playwright');
   await page.getByRole('button',{name:'USA (US Exchanges)',exact:true}).click();
   const options=await page.getByRole('option').allTextContents();
   console.log('EXCHANGE_OPTIONS',JSON.stringify(options));
-  const shanghai=page.getByText(/Shanghai/).last();
+  const shanghai=page.getByRole('option',{name:'Mainland China (SSE)',exact:true});
   if(!await shanghai.count())throw Error('Shanghai option absent; do not assume market support');
   await shanghai.click();await page.getByRole('button',{name:'Apply',exact:true}).click();
   const widget=page.locator('tv-market-summary').last();
   await widget.waitFor();await page.waitForTimeout(8000);
-  console.log('SHANGHAI_CONFIGURATION',JSON.stringify(await widget.evaluate(e=>({
-    attributes:[...e.attributes].map(a=>[a.name,a.value]),
-    controls:[...e.shadowRoot.querySelectorAll('button,[role=button],[role=tab]')].map(e=>e.textContent?.trim()),
-    symbolLinkCount:[...e.shadowRoot.querySelectorAll('a')].filter(a=>/SSE[-:%]/.test(a.href)).length,
-    dates:[...e.shadowRoot.querySelectorAll('time')].map(e=>e.dateTime)
-  }))));
+  const report=await widget.evaluate(e=>{
+    const all=[];function visit(root){for(const n of root.querySelectorAll('*')){all.push(n);if(n.shadowRoot)visit(n.shadowRoot);}}visit(e.shadowRoot);
+    return {
+     attributes:[...e.attributes].map(a=>[a.name,a.value]),
+     controls:all.filter(n=>n.tagName==='BUTTON'||['button','tab'].includes(n.getAttribute('role'))).map(n=>n.textContent?.trim()),
+     symbolLinkCount:all.filter(n=>n.tagName==='A'&&/SSE[-:%]/.test(n.href)).length,
+     widgetTags:[...new Set(all.filter(n=>n.tagName.startsWith('TV-')).map(n=>n.tagName))],
+     symbolAttributeCount:all.filter(n=>/^SSE:/.test(n.getAttribute('symbol')||'')).length,
+     dates:all.filter(n=>n.tagName==='TIME').map(n=>n.dateTime)
+    };
+  });
+  console.log('SHANGHAI_CONFIGURATION',JSON.stringify(report));
+  if(!report.attributes.some(([name,value])=>name==='exchange'&&value==='SSE'))throw Error('Wrong market');
+  console.log('PUBLIC_MODULE_SCRIPT',JSON.stringify(await page.locator('script[src]').evaluateAll(nodes=>nodes.map(n=>n.src).filter(x=>x.includes('market-summary')||x.includes('wizard')))));
+
 
  }finally{await browser.close();}
  if(denied)throw Error('Provider refused; stop, no automatic retry');
