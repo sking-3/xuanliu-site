@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Books · 账户中心</title>
+  <link rel="stylesheet" href="account.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="index.html"><span class="brand-mark">B</span><span>Books</span></a>
+    <nav class="topnav" aria-label="主导航">
+      <a href="index.html">市场总览</a><a href="trader/index.html">带单广场</a><a href="crypto.html">加密行情</a><a href="research.html">研究工具</a><a href="account.html" aria-current="page">账户中心</a>
+    </nav>
+    <div class="top-actions"><a href="auth.html" id="auth-link">登录</a><span class="user-chip" id="user-chip" hidden><span class="avatar" id="top-avatar">B</span><span id="top-name">账户</span></span></div>
+  </header>
+  <main class="page">
+    <section class="hero"><div><p class="eyebrow">账户与资金</p><h1>账户中心</h1><p>管理个人资料、正式钱包余额与链上充值记录。</p></div><div class="hero-actions"><button class="btn" id="logout">退出登录</button><button class="btn primary" id="open-recharge">充值</button></div></section>
+    <div class="notice" id="account-notice" hidden></div>
+    <section class="grid">
+      <article class="card"><div class="card-header"><div><h2>个人资料</h2><p>头像使用预设或安全的 HTTPS 图片地址。</p></div><button class="btn" id="edit-avatar">更换头像</button></div><div class="card-body"><div class="profile"><span class="avatar" id="profile-avatar">B</span><div><h2 id="profile-name">—</h2><p id="profile-email">—</p></div></div><div class="profile-grid"><div class="kv"><span>账户 ID</span><strong id="profile-id">—</strong></div><div class="kv"><span>权限</span><strong id="profile-role">—</strong></div><div class="kv"><span>账户状态</span><strong id="profile-status">—</strong></div><div class="kv"><span>注册时间</span><strong id="profile-created">—</strong></div></div></div></article>
+      <article class="card"><div class="card-header"><div><h2>资金账户</h2><p>余额只在支付服务确认后入账。</p></div><button class="btn" id="refresh-wallet">刷新</button></div><div class="card-body"><div class="balance" id="balances"><div class="empty">正在读取余额…</div></div><div class="form-actions"><button class="btn primary" id="open-recharge-2">发起充值</button></div></div></article>
+    </section>
+    <section class="card" style="margin-top:18px"><div class="card-header"><div><h2>账户明细</h2><p>充值请求、确认状态与资金时间线。</p></div><span class="eyebrow" id="last-updated">—</span></div><div class="card-body"><div class="tabs" role="tablist"><button class="tab" role="tab" aria-selected="true" aria-controls="history-panel" data-panel="history-panel">充值记录</button><button class="tab" role="tab" aria-selected="false" aria-controls="settings-panel" data-panel="settings-panel">安全设置</button></div><div class="panel active" id="history-panel" role="tabpanel"><div class="table-wrap"><table><thead><tr><th>时间</th><th>币种</th><th>金额</th><th>支付服务</th><th>状态</th><th>请求 ID</th></tr></thead><tbody id="recharge-rows"><tr><td colspan="6" class="empty">正在读取记录…</td></tr></tbody></table></div></div><div class="panel" id="settings-panel" role="tabpanel"><p class="empty">正式版账户安全设置将在密码找回、二次验证和第三方身份提供商接通后开放。当前不会伪造手机号、Google、微信或 QQ 登录。</p></div></div></section>
+  </main>
+  <div class="modal-backdrop" id="avatar-modal"><section class="modal" role="dialog" aria-modal="true" aria-labelledby="avatar-title"><div class="modal-header"><div><h2 id="avatar-title">选择头像</h2><p>预设头像不会上传个人图片。</p></div><button class="modal-close" data-close="avatar-modal" aria-label="关闭">×</button></div><div class="modal-body"><div class="avatar-picker" id="avatar-picker"></div><div class="field"><label for="avatar-url">或使用 HTTPS 图片地址</label><input id="avatar-url" type="url" placeholder="https://…"><small>只接受 HTTPS；不会接受 data URI。</small></div><div class="form-actions"><button class="btn" data-close="avatar-modal">取消</button><button class="btn primary" id="save-avatar">保存头像</button></div></div></section></div>
+  <div class="modal-backdrop" id="recharge-modal"><section class="modal" role="dialog" aria-modal="true" aria-labelledby="recharge-title"><div class="modal-header"><div><h2 id="recharge-title">链上充值</h2><p>创建真实充值意图，等待支付服务确认。</p></div><button class="modal-close" data-close="recharge-modal" aria-label="关闭">×</button></div><div class="modal-body"><div class="field"><label for="recharge-currency">币种</label><select id="recharge-currency"><option value="USDT">USDT</option><option value="USDC">USDC</option></select></div><div class="field"><label for="recharge-amount">金额</label><input id="recharge-amount" type="number" min="0.01" step="0.01" placeholder="例如 100"></div><div class="payment-callout" id="payment-state">正式支付服务尚未配置时，系统不会生成假地址、假订单或增加余额。配置链上托管服务后，这里会显示网络、充值地址和确认要求。</div><div class="form-actions"><button class="btn" data-close="recharge-modal">取消</button><button class="btn primary" id="submit-recharge">创建充值请求</button></div></div></section></div>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script src="books-auth-config.js"></script><script src="books-auth.js"></script>
+  <script>
+  (() => {
+    const $ = (s) => document.querySelector(s);
+    const toast = (message) => { const el = $('#toast'); el.textContent = message; el.classList.add('show'); clearTimeout(window.__toast); window.__toast = setTimeout(() => el.classList.remove('show'), 3600); };
+    const initials = (user) => (user.displayName || user.email || 'B').trim().slice(0, 1).toUpperCase();
+    const avatarMarkup = (user, large = false) => user.avatarUrl ? `<img src="${user.avatarUrl.replaceAll('"', '&quot;')}" alt="头像">` : initials(user);
+    const setAvatar = (node, user) => { node.innerHTML = avatarMarkup(user); };
+    const formatMinor = (value) => (Number(value || 0) / 100).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const formatDate = (value) => value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '—';
+    const showNotice = (message) => { const el = $('#account-notice'); el.textContent = message; el.hidden = !message; };
+    const openModal = (id) => $('#' + id).classList.add('open');
+    const closeModal = (id) => $('#' + id).classList.remove('open');
+    function renderUser(user) {
+      $('#profile-name').textContent = user.displayName || 'Books 用户'; $('#profile-email').textContent = user.email; $('#profile-id').textContent = user.id; $('#profile-role').textContent = user.role === 'admin' ? '管理员' : '用户'; $('#profile-status').textContent = user.status === 'active' ? '正常' : '已停用'; $('#profile-created').textContent = formatDate(user.createdAt); $('#top-name').textContent = user.displayName || user.email; $('#auth-link').hidden = true; $('#user-chip').hidden = false; setAvatar($('#profile-avatar'), user); setAvatar($('#top-avatar'), user);
+    }
+    function renderBalances(items) { $('#balances').innerHTML = (items || []).map((item) => `<div class="balance-row"><div class="currency"><span class="coin">${item.currency.slice(0, 1)}</span><span>${item.currency}</span></div><div class="balance-value">${formatMinor(item.balanceMinor)}<small>可用余额 · ${item.currency}</small></div></div>`).join('') || '<div class="empty">暂无余额</div>'; }
+    function renderRecharges(items) { $('#recharge-rows').innerHTML = (items || []).map((item) => `<tr><td>${formatDate(item.createdAt)}</td><td>${item.currency}</td><td>${formatMinor(item.amountMinor)}</td><td>${item.provider || '待配置'}</td><td><span class="status ${item.status === 'confirmed' || item.status === 'completed' ? 'confirmed' : ''}">${item.status === 'confirmed' || item.status === 'completed' ? '已确认' : item.status === 'pending' ? '待确认' : item.status}</span></td><td>${item.requestId}</td></tr>`).join('') || '<tr><td colspan="6" class="empty">暂无充值记录</td></tr>'; }
+    async function load() {
+      try {
+        const me = await BooksAuth.me(); if (!me.authenticated) { location.href = 'auth.html?next=account.html'; return; }
+        renderUser(me.user); const [wallet, history] = await Promise.all([BooksAuth.wallet(), BooksAuth.recharges()]); renderBalances(wallet.balances); renderRecharges(history.orders); $('#last-updated').textContent = `更新于 ${new Date().toLocaleTimeString('zh-CN', { hour12: false })}`; if (wallet.paymentConfigured === false) showNotice('正式支付服务尚未配置：充值请求不会生成假地址，也不会增加账户余额。');
+      } catch (error) { showNotice(error.status === 401 ? '登录已过期，请重新登录。' : `读取账户失败：${error.message}`); }
+    }
+    const avatarOptions = [['fox','狐狸'],['book','Books'],['alpha','Alpha'],['initials','首字母']]; $('#avatar-picker').innerHTML = avatarOptions.map(([key, label]) => `<button class="avatar-option" data-avatar-key="${key}"><span class="avatar">${key === 'initials' ? 'B' : key === 'fox' ? '狐' : key === 'book' ? 'B' : 'A'}</span><span>${label}</span></button>`).join('');
+    let selectedAvatarKey = null; $('#avatar-picker').addEventListener('click', (event) => { const item = event.target.closest('[data-avatar-key]'); if (!item) return; selectedAvatarKey = item.dataset.avatarKey; document.querySelectorAll('.avatar-option').forEach((el) => el.classList.toggle('selected', el === item)); $('#avatar-url').value = ''; });
+    $('#edit-avatar').onclick = () => openModal('avatar-modal'); $('#save-avatar').onclick = async () => { try { const avatarUrl = $('#avatar-url').value.trim(); const payload = avatarUrl ? { avatarUrl } : { avatarKey: selectedAvatarKey || 'initials' }; const result = await BooksAuth.setAvatar(payload); renderUser(result.user); closeModal('avatar-modal'); toast('头像已更新'); } catch (error) { toast(`头像更新失败：${error.message}`); } };
+    const openRecharge = () => { $('#payment-state').textContent = '正式支付服务尚未配置时，系统不会生成假地址、假订单或增加余额。配置链上托管服务后，这里会显示网络、充值地址和确认要求。'; openModal('recharge-modal'); }; $('#open-recharge').onclick = openRecharge; $('#open-recharge-2').onclick = openRecharge; $('#submit-recharge').onclick = async () => { const amount = Number($('#recharge-amount').value); const currency = $('#recharge-currency').value; if (!Number.isFinite(amount) || amount <= 0) return toast('请输入有效金额'); try { const result = await BooksAuth.recharge({ amountMinor: Math.round(amount * 100), currency, requestId: `web-${crypto.randomUUID()}` }); closeModal('recharge-modal'); toast(result.order?.status === 'pending' ? '充值请求已创建，等待支付服务确认' : '充值请求已提交'); await load(); } catch (error) { toast(error.payload?.error === 'payment_provider_not_configured' ? '正式支付服务尚未配置，暂不能生成充值地址' : `充值请求失败：${error.message}`); } };
+    $('#refresh-wallet').onclick = load; $('#logout').onclick = async () => { await BooksAuth.logout(); location.href = 'auth.html'; }; document.querySelectorAll('[data-close]').forEach((el) => el.onclick = () => closeModal(el.dataset.close)); document.querySelectorAll('.modal-backdrop').forEach((el) => el.addEventListener('click', (event) => { if (event.target === el) closeModal(el.id); })); document.querySelectorAll('.tab').forEach((tab) => tab.onclick = () => { document.querySelectorAll('.tab').forEach((x) => x.setAttribute('aria-selected', String(x === tab))); document.querySelectorAll('.panel').forEach((panel) => panel.classList.toggle('active', panel.id === tab.dataset.panel)); });
+    load();
+  })();
+  </script>
+</body>
+</html>
