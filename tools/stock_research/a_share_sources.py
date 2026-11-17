@@ -15,11 +15,13 @@ import argparse
 import importlib
 import json
 import math
+import os
 import re
 from typing import Any, Iterable
 from zoneinfo import ZoneInfo
 
 from tools import tdx_source_guard as shared_tdx
+from tools.mootdx_feed import collector as tdx_transport
 
 
 ZONE = ZoneInfo("Asia/Shanghai")
@@ -228,6 +230,9 @@ def normalize_bars(records: Iterable[dict[str, Any]], provider: str) -> list[dic
 def _import_provider(name: str):
     if name == "mootdx":
         shared_tdx.require_tdx_access()
+        _legacy_tdx_options()
+        # Do not import mootdx or obtain Quotes.factory; it bootstraps/scans.
+        return None
     if name not in PROVIDERS:
         raise ProviderError("provider_unknown")
     try:
@@ -236,15 +241,34 @@ def _import_provider(name: str):
         raise ProviderError("provider_not_installed", name) from error
 
 
-def _call(module: Any, path: str, *args: Any, **kwargs: Any) -> Any:
-    target = module
-    for part in path.split("."):
-        target = getattr(target, part, None)
-        if target is None:
-            raise ProviderError("provider_api_mismatch", path)
+def _legacy_tdx_options():
+    value = os.environ.get("BOOKS_TDX_SERVER")
+    if not value:
+        raise shared_tdx.SourceStopped("explicit_tdx_server_required")
     try:
-        if path == "quotes.Quotes.factory":
-            return shared_tdx.source_call(lambda: _GuardedTdxClient(target(*args, **kwargs)))
+        server = tdx_transport.server_address(value)
+    except tdx_transport.FeedError:
+        raise shared_tdx.SourceStopped("invalid_tdx_server") from None
+    return dict(market="std", server=server, timeout=10, bestip=False,
+                heartbeat=False, auto_retry=False, raise_exception=True)
+
+
+def _call(module: Any, path: str, *args: Any, **kwargs: Any) -> Any:
+    if path == "tdx.fixed_server":
+        shared_tdx.require_tdx_access()
+        if args or kwargs:
+            raise shared_tdx.SourceStopped("unsafe_tdx_factory_options")
+        options = _legacy_tdx_options()
+        # The only legacy constructor is the same audited fixed transport.
+        target = lambda: shared_tdx.source_call(
+            lambda: _GuardedTdxClient(tdx_transport.fixed_server_factory(**options)))
+    else:
+        target = module
+        for part in path.split("."):
+            target = getattr(target, part, None)
+            if target is None:
+                raise ProviderError("provider_api_mismatch", path)
+    try:
         return target(*args, **kwargs)
     except shared_tdx.SourceStopped:
         raise
@@ -305,7 +329,7 @@ class Provider:
         if self.name == "adata":
             stock = getattr(self.module, "stock", None)
             return _records(_call(stock, "info.all_code"))
-        client = _call(self.module, "quotes.Quotes.factory", market="std", multithread=True, heartbeat=True)
+        client = _call(self.module, "tdx.fixed_server")
         return _records(_call(client, "stocks", market=0))
 
     def spot(self) -> list[dict[str, Any]]:
@@ -317,7 +341,7 @@ class Provider:
         if self.name == "adata":
             stock = getattr(self.module, "stock", None)
             return _records(_call(stock, "market.list_market_current"))
-        client = _call(self.module, "quotes.Quotes.factory", market="std", multithread=True, heartbeat=True)
+        client = _call(self.module, "tdx.fixed_server")
         return _records(_call(client, "quotes", symbol=["600519", "000001"]))
 
     def daily(self, code: str, start: str, end: str) -> list[dict[str, Any]]:
@@ -341,7 +365,7 @@ class Provider:
             stock = getattr(self.module, "stock", None)
             return _records(_call(stock, "market.get_market", stock_code=raw_code, k_type=1,
                                   start_date=start, end_date=end))
-        client = _call(self.module, "quotes.Quotes.factory", market="std", multithread=True, heartbeat=True)
+        client = _call(self.module, "tdx.fixed_server")
         return _records(_call(client, "bars", symbol=raw_code, frequency=9, offset=1000))
 
     def benchmark(self, start: str, end: str) -> list[dict[str, Any]]:
@@ -361,7 +385,7 @@ class Provider:
             stock = getattr(self.module, "stock", None)
             return _records(_call(stock, "market.get_market", stock_code="000001", k_type=1,
                                   start_date=start, end_date=end))
-        client = _call(self.module, "quotes.Quotes.factory", market="std", multithread=True, heartbeat=True)
+        client = _call(self.module, "tdx.fixed_server")
         return _records(_call(client, "index", symbol="000001", frequency=9, offset=1000))
 
     def minute(self, code: str, day: str) -> list[dict[str, Any]]:
@@ -379,7 +403,7 @@ class Provider:
         if self.name == "adata":
             stock = getattr(self.module, "stock", None)
             return _records(_call(stock, "market.get_market_min", stock_code=raw_code))
-        client = _call(self.module, "quotes.Quotes.factory", market="std", multithread=True, heartbeat=True)
+        client = _call(self.module, "tdx.fixed_server")
         return _records(_call(client, "minute", symbol=raw_code))
 
 

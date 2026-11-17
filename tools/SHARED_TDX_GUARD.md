@@ -19,10 +19,13 @@ reservation. An independent stop/revocation is never replaced with ready.
 
 The old TDX import, factory and data methods now consult the same guard as the new
 collector. Old refusal errors cannot be swallowed by fallback or per-stock loops.
-The legacy mootdx factory still has its historical automatic bootstrap options;
-it is unreachable under the production closure. Before any future enablement,
-replace that legacy transport with the audited fixed-server implementation.
-The guard is not permission to enable old SDK bootstrap or scan servers.
+The legacy path now reuses collector.fixed_server_factory instead of Quotes.factory.
+BOOKS_TDX_SERVER must explicitly specify one IPv4:port; there is no default,
+hostname resolution, candidate list or environment-driven fallback. Missing or
+invalid configuration refuses before SDK import even if a simulated guard is ready.
+Both paths bypass StdQuotes/BaseQuotes constructors, disable heartbeat/retry, connect
+once to that endpoint and reject reconnect. The default production guard remains
+closed; setting the environment variable does not enable collection.
 
 The public browser's books.stock.published-source-stop.v1 protects the site's
 research-data/snapshot.json, not TDX. The private worker source_stops table uses

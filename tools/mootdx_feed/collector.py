@@ -119,8 +119,12 @@ def server_address(value):
 def default_factory(**options):
     """Use mootdx parsing methods without its configuration/bootstrap constructor."""
     require_source_access()
-    from mootdx.quotes import StdQuotes, TdxHq_API
+    return fixed_server_factory(**options)
 
+
+def fixed_server_factory(**options):
+    """Shared transport: validate a fixed IPv4 endpoint before importing the SDK."""
+    shared_tdx.require_tdx_access()
     if set(options) != {"market", "server", "timeout", "bestip", "heartbeat",
                         "auto_retry", "raise_exception"} or (
         options["market"] != "std" or options["bestip"] is not False or
@@ -128,6 +132,16 @@ def default_factory(**options):
         options["raise_exception"] is not True
     ):
         raise FeedError("unsafe_provider_options")
+    server = options["server"]
+    if (not isinstance(server, tuple) or len(server) != 2 or
+        not isinstance(server[0], str) or type(server[1]) is not int):
+        raise FeedError("invalid_server_address")
+    if server_address(f"{server[0]}:{server[1]}") != server:
+        raise FeedError("invalid_server_address")
+    timeout = options["timeout"]
+    if type(timeout) not in (int, float) or not math.isfinite(timeout) or not 1 <= timeout <= 30:
+        raise FeedError("invalid_timeout")
+    from mootdx.quotes import StdQuotes, TdxHq_API
 
     class FixedServerQuotes(StdQuotes):
         def __init__(self):

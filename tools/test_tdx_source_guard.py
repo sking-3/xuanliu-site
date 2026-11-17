@@ -200,15 +200,17 @@ class SharedGuardTests(unittest.TestCase):
         module = SimpleNamespace(quotes=SimpleNamespace(Quotes=SimpleNamespace(factory=legacy)))
         with patch.object(g, "PRODUCTION_GUARD", self.second):
             with self.assertRaises(g.SourceStopped):
-                old._call(module, "quotes.Quotes.factory")
+                old._call(module, "tdx.fixed_server")
         legacy.assert_not_called()
 
     def test_legacy_denial_blocks_new_factory(self):
         denied = Mock(side_effect=PermissionError("403 synthetic"))
         module = SimpleNamespace(quotes=SimpleNamespace(Quotes=SimpleNamespace(factory=denied)))
-        with patch.object(g, "PRODUCTION_GUARD", self.first):
+        with patch.object(g, "PRODUCTION_GUARD", self.first), \
+                patch.dict(old.os.environ, {"BOOKS_TDX_SERVER": "192.0.2.1:7709"}), \
+                patch.object(new, "fixed_server_factory", denied):
             with self.assertRaises(old.ProviderError):
-                old._call(module, "quotes.Quotes.factory")
+                old._call(module, "tdx.fixed_server")
         factory = Mock()
         with patch.object(g, "PRODUCTION_GUARD", self.second), patch.object(new, "require_source_access"):
             with self.assertRaises(new.FeedError):
@@ -274,6 +276,64 @@ class SharedGuardTests(unittest.TestCase):
                 self.assertEqual(source.daily.call_count, 1)
                 source.minute.assert_not_called()
                 source.benchmark.assert_not_called()
+
+
+    def test_ready_legacy_missing_or_invalid_server_has_no_sdk_import(self):
+        for server in ("", "example.invalid:7709", "192.0.2.1:0", "192.0.2.1:7709,192.0.2.2:7709"):
+            with self.subTest(server=server), patch.object(g, "PRODUCTION_GUARD", self.first), \
+                    patch.dict(old.os.environ, {"BOOKS_TDX_SERVER": server}), \
+                    patch.object(old.importlib, "import_module") as imports, \
+                    patch.object(new, "fixed_server_factory") as factory:
+                with self.assertRaises(g.SourceStopped):
+                    old.Provider("mootdx")
+                with self.assertRaises(g.SourceStopped):
+                    old._call(None, "tdx.fixed_server")
+                imports.assert_not_called()
+                factory.assert_not_called()
+
+    def test_ready_legacy_fixed_endpoint_bypasses_original_sdk_constructor(self):
+        transport = Mock()
+        transport.connect.return_value = True
+        transport.get_security_bars.return_value = [{"date": "2026-11-16"}]
+        bootstrap = Mock(side_effect=AssertionError("original bootstrap forbidden"))
+        class FakeStdQuotes:
+            def __init__(self):
+                bootstrap()
+            def bars(self, **kwargs):
+                return self.client.get_security_bars(**kwargs)
+        sdk = SimpleNamespace(StdQuotes=FakeStdQuotes, TdxHq_API=Mock(return_value=transport),
+                              Quotes=SimpleNamespace(factory=bootstrap))
+        with patch.object(g, "PRODUCTION_GUARD", self.first), \
+                patch.dict(old.os.environ, {"BOOKS_TDX_SERVER": "192.0.2.1:7709"}), \
+                patch.dict(sys.modules, {"mootdx": SimpleNamespace(), "mootdx.quotes": sdk}):
+            source = old.Provider("mootdx")
+            self.assertEqual(source.daily("600519.SH", "2026-11-01", "2026-11-16"),
+                             [{"date": "2026-11-16"}])
+        sdk.TdxHq_API.assert_called_once_with(heartbeat=False, auto_retry=False, raise_exception=True)
+        transport.connect.assert_called_once_with("192.0.2.1", 7709, time_out=10)
+        transport.get_security_bars.assert_called_once_with(symbol="600519", frequency=9, offset=1000)
+        bootstrap.assert_not_called()
+        self.assertEqual(self.store.read(g.SOURCE)[1]["state"], "ready")
+
+    def test_fixed_factory_rejects_bad_options_before_sdk_import(self):
+        import builtins
+        original = builtins.__import__
+        sdk_imports = []
+        def intercept(name, *args, **kwargs):
+            if name.startswith("mootdx"):
+                sdk_imports.append(name)
+                raise AssertionError("SDK import forbidden")
+            return original(name, *args, **kwargs)
+        safe = dict(market="std", server=("192.0.2.1", 7709), timeout=10,
+                    bestip=False, heartbeat=False, auto_retry=False, raise_exception=True)
+        for change in ({"server": None}, {"server": ("example.invalid", 7709)},
+                       {"server": ("192.0.2.1", True)}, {"timeout": float("nan")},
+                       {"heartbeat": True}, {"auto_retry": True}, {"bestip": True}):
+            with self.subTest(change=change), patch.object(g, "PRODUCTION_GUARD", self.first), \
+                    patch.object(builtins, "__import__", side_effect=intercept):
+                with self.assertRaises(new.FeedError):
+                    new.fixed_server_factory(**dict(safe, **change))
+        self.assertEqual(sdk_imports, [])
 
 
 if __name__ == "__main__":
