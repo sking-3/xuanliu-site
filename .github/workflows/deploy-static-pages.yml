@@ -35,11 +35,11 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - name: Check out the current main branch
+      - name: Pin code pushes; other invocations use current main
         id: checkout
         uses: actions/checkout@v6
         with:
-          ref: main
+          ref: ${{ github.event_name == 'push' && github.event.after || 'main' }}
           fetch-depth: 1
 
       - uses: ./.github/actions/setup-public-release

@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "status": "not_configured",
+  "method": "mean_daily_turnover_5_sessions",
+  "synthetic": false,
+  "dataAsOf": null,
+  "source": null,
+  "coverage": null,
+  "tradingDates": [],
+  "rows": [],
+  "publicationVersion": 1
+}

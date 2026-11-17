@@ -15,7 +15,7 @@ def check(ok,msg):
 pages=list(root.rglob('*.html'))
 nav_destinations=[('市场总览','index.html'),('A股选股','screening/index.html'),('美股选股','us.html'),('带单员广场','trader/index.html'),('公司研究','research.html'),('历史研究','screening/history.html'),('研究工具','tools.html')]
 shared_versions={name:hashlib.sha256((root/name).read_bytes()).hexdigest()[:8] for name in ('books-shell.js','books-ui.css')}
-attribution_counts={'index.html':5,'a-shares.html':1,'screening/index.html':1,'chart.html':1}
+attribution_counts={'index.html':6,'a-shares.html':1,'screening/index.html':1,'chart.html':1}
 for p in pages:
  tree=html.fromstring(p.read_text())
  ids=tree.xpath('//@id')
@@ -31,6 +31,10 @@ for p in pages:
  attributions=tree.xpath('//*[@data-books-attribution or contains(concat(" ",normalize-space(@class)," ")," tradingview-widget-copyright ") or contains(concat(" ",normalize-space(@class)," ")," books-market-credit ")]')
  check(len(attributions)==attribution_counts.get(str(p.relative_to(root)),0),f'{p}: original attribution nodes retained')
  for node in attributions:
+  if 'data-home-movers-source' in node.attrib:
+   check('hidden' not in node.attrib and node.text_content().strip().endswith('by TradingView'),f'{p}: native hot-list attribution remains visible')
+   check(bool(node.xpath('.//a[@href="https://www.tradingview.com/markets/stocks-china/"]')),f'{p}: native hot-list source link retained')
+   continue
   check('hidden' in node.attrib and 'data-books-attribution' in node.attrib,f'{p}: user-hidden duplicate caption preserved')
   check(not node.xpath('ancestor::*[@id="chart-widget" or contains(concat(" ",normalize-space(@class)," ")," feed-widget-area ")]'),f'{p}: attribution outside provider and retry hosts')
   check(bool(node.xpath('.//a[@href]')) and bool(node.text_content().strip()),f'{p}: original attribution text and link retained')

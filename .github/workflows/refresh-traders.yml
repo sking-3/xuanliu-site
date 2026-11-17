@@ -33,6 +33,8 @@ concurrency:
 
 jobs:
   collect-build:
+    # Code publication must never collect or inspect source checkpoints.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     # Serialize Binance requests with the Python watch. UI-only publications

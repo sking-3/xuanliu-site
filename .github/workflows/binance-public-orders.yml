@@ -44,7 +44,7 @@ jobs:
 
   watch:
     name: Observe public execution records
-    if: github.event_name != 'pull_request' && github.repository == 'sking-3/xuanliu-site' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'workflow_dispatch' && github.repository == 'sking-3/xuanliu-site' && github.ref == 'refs/heads/main'
     needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -64,6 +64,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      # Push/PR events run only fixture tests, never this observer.
       - name: Observe anonymous public records every five seconds
         env:
           GITHUB_TOKEN: ${{ github.token }}
