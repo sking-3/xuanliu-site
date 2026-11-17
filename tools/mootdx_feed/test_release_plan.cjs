@@ -28,7 +28,7 @@ const reviewed={
   "audit/release-browser.cjs": "a7ab8595261147733bbe77deb36529b7139a82c1",
   "audit/selection-release-browser.cjs": "ccc47b1bbf83507ff53d5f6f8cd47253dda7499c",
   "audit/trader-refresh-mode-unit.cjs": "ca3bf772515444f1e1e35c0a023baea7408c8427",
-  "audit/active-stocks-browser.cjs": "fd768d00587618bfe7c249846450893e428d87c1"
+  "audit/active-stocks-browser.cjs": "e59cef43990238b0b5bf2e9662b6d402fb0912c8"
 };
 const read=file=>fs.readFileSync(path.join(root,file),'utf8');
 function jobs(file){

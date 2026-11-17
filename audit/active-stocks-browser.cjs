@@ -1,6 +1,7 @@
 'use strict';
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),playwright=require('playwright');
 const fixture=require('./active-stocks-fixture.cjs'),marketFixture=require('./release-fixtures.cjs');
+const disabledFixture=require('../research-data/a-active-stocks.json');
 const base=new URL(process.env.RELEASE_BASE_URL),engine=process.env.RELEASE_BROWSER||'chromium';
 const output=path.join(process.env.RELEASE_OUTPUT||path.join(__dirname,'browser-output/release'),engine);
 const report={engine,synthetic:true,externalRequestsBlocked:true,checks:[]};
@@ -19,9 +20,14 @@ async function main(){
      if(mode==='production')return route.continue();
      if(mode==='refused')return route.fulfill({status:403,body:'Forbidden'});
      if(mode==='malformed')return route.fulfill({contentType:'application/json',body:'{'});
+     if(mode==='withdrawn'||mode==='legacy-withdrawn'){
+      const data={...disabledFixture,publicationVersion:12};
+      if(mode==='legacy-withdrawn')delete data.publicationVersion;
+      return route.fulfill({json:data});
+     }
      const data=fixture();
-     if(mode==='updated'){
-      data.tradingDates=['2026-11-10','2026-11-11','2026-11-12','2026-11-13','2026-11-16'];
+     if(mode==='updated'||mode==='restored'){
+      data.publicationVersion=mode==='restored'?13:11;data.tradingDates=['2026-11-10','2026-11-11','2026-11-12','2026-11-13','2026-11-16'];
       data.dataAsOf='2026-11-16';data.generatedAt='2026-11-16T08:00:00.000Z';
       data.rows.forEach(row=>row.dailyAmounts.forEach((entry,i)=>entry.date=data.tradingDates[i]));
      }
@@ -104,10 +110,27 @@ async function main(){
    mode='fixture';await page.evaluate(()=>window.activeTestApp.refresh());
    assert.match(await page.locator('#active-stocks-status').innerText(),/更新失败.*2026-11-16/);
    await page.locator('#home-active-stocks').screenshot({path:path.join(output,'synthetic-active-stocks-retained-'+width+'.png')});
+   mode='withdrawn';await page.evaluate(()=>window.activeTestApp.refresh());
+   assert.equal(await page.locator('#active-stocks-list li').count(),0);
+   mode='updated';await page.evaluate(()=>window.activeTestApp.refresh());
+   assert.equal(await page.locator('#active-stocks-list li').count(),0);
+   assert.equal(await page.locator('#active-stocks-meta').innerText(),'');
+   mode='restored';await page.evaluate(()=>window.activeTestApp.refresh());
+   assert.equal(await page.locator('#active-stocks-list li').count(),3);
+   assert.match(await page.locator('#active-stocks-status').innerText(),/历史快照.*2026-11-16/);
+   mode='legacy-withdrawn';await page.evaluate(()=>window.activeTestApp.refresh());
+   mode='restored';await page.evaluate(async()=>{
+    window.activeTestApp.destroy();
+    window.activeTestApp=BooksActiveStocks.mount(document,{now:()=>window.activeTestNow});
+    await window.activeTestApp.ready;
+   });
+   assert.equal(await page.locator('#active-stocks-list li').count(),0);
+   assert.equal(await page.locator('#active-stocks-meta').innerText(),'');
+   await page.locator('#home-active-stocks').screenshot({path:path.join(output,'synthetic-active-stocks-withdrawn-'+width+'.png')});
    await page.evaluate(()=>window.activeTestApp.destroy());
    assert.ok(providerAttempts>0,'provider attempts intercepted and aborted');
    assert.deepEqual(errors,[],'uncaught errors');
-   report.checks.push({width,syntheticRows:3,chartSymbols:['SZSE:000001','SSE:600519'],failureStates:3,refreshAndExpiry:true,externalProviderAttemptsBlocked:providerAttempts});
+   report.checks.push({width,syntheticRows:3,chartSymbols:['SZSE:000001','SSE:600519'],failureStates:3,refreshAndExpiry:true,withdrawalRollback:true,externalProviderAttemptsBlocked:providerAttempts});
    await context.close();
   }
   console.log('PASS '+engine+': active stocks, 4 viewports, 8 in-site chart navigations, synthetic fixtures and failures');

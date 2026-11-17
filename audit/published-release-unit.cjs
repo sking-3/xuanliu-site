@@ -11,6 +11,7 @@ function walk(dir){for(const item of fs.readdirSync(dir,{withFileTypes:true})){
 }}walk(process.cwd());
 const mode=process.env.TEST_MODE;let requests=0;
 const activeStocks=require('./home-active-stocks.js').releaseMetadata(require('./research-data/a-active-stocks.json'));
+if(mode==='wrong-publication-version')activeStocks.publicationVersion++;
 if(mode==='wrong-ranking-version')activeStocks.schemaVersion=2;
 if(mode==='wrong-ranking-date')activeStocks.dataAsOf='2026-11-13';
 if(mode==='wrong-ranking-generation')activeStocks.generatedAt='2026-11-13T08:00:00.000Z';
@@ -36,7 +37,7 @@ test('old or modified ranking JSON is rejected even when code and release revisi
  assert.match(r.stderr,/Published asset mismatch: research-data\/a-active-stocks.json/);
 });
 test('ranking schema, source date and generation time must match the manifest',()=>{
- for(const mode of ['wrong-ranking-version','wrong-ranking-date','wrong-ranking-generation']){
+ for(const mode of ['wrong-publication-version','wrong-ranking-version','wrong-ranking-date','wrong-ranking-generation']){
   const r=run(mode);assert.equal(r.status,1);assert.match(r.stdout,/REQUESTS=1/);assert.match(r.stderr,/ranking version\/date metadata mismatch/);
  }
 });

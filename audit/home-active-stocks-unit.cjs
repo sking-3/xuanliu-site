@@ -81,11 +81,21 @@ test('production code cannot load the synthetic audit fixture or call a provider
 });
 test('release metadata binds schema, method and source dates and rejects synthetic publication',()=>{
  const empty=require('../research-data/a-active-stocks.json');
- assert.deepEqual(api.releaseMetadata(empty,now),{schemaVersion:1,method:api.METHOD,status:'not_configured',dataAsOf:null,generatedAt:null,tradingDates:[]});
+ assert.deepEqual(api.releaseMetadata(empty,now),{publicationVersion:1,schemaVersion:1,method:api.METHOD,status:'not_configured',dataAsOf:null,generatedAt:null,tradingDates:[]});
  assert.throws(()=>api.releaseMetadata(fixture(),now));
  const data=fixture();data.synthetic=false;data.source.permissionReference='https://example.invalid/offline-test-only';
  const metadata=api.releaseMetadata(data,now);
  assert.equal(metadata.dataAsOf,'2026-11-13');assert.equal(metadata.generatedAt,'2026-11-13T08:00:00.000Z');
  assert.deepEqual(metadata.tradingDates,data.tradingDates);
  data.dataAsOf='2026-11-12';assert.throws(()=>api.releaseMetadata(data,now));
+});
+test('publication revisions are required for ready data and for every newly staged release',()=>{
+ for(const revision of [undefined,null,0,-1,1.5,'10',Infinity,Number.MAX_SAFE_INTEGER+1]){
+  const data=fixture();data.publicationVersion=revision;assert.throws(()=>api.summarize(data,now));
+ }
+ for(const revision of [undefined,null]){
+  const data={...require('../research-data/a-active-stocks.json')};data.publicationVersion=revision;
+  assert.deepEqual(api.summarize(data,now),{status:'not_configured',rows:[]});
+  assert.throws(()=>api.releaseMetadata(data,now));
+ }
 });

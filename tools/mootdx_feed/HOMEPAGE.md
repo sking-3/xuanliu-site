@@ -6,7 +6,7 @@
 
 research-data/a-active-stocks.json 仅含 not_configured、空 rows、空交易日及 null 日期/来源。首页显示“待接入”。没有将测试股票、价格或成交额写入生产快照；现有观察列表和涨跌榜保留，均不冒称热门榜。
 
-audit/active-stocks-fixture.cjs 中的三只证券全部是合成数值、合成名称。只有 Node 测试和拦截响应的浏览器测试加载它；浏览器明确显示“合成测试数据 · 非真实行情”。发布脚本从 git archive 中移除整个 audit 目录。前端没有测试模式 URL、fixture 引用、浏览器缓存回退或真实行情源请求。
+audit/active-stocks-fixture.cjs 中的三只证券全部是合成数值、合成名称。只有 Node 测试和拦截响应的浏览器测试加载它；浏览器明确显示“合成测试数据 · 非真实行情”。发布脚本从 git archive 中移除整个 audit 目录。前端没有测试模式 URL、fixture 引用、持久浏览器缓存回退或真实行情源请求。
 
 ## 展示与计算
 
@@ -21,7 +21,7 @@ audit/active-stocks-fixture.cjs 中的三只证券全部是合成数值、合成
 
 ## 待云端生产者满足的字段
 
-ready 快照需要 schemaVersion=1、synthetic=false、method=mean_daily_turnover_5_sessions、amountUnit=CNY、completedSessionsVerified=true、dataAsOf、UTC generatedAt、五个 tradingDates；source 含 id/name/publicDisplayApproved/permissionReference；coverage 含 scope/supplied/complete/excluded；rows 每只含 exchange/code/name 和五条 date/amount 的 dailyAmounts。
+ready 快照需要严格递增的 publicationVersion（正安全整数）、schemaVersion=1、synthetic=false、method=mean_daily_turnover_5_sessions、amountUnit=CNY、completedSessionsVerified=true、dataAsOf、UTC generatedAt、五个 tradingDates；source 含 id/name/publicDisplayApproved/permissionReference；coverage 含 scope/supplied/complete/excluded；rows 每只含 exchange/code/name 和五条 date/amount 的 dailyAmounts。
 
 publicDisplayApproved 和 permissionReference 只是可审查的元数据，不构成授权，也不能解锁采集器。completedSessionsVerified 同样不是独立验证。真实云端生产者尚未接入，必须先完成 SOURCE_ACCESS.md 的共享停止状态、来源许可与真实数据验收。当前测试明确要求生产快照保持空态；以后接入真实数据需单独修改测试并复核，不可把 synthetic 改成 false 冒充真实。
 
@@ -51,10 +51,20 @@ node --test audit/home-active-stocks-unit.cjs 检验计算、日期、单位、�
 
 ## 长期开页与发布一致性修复
 
-可见页面每 5 分钟读取本站 JSON，每 60 秒按当前时钟重算 72 小时历史提示；隐藏页暂停定时读取，visibilitychange 恢复和 BFCache pageshow(persisted) 立即重算并刷新。重复 mount 和并发触发复用同一请求；正常退出清理定时器、事件和请求。超时的晚返回、销毁后的旧实例、较旧 dataAsOf/generatedAt，以及相同生成时间被改写的内容不能覆盖已接受快照。当前同版本内容比较使用解析后 JSON 序列化结果，生产者应保持稳定字段顺序或使用新的 generatedAt。
+可见页面每 5 分钟读取本站 JSON，每 60 秒按当前时钟重算 72 小时历史提示；隐藏页暂停定时读取，visibilitychange 恢复和 BFCache pageshow(persisted) 立即重算并刷新。重复 mount 和并发触发复用同一请求；正常退出清理定时器、事件和请求。超时的晚返回、销毁后的旧实例、较旧 dataAsOf/generatedAt，以及相同生成时间被改写的内容不能覆盖已接受快照。当前同发布版本内容比较使用解析后 JSON 序列化结果；生产者应保持稳定字段顺序。内容或状态发生变化时必须分配新的 publicationVersion，不能仅更改 generatedAt。
 
 计时刷新只访问本站名单文件，不调用腾讯/TDX 或其他行情 API，不解除采集器硬关闭。页面内保留的数据不写入浏览器持久缓存。
 
-发布归档现在将 research-data/a-active-stocks.json 的 SHA-256 加入 assets，并记录 activeStocks 的 schemaVersion、method、status、dataAsOf、generatedAt 和 tradingDates。发布后校验要求当前候选提交、名单元数据、名单实际字节和 JS/CSS 字节全部匹配；名单缺失哈希、旧日期/版本或内容改动均拒绝验收。归档还拒绝 synthetic=true 的名单。
+发布归档现在将 research-data/a-active-stocks.json 的 SHA-256 加入 assets，并记录 activeStocks 的 publicationVersion、schemaVersion、method、status、dataAsOf、generatedAt 和 tradingDates。发布后校验要求当前候选提交、名单元数据、名单实际字节和 JS/CSS 字节全部匹配；名单缺失哈希、旧日期/版本或内容改动均拒绝验收。归档还拒绝 synthetic=true 的名单。
 
 这些是发布完整性与前端格式验证，不是生产者授权或真实性校验。真实云端生产者仍未实现/启用；接入前必须验证来源许可、交易所日历的五个连续完整交易日、最终成交额单位和源记录，并在共享停止守卫之后生成快照。发布前检查与部署之间原有竞态仍未消除，本次不合并、不部署。
+
+## 撤回状态的版本与防回滚
+
+所有新发布的 ready 和 not_configured 快照都必须带 publicationVersion 正安全整数；生产者须在同一持久发布序列里分配严格递增版本，禁用也消耗一个新版本。该版本是站点发布顺序，不是行情日期或许可凭证，不能由浏览器当前时间推造。当前生产快照仅为 publicationVersion=1 的禁用空态。
+
+同一文档内，撤回会清空名单及日期展示，并把撤回门槛提高到已见最高发布版本和本次禁用版本的最大值。相同或较低版本的 ready 响应不能恢复数据，即使它修改 generatedAt；只有严格更高版本且源日期/生成时间不回退的 ready 响应才能恢复。即使 CDN 返回版本较旧的禁用状态，也优先清空，不降低已有门槛。
+
+旧的无版本禁用响应（字段缺失或 null）无法提供可排序的撤回边界，因此让当前文档保持关闭。后续任意 ready 或有版本禁用响应都不能在该文档里自动解除；控制器 destroy/remount 也保留这道门槛。新发布流程拒绝缺少版本的快照，正常云端发布采用有版本序列即可自动恢复，无需用户每日手动运行。
+
+这些门槛仅保存在当前文档内存；完整重新加载、新标签页或浏览器重启不是跨会话持久撤回保证。生产者和发布层仍须提供权威的撤回状态、持久版本序列及一致发布，不能把前端门槛当成来源授权/停止守卫。真实生产者尚未启用。

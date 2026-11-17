@@ -1,7 +1,7 @@
 'use strict';
 (function(root){
   const METHOD='mean_daily_turnover_5_sessions',FILE='research-data/a-active-stocks.json';
-  const REFRESH_MS=5*60*1000,CLOCK_MS=60*1000,mounted=new WeakMap();
+  const REFRESH_MS=5*60*1000,CLOCK_MS=60*1000,mounted=new WeakMap(),sessionGuards=new WeakMap();
   function requireValue(ok){if(!ok)throw Error('Invalid active-stock snapshot');}
   function text(value,max=80){return typeof value==='string'&&value.trim()===value&&value.length>0&&value.length<=max&&!/[\u0000-\u001f\u007f]/.test(value);}
   function day(value){
@@ -16,8 +16,15 @@
     return (exchange==='SH'?'SSE:':'SZSE:')+code;
   }
   function chartHref(exchange,code){return 'chart.html?tvwidgetsymbol='+encodeURIComponent(symbol(exchange,code));}
+  function publicationVersion(data){
+    // Legacy disabled responses have unknown ordering and must remain fail-closed.
+    if(data.status==='not_configured'&&(data.publicationVersion===undefined||data.publicationVersion===null))return null;
+    requireValue(Number.isSafeInteger(data.publicationVersion)&&data.publicationVersion>0);
+    return data.publicationVersion;
+  }
   function summarize(data,now=Date.now()){
     requireValue(data&&data.schemaVersion===1&&data.method===METHOD&&typeof data.synthetic==='boolean');
+    publicationVersion(data);
     if(data.status==='not_configured'){
       requireValue(data.synthetic===false&&data.dataAsOf===null&&data.source===null&&data.coverage===null&&
         Array.isArray(data.tradingDates)&&data.tradingDates.length===0&&Array.isArray(data.rows)&&data.rows.length===0);
@@ -88,8 +95,8 @@
   }
   function releaseMetadata(data,now=Date.now()){
     summarize(data,now);
-    requireValue(data.synthetic===false);
-    return {schemaVersion:data.schemaVersion,method:data.method,status:data.status,
+    requireValue(data.synthetic===false&&publicationVersion(data)!==null);
+    return {publicationVersion:data.publicationVersion,schemaVersion:data.schemaVersion,method:data.method,status:data.status,
       dataAsOf:data.dataAsOf,generatedAt:data.status==='ready'?data.generatedAt:null,tradingDates:data.tradingDates.slice()};
   }
   function mount(doc,options={}){
@@ -97,7 +104,12 @@
     if(mounted.has(host))return mounted.get(host);
     const fetcher=options.fetch||root.fetch.bind(root),now=options.now||Date.now;
     const timers=options.timers||root,events=options.events||doc.defaultView||root;
-    let active=true,flight=null,last=null,watermark=null,failed=false,settled=false,empty='not_configured',painted=null;
+    let guard=sessionGuards.get(doc);
+    if(!guard){
+      guard={high:0,body:null,withdrawalFloor:0,legacyWithdrawal:false,source:null};
+      sessionGuards.set(doc,guard);
+    }
+    let active=true,flight=null,last=null,failed=false,settled=false,empty='not_configured',painted=null;
     function repaint(){
       if(!active||!settled)return;
       const view=last?{...last,historical:now()-(day(last.dataAsOf)+7*3600000)>72*3600000,refreshFailed:failed}
@@ -125,15 +137,20 @@
           const raw=await response.text();if(raw.length>4*1024*1024)throw Error('Oversized snapshot');
           if(!current()||attempt.controller.signal.aborted)return;
           const data=JSON.parse(raw),view=summarize(data,now());
+          const revision=publicationVersion(data);
           if(view.status==='ready'){
-            // A slower cache/replica must not roll back either the session date
-            // or the producer generation time, including after a disabled state.
-            const version={date:data.dataAsOf,time:Date.parse(data.generatedAt),body:JSON.stringify(data)};
-            if(watermark&&(version.date<watermark.date||version.time<watermark.time||
-              (version.time===watermark.time&&version.body!==watermark.body)))throw Error('Snapshot rollback');
-            watermark=version;last=view;
+            const version={date:data.dataAsOf,time:Date.parse(data.generatedAt)},body=JSON.stringify(data);
+            if(guard.legacyWithdrawal||revision<=guard.withdrawalFloor||revision<guard.high||
+              (revision===guard.high&&body!==guard.body))throw Error('Withdrawn or obsolete publication');
+            if(guard.source&&(version.date<guard.source.date||version.time<guard.source.time))throw Error('Source date rollback');
+            guard.high=revision;guard.body=body;guard.source=version;last=view;
           }else{
-            // An explicit disabled state removes prior data, even after failures.
+            // Withdrawal wins even if a cache returns an older disabled revision.
+            // Only an explicitly newer publication may restore a versioned withdrawal.
+            // Without a withdrawal version no ready response can prove it is newer.
+            if(revision===null)guard.legacyWithdrawal=true;
+            guard.withdrawalFloor=Math.max(guard.withdrawalFloor,guard.high,revision||0);
+            guard.high=guard.withdrawalFloor;guard.body=null;
             last=null;empty=view.status;
           }
           failed=false;settled=true;repaint();

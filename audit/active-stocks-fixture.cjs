@@ -2,7 +2,7 @@
 // Synthetic fixtures only. audit/ is excluded from the public release archive.
 module.exports=function fixture(){
  const tradingDates=['2026-11-09','2026-11-10','2026-11-11','2026-11-12','2026-11-13'];
- return {schemaVersion:1,status:'ready',synthetic:true,method:'mean_daily_turnover_5_sessions',
+ return {publicationVersion:10,schemaVersion:1,status:'ready',synthetic:true,method:'mean_daily_turnover_5_sessions',
   amountUnit:'CNY',completedSessionsVerified:true,dataAsOf:tradingDates[4],generatedAt:'2026-11-13T08:00:00.000Z',tradingDates,
   source:{id:'offline-fixture',name:'合成测试源',publicDisplayApproved:true,permissionReference:'offline-fixture-only'},
   coverage:{scope:'supplied_stock_sample',supplied:4,complete:3,excluded:1},

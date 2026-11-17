@@ -35,7 +35,7 @@ function harness(fetcher){
   start:()=>api.mount(doc,options),status:()=>nodes['active-stocks-status'].textContent,state:()=>nodes['home-active-stocks'].dataset.state};
 }
 function newer(){
- const data=fixture();data.tradingDates=['2026-11-10','2026-11-11','2026-11-12','2026-11-13','2026-11-16'];
+ const data=fixture();data.publicationVersion=11;data.tradingDates=['2026-11-10','2026-11-11','2026-11-12','2026-11-13','2026-11-16'];
  data.dataAsOf='2026-11-16';data.generatedAt='2026-11-16T08:00:00.000Z';
  data.rows.forEach(row=>row.dailyAmounts.forEach((entry,i)=>entry.date=data.tradingDates[i]));
  data.rows[0].name='合成更新样本';return data;
@@ -116,4 +116,64 @@ test('non-persisted page exit aborts work and removes listeners and timers',asyn
  await h.events.emit('pagehide',{persisted:false});assert.equal(h.calls[0].request.signal.aborted,true);
  assert.equal(h.tasks.size,0);assert.equal(h.doc.count(),0);assert.equal(h.events.count(),0);
  wait.resolve(response(fixture()));await app.ready;assert.equal(h.nodes['active-stocks-list'].children.length,0);
+});
+
+function disabled(revision){
+ const data=JSON.parse(JSON.stringify(require('../research-data/a-active-stocks.json')));
+ if(revision===undefined)delete data.publicationVersion;else data.publicationVersion=revision;
+ return data;
+}
+test('ready A then versioned withdrawal then identical cached A never restores the list',async()=>{
+ const values=[fixture(),disabled(11),fixture(),fixture(),disabled(11),fixture()];
+ const h=harness(n=>response(values[n-1])),app=h.start();await app.ready;
+ assert.equal(h.nodes['active-stocks-list'].children.length,3);
+ for(let i=1;i<values.length;i++){
+  await app.refresh();assert.equal(h.nodes['active-stocks-list'].children.length,0);
+  assert.equal(h.nodes['active-stocks-meta'].textContent,'');assert.doesNotMatch(h.status(),/2026-11-13/);
+ }
+ app.destroy();
+});
+test('legacy unversioned withdrawal before any ready record latches closed even for higher publications',async()=>{
+ for(const version of [undefined,null]){
+  const fresh=newer();fresh.publicationVersion=100;
+  const values=[disabled(version),fixture(),disabled(99),fresh];
+  const h=harness(n=>response(values[n-1]));h.now('2026-11-17T09:00:00.000Z');
+  const app=h.start();await app.ready;
+  for(let i=1;i<values.length;i++){await app.refresh();assert.equal(h.nodes['active-stocks-list'].children.length,0);}
+  app.destroy();
+ }
+});
+test('legacy withdrawal after A survives controller destruction and cannot be bypassed by remount',async()=>{
+ const fresh=newer();fresh.publicationVersion=100;
+ const values=[fixture(),disabled(undefined),fixture(),fresh],h=harness(n=>response(values[n-1]));
+ h.now('2026-11-17T09:00:00.000Z');const first=h.start();await first.ready;await first.refresh();first.destroy();
+ const second=h.start();await second.ready;assert.equal(h.nodes['active-stocks-list'].children.length,0);
+ await second.refresh();assert.equal(h.nodes['active-stocks-list'].children.length,0);second.destroy();
+});
+test('versioned withdrawal restores only with a strictly newer publication and non-regressing source dates',async()=>{
+ const equal=fixture();equal.publicationVersion=11;
+ const bad=fixture();bad.publicationVersion=12;bad.generatedAt='2026-11-13T07:30:00.000Z';
+ const valid=fixture();valid.publicationVersion=13;
+ const values=[fixture(),disabled(11),equal,bad,valid],h=harness(n=>response(values[n-1])),app=h.start();
+ await app.ready;await app.refresh();
+ for(let i=0;i<2;i++){await app.refresh();assert.equal(h.nodes['active-stocks-list'].children.length,0);}
+ await app.refresh();assert.equal(h.state(),'ready');assert.equal(h.nodes['active-stocks-list'].children.length,3);
+ assert.match(h.status(),/2026-11-13/);app.destroy();
+});
+test('a stale disabled response still withdraws and cannot lower the existing publication floor',async()=>{
+ const newerPublication=fixture();newerPublication.publicationVersion=11;
+ const values=[fixture(),disabled(2),fixture(),newerPublication],h=harness(n=>response(values[n-1])),app=h.start();
+ await app.ready;await app.refresh();await app.refresh();assert.equal(h.nodes['active-stocks-list'].children.length,0);
+ await app.refresh();assert.equal(h.state(),'ready');app.destroy();
+});
+test('versioned withdrawal floor survives remount and remains effective against the same payload',async()=>{
+ const values=[fixture(),disabled(11),fixture()],h=harness(n=>response(values[n-1])),first=h.start();
+ await first.ready;await first.refresh();first.destroy();
+ const second=h.start();await second.ready;assert.equal(h.nodes['active-stocks-list'].children.length,0);second.destroy();
+});
+test('newer source timestamps cannot disguise an older publication revision',async()=>{
+ const old=newer();old.publicationVersion=10;old.generatedAt='2026-11-17T08:00:00.000Z';
+ const h=harness(n=>response(n===1?newer():old));h.now('2026-11-17T09:00:00.000Z');
+ const app=h.start();await app.ready;await app.refresh();assert.equal(h.state(),'stale');
+ assert.match(h.status(),/2026-11-16/);app.destroy();
 });
