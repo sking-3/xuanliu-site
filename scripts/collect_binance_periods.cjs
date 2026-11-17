@@ -10,7 +10,8 @@ const ids = [
   '4751838302089254401','4532994172262753536','4708220152086930177','4664928038467820544',
   '4566696155639181057','4186437056735338496','4286775714676474369','4753185532199309057'
 ];
-const periods = ['90D','365D'];
+// 30D is also used by the already-verified Aoying public performance endpoint.
+const periods = ['30D','90D','365D'];
 const file = path.join(__dirname,'..','trader','binance','period-returns.json');
 const base = 'https://www.binance.com/bapi/futures/v1/';
 const hash = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
@@ -173,7 +174,7 @@ function write(filename,receipts,failures) {
     catch(e){if (e.code!=='EEXIST' || !fs.readFileSync(target).equals(bytes)) throw e;}
   }
   for (const ref of keep) {
-    if (!/^binance\/evidence\/performance-v1\/\d{19}\/(profile|90D|365D)-[a-f0-9]{64}\.json$/.test(ref) ||
+    if (!/^binance\/evidence\/performance-v1\/\d{19}\/(profile|30D|90D|365D)-[a-f0-9]{64}\.json$/.test(ref) ||
         hash(fs.readFileSync(path.join(root,ref)))!==ref.slice(-69,-5)) throw Error('missing_or_changed_evidence');
   }
   const tmp=filename+'.periods-'+process.pid+'.tmp';
@@ -186,15 +187,25 @@ function write(filename,receipts,failures) {
     const dir='binance/evidence/performance-v1/'+id;
     if (!fs.existsSync(path.join(root,dir))) continue;
     for (const name of fs.readdirSync(path.join(root,dir))) {
-      if (/^(profile|90D|365D)-[a-f0-9]{64}\.json$/.test(name) && !keep.has(dir+'/'+name)) fs.unlinkSync(path.join(root,dir,name));
+      if (/^(profile|30D|90D|365D)-[a-f0-9]{64}\.json$/.test(name) && !keep.has(dir+'/'+name)) fs.unlinkSync(path.join(root,dir,name));
     }
   }
   return out;
 }
 
+function assertLiveAllowed(holds) {
+  // Both approvals are needed; a missing or malformed hold fails closed.
+  if (!holds || holds.binancePublicCollector !== 'approved' || holds.githubRunInventory !== 'approved')
+    throw Error('binance_source_or_run_inventory_paused');
+}
+
 async function main(args) {
   let data;
-  if (!args.length) data=await capture();
+  if (!args.length) {
+    const holds=JSON.parse(fs.readFileSync(path.join(__dirname,'source-holds.json'),'utf8'));
+    assertLiveAllowed(holds);
+    data=await capture();
+  }
   else if (args[0]==='--receipts' && args.length>=2) {
     data={receipts:args.slice(1).flatMap(f=>JSON.parse(fs.readFileSync(f,'utf8'))),failures:[]};
   } else throw Error('Usage: collect_binance_periods.cjs [--receipts file.json ...]');
@@ -204,4 +215,4 @@ async function main(args) {
   if (!data.receipts.length) process.exitCode=1;
 }
 if (require.main===module) main(process.argv.slice(2)).catch(error=>{console.error(error.message);process.exitCode=1;});
-module.exports={ids,periods,urlFor,decode,profile,performance,capture,merge,write};
+module.exports={ids,periods,urlFor,decode,profile,performance,capture,merge,write,assertLiveAllowed};

@@ -6,6 +6,7 @@ const {createHash,randomUUID}=require('node:crypto');
 const {execFile}=require('node:child_process');
 const {promisify}=require('node:util');
 const model=require('../trader/okx-trades.js');
+const guard=require('./okx_source_guard.cjs');
 const run=promisify(execFile), kinds=['positions','history'],maxPages=5;
 const base=path.resolve(__dirname,'../trader/okx');
 const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
@@ -36,11 +37,14 @@ function row(raw,id,kind,p){
   return r;
 }
 async function live(name,url){
+  await guard.check();
   const response=await run('curl',['--disable','--silent','--show-error','--compressed','--max-time','18','--connect-timeout','8',
-    '--retry','2','--retry-all-errors','--header','Accept: application/json','--write-out','\n%{http_code}',url],{maxBuffer:5*1024*1024,encoding:'buffer'});
+    '--header','Accept: application/json','--write-out','\n%{http_code}',url],{maxBuffer:5*1024*1024,encoding:'buffer'});
   const b=response.stdout,split=b.lastIndexOf(10);
   check(split>0,'empty HTTP response');
-  return {bytes:b.subarray(0,split),meta:{sourceUrl:url,httpStatus:Number(b.subarray(split+1).toString()),receivedAt:new Date().toISOString()}};
+  const status=Number(b.subarray(split+1).toString());
+  if(status===403||status===429)await guard.stop(status);
+  return {bytes:b.subarray(0,split),meta:{sourceUrl:url,httpStatus:status,receivedAt:new Date().toISOString()}};
 }
 function stored(dir){return async(name,url)=>{
   const [bytes,meta]=await Promise.all([fs.readFile(path.join(dir,name+'.raw.json')),fs.readFile(path.join(dir,name+'.meta.json'),'utf8')]);
@@ -49,6 +53,7 @@ function stored(dir){return async(name,url)=>{
 function proof(id,kind,after,receipt){
   const {bytes,meta}=receipt,sourceUrl=model.url(id,kind,after);
   check(meta.sourceUrl===sourceUrl&&Number.isFinite(Date.parse(meta.receivedAt)),'wrong OKX receipt identity or time');
+  if(meta.httpStatus===403||meta.httpStatus===429)throw guard.error(meta.httpStatus);
   check(meta.httpStatus===200,'HTTP '+meta.httpStatus);
   check(bytes.length>0&&bytes.length<3*1024*1024,'unexpected response size');
   const data=JSON.parse(bytes.toString('utf8'));
@@ -98,6 +103,7 @@ async function group(read,wait,id,kind,previous,archive){
       after=data.data.at(-1).subPosId;
       if(i===maxPages)result.truncated=true;
     }catch(err){
+      if(err.code==='OKX_SOURCE_STOPPED')throw err;
       const stamp=received?.meta?.receivedAt||new Date().toISOString();
       if(!result.pages.length)return unavailable(id,kind,stamp,previous,err.message.slice(0,160));
       result.checkedAt=stamp;result.truncated=true;result.reason=err.message.slice(0,160);break;

@@ -12,8 +12,8 @@
   <script defer src="public-focus.js?v=29aabec1"></script>
   <script defer src="period-roi.js?v=2c2af217"></script>
   <script defer src="account-analytics.js?v=b27b43ff"></script>
-  <script defer src="binance-data.js?v=08ae1197"></script><script defer src="okx-period-data.js?v=4c0f63df"></script>
-  <script defer src="okx-trades.js?v=cf035980"></script><script defer src="bitget-period-data.js?v=6c112d0d"></script>
+  <script defer src="binance-data.js?v=0a4aeb39"></script><script defer src="okx-period-data.js?v=0079fcce"></script>
+  <script defer src="okx-trades.js?v=cf035980"></script><script defer src="bitget-period-data.js?v=d38713e1"></script>
   <script defer src="replay-seed.js"></script>
   <script defer src="aoying-history.js"></script><script defer src="aoying-public-archive.js?v=f68b986e"></script>
   <script defer src="reference-data.js?v=8cc44459"></script>
@@ -27,7 +27,8 @@
   <script defer src="position-history-view.js?v=ef26e4c4"></script>
   <script defer src="strategy-analytics.js?v=b23abbcc"></script><script defer src="strategy-analysis-view.js?v=daf1a80e"></script>
   <script defer src="trade-analysis.js?v=9785322e"></script>
-  <script defer src="plaza.js?v=7355e423"></script>
+  <script defer src="plaza.js?v=d6c86b83"></script>
+  <script defer src="refresh-health.js?v=a5cd9789"></script>
   <link rel="stylesheet" href="../books-ui.css?v=089506ce">
   <link rel="stylesheet" href="strategy-analysis.css?v=72e6e8d3">
   <link rel="stylesheet" href="trade-analysis.css?v=bcad7798">
@@ -84,6 +85,7 @@
         <label for="currency">计价币种<select id="currency"><option value="all" selected>全部币种</option><option>USDT</option><option>USD</option><option>USDC</option><option>BTC</option><option>ETH</option></select></label>
       </div>
       <p id="sort-hint" class="hint">按永续持仓筛选 · 收益率沿用来源榜单</p>
+      <p id="bitget-selection" class="hint" hidden></p>
       <p id="position-notice" class="position-notice" role="status" hidden></p>
       <div id="leaders" class="cards"></div>
       <div class="pagination"><button id="prev" type="button">上一页</button><span id="page" role="status">0 / 0</span><button id="next" type="button">下一页</button></div>

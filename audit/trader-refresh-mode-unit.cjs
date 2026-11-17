@@ -37,7 +37,12 @@ test('UI-only skips Binance while Pages serialization and peer source guards rem
  const watch=fs.readFileSync(path.join(root,'.github/workflows/binance-python-watch.yml'),'utf8');
  assert.match(watch,/    concurrency:\n      group: binance-public-records-source\n      queue: max\n      cancel-in-progress: false/);
  assert.match(step('Reverify holdings after the long analytics batch'),/sleep 60\n.*refresh_trader_positions\.cjs --not-before "\$BOOKS_COLLECTION_STARTED_AT"/);
- for(const name of ['Verify the preceding Binance run was safely committed','Collect the public Binance lead sample'])assert.match(step(name),/^        if: steps.refresh-mode.outputs.mode != 'skip' && steps.binance-peer-validate.outputs.allowed == 'true'$/m);
+ assert.match(step('Verify the preceding Binance run was safely committed'),/^        if: steps.refresh-mode.outputs.mode != 'skip' && steps.binance-peer-validate.outputs.allowed == 'true'$/m);
+ for(const name of ['Collect Aoying official public reference','Refresh verified public 90-day and 365-day returns','Collect the public Binance lead sample']) {
+  const section=step(name);
+  for(const id of ['binance-policy','binance-peer-validate','binance-guard']) assert.ok(section.includes(`steps.${id}.outputs.allowed == 'true'`));
+  assert.ok(workflow.indexOf('      - name: Verify the preceding Binance run was safely committed') < workflow.indexOf('      - name: '+name));
+ }
  assert.match(step('Save the snapshot without overwriting concurrent edits'),/git push origin HEAD:main/);
  assert.match(workflow,/actual_sha.*EXPECTED_SHA/);
 });
@@ -53,7 +58,7 @@ test('peer checkpoint failures skip Binance without rewriting existing source st
  assert.match(report,/BINANCE_PEER_ALLOWED:.*steps.binance-peer-validate.outputs.allowed/);
  assert.doesNotMatch(report,/GITHUB_ENV|collect_binance|BINANCE_PREVIOUS_RUN_UNVERIFIED/);
  const nonblocking=workflow.split(/^      - name: /m).slice(1).filter(block=>/^        continue-on-error: true$/m.test(block)).map(block=>block.split('\n')[0]);
- assert.deepEqual(nonblocking.sort(),[...names,'Refresh verified public 90-day and 365-day returns','Refresh verified OKX public trader returns','Archive Aoying public execution history','Refresh verified OKX public position history','Refresh verified Bitget public trader records','Refresh Aoying public reference archive'].sort());
+ assert.deepEqual(nonblocking.sort(),[...names,'Verify the preceding Binance run was safely committed','Refresh verified public 90-day and 365-day returns','Refresh verified OKX public trader returns','Archive Aoying public execution history','Refresh verified OKX public position history','Refresh verified Bitget public trader records','Refresh Aoying public reference archive'].sort());
 });
 test('mode resolution failure cannot emit a mode or allow downstream always-run collectors',()=>{
  const output=[],raw=JSON.stringify(push('[ui-only]',OTHER));
