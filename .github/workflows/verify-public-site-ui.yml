@@ -24,3 +24,24 @@ jobs:
           name: public-release-regressions
           path: audit/browser-output/release/
           retention-days: 7
+  verify-owned-release:
+    if: github.event_name == 'pull_request' && github.head_ref == 'codex/verify-native-release-d993'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: d993fcd51b82ceec35ba739a5ba7d0120396782a
+          persist-credentials: false
+      - uses: ./.github/actions/setup-public-release
+      - name: Verify the owned published revision with external market requests blocked
+        env:
+          EXPECTED_SHA: d993fcd51b82ceec35ba739a5ba7d0120396782a
+          RELEASE_BASE_URL: https://sking-3.github.io/xuanliu-site/
+        run: node scripts/verify_public_release.cjs --live
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-release-published-verification
+          path: audit/browser-output/release/
+          retention-days: 7
