@@ -23,12 +23,12 @@ const reviewed={
   ".github/workflows/verify-stock-workspace.yml": "d14438ac8f3e2798d680ec828cbb2278416357fb",
   "scripts/resolve_trader_refresh_mode.cjs": "5e3e0fb0ef95a97d14247a567f083210b6071d63",
   "scripts/stage_public_release.cjs": "6a928a46089d4125a2da012ee9b6ca6897b3310e",
-  "scripts/verify_public_release.cjs": "ee056cda7dd605c9334f28d48f62a13f5991b202",
+  "scripts/verify_public_release.cjs": "9f83d88eeef3df4cc2ff4f941bb5fc3719f70f0b",
   "scripts/check_published_release.cjs": "f6a168e7febe407a8542a2aab74c563fe2d0fbe2",
   "audit/release-browser.cjs": "a7ab8595261147733bbe77deb36529b7139a82c1",
   "audit/selection-release-browser.cjs": "ccc47b1bbf83507ff53d5f6f8cd47253dda7499c",
   "audit/trader-refresh-mode-unit.cjs": "d8115505589c928835ff59cde574dbaa2c322a13",
-  "audit/active-stocks-browser.cjs": "48fd47affcf7ef3c668c9d488211922cf7a48643"
+  "audit/leader-observation-browser.cjs": "e66fad95c121540789e8ef091e821f4d175bfb82"
 };
 const read=file=>fs.readFileSync(path.join(root,file),'utf8');
 function jobs(file){
@@ -186,7 +186,7 @@ test('static publication has no source calls or denied Actions inventory queries
   assert.match(published,/base\.hostname!=='sking-3\.github\.io'/);
 });
 test('browser publication checks block external HTTP, service workers and WebSockets',()=>{
-  for(const file of ['audit/release-browser.cjs','audit/selection-release-browser.cjs','audit/active-stocks-browser.cjs']){
+  for(const file of ['audit/release-browser.cjs','audit/selection-release-browser.cjs','audit/leader-observation-browser.cjs']){
     const value=read(file);
     assert.match(value,/serviceWorkers:'block'/);
     assert.match(value,/routeWebSocket\('\*\*\/\*',ws=>ws\.close\(\)\)/);
