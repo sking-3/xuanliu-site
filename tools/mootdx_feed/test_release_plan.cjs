@@ -15,7 +15,7 @@ const reviewed={
   ".github/workflows/quant-research.yml": "313e0e5015c01e00679295555ac5424c4256d573",
   ".github/workflows/refresh-aoying.yml": "ad00c65c7f5f7316a46ff29ed4cd5e73f69b8c2d",
   ".github/workflows/refresh-macro-cn.yml": "a54646d03a9078bc7f9641a0472089ee12065565",
-  ".github/workflows/refresh-traders.yml": "e11a8090cf846da75b2abeaff3ed976cde18885c",
+  ".github/workflows/refresh-traders.yml": "34e309926e81625065cd849549347d8c8fac78f9",
   ".github/workflows/schedule-health.yml": "75bed7b5aaeba0facec5508e7e790b3c6811df5d",
   ".github/workflows/verify-binance.yml": "e717b64c15684a4dba274c895009fb97989a504f",
   ".github/workflows/verify-home-dashboard.yml": "c525d390a8ea898b7e8c3d973c917711057f9d73",
@@ -27,7 +27,7 @@ const reviewed={
   "scripts/check_published_release.cjs": "42ae40e6420ecb96c9b12623a2e4b7d5b1f5164e",
   "audit/release-browser.cjs": "a7ab8595261147733bbe77deb36529b7139a82c1",
   "audit/selection-release-browser.cjs": "ccc47b1bbf83507ff53d5f6f8cd47253dda7499c",
-  "audit/trader-refresh-mode-unit.cjs": "ca3bf772515444f1e1e35c0a023baea7408c8427",
+  "audit/trader-refresh-mode-unit.cjs": "d3aecb782ca563dad5a3a8c97555275f8539c5e5",
   "audit/active-stocks-browser.cjs": "e59cef43990238b0b5bf2e9662b6d402fb0912c8"
 };
 const read=file=>fs.readFileSync(path.join(root,file),'utf8');

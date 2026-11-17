@@ -4,7 +4,7 @@
 
 ## 已确认的发布风险与候选修复
 
-审阅基线：main 64ecf3624de4703756f913381a33c3edb85a9b70。
+原审阅基线：main 64ecf3624de4703756f913381a33c3edb85a9b70。草稿现同步 main acc8addfdd32b31f980fe10aae31c952e72494e8：保留该提交的来源策略、检查点守卫、停止标记及刷新状态改动，并叠加本 PR 的整个 collect-build job 事件限制。首页保留主分支 Binance/Bitget/OKX 资源版本，同时保留成交活跃组件。已重新审阅 refresh-traders.yml 与 trader-refresh-mode-unit.cjs 并更新其指纹。同步草稿分支不等于合并 PR 或部署。
 
 原 refresh-traders.yml 监听 main 的绝大多数 push。resolve_trader_refresh_mode.cjs 将普通提交解析为 full；因此“新 mootdx 自己关闭”不能阻止一次普通合并启动 Aoying、Binance、Hyperliquid 等旧采集链路及来源检查。原 [ui-only] 路径虽会跳过这些步骤，但要求提交信息正确，不应作为唯一保护。
 

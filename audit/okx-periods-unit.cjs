@@ -6,6 +6,7 @@ const os=require('node:os');
 const path=require('node:path');
 const m=require('../trader/okx-period-data.js');
 const {select,curve,receipt,collect,publish}=require('../scripts/collect_okx_periods.cjs');
+const guard=require('../scripts/okx_source_guard.cjs');
 const day=86400000, end=Date.parse('2026-01-01T00:00:00Z'),received=new Date(end+1800000).toISOString();
 const id='5B123E456F789A11';
 function series(period,ratio='0.34'){
@@ -35,13 +36,14 @@ test('curves require full elapsed days and zero baseline, independently of reque
 });
 test('snapshot links authentic bytes, receiver times and ratios per selected window',async()=>{
   const result=await collect(fixture()),snap=m.parse(result.bundle,end+day);
-  assert.equal(result.archive.length,4);
+  assert.equal(result.archive.length,5);
+  assert.equal(snap.accounts[0].performance['7D'].roi,34);
   assert.equal(snap.accounts[0].performance['365D'].roi,81);
   assert.equal(m.performance(snap.accounts[0],'365D',end+3*day).status,'stale');
   assert.equal(m.trader(snap.accounts[0]).sourceKind,'okx_public_lead');
   const otherDay=series('365D');
   otherDay.data.forEach(p=>{p.beginTs=String(Number(p.beginTs)-day);});
-  assert.deepEqual(Object.keys((await collect(fixture({[id+'-4']:otherDay}))).bundle.accounts[0].performance),['90D','30D']);
+  assert.deepEqual(Object.keys((await collect(fixture({[id+'-4']:otherDay}))).bundle.accounts[0].performance),['90D','7D','30D']);
   const wrong=series('90D','0.32');
   await assert.rejects(()=>collect(fixture({[id+'-3']:wrong})));
   snap.accounts[0].performance['90D'].evidencePath='okx/fake.json';
@@ -55,6 +57,15 @@ test('published evidence remains intact on a rejected replacement, supports retr
     const out=path.join(dir,'period-returns.json'),old=await fs.readFile(out,'utf8');
     await assert.rejects(()=>publish(dir,{...good,bundle:{...good.bundle,rankFetchedAt:'2025-01-01T00:00:00.000Z'}}));
     assert.equal(await fs.readFile(out,'utf8'),old);
+  }finally{await fs.rm(dir,{recursive:true,force:true});}
+});
+test('provider refusal persists and prevents the next scheduled collection',async()=>{
+  const dir=await fs.mkdtemp(path.join(os.tmpdir(),'okx-stop-')),file=path.join(dir,'source-stop.json');
+  try{
+    await guard.check(file);
+    await assert.rejects(()=>guard.stop(429,file),{code:'OKX_SOURCE_STOPPED'});
+    await assert.rejects(()=>guard.check(file),{code:'OKX_SOURCE_STOPPED'});
+    assert.equal(JSON.parse(await fs.readFile(file,'utf8')).httpStatus,429);
   }finally{await fs.rm(dir,{recursive:true,force:true});}
 });
 

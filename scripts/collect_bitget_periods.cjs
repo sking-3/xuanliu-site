@@ -8,6 +8,7 @@ const {isDeepStrictEqual} = require('node:util');
 const model = require('../trader/bitget-period-data.js');
 const endpoint = route => 'https://www.bitget.com/v1/trigger/public/uta/'+route;
 const rankBody = {sortRule:2,sortFlag:0,dataCycle:90,fullStatus:1,enterDayLl:90,aumLl:25000,followProfitLl:0,totalIncomeLl:0,pageNo:1,pageSize:30};
+const MAX_RANK_PAGES=3, MAX_SELECTED=10, MAX_ACCOUNTS=100;
 const wait = ms => new Promise(resolve=>setTimeout(resolve,ms));
 function expect(ok,reason) { if (!ok) throw Error(reason); }
 function number(value) {
@@ -23,6 +24,9 @@ function receipt(name,route,body,bytes,meta) {
   expect(meta.url===url && meta.method==='POST' && isDeepStrictEqual(meta.body,body) && meta.sha256===sha
     && Number.isFinite(Date.parse(meta.fetchedAt)) && bytes.length>0 && bytes.length<2097152,'invalid Bitget receipt '+name);
   const raw=JSON.parse(bytes.toString('utf8'));
+  if (['403','429'].includes(String(raw.code))) throw Object.assign(Error('Bitget source stopped '+raw.code),{stopReason:'http_'+raw.code});
+  if (String(raw.code)!=='200' && /rate.?limit|too many requests/i.test(String(raw.msg||raw.message||'')))
+    throw Object.assign(Error('Bitget source rate limited'),{stopReason:'source_rate_limit'});
   expect(String(raw.code)==='200' && raw.data && typeof raw.data==='object','Bitget source rejected '+name);
   return {data:raw.data,bytes,evidenceSha256:sha,evidencePath:model.evidencePath(name,sha),fetchedAt:meta.fetchedAt};
 }
@@ -38,10 +42,24 @@ async function fetchReceipt(name,route,body) {
   const url=endpoint(route);
   const res=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),
     credentials:'omit',redirect:'error',signal:AbortSignal.timeout(15000)});
+  if([403,429].includes(res.status))throw Object.assign(Error('Bitget HTTP '+res.status+' for '+name),{stopReason:'http_'+res.status});
   expect(res.ok,'Bitget HTTP '+res.status+' for '+name);
   const bytes=Buffer.from(await res.arrayBuffer());
   return receipt(name,route,body,bytes,{url,method:'POST',body,fetchedAt:new Date().toISOString(),
     sha256:createHash('sha256').update(bytes).digest('hex')});
+}
+async function readStop(dir) {
+  const file=path.join(dir,'source-stop.json');let data;
+  try {data=JSON.parse(await fs.readFile(file,'utf8'));} catch(e) {if(e.code==='ENOENT')return null;throw Error('invalid Bitget stop record');}
+  expect(data?.schemaVersion===1 && data.source===model.source && data.status==='stopped'
+    && ['http_403','http_429','source_rate_limit'].includes(data.reason) && Number.isFinite(Date.parse(data.at)),'invalid Bitget stop record');
+  return data;
+}
+async function writeStop(dir,reason) {
+  expect(['http_403','http_429','source_rate_limit'].includes(reason),'invalid Bitget stop reason');
+  await fs.mkdir(dir,{recursive:true});const file=path.join(dir,'source-stop.json'),tmp=file+'.'+randomUUID()+'.tmp';
+  const data={schemaVersion:1,source:model.source,status:'stopped',reason,at:new Date().toISOString()};
+  try {await fs.writeFile(tmp,JSON.stringify(data)+'\n',{flag:'wx'});await fs.rename(tmp,file);} finally {await fs.rm(tmp,{force:true});}
 }
 function ref(source) {
   return {fetchedAt:source.fetchedAt,evidenceSha256:source.evidenceSha256,evidencePath:source.evidencePath};
@@ -165,10 +183,17 @@ function normalizePerformance(source,charts,n,sourceUrl) {
     lastOrderTime:d.lastOrderTime ? iso(d.lastOrderTime) : null,
     curve,pnlCurve,curveEvidencePath:charts.evidencePath,curveEvidenceSha256:charts.evidenceSha256,curveFetchedAt:charts.fetchedAt};
 }
-async function collect(read,readActivity=read) {
-  const rank=await read('leaders-aum','traderView',rankBody),accounts=[],archive=[rank];
-  for (const candidate of select(rank.data)) {
-    if (accounts.length===6) break;
+async function collect(read,readActivity=read,previous=null) {
+  if(previous)model.parse(previous);
+  const rank=await read('leaders-aum','traderView',rankBody),accounts=[],archive=[rank],rankSources=[rank];
+  for(let pageNo=2;pageNo<=MAX_RANK_PAGES && rankSources.at(-1).data.nextFlag===true;pageNo++) {
+    const page=await read('leaders-aum-'+pageNo,'traderView',{...rankBody,pageNo});
+    archive.push(page);rankSources.push(page);
+  }
+  const candidates=[],seen=new Set();
+  for(const page of rankSources)for(const row of select(page.data))if(!seen.has(row.portfolioId)){seen.add(row.portfolioId);candidates.push(row);}
+  for (const candidate of candidates.slice(0,MAX_SELECTED)) {
+    try {
     const id=candidate.portfolioId,sourceUrl=model.profileUrl(id),sources=[];
     const readPart=async (key,route,params)=>{
       const activityRoute=['currentPosition','historyPosition','getTransferHistory'].includes(route);
@@ -182,26 +207,34 @@ async function collect(read,readActivity=read) {
     if (number(detail.tradingDays)<90 || number(detail.curFollowCount)<1 || number(detail.aum)<25000) continue;
     const history=await historyPages(readPart,id,sourceUrl);
     if (!history.rows.length) continue;
-    const performance={};let balance=null;
-    for (const n of [90,30]) {
+    const performance={...(previous?.accounts.find(row=>row.portfolioId===id)?.performance||{})};let balance=null,verified90=false;
+    for (const n of [90,30,7,180,365]) {
+      try {
       const summary=await readPart('p'+n,'performance',{cycleTime:n});
       if (n===90 && number(summary.data.roi)<=0) break;
       const chart=await readPart('curve'+n,'cycleChartData',{cycleTime:n});
       performance[n+'D']=normalizePerformance(summary,chart,n,sourceUrl);
+      if(n===90)verified90=true;
       if(detail.showBalance===true && summary.data.totalEquity!=null && (!balance || balance.fetchedAt<summary.fetchedAt)) {
         balance={...ref(summary),sourcePeriod:n+'D',value:number(summary.data.totalEquity),currency:'USD',sourceUrl};
       }
+      } catch(err) {if(err.stopReason || n===90 || n===30)throw err;}
     }
-    if (!performance['90D']) continue;
+    if (!verified90) continue;
     const positions=activity(await readPart('open','currentPosition',{pageNo:1,pageSize:10}),false,sourceUrl);
     accounts.push({portfolioId:id,name:profile.data.displayName.trim(),avatarUrl:model.avatarUrl(profile.data.headPic),sourceUrl,leadDays:detail.tradingDays,copyTraderNum:detail.curFollowCount,
       profileEvidence:ref(profile),performance,balance,transfers:detail.showBalance===true?await transferPages(readPart,id,sourceUrl):null,
-      activity:{positions,history}});
+      activity:{positions,history},catalogStatus:'selected'});
     archive.push(...sources);
+    } catch(err) {if(err.stopReason)throw err; console.error('Bitget portfolio '+candidate.portfolioId+' unavailable: '+err.message);}
   }
-  const generatedAt=archive.map(s=>s.fetchedAt).sort().at(-1);
+  const selected=new Set(accounts.map(a=>a.portfolioId));
+  for(const old of previous?.accounts||[])if(!selected.has(old.portfolioId))accounts.push({...old,catalogStatus:'retained'});
+  expect(accounts.length>0 && accounts.length<=MAX_ACCOUNTS,'Bitget portfolio limit or no valid portfolios');
+  const generatedAt=[...archive.map(s=>s.fetchedAt),...(previous?[previous.generatedAt]:[])].sort().at(-1);
   const bundle={schemaVersion:1,source:model.source,rankSourceUrl:model.rankUrl,rankEvidence:ref(rank),generatedAt,
-    selection:'Bitget 合约统一账户组合，近90天 ROI 从高到低；官网首30项，带单满90天，AUM 至少 25,000 美元，带单及跟随盈亏非负。只收录近90天收益为正、采集时仍有跟随者且有公开平仓记录的前6个组合。',accounts};
+    rankPages:rankSources.map((p,i)=>({...ref(p),pageNo:i+1,rowCount:p.data.rows.length,hasMore:p.data.nextFlag===true})),rankTruncated:rankSources.at(-1).data.nextFlag===true,
+    selection:'Bitget 合约统一账户组合：官网 90 天榜单最多 3 页，每页 30 条；带单满 90 天、AUM 至少 25,000 美元、带单及跟随盈亏非负；再要求近 90 天 ROI 为正、有跟随者和公开平仓记录。每批最多核验 10 位，旧收录账户保留并标记。仅为公开样本，不代表全平台或风险评级。',accounts};
   return {bundle:model.parse(bundle),archive};
 }
 async function publish(dir,{bundle,archive}) {
@@ -243,9 +276,15 @@ async function main(args) {
   }
   const dir=options.get('--receipts');
   const read=dir?stored(dir):fetchReceipt;
-  const result=await collect(read,options.has('--activity-receipts')?stored(options.get('--activity-receipts')):read);
-  await publish(options.get('--out')||path.resolve(__dirname,'../trader/bitget'),result);
-  console.log('Bitget verified '+result.bundle.accounts.length+' public portfolios with 30D/90D returns and position history');
+  const output=options.get('--out')||path.resolve(__dirname,'../trader/bitget');
+  if(!dir && await readStop(output))throw Error('Bitget source stopped; no requests made');
+  let previous;
+  try {previous=JSON.parse(await fs.readFile(path.join(output,'period-returns.json'),'utf8'));} catch(err) {if(err.code!=='ENOENT')throw err;}
+  try {
+    const result=await collect(read,options.has('--activity-receipts')?stored(options.get('--activity-receipts')):read,previous);
+    await publish(output,result);
+    console.log('Bitget verified '+result.bundle.accounts.length+' public portfolios');
+  } catch(err) {if(!dir && err.stopReason)await writeStop(output,err.stopReason);throw err;}
 }
-module.exports={collect,stored,receipt,select,activity,historyPages,mergeHistory,normalizePerformance,publish};
+module.exports={collect,stored,receipt,select,activity,historyPages,mergeHistory,normalizePerformance,publish,readStop,writeStop};
 if (require.main===module) main(process.argv.slice(2)).catch(err=>{console.error(err.message);process.exitCode=1;});

@@ -320,10 +320,10 @@ function performanceRange(r,period) {
 function fillPerformanceSummary(r,period,view) {
   const w=performanceWindow(r,period),derived=isPublicAccount(r)&&derivedPeriods.includes(period),part=portfolioSection(r,period),history=part?.status==='ready'?part.windows[period]:null;
   const amount=w?.roi,formattedSigned=signedValue(amount,pct(amount));
-  view.roi.hidden=view.roiLabel.hidden=!Number.isFinite(amount);
+  view.roi.hidden=!Number.isFinite(amount);view.roiLabel.hidden=false;
   view.roi.textContent=formattedSigned;view.roi.className='roi '+directionClass(amount)+(formattedSigned.length>8?' long-roi':'');
   view.roi.setAttribute('title',derived?periodROIDescription(w):`${periodName(period,w)} 来源收益率 ${formattedSigned}`);
-  view.roiLabel.textContent=`${periodName(period,w)} ${derived?'自算收益率':'收益率'}${derived&&amount==null?' · 暂缺':''}`;
+  view.roiLabel.textContent=`${periodName(period,w)} ${derived?'自算收益率':'收益率'}${!Number.isFinite(amount)?' · 暂缺':''}`;
   if(view.rangeNote){view.rangeNote.textContent=performanceRange(r,period);view.rangeNote.hidden=!(history?.sampleCount>1&&(derived||period==='ALL'));view.rangeNote.setAttribute('title',history?`${performanceRange(r,period)}；采集时间 ${part?.fetchedAt?timeLabel(part.fetchedAt):'—'}；来源真实 ${history.sampleCount} 个采样点`:'暂无可核验的区间历史采样');}
   if(view.detailButton){const description=winCacheDescription(r);view.detailButton.setAttribute('title',description);view.detailButton.setAttribute('aria-label',`查看 ${r.name} 的研究详情${Number.isFinite(cachedWin(r)?.win?.value)?'':'。'+description}`);}
   if(view.cardRoot)view.cardRoot.className='card'+(derived&&!(history?.sampleCount>1)?' compact-history':'');
@@ -332,7 +332,8 @@ function sortValue(r,period,sort) {
   if(isBinanceTrader(r)||isPublicLead(r)){
     const stats=isPublicLead(r)?leadPeriod(r,period):binancePerformance(r,period);
     if(!stats)return null;
-    if(sort==='roi'&&['90D','365D'].includes(period)&&stats.fullPeriod!==true)return null;
+    if(['roi','pnl'].includes(sort)&&isPublicLead(r)&&stats.fullPeriod!==true)return null;
+    if(sort==='roi'&&isBinanceTrader(r)&&['90D','365D'].includes(period)&&stats.fullPeriod!==true)return null;
     return stats[sort]??null;
   }
   const w=performanceWindow(r,period),part=portfolioSection(r,period);
@@ -624,10 +625,11 @@ function renderLeadPerformance(r,parent,period,compact=false){
     const context=node('div',undefined,'card-context');
     context.append(node('span',periodLabel(period)),node('span',r.currency));parent.append(context);
   }
-  if(!Number.isFinite(part?.roi)){parent.append(node('p','此周期暂无已核验收益率','detail-method'));return;}
+  if(!Number.isFinite(part?.roi)){parent.append(node('p',periodLabel(period)+' 暂无已核验收益率','detail-method'));return;}
   const body=node('div',undefined,'performance-body'),stats=node('div',undefined,'performance-stats');
   const roi=signedValue(part.roi,pct(part.roi));
   stats.append(node('div',roi,'roi '+directionClass(part.roi)+(roi.length>8?' long-roi':'')),node('div',r.exchange+' '+period+' 收益率','roi-label'));
+  if(part.fullPeriod===false)stats.append(node('p','带单未满所选周期 · 来源窗口数值，不参与收益率排名','detail-method'));
   const figures=node('div',undefined,'metrics'),unit=part.currency||r.currency;
   const fields=[['同期盈亏 '+unit,signedValue(part.pnl,compact?compactMoney(part.pnl,unit):money(part.pnl,unit)),directionClass(part.pnl)]];
   if(compact){
@@ -689,6 +691,7 @@ function renderBinanceCard(r,c,period=$('period').value,compact=false) {
     const performance=binancePerformance(r,period);
     if(['roi','pnl','mdd','winRate'].some(key=>Number.isFinite(performance[key])) || binanceChart(r,period).pointCount>1){
       renderBinancePerformance(r,c,period,true);
+      if(!Number.isFinite(performance.roi))c.append(node('p',periodLabel(period)+' 暂无已核实收益率','detail-method'));
     }else{
       const other=['7D','30D','90D','180D','365D'].filter(key=>key!==period&&Number.isFinite(binancePerformance(r,key).roi));
       c.append(node('p',periodLabel(period)+' 暂无已核实收益率'+(other.length?' · 可查 '+other.join(' / '):''),'detail-method'));
@@ -1215,6 +1218,7 @@ function card(r,period) {
   const identityMeta=node('div',r.exchange+(r.paid?' · 付费来源':'')+(r._local?' · 我的资料':''),'meta');identityMeta.setAttribute('title',r.accountId||r.id);
   const idLine=node('div',isPublicAccount(r)?'钱包 '+r.accountId.slice(0,8)+'…'+r.accountId.slice(-6):sourceIdentity(r),'platform-id');
   idLine.setAttribute('title',sourceIdentity(r));identity.append(name,identityMeta,idLine);
+  if(r.exchange==='Bitget'&&r.catalogStatus==='retained')identity.append(node('div','历史收录 · 待重新筛选','platform-id'));
   const actions=privateCardActions(r),controls={r,detailButton:detail};
   if(actions){links.append(actions.paperLink,actions.followLink);Object.assign(controls,actions);}
   else{controls.sourceLink=sourceLink(r);links.append(controls.sourceLink);}
@@ -1237,8 +1241,8 @@ function card(r,period) {
     const roiLabel=node('div',undefined,'roi-label');stats.append(roi,roiLabel);
     const figures=metrics(w,r.currency,false,r,period);stats.append(figures);fillPerformanceGraph(r,period,graph,true);
     performance.append(stats,graph);c.append(performance);
-    if(isPublicAccount(r)){const rangeNote=node('p',undefined,'performance-range'),view={kind:'card',r,period,metrics:figures,graph,rangeNote,roi,roiLabel,cardRoot:c,detailButton:detail};fillPerformanceSummary(r,period,view);footer.append(rangeNote);state.analyticsViews.push(view);}else{roiLabel.textContent=`${displayPeriod(period,w)} 收益率`;}
-  } else c.append(node('p',Object.keys(r.windows).length?`${displayPeriod(period,w)} 表现 —`:'账号与来源已保存','performance-body meta'));
+    if(isPublicAccount(r)){const rangeNote=node('p',undefined,'performance-range'),view={kind:'card',r,period,metrics:figures,graph,rangeNote,roi,roiLabel,cardRoot:c,detailButton:detail};fillPerformanceSummary(r,period,view);footer.append(rangeNote);state.analyticsViews.push(view);}else{roi.hidden=!Number.isFinite(w?.roi);roiLabel.textContent=`${displayPeriod(period,w)} 收益率${roi.hidden?' · 暂缺':''}`;}
+  } else c.append(node('p',`${displayPeriod(period,w)} 收益率 · 暂缺`,'performance-body meta'));
   if(r.note)footer.append(node('p',r.note,'profile-note'));
   if(r._local){const actions=node('div',undefined,'card-actions');actions.append(button('编辑',()=>openEditor(r)),button('删除',()=>removeRecord(r)));footer.append(actions);}
   c.append(footer);return c;
@@ -1296,6 +1300,8 @@ function render() {
   renderPublicFocus();
   const q=$('search').value.trim().toLocaleLowerCase(),p=$('period').value,source=$('source').value,currency=$('currency').value;
   const platform=$('exchange').value;
+  const selectionNote=$('bitget-selection');
+  if(selectionNote){selectionNote.hidden=platform!=='Bitget';selectionNote.textContent=bitgetReturns?.selection||'Bitget 筛选资料暂不可用';}
   const available=state.rows.filter(r=>(source==='local'?r._local:!r._local)&&(platform==='all'||r.exchange===platform));
   let rows=available.filter(r=>(r.name+' '+r.id+' '+r.accountId+' '+r.exchange+' '+r.note).toLocaleLowerCase().includes(q) && (source==='all'||source==='local'&&r._local||source==='paid'&&r.paid||source==='public'&&!r._local&&!r.paid) && (currency==='all'||r.currency===currency));
   const winSortOption=[...$('sort').options].find(option=>option.value==='winRate');if(winSortOption)winSortOption.textContent=source==='local'?'逐笔胜率 ↓':platform==='Hyperliquid'?'平仓片段胜率 ↓':platform==='Binance'?'已平仓仓位胜率 ↓':'胜率 ↓';
@@ -1303,8 +1309,7 @@ function render() {
   $('sort-hint').textContent=$('sort').value==='winRate'?(source==='local'?'按已记录逐笔胜率排序 · 缺数账户排在后面':platform==='Hyperliquid'?'按近期永续平仓片段胜率排序 · 缺数账户排在后面':'按各平台来源胜率排序 · 口径见卡片 · 缺数账户排在后面'):$('sort').value==='mdd'?($('source').value==='local'?'按已记录最大回撤排序 · 缺数账户排在后面':platform==='Hyperliquid'?'按采样盈亏回撤排序 · 缺数账户排在后面':'按各平台来源回撤排序 · 口径见卡片 · 缺数账户排在后面'):'历史资料按原时间展示 · 当前持仓须在核验有效期内';
   const sort=$('sort').value,grouped=sort==='pnl'&&currency==='all'&&new Set(rows.map(r=>r.currency)).size>1;
   if(sort==='roi'&&source!=='local'){
-    if(!q&&platform!=='Binance')rows=rows.filter(r=>Number.isFinite(sortValue(r,p,'roi')));
-    $('sort-hint').textContent=q?'搜索匹配账户；缺少所选周期收益率的资料保留在后，不计入收益率排名。':platform==='Binance'?'按已核实的同期收益率排序，缺数及覆盖不足的账户列在其后。':'仅列有同期收益率的账户。全部资料可查看其余账户。';
+    $('sort-hint').textContent=q?'搜索匹配账户；缺少所选周期收益率的资料保留在后，不计入收益率排名。':'按已核实的同期收益率排序，缺数及覆盖不足的账户列在其后。';
   }
   rows.sort((a,b)=>{
     if(sort==='directory')return 0;
@@ -1320,7 +1325,6 @@ function render() {
   state.cardControls=[];$('leaders').replaceChildren();for(const r of visibleRows)$('leaders').append(card(r,p));
   if(!rows.length) {
     if(source==='local')empty($('leaders'),available.length?'没有符合条件的资料':'暂无本机资料',available.length?'调整筛选条件，查看其他记录。':'已保存的个人资料仅在这里显示。');
-    else if(available.length&&sort==='roi'&&!q&&platform!=='Binance')empty($('leaders'),'暂无可排名账户','该筛选下没有可核验的同期收益率，可切换到全部资料。');
     else if(!available.length&&state.source)empty($('leaders'),'暂无有效持仓账户',statusText());
     else empty($('leaders'),available.length?'没有符合条件的账户':'暂无持仓账户',available.length?'调整筛选条件，查看其他账户。':'取得有效持仓数据后显示账户。');
   }
@@ -1336,7 +1340,9 @@ function render() {
   for(const [id,exchange,label]of [['platform-all','all','全部平台'],['platform-hl','Hyperliquid','Hyperliquid'],['platform-binance','Binance','币安'],['platform-okx','OKX','OKX'],['platform-bitget','Bitget','Bitget']]){if(!$(id))continue;const n=state.rows.filter(r=>!r._local&&(exchange==='all'||r.exchange===exchange)).length;$(id).textContent=label+' '+n;$(id).setAttribute('aria-pressed',String($('exchange').value===exchange));}
   $('count').textContent=`${rows.length} 个研究账户${available.length!==rows.length?' · 共 '+available.length+' 个':''}${grouped?' · 按币种分组':''}`;
   $('page').textContent=rows.length?`${state.page} / ${pages}`:'0 / 0';$('prev').disabled=state.loading||!rows.length||state.page===1;$('next').disabled=state.loading||!rows.length||state.page>=pages;
-  startVisibleAnalytics(visibleRows);
+  // Retaining unranked accounts must not start new foreground source requests.
+  const analyticsRows=sort==='roi'&&source!=='local'&&!q&&platform!=='Binance'?visibleRows.filter(r=>Number.isFinite(sortValue(r,p,'roi'))):visibleRows;
+  startVisibleAnalytics(analyticsRows);
 }
 function statusText(summary=positionSummary()) {
   const v=state.source?.positionVerification,expired=summary.expired||summary.batchExpired;
@@ -1395,7 +1401,7 @@ function liveSection(title,columns) {
   heading.append(node('h3',title),count);for(const label of columns){const th=node('th',label);th.setAttribute('scope','col');tr.append(th);}thead.append(tr);table.append(thead,tbody);wrap.append(table);section.append(heading,status,emptyMessage,wrap);return {section,status,count,wrap,tbody,emptyMessage};
 }
 function buildLivePanel(r,b) {
-  const root=node('div',undefined,'live-panel'),toolbar=node('div',undefined,'live-toolbar'),connection=node('p','正在连接…','live-connection'),retry=button('刷新连接',()=>state.liveClient?.refresh(),'live-refresh'),scope=node('p','持仓与挂单每 60 秒对齐 · 成交与订单事件实时推送 · 持仓范围：永续主市场','live-scope'),gap=node('p',undefined,'live-gap');
+  const root=node('div',undefined,'live-panel'),toolbar=node('div',undefined,'live-toolbar'),connection=node('p','正在连接…','live-connection'),retry=button('刷新连接',()=>state.liveClient?.refresh(),'live-refresh'),scope=node('p','持仓、成交与订单事件实时推送 · 持仓与挂单每 60 秒对齐 · 持仓范围：永续主市场','live-scope'),gap=node('p',undefined,'live-gap');
   connection.setAttribute('role','status');connection.setAttribute('aria-live','polite');toolbar.append(connection,retry);root.append(toolbar,scope,gap);
   const sections={
     positions:liveSection('当前持仓',['品种','方向','数量','开仓均价（报价币）','仓位价值（报价币）','未实现盈亏（USDC）','杠杆']),
@@ -1626,7 +1632,7 @@ function renderLeadDetail(r,b){
   if(!Object.hasOwn(tabs,state.tab))state.tab='analysis';
   b.replaceChildren();
   if(state.tab!=='analysis'){renderLeadActivity(r,b,activityKeys[state.tab]);return;}
-  const candidates=['30D','90D','365D'];
+  const candidates=provider?['7D','30D','90D','180D','365D']:['30D','90D','365D'];
   const available=candidates.filter(period=>Number.isFinite(detailPeriod(r,period)?.roi));
   if(!available.includes(state.window))state.window=available.includes('90D')?'90D':available[0]||state.window;
   if(state.requestedDetailPeriod!==state.window)b.append(node('p',periodLabel(state.requestedDetailPeriod)+' 暂无可核实收益，已显示近 '+parseInt(state.window,10)+' 天。','detail-method'));

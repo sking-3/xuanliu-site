@@ -71,3 +71,12 @@ test('rejects another account or a substituted receipt path',async()=>{
   const wrong=(await collect([source],offline({positions:ok([{...first,uniqueCode:'7E27C9B14BB5D378'}]),history:ok([])}),async()=>{})).bundle;
   assert.equal(wrong.accounts[0].activity.positions.status,'unavailable');
 });
+test('403 and 429 stop the whole run before another request',async()=>{
+  for(const status of [403,429]){
+    let requests=0;
+    await assert.rejects(()=>collect([source,source],async(name,url)=>{
+      requests++;return {bytes:Buffer.from('{}'),meta:{sourceUrl:url,httpStatus:status,receivedAt:time}};
+    },async()=>{}),{code:'OKX_SOURCE_STOPPED'});
+    assert.equal(requests,1);
+  }
+});

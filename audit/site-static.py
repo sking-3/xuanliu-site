@@ -175,7 +175,7 @@ check(script_sources.index(analytics_ref)<next(i for i,ref in enumerate(script_s
 plaza_source=(root/'trader/plaza.js').read_text()
 check("state.publicRows.filter(r=>qualifiedPosition(r))" in plaza_source and "!state.source?.positionVerification||!check" in plaza_source, 'legacy unqualified public snapshots are gated from visible rows')
 check('now-checked<=3600000' in plaza_source and 'setInterval(()=>{reevaluatePositions();' in plaza_source, 'qualification expires independently of the collection workflow')
-check("startVisibleAnalytics(visibleRows)" in plaza_source and 'client?.setPortfolioTargets(accounts)' in plaza_source and 'ensureWinRate(' not in plaza_source, 'browser account requests are limited to visible curves; win rates come from the public cache')
+check("startVisibleAnalytics(analyticsRows)" in plaza_source and "visibleRows.filter(r=>Number.isFinite(sortValue(r,p,'roi')))" in plaza_source and 'client?.setPortfolioTargets(accounts)' in plaza_source and 'ensureWinRate(' not in plaza_source, 'browser account requests are limited to visible ranked curves; win rates come from the public cache')
 check("'采样盈亏回撤'" in plaza_source and "'平仓片段胜率'" in plaza_source, 'calculated metrics distinguish sampled drawdown and closing-fill rate')
 check("cachedWin(r)" in plaza_source and "fetch('analytics.json'" in plaza_source and "button('计算'" not in plaza_source, 'closing-fill rate reads persistent aggregates without a calculate button')
 check("'performance-body'" in plaza_source and "'performance-stats'" in plaza_source and "'performance-chart'" in plaza_source and 'compactMoney(w?.pnl,currency)' in plaza_source, 'compact card separates its return and numeric metrics from the source curve')

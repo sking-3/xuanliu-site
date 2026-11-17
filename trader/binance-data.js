@@ -127,7 +127,7 @@
       const parsed=parsePerformance(row.performance);
       for(const [period,part] of Object.entries(parsed.byPeriod)){
         const raw=row.performance.byPeriod[period];
-        if(!['90D','365D'].includes(period)||part.lastSuccessAt && Date.parse(part.lastSuccessAt)>Date.parse(data.generatedAt)+5000)throw Error('BINANCE_PERIOD_EVIDENCE');
+        if(!['30D','90D','365D'].includes(period)||part.lastSuccessAt && Date.parse(part.lastSuccessAt)>Date.parse(data.generatedAt)+5000)throw Error('BINANCE_PERIOD_EVIDENCE');
         if(part.status==='unavailable')continue;
         const url='https://www.binance.com/bapi/futures/v1/public/future/copy-trade/lead-portfolio/performance?portfolioId='+id+'&timeRange='+period;
         if(raw.sourceUrl!==url||raw.evidencePath!==base+period+'-'+part.evidence.sha256+'.json'

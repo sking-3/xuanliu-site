@@ -5,8 +5,8 @@
   else root.BooksOKXPeriodData=api;
 })(globalThis,function(){
   'use strict';
-  const days={ '30D':30,'90D':90,'365D':365 };
-  const ranges={ '30D':'2','90D':'3','365D':'4' };
+  const days={ '7D':7,'30D':30,'90D':90,'365D':365 };
+  const ranges={ '7D':'1','30D':'2','90D':'3','365D':'4' };
   const day=86400000,limit=6;
   const rankUrl='https://www.okx.com/api/v5/copytrading/public-lead-traders?instType=SWAP&sortType=pnl_ratio&minLeadDays=3&page=1&limit=20';
   const curveUrl=(id,p)=>'https://www.okx.com/api/v5/copytrading/public-pnl?instType=SWAP&uniqueCode='+id+'&lastDays='+ranges[p];
