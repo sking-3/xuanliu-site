@@ -44,3 +44,37 @@ The independent verify-shared-tdx-guard workflow runs these offline tests on Pyt
 3.11/3.12 and installs only the existing hash-locked parser dependency set. It has
 no workflow_dispatch, schedule, deployment or collector invocation. No live-source
 availability or cross-runner production-store acceptance is claimed.
+
+## GitHub Contents adapter (implemented, not connected)
+
+tools/tdx_github_state.py implements read/CAS against api.github.com only.
+Construction requires one explicit repository, branch and path, plus a token;
+there is no default production location and construction makes no request.
+The token is held only in memory and is not included in records, messages,
+exception details or repr. State requests use only the Contents endpoint;
+no Actions run/queue API is involved. Redirects and retries are disabled.
+
+An existing file must contain books.source.cas.v1 with the fixed source identity,
+positive integer generation and a validated guard record. Reads verify the
+Git blob SHA against the decoded file bytes. Every CAS requires a revision from
+that adapter's most recent validated read and writes generation + 1 together
+with the expected GitHub blob SHA. Even equal guard records therefore get a new
+blob SHA, preventing ABA within this protocol. Generation exhaustion refuses
+writes. No POST/create/initialization or fallback branch/path exists.
+
+HTTP 401/403/429, failed reads/writes and uncertain receipts stop that adapter.
+409/422 returns a CAS conflict once and stops it. If a reservation write applied
+but its response was lost, the next instance observes pending and cannot call
+the source. Failed denial persistence similarly leaves the already-stored pending
+reservation. No automatic recovery or expiration of pending is implemented.
+
+This adapter requires a protected state branch: out-of-band deletion, force-push
+or manual replacement with old state is outside the CAS protocol and must not
+be interpreted as a fresh initialization. No branch protection or real backend
+has been configured or verified. Existing stop evidence remains unchanged.
+
+tools/test_tdx_github_state.py uses one in-memory simulated HTTP server with
+independent adapter instances. It covers exact URLs, conditional writes,
+generation/ABA, refusals, conflicts, malformed state and ambiguous writes.
+It does not connect to GitHub or TDX. The default PRODUCTION_GUARD still has no
+adapter and migration_complete=False; network operation remains unavailable.

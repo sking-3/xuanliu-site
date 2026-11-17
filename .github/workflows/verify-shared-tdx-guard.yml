@@ -6,6 +6,8 @@ on:
     paths:
       - 'tools/tdx_source_guard.py'
       - 'tools/test_tdx_source_guard.py'
+      - 'tools/tdx_github_state.py'
+      - 'tools/test_tdx_github_state.py'
       - 'tools/stock_research/a_share_sources.py'
       - 'tools/mootdx_feed/collector.py'
       - 'tools/mootdx_feed/test_collector.py'
@@ -28,6 +30,8 @@ jobs:
         run: node --test tools/mootdx_feed/test_release_plan.cjs
       - name: Separate process/shared-store fixtures
         run: python -B -m unittest tools.test_tdx_source_guard tools.stock_research.test_a_share_sources -v
+      - name: GitHub state adapter HTTP fixtures
+        run: python -B -m unittest tools.test_tdx_github_state -v
       - name: Install existing hash-locked parser dependencies
         run: |
           python -m pip install --require-hashes --only-binary=:all: -r scripts/requirements-mootdx.txt
