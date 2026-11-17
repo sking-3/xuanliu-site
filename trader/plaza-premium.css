@@ -1,0 +1,72 @@
+/* AlphaFox-inspired public plaza layer: compact, calm, and content-first. */
+.trader-page {
+  --plaza-ink: #172033;
+  --plaza-muted: #758197;
+  --plaza-line: #e7eaf0;
+  --plaza-paper: #ffffff;
+  --plaza-canvas: #f5f6f8;
+  --plaza-accent: #c65317;
+  --plaza-positive: #149b7d;
+  background: var(--plaza-canvas);
+  color: var(--plaza-ink);
+}
+.trader-page > main { padding-top: 22px; }
+.trader-page .page-header { align-items: flex-start; padding: 3px 2px 2px; }
+.trader-page .page-header > div:first-child { max-width: 720px; }
+.trader-page .page-header h1 { font-size: clamp(26px, 3vw, 36px); letter-spacing: -.045em; color: var(--plaza-ink); }
+.trader-page .page-intro { color: #526078; max-width: 680px; }
+.trader-page .ranking-boundary { margin-top: 7px; font-size: 11px; color: #8a95a8; }
+.trader-page .eyebrow { color: var(--plaza-accent); letter-spacing: .16em; }
+.trader-page .summary-strip { border: 0; border-radius: 12px; background: var(--plaza-paper); box-shadow: 0 1px 0 #17203308; }
+.trader-page .summary-strip > div { padding: 0 20px; }
+.trader-page .summary-strip span { color: #8a94a7; }
+.trader-page .summary-strip strong { color: var(--plaza-ink); }
+.trader-page .plaza { margin-top: 24px; }
+.trader-page .plaza > .heading { margin-bottom: 10px; }
+.trader-page .plaza > .heading h2 { font-size: 20px; letter-spacing: -.02em; }
+.trader-page .plaza > .heading p { color: #8a94a7; }
+.trader-page .platform-switch { display: flex; gap: 6px; overflow-x: auto; margin: 0 0 10px; padding: 3px; border: 1px solid var(--plaza-line); border-radius: 10px; background: #eef0f4; }
+.trader-page .platform-switch button { min-height: 34px; padding: 6px 13px; border: 0; border-radius: 7px; background: transparent; color: #69758a; font-size: 12px; white-space: nowrap; }
+.trader-page .platform-switch button[aria-pressed="true"] { background: var(--plaza-paper); color: var(--plaza-ink); box-shadow: 0 1px 4px #17203312; font-weight: 650; }
+.trader-page .filters { gap: 10px; padding: 12px; border: 1px solid var(--plaza-line); border-radius: 12px; background: var(--plaza-paper); box-shadow: none; }
+.trader-page .filters label { color: #758197; font-size: 11px; }
+.trader-page .filters input, .trader-page .filters select { min-height: 38px; margin-top: 4px; padding: 8px 10px; border-color: #dde2ea; border-radius: 8px; background: #fbfcfd; color: var(--plaza-ink); font-size: 12px; }
+.trader-page .hint { color: #8a94a7; }
+.trader-page .cards { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+.trader-page .card { min-height: 0; padding: 16px; border: 1px solid var(--plaza-line); border-radius: 14px; background: var(--plaza-paper); box-shadow: 0 4px 18px #17203308; transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease; }
+.trader-page .card:hover { border-color: #d5dbe6; box-shadow: 0 8px 24px #17203312; transform: translateY(-1px); }
+.trader-page .card-top { grid-template-columns: 38px minmax(0, 1fr) auto; gap: 10px; }
+.trader-page .card .avatar { width: 38px; height: 38px; border-radius: 50%; background: #edf0ff; color: #536fc4; font-size: 11px; font-weight: 700; overflow: hidden; }
+.trader-page .card .avatar img { width: 100%; height: 100%; object-fit: cover; }
+.trader-page .card h3 { font-size: 14px; line-height: 1.35; }
+.trader-page .card .trader-name-button { display: inline; min-height: 0; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; color: var(--plaza-ink); font-size: inherit; font-weight: 700; line-height: inherit; text-align: left; box-shadow: none; }
+.trader-page .card .trader-name-button:hover { color: var(--plaza-accent); background: transparent; text-decoration: none; }
+.trader-page .card .trader-name-button:focus-visible { outline: 2px solid var(--plaza-accent); outline-offset: 3px; }
+.trader-page .card .meta, .trader-page .card .platform-id { color: #8a94a7; font-size: 10px; }
+.trader-page .card .card-links { gap: 8px; }
+.trader-page .card .card-links .detail-button { min-height: 30px; padding: 5px 10px; border: 0; border-radius: 7px; background: var(--plaza-accent); color: #fff; font-size: 11px; }
+.trader-page .card .card-links .detail-button:hover { background: #aa4311; }
+.trader-page .card .card-links .source-link { min-height: 30px; color: #8a94a7; font-size: 10px; }
+.trader-page .card .card-context { margin: 12px 0 0; color: #8a94a7; font-size: 10px; }
+.trader-page .card .performance-body { grid-template-columns: minmax(0, 1.05fr) minmax(82px, .95fr); gap: 14px; min-height: 120px; margin-top: 10px; }
+.trader-page .card .roi { margin-bottom: 3px; color: var(--plaza-positive); font-size: 28px; letter-spacing: -.055em; }
+.trader-page .card .roi.negative { color: #d05870; }
+.trader-page .card .roi-label { margin-bottom: 10px; color: #8a94a7; font-size: 10px; }
+.trader-page .card .performance-body .metrics { gap: 7px; }
+.trader-page .card .performance-body .metrics small { color: #8a94a7; font-size: 10px; }
+.trader-page .card .performance-body .metrics strong { color: var(--plaza-ink); font-size: 11px; }
+.trader-page .card .performance-chart { min-height: 120px; }
+.trader-page .card .performance-chart .chart, .trader-page .card .performance-chart .chart svg { height: 88px; }
+.trader-page .card .profile-note { margin: 10px 0 0; color: #69758a; font-size: 11px; line-height: 1.6; }
+.trader-page .card .card-actions { margin-top: 12px; padding-top: 9px; border-top-color: #f0f1f4; }
+.trader-page .card .card-actions button { min-height: 30px; padding: 5px 9px; font-size: 11px; }
+.trader-page .record-tools > summary { min-height: 34px; padding: 6px 11px; border-color: var(--plaza-line); border-radius: 8px; color: #66738a; font-size: 11px; }
+.trader-page .method { border-color: var(--plaza-line); border-radius: 12px; box-shadow: none; }
+@media (max-width: 1250px) { .trader-page .cards { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 980px) { .trader-page .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 760px) {
+  .trader-page > main { padding-top: 16px; }
+  .trader-page .cards { grid-template-columns: 1fr; gap: 12px; }
+  .trader-page .card { padding: 15px; }
+  .trader-page .page-header h1 { font-size: 28px; }
+}
