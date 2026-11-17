@@ -12,7 +12,7 @@ async function main(){
   for(const width of [1440,768,390,375]){
    const context=await browser.newContext({viewport:{width,height:960},serviceWorkers:'block'});
    await context.routeWebSocket('**/*',ws=>ws.close());
-   let mode='production',snapshotRequests=0,providerAttempts=0;
+   let mode='production',nativeMode='blocked',snapshotRequests=0,providerAttempts=0;
    await context.route('**/*',route=>{
     const url=new URL(route.request().url());
     if(url.origin===base.origin&&url.pathname===new URL('research-data/a-active-stocks.json',base).pathname){
@@ -35,6 +35,11 @@ async function main(){
      if(mode==='hostile')data.rows[1].name='<img src=x onerror=alert(1)>';
      return route.fulfill({json:data});
     }
+    if(url.hostname==='s3.tradingview.com'&&url.pathname==='/external-embedding/embed-widget-hotlists.js'){
+     providerAttempts++;
+     if(nativeMode==='fixture')return route.fulfill({contentType:'text/javascript',body:"const s=document.currentScript,c=JSON.parse(s.textContent);if(c.exchange!=='SSE'||c.locale!=='zh_CN'||c.showChart!==false)throw Error('wrong hot-list configuration');const f=document.createElement('iframe');f.title='合成组件测试';f.style.cssText='width:100%;height:450px;border:0';f.srcdoc='<p>合成组件测试 · 非真实行情</p><a target=\"_top\" href=\"'+c.largeChartUrl+'?tvwidgetsymbol=SSE%3A600519\">合成组件测试</a>';s.parentElement.querySelector('.tradingview-widget-container__widget').replaceChildren(f);"});
+     return route.abort();
+    }
     if(url.href.includes('market-heatmap-fallback.json'))return route.fulfill({json:marketFixture});
     if(url.origin===base.origin&&url.pathname.startsWith(base.pathname))return route.continue();
     if(url.hostname==='s3.tradingview.com')providerAttempts++;
@@ -51,6 +56,15 @@ async function main(){
    await visit('not_configured');
    assert.match(await page.locator('#active-stocks-status').innerText(),/待接入/);
    assert.equal(await page.locator('#active-stocks-list li').count(),0);
+   await page.locator('#tv-hotlists-host[data-widget-state="unavailable"]').waitFor();
+   assert.match(await page.locator('#tv-movers-status').innerText(),/暂不可用/);
+   assert.equal(await page.locator('[data-home-movers-source]').isVisible(),true);
+   nativeMode='fixture';await visit('not_configured');
+   const nativeFrame=page.frameLocator('#tv-hotlists-host iframe');
+   await nativeFrame.getByRole('link',{name:'合成组件测试',exact:true}).click();
+   await page.waitForFunction(()=>document.querySelector('#chart-symbol')?.textContent==='SSE:600519');
+   assert.equal(new URL(page.url()).origin,base.origin);
+   nativeMode='blocked';
    mode='fixture';await visit('ready');
    assert.match(await page.locator('#active-stocks-status').innerText(),/合成测试数据 · 非真实行情/);
    assert.match(await page.locator('#active-stocks-status').innerText(),/2026-11-13/);

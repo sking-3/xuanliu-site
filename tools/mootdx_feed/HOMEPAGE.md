@@ -1,4 +1,20 @@
-# A 股成交活跃：首页与数据合同
+# 首页沪市异动与五日研究名单
+
+首版候选新增 TradingView 官方 iframe 活跃榜，配置 exchange=SSE、showChart=false、locale=zh_CN、largeChartUrl=本站 chart.html。榜单由 TradingView 在访问网站时自动提供，GitHub 负责发布网页；这里没有 Actions 抓取、保存或导出 TradingView 股票名单。官方配置界面仅提供 Mainland China (SSE)，未见 SZSE，因此明确标“沪市”，不宣称覆盖全 A 股。
+
+组件保留活跃/涨幅/跌幅选项、原始品牌和可见署名。上交所 Widget 为日终数据，首页不创建“今日”或“实时”标签，也不把浏览器加载时间当成行情时间；具体日期以组件或图表内标注为准。组件不可用时显示提示，不生成替代行情。活跃排名采用 TradingView 自己的口径，不等同于搜索热度或下方自定义五日日均成交额。
+
+官方资料：
+- https://www.tradingview.com/widget-docs/llms.txt
+- https://www.tradingview.com/widget-docs/widgets/watchlists/stock-market/demos/no-chart/
+- https://www.tradingview.com/widget-docs/markets/asia-pacific/
+- https://www.tradingview.com/widget-docs/faq/general/
+
+离线浏览器回归拦截全部外部请求；仅用显式“合成组件测试”链接验证本站图表跳转、四种宽度和组件失败提示，不把这些测试当真实报价验收。一次性独立浏览器验收通过，记录于 https://github.com/sking-3/xuanliu-site/actions/runs/44023876434 （job 133839458810，artifact 14302815449）。页面在浏览器中模拟本站候选 origin，不代表已部署；TradingView 所有资源和站点规则请求均正常放行，活跃选项为选中状态，5 个 SSE 股票链接均指向本站 chart.html，未发现页面错误或桌面横向溢出，留存桌面和 390px 截图。未提取报价写入仓库，未独立核验行情日期（time 元素列表为空），不声称实时或最新交易日已验收。该验收与常规 CI 分开记录；新版 Web Component 在本环境发生 CORS 加载失败，没有代理或放松浏览器安全规则。最终首页采用官网仍支持的 iframe 版本。临时联网验收任务在候选完成后移除，日常 CI 仍不请求行情来源。
+
+以下自定义五日名单链路仍默认禁用，它不是沪市官方组件的数据源：
+
+## A 股成交活跃：首页与数据合同
 
 目标链路是 GitHub Actions 云端更新名单，首页读取本站静态 JSON，点击股票打开本站 chart.html 的 TradingView 图表。用户 Mac 不参与执行。本草稿完成展示、五日均额排序与离线回归；未实现或启用真实来源的每日自动发布。
 

@@ -19,16 +19,16 @@ const reviewed={
   ".github/workflows/schedule-health.yml": "75bed7b5aaeba0facec5508e7e790b3c6811df5d",
   ".github/workflows/verify-binance.yml": "e717b64c15684a4dba274c895009fb97989a504f",
   ".github/workflows/verify-home-dashboard.yml": "c525d390a8ea898b7e8c3d973c917711057f9d73",
-  ".github/workflows/verify-public-site-ui.yml": "67f8728681698de76bc5fba26bf0f49f90fa8219",
+  ".github/workflows/verify-public-site-ui.yml": "195612df319c06deb3b7f3ff1dc79335e81f83b7",
   ".github/workflows/verify-stock-workspace.yml": "d14438ac8f3e2798d680ec828cbb2278416357fb",
   "scripts/resolve_trader_refresh_mode.cjs": "5e3e0fb0ef95a97d14247a567f083210b6071d63",
   "scripts/stage_public_release.cjs": "6a928a46089d4125a2da012ee9b6ca6897b3310e",
   "scripts/verify_public_release.cjs": "ee056cda7dd605c9334f28d48f62a13f5991b202",
-  "scripts/check_published_release.cjs": "42ae40e6420ecb96c9b12623a2e4b7d5b1f5164e",
+  "scripts/check_published_release.cjs": "f6a168e7febe407a8542a2aab74c563fe2d0fbe2",
   "audit/release-browser.cjs": "a7ab8595261147733bbe77deb36529b7139a82c1",
   "audit/selection-release-browser.cjs": "ccc47b1bbf83507ff53d5f6f8cd47253dda7499c",
   "audit/trader-refresh-mode-unit.cjs": "d8115505589c928835ff59cde574dbaa2c322a13",
-  "audit/active-stocks-browser.cjs": "e59cef43990238b0b5bf2e9662b6d402fb0912c8"
+  "audit/active-stocks-browser.cjs": "48fd47affcf7ef3c668c9d488211922cf7a48643"
 };
 const read=file=>fs.readFileSync(path.join(root,file),'utf8');
 function jobs(file){

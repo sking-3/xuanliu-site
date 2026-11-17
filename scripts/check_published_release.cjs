@@ -21,7 +21,7 @@ async function main(){
   if(manifest?.revision!==expected||manifest.schema!==1)throw Error('Deployed revision does not match');
   const metadata=releaseMetadata(JSON.parse(fs.readFileSync(path.join(root,'research-data/a-active-stocks.json'),'utf8')));
   if(JSON.stringify(manifest.activeStocks)!==JSON.stringify(metadata))throw Error('Published ranking version/date metadata mismatch');
-  const critical=['index.html','home-active-stocks.js','home-active-stocks.css','research-data/a-active-stocks.json','screening/index.html','us.html','trader/index.html','tools.html','crypto.html','research.html','quant-research/index.html','quant-research/app.mjs','quant-research/engine.mjs','books-shell.js','books-ui.css','market-calendar.js','market-strip.html','market-strip.js','crypto-market.js','crypto-full.js','stock-workspace.js','screening/stock-selection.js','screening/selection-shell.js','screening/technical-screen.js'];
+  const critical=['index.html','home-active-stocks.js','home-active-stocks.css','research-data/a-active-stocks.json','screening/index.html','us.html','trader/index.html','tools.html','crypto.html','research.html','quant-research/index.html','quant-research/app.mjs','quant-research/engine.mjs','books-shell.js','books-ui.css','market-calendar.js','market-strip.html','market-strip.js','crypto-market.js','crypto-full.js','stock-workspace.js','screening/stock-selection.js','screening/selection-shell.js','screening/technical-screen.js','home-tv-movers.js'];
   for(const file of critical){
     const hash=bytes=>crypto.createHash('sha256').update(bytes).digest('hex');
     const local=hash(fs.readFileSync(path.join(root,file)));

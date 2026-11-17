@@ -21,13 +21,13 @@ global.fetch=async url=>{
  requests++;const file=new URL(url).pathname.replace('/xuanliu-site/','');
  if(mode==='refusal')return new Response('',{status:429});
  if(file==='release-manifest.json')return Response.json({schema:1,revision:mode==='wrong-revision'?'b'.repeat(40):'a'.repeat(40),assets,activeStocks});
- return new Response(((mode==='corrupted-asset'&&file==='index.html')||(mode==='corrupted-ranking'&&file==='home-active-stocks.js')||(mode==='corrupted-ranking-json'&&file==='research-data/a-active-stocks.json'))?'different bytes':fs.readFileSync(file));
+ return new Response(((mode==='corrupted-asset'&&file==='index.html')||(mode==='corrupted-ranking'&&file==='home-active-stocks.js')||(mode==='corrupted-ranking-json'&&file==='research-data/a-active-stocks.json')||(mode==='corrupted-hotlists'&&file==='home-tv-movers.js'))?'different bytes':fs.readFileSync(file));
 };
 process.on('exit',()=>console.log('REQUESTS='+requests));
 require('./scripts/check_published_release.cjs');
 `;
 function run(mode){return spawnSync(process.execPath,['-e',fixture],{cwd:root,encoding:'utf8',env:{...process.env,TEST_MODE:mode,EXPECTED_SHA:'a'.repeat(40),RELEASE_BASE_URL:'https://sking-3.github.io/xuanliu-site/'}});}
-test('deployed verifier accepts only the exact revision and matching critical assets',()=>{const r=run('ok');assert.equal(r.status,0,r.stderr);assert.match(r.stdout,/24 critical asset hashes/);assert.match(r.stdout,/REQUESTS=25/);});
+test('deployed verifier accepts only the exact revision and matching critical assets',()=>{const r=run('ok');assert.equal(r.status,0,r.stderr);assert.match(r.stdout,/25 critical asset hashes/);assert.match(r.stdout,/REQUESTS=26/);});
 test('a refusal immediately stops the deployed verifier without retry',()=>{const r=run('refusal');assert.equal(r.status,1);assert.match(r.stdout,/REQUESTS=1/);assert.match(r.stderr,/429/);});
 test('an obsolete deployed manifest is never accepted after bounded propagation checks',()=>{const r=run('wrong-revision');assert.equal(r.status,1);assert.match(r.stdout,/REQUESTS=3/);assert.match(r.stderr,/revision does not match/);});
 test('a matching revision marker cannot hide corrupted deployed page bytes',()=>{const r=run('corrupted-asset');assert.equal(r.status,1);assert.match(r.stdout,/REQUESTS=2/);assert.match(r.stderr,/Published asset mismatch: index.html/);});
@@ -44,3 +44,5 @@ test('ranking schema, source date and generation time must match the manifest',(
 test('a manifest without the ranking JSON hash cannot pass code-only publication checks',()=>{
  const r=run('missing-ranking-hash');assert.equal(r.status,1);assert.match(r.stderr,/Published asset mismatch: research-data\/a-active-stocks.json/);
 });
+
+test('the native widget loader is checked against the deployed bytes',()=>{const r=run('corrupted-hotlists');assert.equal(r.status,1);assert.match(r.stderr,/Published asset mismatch: home-tv-movers.js/);});
