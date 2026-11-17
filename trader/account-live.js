@@ -8,6 +8,7 @@
 const INFO = 'https://api.hyperliquid.xyz/info';
 const SOCKET = 'wss://api.hyperliquid.xyz/ws';
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
+const FOCUS = '0x02665a064143936ba3b5e400147b6c92560f7b24';
 const LIMIT = 200, MAX_BYTES = 5 * 1024 * 1024;
 const TYPES = ['userFills', 'orderUpdates'];
 const clone = value => JSON.parse(JSON.stringify(value));
@@ -113,6 +114,8 @@ function create(options={}) {
   const setTimer=options.setTimer || setTimeout, clearTimer=options.clearTimer || clearTimeout;
   const notify=options.onChange || (()=>{});
   let generation=0,active=false,visible=options.visible!==false,socket=null,refreshTimer=null,pingTimer=null,reconnectTimer=null,openTimer=null;
+  let marketRevision={positions:0,xyzPositions:0};
+  const marketTimers={positions:null,xyzPositions:null};
   const policy=options.policy || globalThis.BooksSourcePolicy;
   let localStop=null,unsubscribe=null;
   const blocked=()=>localStop || policy?.reason() || (!options.fetch&&!policy?'snapshot_unverified':null);
@@ -120,29 +123,31 @@ function create(options={}) {
     if(!active)return;
     if(['http_403','http_429','stream_rejected'].includes(code))localStop=code;
     dispose();restPaused=true;
-    for(const key of ['positions','orders','fills','events']){
+    if(state.address===FOCUS){state.defaultStream='error';state.xyzStream='error';}
+    for(const key of ['positions','xyzPositions','orders','fills','events']){
       state[key].status='error';state[key].error=code;
     }
     status('blocked',code);
   }
   let state,controllers=new Set(),busy=false,backfillPending=false,reconnects=0,accepted=false,lastInbound=0,restPaused=false,spotCache=null,spotAttempted=false;
   const reset=address=>({address,scope:'default_perp_dex',displayLimit:LIMIT,connection:{status:'idle',reason:null,lastMessageAt:null,gap:false},
-    symbols:spotCache||{status:'idle',spot:{},fetchedAt:null,error:null},positions:section(),orders:section(),fills:{...section(),receivedCount:0,snapshot:false,limited:true},events:section()});
+    symbols:spotCache||{status:'idle',spot:{},fetchedAt:null,error:null},positions:section(),defaultStream:'idle',xyzPositions:section(),xyzStream:'idle',orders:section(),fills:{...section(),receivedCount:0,snapshot:false,limited:true},events:section()});
   state=reset(null);
   const emit=()=>notify(clone(state));
   const valid=token=>active&&visible&&token===generation;
   function clear(name) {if(name!==null)clearTimer(name);}
   function dispose() {
     generation++;clear(refreshTimer);clear(pingTimer);clear(reconnectTimer);clear(openTimer);refreshTimer=pingTimer=reconnectTimer=openTimer=null;
+    for(const key of Object.keys(marketTimers)){clear(marketTimers[key]);marketTimers[key]=null;}
     for(const c of controllers)c.abort();controllers.clear();busy=false;backfillPending=false;
     const old=socket;socket=null;if(old){old.onopen=old.onmessage=old.onerror=old.onclose=null;try{old.close(1000,'Account view closed');}catch{}}
   }
   function status(kind,reason=null) {state.connection.status=kind;state.connection.reason=reason;emit();}
-  async function request(type,token) {
+  async function request(type,token,dex='') {
     const controller=new Controller();controllers.add(controller);
     const timeout=setTimer(()=>controller.abort(),12000);
     try {
-      const body=type==='spotMeta'?{type}:{type,user:state.address};if(type==='clearinghouseState'||type==='frontendOpenOrders')body.dex='';if(type==='userFills')body.aggregateByTime=false;
+      const body=type==='spotMeta'?{type}:{type,user:state.address};if(type==='clearinghouseState'||type==='frontendOpenOrders')body.dex=dex;if(type==='userFills')body.aggregateByTime=false;
       const response=await fetcher(INFO,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),credentials:'omit',redirect:'error',cache:'no-store',signal:controller.signal});
       if(response.status===403||response.status===429){
         const code='http_'+response.status;policy?.stop(code);halt(code);throw Error(code);
@@ -159,14 +164,16 @@ function create(options={}) {
   }
   async function readSection(name,type,token) {
     state[name].status='loading';state[name].error=null;emit();
+    const requestRevision=marketRevision[name];
     try {
-      const payload=await request(type,token);if(!valid(token))return;
+      const payload=await request(type,token,name==='xyzPositions'?'xyz':'');if(!valid(token))return;
       const fetchedAt=now();
-      if(name==='positions'){const parsed=positions(payload,fetchedAt);state.positions={status:'ready',...parsed,fetchedAt,error:null};(options.positionArchive||globalThis.BooksPositionObservations?.local)?.record(state.address,state.positions,'rest');}
+      if(name==='positions'){const parsed=positions(payload,fetchedAt),previous=state.positions;if(state.address===FOCUS&&marketRevision.positions!==requestRevision){/* A newer WS observation already owns this market. */}else if(state.address!==FOCUS||previous.sourceTime===null||parsed.sourceTime>=previous.sourceTime){state.positions={status:'ready',...parsed,fetchedAt,error:null};marketRevision.positions++;(options.positionArchive||globalThis.BooksPositionObservations?.local)?.record(state.address,state.positions,'rest');}else {previous.status='error';previous.error='older_snapshot';}}
+      else if(name==='xyzPositions'){const parsed=positions(payload,fetchedAt);if(parsed.rows.some(row=>!row.coin.startsWith('xyz:')))invalid();const previous=state.xyzPositions;if(marketRevision.xyzPositions!==requestRevision){/* A newer WS observation already owns this market. */}else if(previous.sourceTime===null||parsed.sourceTime>=previous.sourceTime){state.xyzPositions={status:'ready',...parsed,fetchedAt,error:null};marketRevision.xyzPositions++;}else {previous.status='error';previous.error='older_snapshot';}}
       else if(name==='orders'){state.orders={status:'ready',rows:orders(payload,fetchedAt),fetchedAt,sourceTime:null,error:null};}
       else {const parsed=fills(payload,state.address,fetchedAt);state.fills={...state.fills,status:'ready',rows:merge(state.fills.rows,parsed,now()),receivedCount:parsed.length,fetchedAt,error:null};}
     } catch(error) {
-      if(!valid(token))return;restPaused=true;state[name].status='error';state[name].error=/^http_\d{3}$/.test(error.message)?error.message:error.message==='invalid_response'?'invalid_response':'unavailable';
+      if(!valid(token))return;if(state.address===FOCUS&&['positions','xyzPositions'].includes(name)&&marketRevision[name]!==requestRevision)return;if(!(state.address===FOCUS&&['positions','xyzPositions'].includes(name)))restPaused=true;state[name].status='error';state[name].error=/^http_\d{3}$/.test(error.message)?error.message:error.message==='invalid_response'?'invalid_response':'unavailable';
     }
     if(valid(token))emit();
   }
@@ -178,16 +185,17 @@ function create(options={}) {
   }
   async function refresh(includeFills=false) {
     if(!active||!visible)return;if(busy){backfillPending ||= includeFills;return;}if(blocked()){halt(blocked());return;}busy=true;const token=generation;clear(refreshTimer);refreshTimer=null;
-    try {await Promise.all([readSymbols(token),readSection('positions','clearinghouseState',token),readSection('orders','frontendOpenOrders',token),...((includeFills||state.connection.status!=='live')?[readSection('fills','userFills',token)]:[])]);}
+    try {await Promise.all([readSymbols(token),readSection('positions','clearinghouseState',token),...(state.address===FOCUS?[readSection('xyzPositions','clearinghouseState',token)]:[]),readSection('orders','frontendOpenOrders',token),...((includeFills||state.connection.status!=='live')?[readSection('fills','userFills',token)]:[])]);}
     finally {if(valid(token)){busy=false;if(!restPaused){const backfill=backfillPending;backfillPending=false;refreshTimer=setTimer(()=>refresh(backfill),backfill?0:60000);}}}
   }
   function connect(token) {
     if(!valid(token)||socket)return;if(blocked()){halt(blocked());return;}
     if(!WS){status('error','websocket_unavailable');return;}
     accepted=false;lastInbound=now();let seenOpen=false;const acknowledgments=new Set();
-    try {socket=new WS(SOCKET);}catch{status('error','websocket_unavailable');return;}
+    if(state.address===FOCUS){state.defaultStream='connecting';state.xyzStream='connecting';}
+    try {socket=new WS(SOCKET);}catch{if(state.address===FOCUS){state.defaultStream='error';state.xyzStream='error';}status('error','websocket_unavailable');return;}
     const thisSocket=socket;status('connecting');
-    openTimer=setTimer(()=>{if(!alive())return;state.connection.status='error';state.connection.reason='stream_timeout';thisSocket.onclose=thisSocket.onerror=null;socket=null;clear(pingTimer);pingTimer=null;try{thisSocket.close(1000,'Subscription timeout');}catch{}emit();},12000);
+    openTimer=setTimer(()=>{if(!alive())return;state.connection.status='error';state.connection.reason='stream_timeout';if(state.address===FOCUS){state.defaultStream='error';state.xyzStream='error';}thisSocket.onclose=thisSocket.onerror=null;socket=null;clear(pingTimer);pingTimer=null;try{thisSocket.close(1000,'Subscription timeout');}catch{}emit();},12000);
     function alive(){return valid(token)&&socket===thisSocket;}
     function heartbeat(){
       if(!alive())return;
@@ -198,6 +206,7 @@ function create(options={}) {
     thisSocket.onopen=()=>{
       if(!alive())return;seenOpen=true;
       for(const type of TYPES)thisSocket.send(JSON.stringify({method:'subscribe',subscription:{type,user:state.address}}));
+      if(state.address===FOCUS)for(const dex of ['', 'xyz']){const key=dex==='xyz'?'xyzPositions':'positions',stream=dex==='xyz'?'xyzStream':'defaultStream';thisSocket.send(JSON.stringify({method:'subscribe',subscription:{type:'clearinghouseState',user:state.address,dex}}));marketTimers[key]=setTimer(()=>{marketTimers[key]=null;if(alive()&&state[stream]!=='live'){state[stream]='error';emit();}},12000);}
       status('connecting');clear(pingTimer);pingTimer=setTimer(heartbeat,30000);
     };
     thisSocket.onmessage=event=>{
@@ -208,11 +217,20 @@ function create(options={}) {
         if(message.channel==='pong')return;
         if(message.channel==='subscriptionResponse'){
           const response=object(message.data),sub=object(response.subscription);
+          if(response.method==='subscribe'&&sub.type==='clearinghouseState'&&String(sub.user).toLowerCase()===state.address&&state.address===FOCUS&&['','xyz'].includes(sub.dex)){const stream=sub.dex==='xyz'?'xyzStream':'defaultStream';if(state[stream]!=='live'&&state[stream]!=='error')state[stream]='subscribed';emit();return;}
           if(response.method!=='subscribe'||!TYPES.includes(sub.type)||String(sub.user).toLowerCase()!==state.address)invalid();
           acknowledgments.add(sub.type);accepted=acknowledgments.size===TYPES.length;if(accepted){clear(openTimer);openTimer=null;}if(sub.type==='orderUpdates'){state.events.status='ready';state.events.fetchedAt=now();}state.connection.status=accepted?'live':'connecting';state.connection.reason=null;emit();return;
         }
         if(message.channel==='error'){policy?.stop('stream_rejected');halt('stream_rejected');return;}
-        if(message.channel==='userFills'){
+        if(message.channel==='clearinghouseState'){
+          const data=object(message.data),receivedAt=now();
+          if(state.address!==FOCUS||String(data.user).toLowerCase()!==state.address||!['','xyz'].includes(data.dex))invalid();
+          const raw=object(data.clearinghouseState),hasSourceTime=Number.isSafeInteger(raw.time),parsed=positions(hasSourceTime?raw:{...raw,time:receivedAt},receivedAt);
+          if(parsed.rows.some(row=>data.dex==='xyz'?!row.coin.startsWith('xyz:'):row.coin.includes(':'))||(hasSourceTime&&(receivedAt-parsed.sourceTime>15000||parsed.sourceTime>receivedAt+1000)))invalid();
+          if(!hasSourceTime)parsed.sourceTime=null;
+          const key=data.dex==='xyz'?'xyzPositions':'positions',stream=data.dex==='xyz'?'xyzStream':'defaultStream';
+          if(parsed.sourceTime===null||state[key].sourceTime===null||parsed.sourceTime>=state[key].sourceTime){state[key]={status:'ready',...parsed,fetchedAt:receivedAt,error:null};marketRevision[key]++;state[stream]='live';clear(marketTimers[key]);marketTimers[key]=null;if(key==='positions'&&parsed.sourceTime!==null)(options.positionArchive||globalThis.BooksPositionObservations?.local)?.record(state.address,state.positions,'websocket');emit();}return;
+        }else if(message.channel==='userFills'){
           const data=object(message.data);if(String(data.user).toLowerCase()!==state.address)invalid();
           if(data.isSnapshot!==undefined&&typeof data.isSnapshot!=='boolean')invalid();
           const parsed=fills(data.fills,state.address,now());
@@ -224,12 +242,16 @@ function create(options={}) {
         acknowledgments.add(message.channel);accepted=acknowledgments.size===TYPES.length;if(accepted){clear(openTimer);openTimer=null;}state.connection.status=accepted?'live':'connecting';state.connection.reason=null;emit();
       }catch{
         state.connection.status='error';state.connection.reason='invalid_stream';clear(pingTimer);clear(openTimer);pingTimer=openTimer=null;
+        for(const key of Object.keys(marketTimers)){clear(marketTimers[key]);marketTimers[key]=null;}
+        if(state.address===FOCUS){state.defaultStream='error';state.xyzStream='error';}
         thisSocket.onclose=thisSocket.onerror=null;socket=null;try{thisSocket.close(1000,'Invalid public data');}catch{}emit();
       }
     };
-    thisSocket.onerror=()=>{if(alive()){state.connection.status='error';state.connection.reason='websocket_unavailable';emit();}};
+    thisSocket.onerror=()=>{if(alive()){state.connection.status='error';state.connection.reason='websocket_unavailable';if(state.address===FOCUS){state.defaultStream='error';state.xyzStream='error';}emit();}};
     thisSocket.onclose=event=>{
       if(!alive())return;socket=null;clear(pingTimer);clear(openTimer);pingTimer=openTimer=null;state.connection.gap=true;
+      for(const key of Object.keys(marketTimers)){clear(marketTimers[key]);marketTimers[key]=null;}
+      if(state.address===FOCUS){state.positions.status='error';state.positions.error='stream_disconnected';state.defaultStream='error';state.xyzPositions.status='error';state.xyzPositions.error='stream_disconnected';state.xyzStream='error';}
       if(event.code===1008){policy?.stop('stream_rejected');halt('stream_rejected');return;}
       if(accepted&&seenOpen&&![1003,1008,1009].includes(event.code)&&reconnects<2){
         reconnects++;status('reconnecting','stream_gap');reconnectTimer=setTimer(()=>{reconnectTimer=null;if(valid(token)){refresh(true);connect(token);}},reconnects===1?5000:15000);
@@ -240,16 +262,16 @@ function create(options={}) {
     if(typeof address!=='string'||!ADDRESS.test(address))throw Error('invalid_address');
     address=address.toLowerCase();if(active&&state.address===address)return;
     if(activeClient&&activeClient!==api)activeClient.stop();activeClient=api;
-    dispose();active=true;reconnects=0;restPaused=false;state=reset(address);
+    dispose();active=true;reconnects=0;restPaused=false;marketRevision={positions:0,xyzPositions:0};state=reset(address);
     unsubscribe?.();unsubscribe=policy?.subscribe(halt);
     if(blocked()){halt(blocked());return;}
     if(!visible){status('paused');return;}
     emit();const token=generation;refresh(true);connect(token);
   }
-  function stop() {unsubscribe?.();unsubscribe=null;dispose();active=false;if(activeClient===api)activeClient=null;state.connection.status='closed';state.connection.reason=null;emit();}
+  function stop() {unsubscribe?.();unsubscribe=null;dispose();active=false;if(activeClient===api)activeClient=null;if(state.address===FOCUS){state.defaultStream='closed';state.xyzStream='closed';}state.connection.status='closed';state.connection.reason=null;emit();}
   function setVisible(value) {
     value=!!value;if(value===visible)return;visible=value;if(!active)return;
-    if(!visible){dispose();state.connection.gap=true;status('paused');return;}
+    if(!visible){dispose();state.connection.gap=true;if(state.address===FOCUS){state.positions.status='error';state.positions.error='page_hidden';state.defaultStream='paused';state.xyzPositions.status='error';state.xyzPositions.error='page_hidden';state.xyzStream='paused';}status('paused');return;}
     reconnects=0;state.connection.gap=true;emit();const token=generation;if(!restPaused)refresh(true);connect(token);
   }
   function manualRefresh() {
