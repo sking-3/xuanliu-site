@@ -406,6 +406,14 @@ await test('platform switches, search and numeric sorting share the same grid wi
  a.selectPlatform('all');ids.sort.value='roi';a.render();for(const r of a.state.binanceRows)assert.equal(a.sortValue(r,'30D','roi')==null,true);
  a.selectPlatform('Binance');ids.currency.value='USD';a.render();assert.match(content(ids.leaders),/没有符合条件|暂无可排名账户/);
 });
+await test('account cards label each source and keep expired position times distinct from live data',()=>{
+ unifiedSetup();
+ const binance=a.state.binanceRows.find(r=>!r.referenceOnly),bt=content(a.card(binance,'30D'));
+ assert.match(bt,/来源：币安公开资料.*30D 收益采集：/);assert.match(bt,/仓位采集/);
+ const hl=a.state.rows.find(a.isPublicAccount),ht=content(a.card(hl,'30D'));
+ assert.match(ht,/来源：Hyperliquid 公开资料.*30D 收益/);assert.match(ht,/仓位核验：.*当前状态待更新/);
+ const local={...row(1),_local:true};assert.match(content(a.card(local,'30D')),/来源：本浏览器手动资料.*记录时间/);
+});
 await test('Binance details stay in the shared dialog and never reuse another portfolio payload',()=>{
  unifiedSetup();const [first,empty,third]=a.state.binanceRows;a.openDetail(first,'30D');a.activateDetailTab('positions');assert.match(content(ids['detail-body']),/SYNTHETIC-FIRST/);
  a.openDetail(empty,'30D');a.activateDetailTab('positions');assert.match(content(ids['detail-body']),/核验.*空仓/);assert.doesNotMatch(content(ids['detail-body']),/SYNTHETIC-FIRST/);
@@ -681,6 +689,9 @@ await test('Bitget and OKX details render controlled visible, protected and hidd
  const b=real(visible,bitget,visible.activity);
  a.selectPlatform('Bitget');assert.ok(ids['position-notice'].hidden);assert.doesNotMatch(content(ids.status),/Hyperliquid/);assert.ok(ids['source-summary'].hidden);
  const shown=a.card(b,'30D');assert.match(content(shown),/同期盈亏 USD/);assert.match(content(shown),/来源回撤/);assert.match(content(shown),/每日收益率/);assert.match(content(shown),/历史仓位/);
+ assert.match(content(shown),/来源：Bitget 公开资料/);assert.match(content(shown),/30D 收益采集：/);assert.match(content(shown),/持仓快照.*采集.*来源标注延迟 60 分钟/);
+ const unknownDelay=structuredClone(visible);delete unknownDelay.activity.positions.publicDelayMinutes;
+ assert.match(content(a.card(real(unknownDelay,bitget,unknownDelay.activity),'30D')),/来源延迟未标注/);
  const missingYear=structuredClone(visible);delete missingYear.performance['365D'];
  a.openDetail(real(missingYear,bitget,missingYear.activity),'365D');assert.equal(a.state.window,'90D');assert.match(content(ids['detail-body']),/365D 暂无可核实收益/);assert.match(content(ids['detail-body']),/Bitget 90D 收益率/);assert.match(content(ids['detail-body']),/官方每日收益率/);
  a.openDetail(b,'30D');
@@ -692,6 +703,7 @@ await test('Bitget and OKX details render controlled visible, protected and hidd
  a.openDetail(real(shielded,bitget,shielded.activity),'30D');assert.match(content(ids['detail-body']),/策略保护/);a.activateDetailTab('live');assert.equal(a.state.tab,'analysis');
  const hidden={positions:{status:'partial',fetchedAt:captured,hiddenCount:3,rows:[]},history,orders:{status:'unsupported',fetchedAt:captured,rows:[]}};
  const record=ox.accounts[0];
+ assert.match(content(a.card(real(record,okx,hidden),'90D')),/来源：OKX 公开资料.*收益采集：.*来源隐藏了 3 条明细.*采集/);
  a.selectPlatform('OKX');assert.ok(ids['position-notice'].hidden);assert.match(ids.status.textContent,/OKX/);
  a.openDetail(real(record,okx,hidden),'90D');assert.match(content(ids['detail-overview']),/来源隐藏了 3 条明细/);assert.doesNotMatch(content(ids['detail-overview']),/敞口.*0/);assert.match(content(ids['detail-body']),/来源隐藏了 3 条明细/);a.activateDetailTab('positions');assert.match(content(ids['detail-body']),/SYNTHETIC-CLOSE/);
  delete context.BooksBitgetPeriodData;delete context.BooksOKXPeriodData;

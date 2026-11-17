@@ -68,5 +68,25 @@ function reader(env){
  }
  return {read,last:()=>last,reason};
 }
-return {ID,URL,parse,parseArchive,reader};
+// A local audit of when rows were inserted into the user's transaction table.
+// This is not an exchange timestamp, proof that a person saw it, or a new trade.
+function displayAudit(env){
+ const key='books.aoying-public-display-audit.v1';let started=false;
+ function load(){try{const raw=env.localStorage.getItem(key);if(!raw||raw.length>500000)return {};const value=JSON.parse(raw);return plain(value)&&value.version===1&&plain(value.entries)?value.entries:{};}catch{return {};}}
+ function record(rows,checkedAt,now=Date.now()){
+  if(!Array.isArray(rows)||!Number.isFinite(now))return {};
+  const entries=load(),at=new Date(now).toISOString(),kind=started?'later_page_render':'initial_page_load';
+  for(const r of rows){
+   if(!plain(r)||!/^[a-f0-9]{64}$/.test(r.id)||entries[r.id])continue;
+   entries[r.id]={pageInsertedAt:at,kind,sourceCreatedAt:Number.isSafeInteger(r.createdAt)?new Date(r.createdAt).toISOString():null,
+    sourceUpdatedAt:Number.isSafeInteger(r.updatedAt)?new Date(r.updatedAt).toISOString():null,
+    collectorFirstSeenAt:stamp(r.firstSeenAt)?r.firstSeenAt:null,sourceCheckedAt:stamp(checkedAt)?checkedAt:null};
+  }
+  started=true;
+  const trimmed=Object.fromEntries(Object.entries(entries).filter(([,v])=>plain(v)&&stamp(v.pageInsertedAt)).sort((a,b)=>Date.parse(b[1].pageInsertedAt)-Date.parse(a[1].pageInsertedAt)).slice(0,500));
+  try{env.localStorage.setItem(key,JSON.stringify({version:1,entries:trimmed}));return trimmed;}catch{return {};}
+ }
+ return {record,load};
+}
+return {ID,URL,parse,parseArchive,reader,displayAudit};
 });
