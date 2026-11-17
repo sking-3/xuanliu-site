@@ -32,6 +32,11 @@ class CollectorTests(unittest.TestCase):
         access = patch.object(c, "require_source_access")
         access.start()
         self.addCleanup(access.stop)
+        # Existing parser/local-filesystem cases bypass both closed gates.
+        # Shared CAS and cross-entry integration are tested in test_tdx_source_guard.
+        transport = patch.object(c, "source_call", side_effect=lambda fn, *a, **k: fn(*a, **k))
+        transport.start()
+        self.addCleanup(transport.stop)
         # Every test blocks raw sockets even when testing the real pinned parser.
         self.socket = patch("socket.socket.connect", side_effect=AssertionError("Unexpected network"))
         self.socket.start()

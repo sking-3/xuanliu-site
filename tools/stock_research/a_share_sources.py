@@ -19,6 +19,8 @@ import re
 from typing import Any, Iterable
 from zoneinfo import ZoneInfo
 
+from tools import tdx_source_guard as shared_tdx
+
 
 ZONE = ZoneInfo("Asia/Shanghai")
 PROVIDERS = ("akshare", "adata", "mootdx")
@@ -224,6 +226,8 @@ def normalize_bars(records: Iterable[dict[str, Any]], provider: str) -> list[dic
 
 
 def _import_provider(name: str):
+    if name == "mootdx":
+        shared_tdx.require_tdx_access()
     if name not in PROVIDERS:
         raise ProviderError("provider_unknown")
     try:
@@ -239,14 +243,37 @@ def _call(module: Any, path: str, *args: Any, **kwargs: Any) -> Any:
         if target is None:
             raise ProviderError("provider_api_mismatch", path)
     try:
+        if path == "quotes.Quotes.factory":
+            return shared_tdx.source_call(lambda: _GuardedTdxClient(target(*args, **kwargs)))
         return target(*args, **kwargs)
-    except (PermissionError, TimeoutError) as error:
-        raise ProviderError("provider_permission_or_timeout", path) from error
+    except shared_tdx.SourceStopped:
+        raise
+    except PermissionError as error:
+        raise ProviderError("provider_access_denied", path) from error
+    except TimeoutError as error:
+        raise ProviderError("provider_timeout", path) from error
     except Exception as error:  # provider exceptions vary by version
         text = str(error).lower()
         if any(token in text for token in ("403", "429", "forbidden", "rate limit", "permission")):
             raise ProviderError("provider_access_denied", path) from error
         raise ProviderError("provider_request_failed", path) from error
+
+
+def _raise_if_stopped(error):
+    if error.code in ("provider_access_denied", "provider_permission_or_timeout"):
+        raise error
+
+
+class _GuardedTdxClient:
+    """Wrap every legacy TDX data method with the same durable source identity."""
+    def __init__(self, client):
+        self.client = client
+
+    def __getattr__(self, name):
+        if name not in ("stocks", "quotes", "bars", "index", "minute"):
+            raise shared_tdx.SourceStopped("tdx_operation_unverified")
+        return lambda *args, **kwargs: shared_tdx.source_call(
+            getattr(self.client, name), *args, **kwargs)
 
 
 def _try_calls(module: Any, calls: Iterable[tuple[str, tuple[Any, ...], dict[str, Any]]]) -> Any:
@@ -256,6 +283,7 @@ def _try_calls(module: Any, calls: Iterable[tuple[str, tuple[Any, ...], dict[str
         try:
             return _call(module, path, *args, **kwargs)
         except ProviderError as error:
+            _raise_if_stopped(error)
             errors.append(error)
     if errors:
         raise errors[-1]
@@ -363,6 +391,7 @@ def provider(name: str = "auto") -> Provider:
         try:
             return Provider(item)
         except ProviderError as error:
+            _raise_if_stopped(error)
             errors.append(error.code)
     raise ProviderError("provider_unavailable", ",".join(errors))
 
@@ -428,7 +457,8 @@ def build_stock_input(source_name: str = "auto", *, as_of: date | None = None,
     for symbol in symbols:
         try:
             bars = normalize_bars(source.daily(symbol, dates[0], dates[-1]), source.name)
-        except ProviderError:
+        except ProviderError as error:
+            _raise_if_stopped(error)
             bars = []
         eligibility = {
             "asOf": day.isoformat(), "exchange": exchange_for(symbol), "board": "main",
@@ -545,11 +575,13 @@ def build_a14_input(source_name: str = "auto", *, cutoff: datetime | None = None
     for symbol in symbols:
         try:
             bars = normalize_bars(source.daily(symbol, history_dates[0], history_dates[-1]), source.name)
-        except ProviderError:
+        except ProviderError as error:
+            _raise_if_stopped(error)
             bars = []
         try:
             snapshot = _minute_snapshot(source.minute(symbol, day.isoformat()), cutoff)
-        except ProviderError:
+        except ProviderError as error:
+            _raise_if_stopped(error)
             snapshot = None
         if snapshot:
             snapshot.update({"priceBasis": "provider-minute-quote", "priceAnchorDate": day.isoformat(),
@@ -577,7 +609,8 @@ def build_a14_input(source_name: str = "auto", *, cutoff: datetime | None = None
     benchmark_snapshot = None
     try:
         benchmark_snapshot = _minute_snapshot(source.minute("000001.SH", day.isoformat()), cutoff)
-    except ProviderError:
+    except ProviderError as error:
+        _raise_if_stopped(error)
         benchmark_snapshot = None
     if benchmark_snapshot:
         benchmark_snapshot.update({"priceBasis": "provider-minute-quote", "priceAnchorDate": day.isoformat(),
