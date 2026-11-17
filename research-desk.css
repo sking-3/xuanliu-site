@@ -2,6 +2,9 @@
 .research-jumps {display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin:2px 0 12px;padding:4px 0 12px;border-bottom:1px solid #dfe5e8}
 .research-jumps a,.research-sources a,.archive-action {display:inline-flex;align-items:center;justify-content:center;min-height:34px;padding:6px 11px;border:1px solid #d8e1e5;border-radius:7px;background:#fff;color:#28594e;font-size:11px;font-weight:650;text-decoration:none;box-shadow:0 1px 2px #1823350a}
 .research-jumps a:hover,.research-sources a:hover,.archive-action:hover {border-color:#b9d1ca;background:#f2faf7;color:#14675c;text-decoration:none}
+.research-track a,.research-layer-card a {display:inline-flex;align-items:center;justify-content:center;min-height:32px;margin-top:12px;padding:6px 10px;border:1px solid #d8e1e5;border-radius:7px;background:#fff;color:#28594e;font-size:11px;font-weight:650;text-decoration:none;box-shadow:0 1px 2px #1823350a;transition:border-color .16s ease,background .16s ease,color .16s ease,transform .16s ease}
+.research-track a:hover,.research-layer-card a:hover {border-color:#b9d1ca;background:#f2faf7;color:#14675c;text-decoration:none;transform:translateY(-1px)}
+.research-track a:focus-visible,.research-layer-card a:focus-visible {outline:2px solid #278487;outline-offset:2px}
 .research-digest,.research-sources,.archive-record {min-width:0;background:white;border:1px solid #dde4e8;border-radius:8px;padding:14px 16px;margin:0 0 12px;color:#263848}
 .research-digest header,.research-sources header,.archive-record header {display:flex;align-items:baseline;justify-content:space-between;gap:4px 12px;flex-wrap:wrap;border:0;padding:0;margin:0 0 4px}
 .research-digest h2,.research-sources h2,.archive-record h2 {font-size:16px;line-height:1.45;margin:0}
@@ -33,7 +36,7 @@
 .research-page :is([id]) {scroll-margin-top:80px}
 .research-page .stock-page-heading,.research-page .page-heading {padding-block:14px 8px}
 @media(max-width:760px) {
-  .research-jumps a,.research-sources a,.archive-action,.research-fold>summary {min-height:44px}
+  .research-jumps a,.research-sources a,.archive-action,.research-track a,.research-layer-card a,.research-fold>summary {min-height:44px}
   .research-digest,.research-sources,.archive-record {padding:10px 12px}
   .closing-lists {gap:10px}
   .closing-lists li strong {display:inline-block}
