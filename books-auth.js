@@ -23,6 +23,24 @@
     return payload;
   }
 
+  async function uploadAvatar(file) {
+    const response = await fetch(`${apiBase()}/api/account/profile/avatar-upload`, {
+      method: 'POST',
+      headers: { 'content-type': file.type },
+      body: file,
+      credentials: 'include',
+    });
+    let payload = null;
+    try { payload = await response.json(); } catch { payload = { error: 'invalid_server_response' }; }
+    if (!response.ok) {
+      const error = new Error(payload?.error || `http_${response.status}`);
+      error.status = response.status;
+      error.payload = payload;
+      throw error;
+    }
+    return payload;
+  }
+
   global.BooksAuth = Object.freeze({
     apiBase,
     request,
@@ -33,6 +51,7 @@
     logout: () => request('/api/auth/logout', { method: 'POST', body: '{}' }),
     profile: () => request('/api/account/profile'),
     setAvatar: (value) => request('/api/account/profile/avatar', { method: 'POST', body: JSON.stringify(value) }),
+    uploadAvatar,
     wallet: () => request('/api/wallet'),
     recharges: () => request('/api/wallet/recharges'),
     recharge: (value) => request('/api/wallet/recharge', { method: 'POST', body: JSON.stringify(value) }),
