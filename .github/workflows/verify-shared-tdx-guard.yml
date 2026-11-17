@@ -29,6 +29,7 @@ jobs:
       - name: Cross-runner CAS and legacy integration fixtures
         run: python -B -m unittest tools.test_tdx_source_guard tools.stock_research.test_a_share_sources -v
       - name: Install existing hash-locked parser dependencies
-        run: python -m pip install --require-hashes --only-binary=:all: -r scripts/requirements-mootdx.txt
+        run: |
+          python -m pip install --require-hashes --only-binary=:all: -r scripts/requirements-mootdx.txt
       - name: Existing offline parser and closure regression
         run: python -B -m unittest tools.mootdx_feed.test_collector -v
