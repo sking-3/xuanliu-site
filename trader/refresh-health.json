@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-11-17T04:43:12.522Z",
+  "mode": "full",
+  "platforms": {
+    "Binance": {
+      "outcome": "stopped",
+      "stopReason": "source_policy",
+      "stopAt": null,
+      "lastCompletedAt": null,
+      "dataAt": "2026-11-16T10:05:57.421Z"
+    },
+    "OKX": {
+      "outcome": "success",
+      "stopReason": null,
+      "stopAt": null,
+      "lastCompletedAt": "2026-11-17T04:43:12.522Z",
+      "dataAt": "2026-11-17T04:12:16.482Z"
+    },
+    "Bitget": {
+      "outcome": "success",
+      "stopReason": null,
+      "stopAt": null,
+      "lastCompletedAt": "2026-11-17T04:43:12.522Z",
+      "dataAt": "2026-11-17T04:12:53.522Z"
+    },
+    "Hyperliquid": {
+      "outcome": "success",
+      "stopReason": null,
+      "stopAt": null,
+      "lastCompletedAt": "2026-11-17T04:43:12.522Z",
+      "dataAt": "2026-11-17T04:41:29.183Z"
+    }
+  }
+}
