@@ -4,14 +4,14 @@
   "messageDetail": null,
   "data": {
     "timeRange": "90D",
-    "roi": 229.69907419,
-    "pnl": 1284034.33565305,
+    "roi": 227.06751068,
+    "pnl": 1269323.70647966,
     "mdd": 48.83372,
-    "copierPnl": 6957424.31057912,
-    "winRate": 65.7895,
-    "winOrders": 50,
-    "totalOrder": 76,
-    "sharpRatio": "2.66872452"
+    "copierPnl": 6571969.5769957,
+    "winRate": 65.7534,
+    "winOrders": 48,
+    "totalOrder": 73,
+    "sharpRatio": "2.65495288"
   },
   "success": true
 }

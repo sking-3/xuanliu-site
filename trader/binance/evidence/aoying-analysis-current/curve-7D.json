@@ -6,37 +6,37 @@
     {
       "value": 15104.620407,
       "dataType": "PNL",
-      "dateTime": 1794268800000
+      "dateTime": 1794355200000
     },
     {
       "value": 28145.567257,
       "dataType": "PNL",
-      "dateTime": 1794355200000
+      "dateTime": 1794441600000
     },
     {
       "value": 47732.489097,
       "dataType": "PNL",
-      "dateTime": 1794441600000
+      "dateTime": 1794528000000
     },
     {
       "value": 100379.012838,
       "dataType": "PNL",
-      "dateTime": 1794528000000
+      "dateTime": 1794614400000
     },
     {
       "value": 115654.212354,
       "dataType": "PNL",
-      "dateTime": 1794614400000
+      "dateTime": 1794700800000
     },
     {
       "value": 155416.123953,
       "dataType": "PNL",
-      "dateTime": 1794700800000
+      "dateTime": 1794787200000
     },
     {
-      "value": 118314.96627525,
+      "value": 103604.33710186,
       "dataType": "PNL",
-      "dateTime": 1794848400000
+      "dateTime": 1794877200000
     }
   ],
   "success": true
