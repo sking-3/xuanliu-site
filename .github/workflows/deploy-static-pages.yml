@@ -1,16 +1,10 @@
 name: Deploy static Pages
 
 on:
-  push:
-    branches: [main]
-    paths-ignore:
-      - 'trader/feed.json'
-      - 'trader/analytics.json'
-      - 'trader/portfolios.json'
-      - 'trader/binance/snapshot.json'
-      - 'trader/binance/portfolios.json'
-      - 'trader/aoying-history.js'
-      - 'trader/binance/evidence/aoying-analysis-current/**'
+  # GitHub Pages is retired; the VPS is the single public origin.
+  # Keep manual/callable runs for controlled maintenance only.
+  workflow_dispatch:
+  workflow_call:
   workflow_dispatch:
   workflow_call:
 
