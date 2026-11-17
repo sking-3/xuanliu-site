@@ -27,6 +27,7 @@
     apiBase,
     request,
     me: () => request('/api/auth/me'),
+    providers: () => request('/api/auth/providers'),
     register: (value) => request('/api/auth/register', { method: 'POST', body: JSON.stringify(value) }),
     login: (value) => request('/api/auth/login', { method: 'POST', body: JSON.stringify(value) }),
     logout: () => request('/api/auth/logout', { method: 'POST', body: '{}' }),
