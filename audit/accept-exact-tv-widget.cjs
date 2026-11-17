@@ -73,7 +73,7 @@ async function main(){
     await tab.click();await tab.evaluate(n=>n.getAttribute('aria-selected')==='true');
     await page.waitForTimeout(2500);
     const details=await frame.evaluate(()=>{
-     const links=[...document.querySelectorAll('a')].filter(n=>n.href.startsWith('https://sking-3.github.io/xuanliu-site/chart.html?'));
+     const links=[...document.querySelectorAll('a')].filter(n=>n.href.startsWith('https://sking-3.github.io/xuanliu-site/chart.html?')&&n.getClientRects().length>0);
      const dates=[...document.querySelectorAll('time')].map(n=>({datetime:n.getAttribute('datetime'),text:n.textContent.trim()}));
      const dateText=[...new Set(document.body.innerText.match(/\b20\d{2}[-/.]\d{1,2}[-/.]\d{1,2}\b|\b\d{1,2}\s(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s20\d{2}\b/g)||[])];
      return {links:links.map(n=>n.href),dates,dateText,width:innerWidth,scroll:document.documentElement.scrollWidth,
