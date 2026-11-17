@@ -12,7 +12,7 @@ const root = path.resolve(__dirname, '..');
 const engine = process.env.UI_BROWSER;
 const revision = process.env.EXPECTED_SHA;
 assert.ok(['chromium','webkit'].includes(engine) && /^[a-f0-9]{40}$/.test(revision), 'browser and deployment revision required');
-const site = 'https://sking-3.github.io/xuanliu-site/';
+const site = 'https://45-77-39-98.sslip.io/';
 const output = path.join(__dirname,'browser-output/live-pages',engine);
 fs.mkdirSync(output,{recursive:true});
 const report = {site,revision,engine,checkedAt:new Date().toISOString(),pages:[]};
