@@ -29,36 +29,13 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python }}
-      - name: Install the isolated, pinned feed dependencies
-        run: python -m pip install -r scripts/requirements-mootdx.txt
-      - name: Generate complete dependency hash draft for review
+      - name: Install the full hash lock into a fresh environment
         run: |
-          python - <<'PY'
-          import importlib.metadata
-          import json
-          import re
-          import urllib.request
-          lines = ["# Exact environment resolution; SHA256 digests from PyPI release metadata.",
-                   "# Generated on GitHub Actions ubuntu-24.04; not a security audit."]
-          for package in sorted(importlib.metadata.distributions(), key=lambda p: p.metadata["Name"].lower()):
-              name, version = package.metadata["Name"], package.version
-              if name.lower() == "pip":
-                  continue
-              if not re.fullmatch(r"[A-Za-z0-9_.-]+", name) or not re.fullmatch(r"[A-Za-z0-9_.+!-]+", version):
-                  raise ValueError("Unexpected package identifier")
-              url = f"https://pypi.org/pypi/{name}/{version}/json"
-              with urllib.request.urlopen(url, timeout=30) as response:
-                  metadata = json.load(response)
-              hashes = sorted({artifact["digests"]["sha256"] for artifact in metadata["urls"]})
-              if not hashes or any(not re.fullmatch(r"[0-9a-f]{64}", value) for value in hashes):
-                  raise ValueError("Missing package hashes")
-              lines.append(name + "==" + version + " " + " ".join("--hash=sha256:" + value for value in hashes))
-          print("LOCKFILE_BEGIN")
-          print("\n".join(lines))
-          print("LOCKFILE_END")
-          PY
+          python -m venv "$RUNNER_TEMP/mootdx-feed"
+          "$RUNNER_TEMP/mootdx-feed/bin/python" -m pip install --force-reinstall --require-hashes --only-binary=:all: -r scripts/requirements-mootdx.txt
+          "$RUNNER_TEMP/mootdx-feed/bin/python" -m pip check
       - name: Check syntax, provider imports and offline behavior
         run: |
-          python -m compileall -q tools/mootdx_feed
-          python -B -m unittest tools.mootdx_feed.test_collector -v
-          python -m tools.mootdx_feed.collector --help
+          "$RUNNER_TEMP/mootdx-feed/bin/python" -m compileall -q tools/mootdx_feed
+          "$RUNNER_TEMP/mootdx-feed/bin/python" -B -m unittest tools.mootdx_feed.test_collector -v
+          "$RUNNER_TEMP/mootdx-feed/bin/python" -m tools.mootdx_feed.collector --help

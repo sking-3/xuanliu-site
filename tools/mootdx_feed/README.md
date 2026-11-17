@@ -6,14 +6,16 @@
 
 ## 安装与启用状态
 
-此入口**默认禁用网络**，PR 仍处于复核阶段。当前修复仅支持 Linux/macOS 的 POSIX 文件保护机制；没有 Windows 支持承诺。依赖版本与哈希锁定正在补齐，现有安装测试不能称为依赖安全审计。
+此入口**默认禁用网络**，PR 仍处于复核阶段。文件保护机制要求 POSIX。验证环境为 Ubuntu 24.04 / Python 3.11、3.12；用户 Mac、Apple Silicon 依赖 wheel 兼容性及 Windows 均未验收。
+
+`requirements-mootdx.txt` 锁定实际解析的完整依赖版本及 PyPI SHA256 哈希，强制 `--require-hashes` 和 `--only-binary=:all:`。Python 3.11/3.12 的 NumPy 版本分别锁定；哈希来自 Actions run 44003820417 所对应的 PyPI 版本元数据。没有兼容 wheel 时安装会停止，不回退到含未锁定构建依赖的源码构建。版本/哈希锁定用于可重复安装，不能称为完整依赖安全审计。
 
 在仓库根目录，使用独立 Python 3.11 或 3.12 环境；不要与旧适配器混用依赖：
 
 ```bash
 python3 -m venv /tmp/books-mootdx-venv
 source /tmp/books-mootdx-venv/bin/activate
-python -m pip install -r scripts/requirements-mootdx.txt
+python -m pip install --require-hashes --only-binary=:all: -r scripts/requirements-mootdx.txt
 ```
 
 ## 手动采集与持久停止
