@@ -10,6 +10,7 @@ from dataclasses import dataclass
 import hashlib
 import json
 import re
+import secrets
 from uuid import uuid4
 
 from tools.tdx_source_guard import SCHEMA, SOURCE, SourceStopped
@@ -99,10 +100,12 @@ class AuthorityStore:
         self._last = None
         self._watermark = None
         self._record = None
+        self._owned_token = self._capability = None
 
     def _fail(self, reason):
         self._blocked = True
         self._last = self._record = None
+        self._owned_token = self._capability = None
         raise AuthorityError(reason)
 
     def _call(self, operation, **fields):
@@ -129,6 +132,7 @@ class AuthorityStore:
         if reply["status"] == "conflict" and operation == "cas":
             self._blocked = True
             self._last = self._record = None
+            self._owned_token = self._capability = None
             return None
         if reply["status"] != "ok":
             self._fail("authority_request_refused")
@@ -154,6 +158,8 @@ class AuthorityStore:
         result = self._call("read")
         self._last, self._record = result
         self._watermark = self._last
+        if self._record["state"] != "pending" or self._record.get("token") != self._owned_token:
+            self._owned_token = self._capability = None
         return self._last, deepcopy(self._record)
 
     def compare_and_swap(self, source, expected, record):
@@ -163,8 +169,18 @@ class AuthorityStore:
                 or expected.binding != self.binding or expected.number >= MAX_REVISION
                 or self._record is None or not _transition(self._record, record)):
             raise AuthorityError("authority_update_invalid")
+        reserving = self._record["state"] == "ready"
+        if reserving:
+            capability = secrets.token_hex(32)
+            ownership = {"claim": capability}
+        else:
+            if self._owned_token != self._record["token"] or self._capability is None:
+                raise AuthorityError("authority_reservation_not_owned")
+            capability = self._capability
+            ownership = {"proof": capability}
         result = self._call("cas", expected_revision=expected.number,
-                            expected_digest=expected.record_digest, record=deepcopy(record))
+                            expected_digest=expected.record_digest, record=deepcopy(record),
+                            **ownership)
         if result is None:
             return False
         revision, actual = result
@@ -172,4 +188,8 @@ class AuthorityStore:
             self._fail("authority_write_uncertain")
         self._watermark = revision
         self._last = self._record = None
+        if reserving:
+            self._owned_token, self._capability = record["token"], capability
+        else:
+            self._owned_token = self._capability = None
         return True

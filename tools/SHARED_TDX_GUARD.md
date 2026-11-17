@@ -52,7 +52,8 @@ availability or cross-runner production-store acceptance is claimed.
 
 A fresh runner cannot distinguish a valid old GitHub ready file from current
 state using only that file, a signature, or a process-local watermark. Therefore
-GitHubContentsStore is now explicitly non-authorizing; Guard rejects it before
+GitHubContentsStore is now explicitly non-authorizing; Guard requires an explicit
+True authority marker (a declaration, not infrastructure attestation) and rejects it before
 any GitHub or source request. It remains an optional audit-mirror utility.
 No production mirroring is configured. No mirror failure or old ready record
 can grant source access.
@@ -74,8 +75,13 @@ a valid full snapshot. This rejects replayed replies from another request.
 It is not a substitute for transport authentication or the authority's durable
 non-rollback guarantee; a dishonest or rolled-back authority can still lie.
 
-The runner may only CAS ready to pending, or its current pending revision to
-ready/stopped. Revisions increase by exactly one. Tokens never expire. Every
+The runner may only CAS ready to pending, or its owned pending revision to
+ready/stopped. Reservation sends a random 256-bit completion capability over the
+authenticated channel; the authority retains only its hash. Snapshot reads never
+reveal it. Completion/stop requires the capability plus the matching revision and
+token. The client retains ownership only after confirmed reservation success;
+a fresh instance cannot acquire it by reading pending. The authority must enforce
+this independently of client checks. Capability request fields must not be logged. Revisions increase by exactly one. Tokens never expire. Every
 source callback follows a confirmed pending write and a fresh check. False
 results, exceptions and interruption cannot complete to ready. A failed stop
 write leaves pending. A lost reservation response invokes no callback; a new

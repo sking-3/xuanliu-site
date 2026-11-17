@@ -17,6 +17,7 @@ from tools.mootdx_feed import collector as new
 
 class SQLiteFixture:
     """Test adapter, never instantiated by a production entrypoint."""
+    authorizes_source = True
     def __init__(self, path):
         self.path = str(path)
         with sqlite3.connect(self.path) as db:
@@ -66,21 +67,34 @@ class SharedGuardTests(unittest.TestCase):
         network.start()
         self.addCleanup(network.stop)
 
+    def test_missing_or_nonboolean_authority_marker_prevents_all_access(self):
+        for value in (None, False, 0, 1, "true"):
+            store = Mock(authorizes_source=value)
+            callback = Mock()
+            with self.assertRaisesRegex(g.SourceStopped, "source_backend_not_authoritative"):
+                g.Guard(store, migration_complete=True).run("tdx", callback)
+            store.read.assert_not_called()
+            callback.assert_not_called()
+        store = SimpleNamespace(read=Mock(), compare_and_swap=Mock())
+        with self.assertRaisesRegex(g.SourceStopped, "source_backend_not_authoritative"):
+            g.Guard(store, migration_complete=True).run("tdx", Mock())
+        store.read.assert_not_called()
+
     def test_unknown_migration_does_not_read_store(self):
-        store = Mock()
+        store = Mock(authorizes_source=True)
         with self.assertRaisesRegex(g.SourceStopped, "legacy_source_stops_unverified"):
             g.Guard(store).run("mootdx", Mock())
         store.read.assert_not_called()
 
     def test_missing_record_is_not_initialized(self):
-        store = Mock()
+        store = Mock(authorizes_source=True)
         store.read.return_value = (None, None)
         with self.assertRaisesRegex(g.SourceStopped, "source_state_unverified"):
             g.Guard(store, migration_complete=True).run("tdx", Mock())
         store.compare_and_swap.assert_not_called()
 
     def test_unknown_identity_does_not_access_state(self):
-        store = Mock()
+        store = Mock(authorizes_source=True)
         with self.assertRaisesRegex(g.SourceStopped, "source_identity_unverified"):
             g.Guard(store, migration_complete=True).run("tencent", Mock())
         store.read.assert_not_called()
@@ -349,7 +363,7 @@ class SharedGuardTests(unittest.TestCase):
                        bestip=False, heartbeat=False, auto_retry=False, raise_exception=True)
         with patch.object(g, "PRODUCTION_GUARD", self.first), \
                 patch.dict(sys.modules, {"mootdx": SimpleNamespace(), "mootdx.quotes": sdk}):
-            with self.assertRaisesRegex(new.FeedError, "provider_connection_failed"):
+            with self.assertRaisesRegex(g.SourceStopped, "source_request_failed"):
                 new.fixed_server_factory(**options)
             self.assertEqual(self.store.read(g.SOURCE)[1]["state"], "stopped")
         with patch.object(g, "PRODUCTION_GUARD", self.second), \

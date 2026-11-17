@@ -2,6 +2,7 @@
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 import json
+import hashlib
 from pathlib import Path
 import socket
 import sqlite3
@@ -31,8 +32,8 @@ class AuthorityFixture:
 
     def seed(self):
         with sqlite3.connect(self.path) as db:
-            db.execute("CREATE TABLE authority (revision INTEGER NOT NULL, body TEXT NOT NULL)")
-            db.execute("INSERT INTO authority VALUES (1, ?)", (json.dumps(READY),))
+            db.execute("CREATE TABLE authority (revision INTEGER NOT NULL, body TEXT NOT NULL, capability_hash TEXT)")
+            db.execute("INSERT INTO authority VALUES (1, ?, NULL)", (json.dumps(READY),))
 
     def snapshot(self):
         with sqlite3.connect(self.path) as db:
@@ -41,7 +42,7 @@ class AuthorityFixture:
 
     def administrative_state(self, record):
         with sqlite3.connect(self.path) as db:
-            db.execute("UPDATE authority SET revision=revision+1, body=?", (json.dumps(record),))
+            db.execute("UPDATE authority SET revision=revision+1, body=?, capability_hash=NULL", (json.dumps(record),))
 
     def exchange(self, request):
         self.calls.append(deepcopy(request))
@@ -52,19 +53,26 @@ class AuthorityFixture:
         status = "ok" if matches else "refused"
         with sqlite3.connect(self.path, timeout=5) as db:
             db.execute("BEGIN IMMEDIATE")
-            row = db.execute("SELECT revision, body FROM authority").fetchone()
+            row = db.execute("SELECT revision, body, capability_hash FROM authority").fetchone()
             snapshot = {"revision": row[0], "record": json.loads(row[1])}
             if matches and request["operation"] == "cas":
                 if self.fail_stop_write and request["record"]["state"] == "stopped":
                     raise OSError("synthetic unavailable authority")
-                if (row[0] != request["expected_revision"]
+                reserving = snapshot["record"]["state"] == "ready"
+                claim, proof = request.get("claim"), request.get("proof")
+                ownership_ok = (
+                    a._hash(claim) and proof is None if reserving else
+                    claim is None and a._hash(proof)
+                    and hashlib.sha256(proof.encode()).hexdigest() == row[2])
+                if (not ownership_ok or row[0] != request["expected_revision"]
                         or a._digest(snapshot["record"]) != request["expected_digest"]
                         or not a._transition(snapshot["record"], request["record"])):
                     status = "conflict"
                 else:
                     snapshot = {"revision": row[0] + 1, "record": deepcopy(request["record"])}
-                    db.execute("UPDATE authority SET revision=?, body=?",
-                               (snapshot["revision"], json.dumps(snapshot["record"])))
+                    capability_hash = hashlib.sha256(claim.encode()).hexdigest() if reserving else None
+                    db.execute("UPDATE authority SET revision=?, body=?, capability_hash=?",
+                               (snapshot["revision"], json.dumps(snapshot["record"]), capability_hash))
         reply = {key: request[key] for key in (
             "schema", "source", "authority_id", "stream_id", "migration_digest", "operation", "challenge")}
         reply.update(request_digest=a._digest(request), status=status, snapshot=snapshot)
@@ -276,6 +284,43 @@ class AuthorityTests(unittest.TestCase):
         self.authority.transform_reply = lambda reply: dict(
             reply, snapshot=dict(reply["snapshot"], revision=a.MAX_REVISION))
         self.assert_closed(self.guard())
+
+    def test_new_instance_cannot_finish_or_stop_another_reservation(self):
+        first = self.store()
+        revision, _ = first.read(g.SOURCE)
+        first.compare_and_swap(g.SOURCE, revision, dict(READY, state="pending", token="visible-token"))
+        second = self.store()
+        pending, record = second.read(g.SOURCE)
+        for after in (READY, dict(record, state="stopped", reason="synthetic")):
+            with self.assertRaisesRegex(a.AuthorityError, "authority_reservation_not_owned"):
+                second.compare_and_swap(g.SOURCE, pending, after)
+        self.assertEqual(self.authority.snapshot()["revision"], 2)
+        current, _ = first.read(g.SOURCE)
+        self.assertTrue(first.compare_and_swap(g.SOURCE, current, READY))
+
+    def test_server_rejects_wrong_proof_even_if_client_ownership_is_forged(self):
+        first = self.store()
+        revision, _ = first.read(g.SOURCE)
+        first.compare_and_swap(g.SOURCE, revision, dict(READY, state="pending", token="public-token"))
+        second = self.store()
+        revision, record = second.read(g.SOURCE)
+        second._owned_token, second._capability = record["token"], "f" * 64
+        self.assertFalse(second.compare_and_swap(g.SOURCE, revision, READY))
+        self.assertEqual(self.authority.snapshot()["record"]["state"], "pending")
+
+    def test_read_snapshot_never_discloses_completion_capability(self):
+        store = self.store()
+        revision, _ = store.read(g.SOURCE)
+        store.compare_and_swap(g.SOURCE, revision, dict(READY, state="pending", token="fixture"))
+        capability = store._capability
+        self.assertEqual(len(capability), 64)
+        self.assertNotIn(capability, json.dumps(self.authority.snapshot()))
+        revision, record = self.store().read(g.SOURCE)
+        self.assertNotIn(capability, repr((revision, record, store)))
+        with sqlite3.connect(self.path) as db:
+            stored = db.execute("SELECT capability_hash FROM authority").fetchone()[0]
+        self.assertNotEqual(stored, capability)
+        self.assertEqual(stored, hashlib.sha256(capability.encode()).hexdigest())
 
     def test_default_production_has_no_authority(self):
         self.assertIsNone(g.PRODUCTION_GUARD.store)

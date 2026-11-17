@@ -54,7 +54,7 @@ class Guard:
 
     def _read(self):
         # A rollbackable GitHub mirror is never a source authorization backend.
-        if getattr(self.store, "authorizes_source", None) is False:
+        if getattr(self.store, "authorizes_source", None) is not True:
             raise SourceStopped("source_backend_not_authoritative")
         try:
             revision, record = self.store.read(SOURCE)
