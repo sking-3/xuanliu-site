@@ -1219,6 +1219,7 @@ function card(r,period) {
   const idLine=node('div',isPublicAccount(r)?'钱包 '+r.accountId.slice(0,8)+'…'+r.accountId.slice(-6):sourceIdentity(r),'platform-id');
   idLine.setAttribute('title',sourceIdentity(r));identity.append(name,identityMeta,idLine);
   if(r.exchange==='Bitget'&&r.catalogStatus==='retained')identity.append(node('div','历史收录 · 待重新筛选','platform-id'));
+  if(r.exchange==='OKX'&&r.selectionStatus==='historical')identity.append(node('div','历史收录 · 资料为旧快照','platform-id'));
   const actions=privateCardActions(r),controls={r,detailButton:detail};
   if(actions){links.append(actions.paperLink,actions.followLink);Object.assign(controls,actions);}
   else{controls.sourceLink=sourceLink(r);links.append(controls.sourceLink);}
