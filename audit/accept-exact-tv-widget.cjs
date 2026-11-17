@@ -66,8 +66,9 @@ async function main(){
     assert.equal(await page.locator('meta[http-equiv="Content-Security-Policy"]').getAttribute('content'),expectedCsp);
     await page.locator('#home-tv-movers').scrollIntoViewIfNeeded();
     await page.locator('#tv-hotlists-host iframe').waitFor();
-    const frame=page.frames().find(f=>f.url().includes('/embed-widget/hotlists/'));
+    const frame=await (await page.locator('#tv-hotlists-host iframe').elementHandle()).contentFrame();
     assert.ok(frame,'real native hot-list iframe');
+    await frame.waitForURL(u=>u.href.includes('embed-widget/hotlists'),{timeout:25000});
     const tab=frame.getByRole('tab',{name:new RegExp('^'+label)}).first();
     await tab.click();await tab.evaluate(n=>n.getAttribute('aria-selected')==='true');
     await page.waitForTimeout(2500);

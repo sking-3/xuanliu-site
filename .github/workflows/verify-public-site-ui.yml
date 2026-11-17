@@ -41,3 +41,13 @@ jobs:
           name: exact-native-widget-acceptance
           path: audit/browser-output/exact-widget/
           retention-days: 7
+  site-availability:
+    if: github.event_name == 'pull_request' && github.head_ref == 'codex/mootdx-feed'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Read only the owned public site and its static assets
+        run: node audit/check-live-site.cjs

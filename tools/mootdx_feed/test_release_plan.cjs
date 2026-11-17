@@ -19,7 +19,7 @@ const reviewed={
   ".github/workflows/schedule-health.yml": "75bed7b5aaeba0facec5508e7e790b3c6811df5d",
   ".github/workflows/verify-binance.yml": "e717b64c15684a4dba274c895009fb97989a504f",
   ".github/workflows/verify-home-dashboard.yml": "c525d390a8ea898b7e8c3d973c917711057f9d73",
-  ".github/workflows/verify-public-site-ui.yml": "574c5a6f6d54e80e22e8b259068b6d1d68b7ec91",
+  ".github/workflows/verify-public-site-ui.yml": "7f26adfa4f4cf0c4d9b39f8c21a73b04fe8c7acb",
   ".github/workflows/verify-stock-workspace.yml": "d14438ac8f3e2798d680ec828cbb2278416357fb",
   "scripts/resolve_trader_refresh_mode.cjs": "5e3e0fb0ef95a97d14247a567f083210b6071d63",
   "scripts/stage_public_release.cjs": "6a928a46089d4125a2da012ee9b6ca6897b3310e",
