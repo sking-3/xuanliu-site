@@ -40,3 +40,11 @@ node --test audit/home-active-stocks-unit.cjs 检验计算、日期、单位、�
 3. 获准 runner 的真实股票目录、五个交易日、成交额单位及完整数据；空响应应持久停止，不能换服务器或客户端绕过。
 4. 通过后再实现定时任务、原子发布、失败保留原 dataAsOf、两次跨日更新验收及撤销授权验证。本提交没有新增数据采集 schedule/dispatch。
 5. 独立复核后才考虑合并/部署。普通 push 的受审阅来源 jobs 已隔离，但旧 schedule/dispatch/continuation/排队任务仍独立存在。发布前 main SHA 检查与部署之间也仍存在竞态；本提交没有证明整仓静默或消除该竞态。
+
+## 2026-11-17 文档复核补充
+
+[TradingView 市场表](https://www.tradingview.com/widget-docs/markets/asia-pacific/)列出 SSE/SZSE 为 EOD；[数据 FAQ](https://www.tradingview.com/widget-docs/faq/data/)明确 Widget 使用其自身数据，不能导出数据或注入自有数据。[Market Summary 官方介绍](https://www.tradingview.com/widget-docs/widgets/watchlists/market-summary/)提到自动展示当日涨跌标的，但此次可读取文档未给出足以验证“中国市场成交活跃预设”的配置和逐证券实测，因此不把它记为已验证替代方案。
+
+另查了 [Tushare 数据服务协议](https://tushare.pro/document/1?doc_id=405)：使用服务第 5 项将标准服务限定为个人非商业查看。该标准许可不足以作为本站公开快照的授权依据；如有另行授权须单独核实。[BaoStock 知识库入口](https://www.baostock.com/mainContent?file=pythonAPI.md)此次未提供可读取的许可正文，不能根据免费/开源宣传推断公开再分发权利。未调用这些候选的行情 API。
+
+这些只是文档核查结论，未替用户接受协议、申请账号、购买服务或联系供应商。云端实际数据和公开展示权限仍待取得证据。
