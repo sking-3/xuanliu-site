@@ -1,6 +1,6 @@
 # 带单员与公开账户研究
 
-本站在 GitHub Pages 的同一个带单员广场展示 Hyperliquid 公开账户和 Binance 跟单组合。来源说明、批次核验统计和汇总提示收纳在底部默认折叠的“资料与统计说明”；卡片和详情中的过期、空仓、不可见与未取得状态仍直接展示。Hyperliquid 名单和表现快照位于 `trader/feed.json`，后台预计算的平仓成交胜率位于 `trader/analytics.json`；Binance 已保存的公开仓位、变化与历史样本位于 `trader/binance/portfolios.json`。个人手工记录仍仅保存在当前浏览器；页面没有文件导入或导出入口。
+本站正式地址 `https://45-77-39-98.sslip.io/trader/` 的带单员广场展示 Hyperliquid 公开账户和 Binance 跟单组合。来源说明、批次核验统计和汇总提示收纳在底部默认折叠的“资料与统计说明”；卡片和详情中的过期、空仓、不可见与未取得状态仍直接展示。Hyperliquid 名单和表现快照位于 `trader/feed.json`，后台预计算的平仓成交胜率位于 `trader/analytics.json`；Binance 已保存的公开仓位、变化与历史样本位于 `trader/binance/portfolios.json`。个人手工记录仍仅保存在当前浏览器；页面没有文件导入或导出入口。
 
 本地候选版把三份 Hyperliquid 快照的拒绝判定用于采集入口和前台。前台先核对同站快照，公开接口返回 403/429 后在当前浏览器保存停止记录，交易详情停止后续请求。网页成交表只在来源提供成交前仓位且与方向、数量一致时区分开、加、减、平。断开后的近期成交补读有范围上限。
 
