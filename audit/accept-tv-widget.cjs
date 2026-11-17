@@ -13,13 +13,17 @@ const html='<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta 
   else{res.writeHead(404);res.end();}
  });
  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
- const base='http://127.0.0.1:'+server.address().port;
+ const base='https://sking-3.github.io/xuanliu-site';
  const browser=await chromium.launch(),context=await browser.newContext({viewport:{width:1100,height:640},serviceWorkers:'block'});
  let denied=false;const blocked=new Set(),errors=[],requests=new Set();
  await context.route('**/*',route=>{
   const u=new URL(route.request().url());
   if(denied)return route.abort();
-  if(u.origin===base||u.protocol==='https:'&&(u.hostname==='tradingview.com'||u.hostname.endsWith('.tradingview.com')||['www.tradingview-widget.com','widgets.tradingview-widget.com'].includes(u.hostname))){
+  // Fulfil only this owned site's candidate page/assets; no deployment is claimed.
+  if(u.href===base+'/')return route.fulfill({contentType:'text/html',body:html});
+  if(u.href===base+'/style.css')return route.fulfill({contentType:'text/css',body:fs.readFileSync(path.join(__dirname,'tv-market-movers-preview.css'),'utf8')});
+  if(u.href===base+'/widget.js')return route.fulfill({contentType:'text/javascript',body:fs.readFileSync(path.join(__dirname,'tv-market-movers-preview.js'),'utf8')});
+  if(u.protocol==='https:'&&(u.hostname==='tradingview.com'||u.hostname.endsWith('.tradingview.com')||['www.tradingview-widget.com','widgets.tradingview-widget.com','widget-sheriff.tradingview-widget.com'].includes(u.hostname))){
    requests.add(u.origin);return route.continue();
   }
   blocked.add(u.origin);return route.abort();
@@ -35,16 +39,15 @@ const html='<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta 
   await page.waitForTimeout(12000);
   const frame=page.frames().find(f=>f.url().includes('embed-widget/hotlists'));
   assert.ok(frame,'official iframe created');
-  let activeTab=false;
-  for(const name of ['最活跃','活跃','Most active','Most Active']){
-   const tab=frame.getByText(name,{exact:true});
-   if(await tab.count()===1){await tab.click();activeTab=true;break;}
-  }
+  const active=frame.getByRole('button',{name:/^活跃/}).first();
+  await active.click();
+  const activeTab=true;
   await page.waitForTimeout(5000);
   const report=await frame.evaluate(()=>{
    const all=[...document.querySelectorAll('*')];
    return {controls:all.filter(n=>n.tagName==='BUTTON'||['button','tab'].includes(n.getAttribute('role'))).map(n=>n.textContent?.trim()).filter(Boolean),
     linkCount:all.filter(n=>n.tagName==='A'&&/SSE[-:%]/.test(n.href)).length,
+    inSiteChartLinks:all.filter(n=>n.tagName==='A'&&n.href.startsWith('https://sking-3.github.io/xuanliu-site/chart.html?')&&/SSE[-:%]/.test(n.href)).length,
     symbolCount:all.filter(n=>/^SSE:/.test(n.getAttribute('symbol')||n.getAttribute('data-symbol')||'')).length,
     dateLabels:all.filter(n=>n.tagName==='TIME').map(n=>n.dateTime),
     unavailable:/No data|无数据|暂无数据/.test(document.body.innerText),width:innerWidth,scroll:document.documentElement.scrollWidth};
@@ -56,6 +59,7 @@ const html='<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta 
   await page.screenshot({path:path.join(out,'legacy-sse-mobile.png'),fullPage:true});
   assert.ok(report.linkCount+report.symbolCount>0,'visible SSE symbols required');
   assert.equal(activeTab,true,'active ranking tab required');
+  assert.ok(report.inSiteChartLinks>0,'native symbol links must target the owned site');
   assert.equal(report.unavailable,false);
   assert.ok(report.scroll<=report.width+1,'no page overflow');
 
