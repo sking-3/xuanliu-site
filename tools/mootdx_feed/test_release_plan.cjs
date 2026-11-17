@@ -23,11 +23,12 @@ const reviewed={
   ".github/workflows/verify-stock-workspace.yml": "d14438ac8f3e2798d680ec828cbb2278416357fb",
   "scripts/resolve_trader_refresh_mode.cjs": "5e3e0fb0ef95a97d14247a567f083210b6071d63",
   "scripts/stage_public_release.cjs": "6c3ad5325a86e633b56249f619bae9dcbc07f6aa",
-  "scripts/verify_public_release.cjs": "24810a055a7bea57a4776a02feffa400cffd3e7c",
-  "scripts/check_published_release.cjs": "f6c763536ec5e075908a367d3ecf761fd43d4ff4",
+  "scripts/verify_public_release.cjs": "ee056cda7dd605c9334f28d48f62a13f5991b202",
+  "scripts/check_published_release.cjs": "507f8c5e7c3af782c3aa8cc02ae71603dfa575c5",
   "audit/release-browser.cjs": "a7ab8595261147733bbe77deb36529b7139a82c1",
   "audit/selection-release-browser.cjs": "ccc47b1bbf83507ff53d5f6f8cd47253dda7499c",
-  "audit/trader-refresh-mode-unit.cjs": "ca3bf772515444f1e1e35c0a023baea7408c8427"
+  "audit/trader-refresh-mode-unit.cjs": "ca3bf772515444f1e1e35c0a023baea7408c8427",
+  "audit/active-stocks-browser.cjs": "9401125169666d626a7d4f5d8f6861c6a6d2be78"
 };
 const read=file=>fs.readFileSync(path.join(root,file),'utf8');
 function jobs(file){
@@ -185,7 +186,7 @@ test('static publication has no source calls or denied Actions inventory queries
   assert.match(published,/base\.hostname!=='sking-3\.github\.io'/);
 });
 test('browser publication checks block external HTTP, service workers and WebSockets',()=>{
-  for(const file of ['audit/release-browser.cjs','audit/selection-release-browser.cjs']){
+  for(const file of ['audit/release-browser.cjs','audit/selection-release-browser.cjs','audit/active-stocks-browser.cjs']){
     const value=read(file);
     assert.match(value,/serviceWorkers:'block'/);
     assert.match(value,/routeWebSocket\('\*\*\/\*',ws=>ws\.close\(\)\)/);

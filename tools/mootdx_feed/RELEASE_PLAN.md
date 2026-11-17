@@ -20,12 +20,12 @@
 
 这会改变旧的“改采集脚本后自动采集”行为：今后代码 push 只验证和发布，实际采集需要独立调度/dispatch，并继续遵守原来源限制。条件允许某事件不等于来源已获授权，本次没有运行这些事件。
 
-deploy-static-pages 保留静态发布：push checkout 固定为 github.event.after；普通手动/复用调用的旧行为未改变。原门禁继续要求干净的已提交文件、离线测试、当前 main 与待发布 SHA 一致，随后部署和核对静态资源。main 推进时该候选发布应失败，不回退到采集或自动发布别的版本。
+deploy-static-pages 保留静态发布：push checkout 固定为 github.event.after；普通手动/复用调用的旧行为未改变。原门禁继续要求干净的已提交文件、离线测试、当前 main 与待发布 SHA 一致，随后部署和核对静态资源。检查时若 main 已推进则拒绝，但检查与部署之间仍有竞态，不能据此保证部署瞬间 main 未变化；后验不符必须如实报告。本轮未解决该竞态。
 
 ## 不访问行情源的候选发布步骤
 
 1. 继续保持 PR 草稿。独立复核本 PR 的完整差异，必须包含上述五处来源 job 限制和静态 push checkout 固定；不能只挑选 mootdx 工具文件后普通合并。
-2. 在最终候选提交上运行下列离线检查。test_release_plan.cjs 只读文件，核对 22 个已审阅文件的 Git blob 指纹，并解释受限布尔表达式；不执行工作流、采集器、队列查询或停止记录读写。出现新 workflow/job、未知表达式或版本漂移即失败，必须重新审阅。
+2. 在最终候选提交上运行下列离线检查。test_release_plan.cjs 只读文件，核对已审阅工作流、发布脚本及浏览器测试的 Git blob 指纹，并解释受限布尔表达式；不执行工作流、采集器、队列查询或停止记录读写。出现新 workflow/job、未知表达式或版本漂移即失败，必须重新审阅。
 3. 确认最新候选的 CI 成功且与将要合并的内容一致。合并是后续单独执行的发布动作，本轮不执行。无需依赖 [ui-only]；不能使用 [skip ci] 绕过验证。
 4. 合并后由该 push 的静态发布工作流检查、暂存和部署那个事件的确切 SHA。来源 jobs 在 push 上拒绝；public-orders 的测试完成也不能再经 workflow_run 启动 Aoying。
 5. 后验只使用已审阅的静态校验脚本：release-manifest.json 的 revision 和关键资源哈希须一致。浏览器检查拦截所有外部 HTTP、WebSocket，并禁用 service worker；仅放行本站资源或本地测试服务。不要用普通无拦截浏览器点击行情按钮来完成本次验收。
@@ -41,7 +41,7 @@ node scripts/verify_public_release.cjs
 
 最后一条使用既有 Playwright/lxml 测试环境；依赖准备按仓库 setup-public-release action。GitHub/npm/PyPI 和浏览器包安装流量不属于行情采集，不能将整个 CI 称为完全无网络。
 
-发布归档由 git archive 生成，只包含已提交文件。当前 staging 规则会带上公开的 Python 源码和文档，但 GitHub Pages 不执行它们；私人 HOME 下的停止记录和样本输出不在归档中。本次不改首页或行情快照，不产生热门榜，不把新 release SHA 当作新行情日期。
+发布归档由 git archive 生成，只包含已提交文件。当前 staging 规则会带上公开的 Python 源码和文档，但 GitHub Pages 不执行它们；私人 HOME 下的停止记录和样本输出不在归档中。新增首页成交活跃组件和生产空态 JSON；合成数据仅在被归档排除的 audit 目录内。没有真实榜单或新行情日期，不把新 release SHA 当作行情日期。具体字段、显示与验证见 HOMEPAGE.md。
 
 ## 整仓静默的边界
 

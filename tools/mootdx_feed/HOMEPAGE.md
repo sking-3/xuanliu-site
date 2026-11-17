@@ -1,0 +1,42 @@
+# A 股成交活跃：首页与数据合同
+
+目标链路是 GitHub Actions 云端更新名单，首页读取本站静态 JSON，点击股票打开本站 chart.html 的 TradingView 图表。用户 Mac 不参与执行。本草稿完成展示、五日均额排序与离线回归；未实现或启用真实来源的每日自动发布。
+
+## 当前提交的生产状态
+
+research-data/a-active-stocks.json 仅含 not_configured、空 rows、空交易日及 null 日期/来源。首页显示“待接入”。没有将测试股票、价格或成交额写入生产快照；现有观察列表和涨跌榜保留，均不冒称热门榜。
+
+audit/active-stocks-fixture.cjs 中的三只证券全部是合成数值、合成名称。只有 Node 测试和拦截响应的浏览器测试加载它；浏览器明确显示“合成测试数据 · 非真实行情”。发布脚本从 git archive 中移除整个 audit 目录。前端没有测试模式 URL、fixture 引用、浏览器缓存回退或真实行情源请求。
+
+## 展示与计算
+
+- 指标为五个完整交易日的成交额算术平均，单位 CNY；缺少任何一天、单位不明、字符串数字、负数、非有限数值、日期错位或证券重复，整个快照拒绝展示。
+- 目前只接受 supplied_stock_sample。页面同时说明所提供样本数、完整数据数和排除数，最多显示十只；不宣称全市场排名，不把成交活跃称搜索/社交关注热度。
+- 完整且真实的零成交日允许参与平均；五日均额为零的证券不进入活跃榜。缺失不能补零。均额相同时按交易所证券代码排序。
+- 日期始终取 dataAsOf，必须等于五个输入交易日的末日。generatedAt 不早于末日上海 15:00，也不得晚于读取时刻；超过末日收盘 72 小时显示“历史快照”。72 小时仅是保守的展示提示，不能判断节假日后的应更新交易日。
+- 输入生产者必须使用获准交易所日历验证最近五个完整交易日及每只证券的最终日记录。前端只验证日期顺序、工作日、闭市时间和 completedSessionsVerified 标记，不能独立证明节假日、交易日连续性、停牌记录或源数据完整性。
+- SH 主板/科创板和 SZ 主板/创业板代码映射 SSE:/SZSE:，点击 chart.html?tvwidgetsymbol=...；北京市场和未知号段拒绝。代码语法符合不等于每只股票在 TradingView 可用，实际显示仍以来源为准。
+- 图表沿用 TradingView 的自有日终行情；本模块不把 TDX/腾讯成交额或价格注入 Widget。图表连接失败时，现有页面提示来源未响应并保留恢复入口。
+- 读取失败不复用旧浏览器排名，清空名单并标“暂不可用”；本站 JSON 单次请求，redirect:error、credentials:omit、10 秒超时，无自动重试。
+
+## 待云端生产者满足的字段
+
+ready 快照需要 schemaVersion=1、synthetic=false、method=mean_daily_turnover_5_sessions、amountUnit=CNY、completedSessionsVerified=true、dataAsOf、UTC generatedAt、五个 tradingDates；source 含 id/name/publicDisplayApproved/permissionReference；coverage 含 scope/supplied/complete/excluded；rows 每只含 exchange/code/name 和五条 date/amount 的 dailyAmounts。
+
+publicDisplayApproved 和 permissionReference 只是可审查的元数据，不构成授权，也不能解锁采集器。completedSessionsVerified 同样不是独立验证。真实云端生产者尚未接入，必须先完成 SOURCE_ACCESS.md 的共享停止状态、来源许可与真实数据验收。当前测试明确要求生产快照保持空态；以后接入真实数据需单独修改测试并复核，不可把 synthetic 改成 false 冒充真实。
+
+本格式会公开用于计算的五日成交额，来源许可必须覆盖这些字段的缓存、派生排名及公开展示；如果许可只允许发布派生名单，需在接入前另行设计和审查更小的发布合同。
+
+## 自动化验收
+
+node --test audit/home-active-stocks-unit.cjs 检验计算、日期、单位、覆盖、映射和生产空态。既有 node scripts/verify_public_release.cjs 自动发现该测试，再分别用 Chromium/WebKit 运行 audit/active-stocks-browser.cjs。
+
+浏览器覆盖 1440/768/390/375 宽度、合成数据醒目标记、两交易所各一次真实站内路由跳转、图表源不可用状态、恶意名称安全文本、读取 403、无效 JSON 和缺日拒绝。所有外部 HTTP/WebSocket 被拦截，service worker 禁用。通过这些测试不能证明真实行情源、每只证券 Widget 可用或公开展示授权。
+
+## 云端上线仍需完成
+
+1. 来源授权和公开展示范围；腾讯接口用法、mootdx MIT 文件或能连 TCP 均不能代替数据授权。TradingView Widget 沪深市场日终，且不是可导出给 Actions 排名的数据 API。
+2. 旧来源拒绝/暂停状态完整映射到同一来源身份，并在不同临时 runner 之间持久继承。当前采集入口保持硬关闭。
+3. 获准 runner 的真实股票目录、五个交易日、成交额单位及完整数据；空响应应持久停止，不能换服务器或客户端绕过。
+4. 通过后再实现定时任务、原子发布、失败保留原 dataAsOf、两次跨日更新验收及撤销授权验证。本提交没有新增数据采集 schedule/dispatch。
+5. 独立复核后才考虑合并/部署。普通 push 的受审阅来源 jobs 已隔离，但旧 schedule/dispatch/continuation/排队任务仍独立存在。发布前 main SHA 检查与部署之间也仍存在竞态；本提交没有证明整仓静默或消除该竞态。

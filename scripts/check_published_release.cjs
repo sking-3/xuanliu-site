@@ -18,7 +18,7 @@ async function main(){
     catch(error){if(error.refused||wait===8000)throw error;}
   }
   if(manifest?.revision!==expected||manifest.schema!==1)throw Error('Deployed revision does not match');
-  const critical=['index.html','screening/index.html','us.html','trader/index.html','tools.html','crypto.html','research.html','quant-research/index.html','quant-research/app.mjs','quant-research/engine.mjs','books-shell.js','books-ui.css','market-calendar.js','market-strip.html','market-strip.js','crypto-market.js','crypto-full.js','stock-workspace.js','screening/stock-selection.js','screening/selection-shell.js','screening/technical-screen.js'];
+  const critical=['index.html','home-active-stocks.js','home-active-stocks.css','screening/index.html','us.html','trader/index.html','tools.html','crypto.html','research.html','quant-research/index.html','quant-research/app.mjs','quant-research/engine.mjs','books-shell.js','books-ui.css','market-calendar.js','market-strip.html','market-strip.js','crypto-market.js','crypto-full.js','stock-workspace.js','screening/stock-selection.js','screening/selection-shell.js','screening/technical-screen.js'];
   for(const file of critical){
     const hash=bytes=>crypto.createHash('sha256').update(bytes).digest('hex');
     const local=hash(fs.readFileSync(path.join(root,file)));
