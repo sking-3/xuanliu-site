@@ -20,6 +20,10 @@ test('fresh stream events preserve source and receipt times; duplicates persist 
  assert.deepEqual([row.action,row.sourceTime,row.observedAt,row.lagMs,row.eligible,row.executable],['open_long',T-1000,T,1000,true,false]);
  assert.equal(observer.receive(msg([fill(2)],false)).length,0);assert.equal(store.count(),1);store.close();
 });
+test('a repeated fill identity with changed economics fails closed instead of hiding the revision',()=>{
+ const {store,observer}=fixture();observer.receive(msg([],true));observer.receive(msg([fill(2)]));
+ assert.throws(()=>observer.receive(msg([fill(2,{px:'64000'})])),/identity_conflict/);assert.equal(store.count(),1);store.close();
+});
 test('omitted isSnapshot never establishes baseline but is accepted for live updates after baseline',()=>{
  const {store,observer}=fixture();let data=msg([fill()]);delete data.data.isSnapshot;assert.equal(observer.receive(data)[0].kind,'before_baseline');assert.equal(observer.status().baseline,false);
  observer.receive(msg([],true));data=msg([fill(2)]);delete data.data.isSnapshot;assert.equal(observer.receive(data)[0].kind,'stream');store.close();

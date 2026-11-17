@@ -67,6 +67,7 @@ export function openStore(path) {
     CREATE TABLE IF NOT EXISTS transitions (at INTEGER NOT NULL, state TEXT NOT NULL, reason TEXT);
     CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);`);
   const insert = db.prepare('INSERT OR IGNORE INTO events VALUES (?, ?, ?, ?, ?, ?)');
+  const existingEvent = db.prepare('SELECT event_json FROM events WHERE id = ?');
   const transition = db.prepare('INSERT INTO transitions VALUES (?, ?, ?)');
   const count = db.prepare('SELECT COUNT(*) AS n FROM events');
   const hasRun = db.prepare("SELECT value FROM metadata WHERE key = 'has_run'");
@@ -77,7 +78,16 @@ export function openStore(path) {
   const markStop = db.prepare("INSERT INTO metadata(key,value) VALUES('source_stop',?) ON CONFLICT(key) DO NOTHING");
   return {
     begin() { db.exec('BEGIN IMMEDIATE'); }, commit() { db.exec('COMMIT'); }, rollback() { db.exec('ROLLBACK'); },
-    add(event, kind, eligible) { return insert.run(event.id,event.sourceTime,event.observedAt,kind,eligible ? 1 : 0,JSON.stringify(event)).changes === 1; },
+    add(event, kind, eligible) {
+      const prior=existingEvent.get(event.id);
+      if(prior) {
+        const saved=JSON.parse(prior.event_json);
+        for(const field of ['coin','side','direction','action','price','quantity','startPosition','tradeId','orderId','hash','sourceTime'])
+          if(saved[field]!==event[field])fail('identity_conflict');
+        return false;
+      }
+      return insert.run(event.id,event.sourceTime,event.observedAt,kind,eligible ? 1 : 0,JSON.stringify(event)).changes === 1;
+    },
     transition(at,state,reason=null) { transition.run(at,state,reason); },
     count() { return Number(count.get().n); },
     previousRun() { return !!hasRun.get(); }, markRun() { markRun.run(); },
