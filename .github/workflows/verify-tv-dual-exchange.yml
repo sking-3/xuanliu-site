@@ -1,0 +1,26 @@
+name: Verify official dual-exchange widget capability
+on:
+  pull_request:
+    paths:
+      - 'audit/verify-tv-dual-exchange.cjs'
+      - '.github/workflows/verify-tv-dual-exchange.yml'
+permissions:
+  contents: read
+jobs:
+  official-widget:
+    if: github.event_name == 'pull_request' && github.head_ref == 'codex/tv-dual-exchange-check'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-public-release
+      - name: Bounded official widget UI capability check
+        run: node audit/verify-tv-dual-exchange.cjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: official-dual-exchange-capability
+          path: audit/browser-output/dual-widget/report.json
+          retention-days: 7
