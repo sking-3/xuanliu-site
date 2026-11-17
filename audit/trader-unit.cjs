@@ -674,7 +674,15 @@ await test('published Bitget and OKX details retain real windows, records, and h
  const visible=bg.accounts.find(r=>r.activity.positions.rows.length),b=real(visible,bitget,visible.activity);
  a.selectPlatform('Bitget');assert.ok(ids['position-notice'].hidden);assert.doesNotMatch(content(ids.status),/Hyperliquid/);assert.ok(ids['source-summary'].hidden);
  const shown=a.card(b,'30D');assert.match(content(shown),/同期盈亏 USD/);assert.match(content(shown),/来源回撤/);assert.match(content(shown),/每日收益率/);assert.match(content(shown),/历史仓位/);
- a.openDetail(b,'365D');assert.equal(a.state.window,'90D');assert.match(content(ids['detail-body']),/365D 暂无可核实收益/);assert.match(content(ids['detail-body']),/Bitget 90D 收益率/);assert.match(content(ids['detail-body']),/官方每日收益率/);
+ // The committed snapshot can legitimately gain a 365D window after refresh.
+ // Validate its supported period, then exercise missing-year fallback explicitly.
+ const hasYear=Number.isFinite(bitget.performance(visible,'365D')?.roi);
+ a.openDetail(b,'365D');assert.equal(a.state.window,hasYear?'365D':'90D');
+ assert.match(content(ids['detail-body']),new RegExp('Bitget '+(hasYear?'365D':'90D')+' 收益率'));
+ if(hasYear)assert.doesNotMatch(content(ids['detail-body']),/365D 暂无可核实收益/);
+ const withoutYear=JSON.parse(JSON.stringify(visible));delete withoutYear.performance['365D'];
+ a.openDetail(real(withoutYear,bitget,withoutYear.activity),'365D');
+ assert.equal(a.state.window,'90D');assert.match(content(ids['detail-body']),/365D 暂无可核实收益/);assert.match(content(ids['detail-body']),/Bitget 90D 收益率/);assert.match(content(ids['detail-body']),/官方每日收益率/);
  assert.match(content(ids['detail-body']),/已平仓样本分析/);assert.match(content(ids['detail-overview']),/Bitget.*持仓快照/);
  a.activateDetailTab('positions');assert.match(content(ids['detail-body']),new RegExp(visible.activity.history.rows[0].symbol));assert.match(content(ids['detail-body']),/已平仓仓位/);
  a.activateDetailTab('live');assert.match(content(ids['detail-body']),new RegExp(visible.activity.positions.rows[0].symbol));assert.match(content(ids['detail-body']),/延迟约 1 小时/);
