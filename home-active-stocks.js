@@ -1,6 +1,7 @@
 'use strict';
 (function(root){
   const METHOD='mean_daily_turnover_5_sessions',FILE='research-data/a-active-stocks.json';
+  const REFRESH_MS=5*60*1000,CLOCK_MS=60*1000,mounted=new WeakMap();
   function requireValue(ok){if(!ok)throw Error('Invalid active-stock snapshot');}
   function text(value,max=80){return typeof value==='string'&&value.trim()===value&&value.length>0&&value.length<=max&&!/[\u0000-\u001f\u007f]/.test(value);}
   function day(value){
@@ -66,12 +67,12 @@
   function render(doc,view){
     const section=doc.getElementById('home-active-stocks'),status=doc.getElementById('active-stocks-status');
     const list=doc.getElementById('active-stocks-list'),meta=doc.getElementById('active-stocks-meta');
-    list.replaceChildren();meta.textContent='';section.dataset.state=view.status;section.setAttribute('aria-busy','false');
+    list.replaceChildren();meta.textContent='';section.dataset.state=view.refreshFailed?'stale':view.status;section.setAttribute('aria-busy','false');
     if(view.status!=='ready'){
       status.textContent=view.status==='not_configured'?'待接入 · 暂无已核验的成交活跃名单':'名单暂不可用 · 本次未展示排名';
       return;
     }
-    status.textContent=(view.synthetic?'合成测试数据 · 非真实行情 · ':'')+(view.historical?'历史快照':'日终快照')+' · 截至 '+view.dataAsOf+'（上海）';
+    status.textContent=(view.synthetic?'合成测试数据 · 非真实行情 · ':'')+(view.refreshFailed?'更新失败 · 保留':'')+(view.historical?'历史快照':'日终快照')+' · 截至 '+view.dataAsOf+'（上海）';
     meta.textContent='来源：'+view.source+' · '+view.dates[0]+' 至 '+view.dataAsOf+' · 所提供样本 '+view.coverage.supplied+
       ' 只，完整数据 '+view.coverage.complete+' 只，缺失排除 '+view.coverage.excluded+' 只 · 展示前 '+view.rows.length+' 名';
     for(const [index,row]of view.rows.entries()){
@@ -85,20 +86,88 @@
     }
     if(!view.rows.length){const li=doc.createElement('li');li.textContent='该样本内没有非零成交额记录';list.append(li);}
   }
-  async function mount(doc,options={}){
-    if(!doc.getElementById('home-active-stocks'))return;
-    const fetcher=options.fetch||root.fetch.bind(root),now=options.now||Date.now;
-    const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),10000);
-    try{
-      const response=await fetcher(FILE,{cache:'no-store',credentials:'omit',redirect:'error',signal:controller.signal});
-      if(!response.ok)throw Error('Snapshot unavailable');
-      const length=Number(response.headers.get('content-length')||0);if(length>4*1024*1024)throw Error('Oversized snapshot');
-      const raw=await response.text();if(raw.length>4*1024*1024)throw Error('Oversized snapshot');
-      render(doc,summarize(JSON.parse(raw),now()));
-    }catch{render(doc,{status:'unavailable',rows:[]});}
-    finally{clearTimeout(timer);}
+  function releaseMetadata(data,now=Date.now()){
+    summarize(data,now);
+    requireValue(data.synthetic===false);
+    return {schemaVersion:data.schemaVersion,method:data.method,status:data.status,
+      dataAsOf:data.dataAsOf,generatedAt:data.status==='ready'?data.generatedAt:null,tradingDates:data.tradingDates.slice()};
   }
-  const api={METHOD,FILE,symbol,chartHref,summarize,amount,render,mount};
+  function mount(doc,options={}){
+    const host=doc.getElementById('home-active-stocks');if(!host)return;
+    if(mounted.has(host))return mounted.get(host);
+    const fetcher=options.fetch||root.fetch.bind(root),now=options.now||Date.now;
+    const timers=options.timers||root,events=options.events||doc.defaultView||root;
+    let active=true,flight=null,last=null,watermark=null,failed=false,settled=false,empty='not_configured',painted=null;
+    function repaint(){
+      if(!active||!settled)return;
+      const view=last?{...last,historical:now()-(day(last.dataAsOf)+7*3600000)>72*3600000,refreshFailed:failed}
+        :{status:failed?'unavailable':empty,rows:[]};
+      const key=JSON.stringify(view);
+      if(key!==painted){render(doc,view);painted=key;}
+    }
+    function refresh(){
+      repaint();
+      if(!active||doc.visibilityState==='hidden')return Promise.resolve();
+      if(flight)return flight.promise;
+      const attempt={controller:new AbortController(),promise:null};
+      flight=attempt;
+      const current=()=>active&&flight===attempt&&mounted.get(host)===app;
+      const timeout=timers.setTimeout(()=>{
+        if(!current())return;
+        failed=true;settled=true;repaint();attempt.controller.abort();
+      },10000);
+      attempt.timeout=timeout;
+      attempt.promise=(async()=>{
+        try{
+          const response=await fetcher(FILE,{cache:'no-store',credentials:'omit',redirect:'error',signal:attempt.controller.signal});
+          if(!response.ok)throw Error('Snapshot unavailable');
+          const length=Number(response.headers.get('content-length')||0);if(length>4*1024*1024)throw Error('Oversized snapshot');
+          const raw=await response.text();if(raw.length>4*1024*1024)throw Error('Oversized snapshot');
+          if(!current()||attempt.controller.signal.aborted)return;
+          const data=JSON.parse(raw),view=summarize(data,now());
+          if(view.status==='ready'){
+            // A slower cache/replica must not roll back either the session date
+            // or the producer generation time, including after a disabled state.
+            const version={date:data.dataAsOf,time:Date.parse(data.generatedAt),body:JSON.stringify(data)};
+            if(watermark&&(version.date<watermark.date||version.time<watermark.time||
+              (version.time===watermark.time&&version.body!==watermark.body)))throw Error('Snapshot rollback');
+            watermark=version;last=view;
+          }else{
+            // An explicit disabled state removes prior data, even after failures.
+            last=null;empty=view.status;
+          }
+          failed=false;settled=true;repaint();
+        }catch{
+          if(current()){failed=true;settled=true;repaint();}
+        }finally{
+          timers.clearTimeout(timeout);
+          if(flight===attempt)flight=null;
+        }
+      })();
+      return attempt.promise;
+    }
+    function visible(){if(doc.visibilityState!=='hidden'){repaint();return refresh();}}
+    function restored(event){if(event.persisted)return visible();}
+    function leaving(event){if(!event.persisted)destroy();}
+    function destroy(){
+      if(!active)return;
+      active=false;timers.clearInterval(clock);timers.clearInterval(poll);
+      doc.removeEventListener('visibilitychange',visible);
+      events.removeEventListener('pageshow',restored);events.removeEventListener('pagehide',leaving);
+      if(flight){timers.clearTimeout(flight.timeout);flight.controller.abort();}
+      flight=null;
+      if(mounted.get(host)===app)mounted.delete(host);
+    }
+    const app={refresh,recompute:repaint,destroy,ready:null};
+    mounted.set(host,app);
+    const clock=timers.setInterval(repaint,CLOCK_MS);
+    const poll=timers.setInterval(()=>doc.visibilityState!=='hidden'?refresh():undefined,REFRESH_MS);
+    doc.addEventListener('visibilitychange',visible);
+    events.addEventListener('pageshow',restored);events.addEventListener('pagehide',leaving);
+    app.ready=refresh();
+    return app;
+  }
+  const api={METHOD,FILE,REFRESH_MS,CLOCK_MS,symbol,chartHref,summarize,releaseMetadata,amount,render,mount};
   if(typeof module==='object'&&module.exports)module.exports=api;
   else{root.BooksActiveStocks=api;if(root.document)mount(root.document);}
 })(typeof globalThis==='object'?globalThis:this);

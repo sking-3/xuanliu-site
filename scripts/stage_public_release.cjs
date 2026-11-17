@@ -15,11 +15,13 @@ function stage(target,expected){
   function walk(dir){for(const entry of fs.readdirSync(dir,{withFileTypes:true})){
     const file=path.join(dir,entry.name),rel=path.relative(target,file).split(path.sep).join('/');
     if(entry.isDirectory())walk(file);
-    else if(/\.(html|js|mjs|css)$/.test(rel))assets[rel]=crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+    else if(/\.(html|js|mjs|css)$/.test(rel)||rel==='research-data/a-active-stocks.json')assets[rel]=crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
   }}
   walk(target);
   for(const file of ['index.html','research.html','quant-research/index.html','screening/index.html','market-calendar.js'])if(!assets[file])throw Error('Missing public asset '+file);
-  fs.writeFileSync(path.join(target,'release-manifest.json'),JSON.stringify({schema:1,revision,assets},null,2)+'\n');
+  const {releaseMetadata}=require(path.join(target,'home-active-stocks.js'));
+  const activeStocks=releaseMetadata(JSON.parse(fs.readFileSync(path.join(target,'research-data/a-active-stocks.json'),'utf8')));
+  fs.writeFileSync(path.join(target,'release-manifest.json'),JSON.stringify({schema:1,revision,assets,activeStocks},null,2)+'\n');
   return {revision,assets:Object.keys(assets).length};
 }
 if(require.main===module){try{console.log(JSON.stringify(stage(process.env.BOOKS_STAGE_DIR,process.env.EXPECTED_SHA)));}catch(e){console.error(e.message);process.exitCode=1;}}

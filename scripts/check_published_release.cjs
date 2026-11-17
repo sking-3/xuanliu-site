@@ -1,6 +1,7 @@
 'use strict';
 const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto');
 const root=path.resolve(__dirname,'..');
+const {releaseMetadata}=require('../home-active-stocks.js');
 const base=new URL(process.env.RELEASE_BASE_URL||'https://sking-3.github.io/xuanliu-site/');
 const expected=process.env.EXPECTED_SHA;
 async function read(file){
@@ -18,7 +19,9 @@ async function main(){
     catch(error){if(error.refused||wait===8000)throw error;}
   }
   if(manifest?.revision!==expected||manifest.schema!==1)throw Error('Deployed revision does not match');
-  const critical=['index.html','home-active-stocks.js','home-active-stocks.css','screening/index.html','us.html','trader/index.html','tools.html','crypto.html','research.html','quant-research/index.html','quant-research/app.mjs','quant-research/engine.mjs','books-shell.js','books-ui.css','market-calendar.js','market-strip.html','market-strip.js','crypto-market.js','crypto-full.js','stock-workspace.js','screening/stock-selection.js','screening/selection-shell.js','screening/technical-screen.js'];
+  const metadata=releaseMetadata(JSON.parse(fs.readFileSync(path.join(root,'research-data/a-active-stocks.json'),'utf8')));
+  if(JSON.stringify(manifest.activeStocks)!==JSON.stringify(metadata))throw Error('Published ranking version/date metadata mismatch');
+  const critical=['index.html','home-active-stocks.js','home-active-stocks.css','research-data/a-active-stocks.json','screening/index.html','us.html','trader/index.html','tools.html','crypto.html','research.html','quant-research/index.html','quant-research/app.mjs','quant-research/engine.mjs','books-shell.js','books-ui.css','market-calendar.js','market-strip.html','market-strip.js','crypto-market.js','crypto-full.js','stock-workspace.js','screening/stock-selection.js','screening/selection-shell.js','screening/technical-screen.js'];
   for(const file of critical){
     const hash=bytes=>crypto.createHash('sha256').update(bytes).digest('hex');
     const local=hash(fs.readFileSync(path.join(root,file)));

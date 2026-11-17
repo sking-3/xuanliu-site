@@ -20,6 +20,11 @@ async function main(){
      if(mode==='refused')return route.fulfill({status:403,body:'Forbidden'});
      if(mode==='malformed')return route.fulfill({contentType:'application/json',body:'{'});
      const data=fixture();
+     if(mode==='updated'){
+      data.tradingDates=['2026-11-10','2026-11-11','2026-11-12','2026-11-13','2026-11-16'];
+      data.dataAsOf='2026-11-16';data.generatedAt='2026-11-16T08:00:00.000Z';
+      data.rows.forEach(row=>row.dailyAmounts.forEach((entry,i)=>entry.date=data.tradingDates[i]));
+     }
      if(mode==='invalid')data.rows[0].dailyAmounts.pop();
      if(mode==='hostile')data.rows[1].name='<img src=x onerror=alert(1)>';
      return route.fulfill({json:data});
@@ -68,9 +73,41 @@ async function main(){
     assert.match(await page.locator('#active-stocks-status').innerText(),/未展示排名/);
     assert.equal(snapshotRequests-before,1,'one static snapshot attempt, no retry');
    }
+   // Simulate a long-lived page without advancing timers belonging to other widgets.
+   mode='fixture';await visit('ready');
+   await page.evaluate(async()=>{
+    BooksActiveStocks.mount(document).destroy();
+    window.activeTestNow=Date.parse('2026-11-13T08:00:00.000Z');
+    window.activeTestApp=BooksActiveStocks.mount(document,{now:()=>window.activeTestNow});
+    await window.activeTestApp.ready;
+   });
+   assert.match(await page.locator('#active-stocks-status').innerText(),/日终快照/);
+   await page.evaluate(()=>{
+    window.activeTestNow=Date.parse('2026-11-16T07:00:01.000Z');window.activeTestApp.recompute();
+   });
+   assert.match(await page.locator('#active-stocks-status').innerText(),/历史快照.*2026-11-13/);
+   mode='updated';
+   await page.evaluate(()=>{
+    window.activeTestNow=Date.parse('2026-11-16T09:00:00.000Z');
+    window.dispatchEvent(new PageTransitionEvent('pageshow',{persisted:true}));
+    return window.activeTestApp.refresh();
+   });
+   assert.match(await page.locator('#active-stocks-status').innerText(),/日终快照.*2026-11-16/);
+   mode='refused';await page.evaluate(()=>window.activeTestApp.refresh());
+   assert.equal(await page.locator('#home-active-stocks').getAttribute('data-state'),'stale');
+   assert.match(await page.locator('#active-stocks-status').innerText(),/更新失败.*2026-11-16/);
+   assert.equal(await page.locator('#active-stocks-list li').count(),3);
+   await page.evaluate(()=>{
+    window.activeTestNow=Date.parse('2026-11-19T08:00:00.000Z');window.activeTestApp.recompute();
+   });
+   assert.match(await page.locator('#active-stocks-status').innerText(),/更新失败.*历史快照.*2026-11-16/);
+   mode='fixture';await page.evaluate(()=>window.activeTestApp.refresh());
+   assert.match(await page.locator('#active-stocks-status').innerText(),/更新失败.*2026-11-16/);
+   await page.locator('#home-active-stocks').screenshot({path:path.join(output,'synthetic-active-stocks-retained-'+width+'.png')});
+   await page.evaluate(()=>window.activeTestApp.destroy());
    assert.ok(providerAttempts>0,'provider attempts intercepted and aborted');
    assert.deepEqual(errors,[],'uncaught errors');
-   report.checks.push({width,syntheticRows:3,chartSymbols:['SZSE:000001','SSE:600519'],failureStates:3,externalProviderAttemptsBlocked:providerAttempts});
+   report.checks.push({width,syntheticRows:3,chartSymbols:['SZSE:000001','SSE:600519'],failureStates:3,refreshAndExpiry:true,externalProviderAttemptsBlocked:providerAttempts});
    await context.close();
   }
   console.log('PASS '+engine+': active stocks, 4 viewports, 8 in-site chart navigations, synthetic fixtures and failures');

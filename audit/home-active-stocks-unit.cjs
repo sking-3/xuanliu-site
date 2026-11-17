@@ -79,3 +79,13 @@ test('production code cannot load the synthetic audit fixture or call a provider
  assert.doesNotMatch(html,/合成样本|合成测试源/);
  assert.match(fs.readFileSync(path.join(root,'scripts/stage_public_release.cjs'),'utf8'),/'audit'/);
 });
+test('release metadata binds schema, method and source dates and rejects synthetic publication',()=>{
+ const empty=require('../research-data/a-active-stocks.json');
+ assert.deepEqual(api.releaseMetadata(empty,now),{schemaVersion:1,method:api.METHOD,status:'not_configured',dataAsOf:null,generatedAt:null,tradingDates:[]});
+ assert.throws(()=>api.releaseMetadata(fixture(),now));
+ const data=fixture();data.synthetic=false;data.source.permissionReference='https://example.invalid/offline-test-only';
+ const metadata=api.releaseMetadata(data,now);
+ assert.equal(metadata.dataAsOf,'2026-11-13');assert.equal(metadata.generatedAt,'2026-11-13T08:00:00.000Z');
+ assert.deepEqual(metadata.tradingDates,data.tradingDates);
+ data.dataAsOf='2026-11-12';assert.throws(()=>api.releaseMetadata(data,now));
+});

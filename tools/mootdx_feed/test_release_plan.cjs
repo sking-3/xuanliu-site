@@ -22,13 +22,13 @@ const reviewed={
   ".github/workflows/verify-public-site-ui.yml": "195612df319c06deb3b7f3ff1dc79335e81f83b7",
   ".github/workflows/verify-stock-workspace.yml": "d14438ac8f3e2798d680ec828cbb2278416357fb",
   "scripts/resolve_trader_refresh_mode.cjs": "5e3e0fb0ef95a97d14247a567f083210b6071d63",
-  "scripts/stage_public_release.cjs": "6c3ad5325a86e633b56249f619bae9dcbc07f6aa",
+  "scripts/stage_public_release.cjs": "6a928a46089d4125a2da012ee9b6ca6897b3310e",
   "scripts/verify_public_release.cjs": "ee056cda7dd605c9334f28d48f62a13f5991b202",
-  "scripts/check_published_release.cjs": "507f8c5e7c3af782c3aa8cc02ae71603dfa575c5",
+  "scripts/check_published_release.cjs": "42ae40e6420ecb96c9b12623a2e4b7d5b1f5164e",
   "audit/release-browser.cjs": "a7ab8595261147733bbe77deb36529b7139a82c1",
   "audit/selection-release-browser.cjs": "ccc47b1bbf83507ff53d5f6f8cd47253dda7499c",
   "audit/trader-refresh-mode-unit.cjs": "ca3bf772515444f1e1e35c0a023baea7408c8427",
-  "audit/active-stocks-browser.cjs": "9401125169666d626a7d4f5d8f6861c6a6d2be78"
+  "audit/active-stocks-browser.cjs": "fd768d00587618bfe7c249846450893e428d87c1"
 };
 const read=file=>fs.readFileSync(path.join(root,file),'utf8');
 function jobs(file){

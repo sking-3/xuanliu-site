@@ -17,7 +17,7 @@ audit/active-stocks-fixture.cjs 中的三只证券全部是合成数值、合成
 - 输入生产者必须使用获准交易所日历验证最近五个完整交易日及每只证券的最终日记录。前端只验证日期顺序、工作日、闭市时间和 completedSessionsVerified 标记，不能独立证明节假日、交易日连续性、停牌记录或源数据完整性。
 - SH 主板/科创板和 SZ 主板/创业板代码映射 SSE:/SZSE:，点击 chart.html?tvwidgetsymbol=...；北京市场和未知号段拒绝。代码语法符合不等于每只股票在 TradingView 可用，实际显示仍以来源为准。
 - 图表沿用 TradingView 的自有日终行情；本模块不把 TDX/腾讯成交额或价格注入 Widget。图表连接失败时，现有页面提示来源未响应并保留恢复入口。
-- 读取失败不复用旧浏览器排名，清空名单并标“暂不可用”；本站 JSON 单次请求，redirect:error、credentials:omit、10 秒超时，无自动重试。
+- 初次读取失败无排名；刷新失败保留已验证快照和原始来源日期，并标“更新失败 · 保留…快照”。不会将检查时间当作行情时间。显式 not_configured 会清除旧名单，随后失败也不恢复它。本站 JSON 每轮单次请求，redirect:error、credentials:omit、10 秒超时。
 
 ## 待云端生产者满足的字段
 
@@ -48,3 +48,13 @@ node --test audit/home-active-stocks-unit.cjs 检验计算、日期、单位、�
 另查了 [Tushare 数据服务协议](https://tushare.pro/document/1?doc_id=405)：使用服务第 5 项将标准服务限定为个人非商业查看。该标准许可不足以作为本站公开快照的授权依据；如有另行授权须单独核实。[BaoStock 知识库入口](https://www.baostock.com/mainContent?file=pythonAPI.md)此次未提供可读取的许可正文，不能根据免费/开源宣传推断公开再分发权利。未调用这些候选的行情 API。
 
 这些只是文档核查结论，未替用户接受协议、申请账号、购买服务或联系供应商。云端实际数据和公开展示权限仍待取得证据。
+
+## 长期开页与发布一致性修复
+
+可见页面每 5 分钟读取本站 JSON，每 60 秒按当前时钟重算 72 小时历史提示；隐藏页暂停定时读取，visibilitychange 恢复和 BFCache pageshow(persisted) 立即重算并刷新。重复 mount 和并发触发复用同一请求；正常退出清理定时器、事件和请求。超时的晚返回、销毁后的旧实例、较旧 dataAsOf/generatedAt，以及相同生成时间被改写的内容不能覆盖已接受快照。当前同版本内容比较使用解析后 JSON 序列化结果，生产者应保持稳定字段顺序或使用新的 generatedAt。
+
+计时刷新只访问本站名单文件，不调用腾讯/TDX 或其他行情 API，不解除采集器硬关闭。页面内保留的数据不写入浏览器持久缓存。
+
+发布归档现在将 research-data/a-active-stocks.json 的 SHA-256 加入 assets，并记录 activeStocks 的 schemaVersion、method、status、dataAsOf、generatedAt 和 tradingDates。发布后校验要求当前候选提交、名单元数据、名单实际字节和 JS/CSS 字节全部匹配；名单缺失哈希、旧日期/版本或内容改动均拒绝验收。归档还拒绝 synthetic=true 的名单。
+
+这些是发布完整性与前端格式验证，不是生产者授权或真实性校验。真实云端生产者仍未实现/启用；接入前必须验证来源许可、交易所日历的五个连续完整交易日、最终成交额单位和源记录，并在共享停止守卫之后生成快照。发布前检查与部署之间原有竞态仍未消除，本次不合并、不部署。
