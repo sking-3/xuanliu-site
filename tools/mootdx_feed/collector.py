@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 from datetime import date, datetime, timezone
 import ipaddress
 import json
@@ -9,12 +10,15 @@ import math
 import os
 from pathlib import Path
 import re
-import tempfile
+import stat
+import uuid
 from zoneinfo import ZoneInfo
 
 ROOT = Path(__file__).resolve().parents[2]
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 MAX_SYMBOLS = 50
+STATE_DIR = Path.home() / '.local/state/books/mootdx-feed'
+DATA_DIR = Path.home() / '.local/share/books/mootdx-feed'
 
 
 class FeedError(ValueError):
@@ -73,7 +77,7 @@ def trade_date(value):
 def server_address(value):
     try:
         host, port = value.rsplit(":", 1)
-        ipaddress.ip_address(host)
+        ipaddress.IPv4Address(host)
         port = int(port)
         if not 1 <= port <= 65535:
             raise ValueError()
@@ -82,10 +86,118 @@ def server_address(value):
         raise FeedError("invalid_server_address") from None
 
 
-def default_factory(**kwargs):
-    # Importing is separate from connecting, so CI can check installation offline.
-    from mootdx.quotes import Quotes
-    return Quotes.factory(**kwargs)
+def default_factory(**options):
+    """Use mootdx parsing methods without its configuration/bootstrap constructor."""
+    from mootdx.quotes import StdQuotes, TdxHq_API
+
+    if set(options) != {"market", "server", "timeout", "bestip", "heartbeat",
+                        "auto_retry", "raise_exception"} or (
+        options["market"] != "std" or options["bestip"] is not False or
+        options["heartbeat"] is not False or options["auto_retry"] is not False or
+        options["raise_exception"] is not True
+    ):
+        raise FeedError("unsafe_provider_options")
+
+    class FixedServerQuotes(StdQuotes):
+        def __init__(self):
+            # Do not invoke StdQuotes/BaseQuotes: config.setup() can scan on
+            # missing/corrupt config even when bestip=False and server is explicit.
+            self.server = options["server"]
+            self.client = TdxHq_API(heartbeat=False, auto_retry=False, raise_exception=True)
+            try:
+                connected = self.client.connect(*self.server, time_out=options["timeout"])
+                if not connected:
+                    raise FeedError("provider_connection_failed")
+            except BaseException:
+                self.close()
+                raise
+
+        def close(self):
+            client, self.client = self.client, None
+            if client is not None:
+                client.close()
+
+        def reconnect(self):
+            raise FeedError("automatic_reconnect_disabled")
+
+    return FixedServerQuotes()
+
+
+@contextmanager
+def private_directory(path):
+    """Open an owner-only directory without traversing symlinks (POSIX)."""
+    if os.name != "posix":
+        raise FeedError("posix_required")
+    path = Path(path).absolute()
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    descriptor = os.open("/", flags)
+    try:
+        for part in path.parts[1:]:
+            try:
+                os.mkdir(part, 0o700, dir_fd=descriptor)
+            except FileExistsError:
+                pass
+            child = os.open(part, flags, dir_fd=descriptor)
+            os.close(descriptor)
+            descriptor = child
+        info = os.fstat(descriptor)
+        if info.st_uid != os.getuid() or info.st_mode & 0o077:
+            raise FeedError("private_directory_required")
+        yield descriptor
+    finally:
+        os.close(descriptor)
+
+
+def write_record(descriptor, value):
+    payload = (json.dumps(value, allow_nan=False) + "\n").encode("utf-8")
+    os.lseek(descriptor, 0, os.SEEK_SET)
+    position = 0
+    while position < len(payload):
+        written = os.write(descriptor, payload[position:])
+        if written <= 0:
+            raise OSError("short write")
+        position += written
+    os.ftruncate(descriptor, len(payload))
+    os.fsync(descriptor)
+
+
+@contextmanager
+def source_guard():
+    """One source-wide lease; any failed/interrupted request leaves a stop record."""
+    with private_directory(STATE_DIR) as directory:
+        try:
+            descriptor = os.open("source-state.json",
+                                 os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                                 0o600, dir_fd=directory)
+        except FileExistsError:
+            # Includes stopped, in-progress, malformed, symlink and hardlink records.
+            # No reset/force option and no host-, output- or mode-specific bypass.
+            raise FeedError("source_stopped_or_busy") from None
+        try:
+            write_record(descriptor, {"schema": "books.mootdx.guard.v1",
+                                     "source": "mootdx", "state": "in_progress",
+                                     "at": datetime.now(timezone.utc).isoformat()})
+            os.fsync(directory)
+            try:
+                yield
+            except BaseException as error:
+                write_record(descriptor, {"schema": "books.mootdx.guard.v1",
+                                         "source": "mootdx", "state": "stopped",
+                                         "reason": error_code(error),
+                                         "at": datetime.now(timezone.utc).isoformat()})
+                os.fsync(directory)
+                raise
+            else:
+                held = os.fstat(descriptor)
+                named = os.stat("source-state.json", dir_fd=directory, follow_symlinks=False)
+                if not stat.S_ISREG(named.st_mode) or named.st_nlink != 1 or (
+                    held.st_dev, held.st_ino
+                ) != (named.st_dev, named.st_ino):
+                    raise FeedError("guard_record_replaced")
+                os.unlink("source-state.json", dir_fd=directory)
+                os.fsync(directory)
+        finally:
+            os.close(descriptor)
 
 
 def error_code(error):
@@ -168,7 +280,9 @@ def normalize_transactions(raw, symbol, requested_date):
 
 
 def collect(mode, requested, *, rows=60, historical_date=None, timeout=10,
-            server=None, factory=default_factory, now=None):
+            server=None, factory=default_factory, now=None, network_enabled=False):
+    if network_enabled is not True:
+        raise FeedError("network_disabled")
     requested = symbols(requested)
     if mode not in ("quotes", "daily", "transactions"):
         raise FeedError("invalid_mode")
@@ -187,8 +301,14 @@ def collect(mode, requested, *, rows=60, historical_date=None, timeout=10,
         raise FeedError("date_only_for_transactions")
     options = dict(market="std", bestip=False, heartbeat=False,
                    auto_retry=False, raise_exception=True, timeout=timeout)
-    if server is not None:
-        options["server"] = server_address(server)
+    if server is None:
+        raise FeedError("explicit_server_required")
+    options["server"] = server_address(server)
+    with source_guard():
+        return _collect_guarded(mode, requested, rows, historical_date, options, factory, now)
+
+
+def _collect_guarded(mode, requested, rows, historical_date, options, factory, now):
     client = None
     try:
         client = factory(**options)
@@ -228,27 +348,44 @@ def collect(mode, requested, *, rows=60, historical_date=None, timeout=10,
 
 
 def output_path(value):
-    path = Path(value).expanduser()
-    if path.is_symlink():
-        raise FeedError("output_symlink_rejected")
-    path = path.resolve()
-    if path == ROOT or ROOT in path.parents:
-        raise FeedError("output_must_be_outside_repository")
-    return path
+    path = Path(value)
+    if not path.is_absolute():
+        if len(path.parts) != 1:
+            raise FeedError("invalid_output_name")
+        path = DATA_DIR / path
+    if path.parent != DATA_DIR or not re.fullmatch(
+        r"(?:daily|quotes|transactions)(?:-[A-Za-z0-9_-]{1,80})?\.json", path.name
+    ):
+        raise FeedError("output_must_be_in_private_data_directory")
+    with private_directory(DATA_DIR) as directory:
+        try:
+            os.stat(path.name, dir_fd=directory, follow_symlinks=False)
+        except FileNotFoundError:
+            return path
+        raise FeedError("output_already_exists")
 
 
 def write_private(path, value):
     path = output_path(path)
+    if value.get("schema") != "books.mootdx.sample.v1" or value.get("provider") != "mootdx":
+        raise FeedError("invalid_output_schema")
     payload = json.dumps(value, ensure_ascii=False, allow_nan=False, indent=2) + "\n"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, temporary = tempfile.mkstemp(prefix=".mootdx-", suffix=".tmp", dir=path.parent)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as stream:
-            stream.write(payload)
-        os.replace(temporary, path)
-    finally:
-        if os.path.exists(temporary):
-            os.unlink(temporary)
+    with private_directory(DATA_DIR) as directory:
+        temporary = ".pending-" + uuid.uuid4().hex
+        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                             0o600, dir_fd=directory)
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+                stream.write(payload)
+                stream.flush()
+                os.fsync(stream.fileno())
+            # link() publishes a complete file atomically and refuses ALL existing
+            # targets, including valid old snapshots, unrelated files and links.
+            os.link(temporary, path.name, src_dir_fd=directory, dst_dir_fd=directory,
+                    follow_symlinks=False)
+            os.fsync(directory)
+        finally:
+            os.unlink(temporary, dir_fd=directory)
 
 
 def main(argv=None):
@@ -258,13 +395,18 @@ def main(argv=None):
     parser.add_argument("--rows", type=int, default=60, help="Most recent rows per stock, 1..800")
     parser.add_argument("--date", help="Historical transaction date, YYYY-MM-DD")
     parser.add_argument("--timeout", type=float, default=10)
-    parser.add_argument("--server", help="Optional explicit IPv4:port or IPv6:port; no server scanning")
-    parser.add_argument("--output", required=True, help="Owner-only JSON file outside the repository")
+    parser.add_argument("--server", help="Explicit authorized IPv4:port; required when enabling network")
+    parser.add_argument("--enable-network", action="store_true", help="Opt in to one manual request; source stops still apply")
+    parser.add_argument("--output", help="New snapshot basename within the dedicated private data directory")
     args = parser.parse_args(argv)
     try:
-        destination = output_path(args.output)  # Reject public checkout paths before connecting.
+        if not args.enable_network:
+            raise FeedError("network_disabled")
+        name = args.output or args.mode + "-" + uuid.uuid4().hex + ".json"
+        destination = output_path(name)
         batch = collect(args.mode, args.symbols.split(","), rows=args.rows,
-                        historical_date=args.date, timeout=args.timeout, server=args.server)
+                        historical_date=args.date, timeout=args.timeout, server=args.server,
+                        network_enabled=args.enable_network)
         write_private(destination, batch)
     except (FeedError, OSError) as error:
         print(json.dumps({"status": "failed", "error": error_code(error)}))

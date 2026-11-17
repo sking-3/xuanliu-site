@@ -1,6 +1,9 @@
 import copy
 from datetime import datetime, timezone
 import json
+import os
+import subprocess
+import sys
 from pathlib import Path
 import tempfile
 import unittest
@@ -14,6 +17,32 @@ QUOTE = {"code": "000001", "market": 0, "price": 11.0,
          "vol": 100.0, "amount": 1100.0, "servertime": "09:51:03"}
 
 class CollectorTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name).resolve()
+        self.state = patch.object(c, "STATE_DIR", self.root / "state")
+        self.data = patch.object(c, "DATA_DIR", self.root / "data")
+        self.state.start()
+        self.data.start()
+        self.addCleanup(self.state.stop)
+        self.addCleanup(self.data.stop)
+        # Every test blocks raw sockets even when testing the real pinned parser.
+        self.socket = patch("socket.socket.connect", side_effect=AssertionError("Unexpected network"))
+        self.socket.start()
+        self.addCleanup(self.socket.stop)
+
+    def fresh_state(self):
+        self.state.stop()
+        self.state = patch.object(c, "STATE_DIR", self.root / ("state-" + str(len(list(self.root.iterdir())))))
+        self.state.start()
+        self.addCleanup(self.state.stop)
+
+    def collect(self, *args, **kwargs):
+        kwargs.setdefault("server", "192.0.2.1:7709")
+        kwargs.setdefault("network_enabled", True)
+        return c.collect(*args, **kwargs)
+
     def client(self):
         client = Mock()
         client.bars.return_value = [copy.deepcopy(BAR)]
@@ -34,9 +63,10 @@ class CollectorTests(unittest.TestCase):
     def test_daily_api_contract_and_connection_cleanup(self):
         client = self.client()
         factory = Mock(return_value=client)
-        batch = c.collect("daily", ["600519"], rows=5, factory=factory, now=NOW)
+        batch = self.collect("daily", ["600519"], rows=5, factory=factory, now=NOW)
         factory.assert_called_once_with(market="std", bestip=False, heartbeat=False,
-                                       auto_retry=False, raise_exception=True, timeout=10)
+                                       auto_retry=False, raise_exception=True, timeout=10,
+                                       server=("192.0.2.1", 7709))
         client.bars.assert_called_once_with(symbol="600519", frequency=9, start=0, offset=5)
         client.close.assert_called_once()
         self.assertEqual(batch["rows"][0]["date"], "2026-11-16")
@@ -48,7 +78,7 @@ class CollectorTests(unittest.TestCase):
 
     def test_explicit_server_not_replaced_or_scanned(self):
         factory = Mock(return_value=self.client())
-        c.collect("daily", ["600519"], server="192.0.2.1:7709", factory=factory, now=NOW)
+        self.collect("daily", ["600519"], server="192.0.2.1:7709", factory=factory, now=NOW)
         self.assertEqual(factory.call_args.kwargs["server"], ("192.0.2.1", 7709))
         self.assertFalse(factory.call_args.kwargs["bestip"])
 
@@ -62,18 +92,19 @@ class CollectorTests(unittest.TestCase):
             args = dict(mode="daily", requested=["600519"], factory=factory, now=NOW)
             args.update(change)
             with self.subTest(change=change), self.assertRaises(c.FeedError):
-                c.collect(**args)
+                self.collect(**args)
             factory.assert_not_called()
 
     def test_timeout_or_access_denial_does_not_retry(self):
         for exception, code in [(TimeoutError("private"), "provider_timeout"),
                                 (PermissionError("private"), "provider_access_denied"),
                                 (RuntimeError("HTTP 429 raw data"), "provider_access_denied")]:
+            self.fresh_state()
             client = self.client()
             client.bars.side_effect = exception
             factory = Mock(return_value=client)
             with self.subTest(code=code), self.assertRaisesRegex(c.FeedError, "^" + code + "$"):
-                c.collect("daily", ["600519", "000001"], factory=factory, now=NOW)
+                self.collect("daily", ["600519", "000001"], factory=factory, now=NOW)
             self.assertEqual(client.bars.call_count, 1)
             self.assertEqual(factory.call_count, 1)
             client.close.assert_called_once()
@@ -81,28 +112,29 @@ class CollectorTests(unittest.TestCase):
     def test_connection_failure_sanitized(self):
         factory = Mock(side_effect=RuntimeError("private detail"))
         with self.assertRaisesRegex(c.FeedError, "^provider_request_failed$"):
-            c.collect("daily", ["600519"], factory=factory, now=NOW)
+            self.collect("daily", ["600519"], factory=factory, now=NOW)
         factory.assert_called_once()
 
     def test_no_partial_result_after_second_symbol_fails(self):
         client = self.client()
         client.bars.side_effect = [[BAR], TimeoutError()]
         with self.assertRaises(c.FeedError):
-            c.collect("daily", ["600519", "000001"], factory=lambda **kw: client, now=NOW)
+            self.collect("daily", ["600519", "000001"], factory=lambda **kw: client, now=NOW)
         client.close.assert_called_once()
 
     def test_empty_responses_never_become_zero_data(self):
         for mode in ("quotes", "daily", "transactions"):
+            self.fresh_state()
             client = self.client()
             client.quotes.return_value = client.bars.return_value = client.transactions.return_value = []
             with self.subTest(mode=mode), self.assertRaisesRegex(c.FeedError, "empty_or_invalid"):
-                c.collect(mode, ["000001"], factory=lambda **kw: client, now=NOW,
+                self.collect(mode, ["000001"], factory=lambda **kw: client, now=NOW,
                           historical_date="2026-11-16" if mode == "transactions" else None)
             client.close.assert_called_once()
 
     def test_quote_clock_is_not_full_source_timestamp(self):
         client = self.client()
-        batch = c.collect("quotes", ["000001"], factory=lambda **kw: client, now=NOW)
+        batch = self.collect("quotes", ["000001"], factory=lambda **kw: client, now=NOW)
         self.assertIsNone(batch["sourceAsOf"])
         self.assertIsNone(batch["rows"][0]["sourceAsOf"])
         self.assertEqual(batch["rows"][0]["sourceClock"], "09:51:03")
@@ -156,7 +188,7 @@ class CollectorTests(unittest.TestCase):
 
     def test_historical_transaction_api_and_date_provenance(self):
         client = self.client()
-        batch = c.collect("transactions", ["000001"], rows=10, historical_date="2025-06-24",
+        batch = self.collect("transactions", ["000001"], rows=10, historical_date="2025-06-24",
                           factory=lambda **kw: client, now=NOW)
         client.transactions.assert_called_once_with(symbol="000001", start=0, offset=10, date="20250624")
         self.assertEqual(batch["rows"][0]["requestedDate"], "2025-06-24")
@@ -166,7 +198,7 @@ class CollectorTests(unittest.TestCase):
         for day in (None, "20260230", "2026-02-30", "2026-11-18"):
             factory = Mock()
             with self.subTest(day=day), self.assertRaises(c.FeedError):
-                c.collect("transactions", ["000001"], historical_date=day, factory=factory, now=NOW)
+                self.collect("transactions", ["000001"], historical_date=day, factory=factory, now=NOW)
             factory.assert_not_called()
 
     def test_transaction_fields_checked(self):
@@ -179,7 +211,7 @@ class CollectorTests(unittest.TestCase):
         client = self.client()
         client.bars.return_value = [BAR, dict(BAR, datetime="2026-11-13")]
         with self.assertRaisesRegex(c.FeedError, "response_exceeds"):
-            c.collect("daily", ["600519"], rows=1, factory=lambda **kw: client, now=NOW)
+            self.collect("daily", ["600519"], rows=1, factory=lambda **kw: client, now=NOW)
 
     def test_dataframe_preserves_source_dates(self):
         import pandas as pd
@@ -189,44 +221,288 @@ class CollectorTests(unittest.TestCase):
     def test_close_error_does_not_mask_result(self):
         client = self.client()
         client.close.side_effect = RuntimeError("cleanup")
-        batch = c.collect("daily", ["600519"], factory=lambda **kw: client, now=NOW)
+        batch = self.collect("daily", ["600519"], factory=lambda **kw: client, now=NOW)
         self.assertEqual(len(batch["rows"]), 1)
 
     def test_public_output_rejected_before_connection(self):
         with patch.object(c, "collect") as collect, patch("builtins.print"):
-            code = c.main(["--symbols", "600519", "--output", str(c.ROOT / "research-data/new.json")])
+            code = c.main(["--enable-network", "--server", "192.0.2.1:7709",
+                           "--symbols", "600519", "--output", str(c.ROOT / "research-data/new.json")])
         self.assertEqual(code, 2)
         collect.assert_not_called()
 
-    def test_private_atomic_write_and_symlink_rejection(self):
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "result.json"
-            c.write_private(path, {"rows": []})
-            self.assertEqual(json.loads(path.read_text()), {"rows": []})
-            self.assertEqual(path.stat().st_mode & 0o077, 0)
-            link = Path(directory) / "link.json"
-            link.symlink_to(path)
-            with self.assertRaises(c.FeedError):
-                c.write_private(link, {"rows": [1]})
-            self.assertEqual(json.loads(path.read_text()), {"rows": []})
+    def sample(self, **extra):
+        return {"schema": "books.mootdx.sample.v1", "provider": "mootdx", "rows": [], **extra}
 
-    def test_failed_refresh_keeps_previous_file_and_date(self):
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "result.json"
-            before = '{"fetchedAt":"2026-11-13T08:00:00Z","rows":[]}'
+    def test_private_atomic_write_permissions_and_schema(self):
+        path = c.DATA_DIR / "daily-new.json"
+        c.write_private(path, self.sample())
+        self.assertEqual(json.loads(path.read_text()), self.sample())
+        self.assertEqual(path.stat().st_mode & 0o077, 0)
+        self.assertEqual(c.DATA_DIR.stat().st_mode & 0o077, 0)
+        self.assertEqual(list(c.DATA_DIR.iterdir()), [path])
+
+    def test_arbitrary_external_file_never_overwritten(self):
+        path = self.root / "credentials.json"
+        path.write_text("private existing content")
+        with self.assertRaises(c.FeedError):
+            c.write_private(path, self.sample())
+        self.assertEqual(path.read_text(), "private existing content")
+
+    def test_any_existing_file_refused_even_own_schema(self):
+        for name, before in [("daily-foreign.json", "not tool format"),
+                             ("daily-old.json", json.dumps(self.sample(fetchedAt="2026-11-13")))]:
+            c.DATA_DIR.mkdir(mode=0o700, exist_ok=True)
+            path = c.DATA_DIR / name
             path.write_text(before)
-            with patch.object(c, "collect", side_effect=c.FeedError("provider_timeout")), patch("builtins.print"):
-                code = c.main(["--symbols", "600519", "--output", str(path)])
-            self.assertEqual(code, 2)
+            with self.subTest(name=name), self.assertRaisesRegex(c.FeedError, "output_already_exists"):
+                c.write_private(path, self.sample())
             self.assertEqual(path.read_text(), before)
 
-    def test_bad_serialization_keeps_existing_file(self):
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "result.json"
-            path.write_text('{"old":true}')
-            with self.assertRaises(ValueError):
-                c.write_private(path, {"bad": float("nan")})
-            self.assertEqual(path.read_text(), '{"old":true}')
+    def test_symlink_and_hardlink_outputs_refused(self):
+        c.DATA_DIR.mkdir(mode=0o700)
+        target = self.root / "secret"
+        target.write_text("keep")
+        (c.DATA_DIR / "daily-link.json").symlink_to(target)
+        os.link(target, c.DATA_DIR / "daily-hard.json")
+        for name in ("daily-link.json", "daily-hard.json"):
+            with self.subTest(name=name), self.assertRaises(c.FeedError):
+                c.write_private(c.DATA_DIR / name, self.sample())
+        self.assertEqual(target.read_text(), "keep")
+
+    def test_symlink_directory_refused(self):
+        target = self.root / "real"
+        target.mkdir(mode=0o700)
+        c.DATA_DIR.symlink_to(target, target_is_directory=True)
+        with self.assertRaises(OSError):
+            c.write_private(c.DATA_DIR / "daily.json", self.sample())
+        self.assertEqual(list(target.iterdir()), [])
+
+    def test_nonprivate_directory_refused(self):
+        c.DATA_DIR.mkdir(mode=0o755)
+        c.DATA_DIR.chmod(0o755)
+        with self.assertRaisesRegex(c.FeedError, "private_directory_required"):
+            c.write_private(c.DATA_DIR / "daily.json", self.sample())
+
+    def test_output_name_rejects_traversal_and_arbitrary_files(self):
+        for name in ("../daily.json", "child/daily.json", ".ssh", "config.json", "daily.json/../quotes.json"):
+            with self.subTest(name=name), self.assertRaises(c.FeedError):
+                c.output_path(name)
+
+    def test_atomic_publish_race_does_not_clobber_target(self):
+        path = c.DATA_DIR / "daily.json"
+        real_link = os.link
+        def collision(source, target, **kwargs):
+            path.write_text("arrived between preflight and publication")
+            return real_link(source, target, **kwargs)
+        with patch.object(c.os, "link", side_effect=collision), self.assertRaises(FileExistsError):
+            c.write_private(path, self.sample())
+        self.assertEqual(path.read_text(), "arrived between preflight and publication")
+        self.assertEqual(list(c.DATA_DIR.iterdir()), [path])
+
+    def test_bad_serialization_creates_no_snapshot(self):
+        with self.assertRaises(ValueError):
+            c.write_private(c.DATA_DIR / "daily.json", self.sample(bad=float("nan")))
+        self.assertEqual(list(c.DATA_DIR.iterdir()), [])
+
+    def test_foreign_schema_creates_no_snapshot(self):
+        with self.assertRaisesRegex(c.FeedError, "invalid_output_schema"):
+            c.write_private(c.DATA_DIR / "daily.json", {"rows": []})
+        self.assertEqual(list(c.DATA_DIR.iterdir()), [])
+
+    def test_failed_refresh_keeps_previous_file_and_date(self):
+        old = c.DATA_DIR / "daily-old.json"
+        c.write_private(old, self.sample(fetchedAt="2026-11-13T08:00:00Z"))
+        before = old.read_text()
+        with patch.object(c, "collect", side_effect=c.FeedError("provider_timeout")), patch("builtins.print"):
+            code = c.main(["--enable-network", "--server", "192.0.2.1:7709",
+                           "--symbols", "600519", "--output", "daily-new.json"])
+        self.assertEqual(code, 2)
+        self.assertEqual(old.read_text(), before)
+        self.assertFalse((c.DATA_DIR / "daily-new.json").exists())
+
+    def test_default_disabled_before_factory_or_filesystem(self):
+        factory = Mock()
+        with self.assertRaisesRegex(c.FeedError, "network_disabled"):
+            c.collect("daily", ["600519"], factory=factory)
+        factory.assert_not_called()
+        with patch.object(c, "collect") as collect, patch("builtins.print"):
+            self.assertEqual(c.main(["--symbols", "600519"]), 2)
+        collect.assert_not_called()
+        self.assertEqual(list(self.root.iterdir()), [])
+
+    def test_explicit_server_required(self):
+        factory = Mock()
+        with self.assertRaisesRegex(c.FeedError, "explicit_server_required"):
+            self.collect("daily", ["600519"], server=None, factory=factory)
+        factory.assert_not_called()
+        self.assertFalse(c.STATE_DIR.exists())
+
+    def test_failure_persists_and_blocks_all_modes_hosts_and_symbols(self):
+        factory = Mock(side_effect=PermissionError("forbidden private detail"))
+        with self.assertRaisesRegex(c.FeedError, "provider_access_denied"):
+            self.collect("daily", ["600519"], factory=factory, now=NOW)
+        marker = c.STATE_DIR / "source-state.json"
+        stopped = json.loads(marker.read_text())
+        self.assertEqual(stopped["state"], "stopped")
+        self.assertEqual(stopped["reason"], "provider_access_denied")
+        self.assertNotIn("private detail", marker.read_text())
+        self.assertEqual(marker.stat().st_mode & 0o077, 0)
+        for mode in ("daily", "quotes", "transactions"):
+            with self.subTest(mode=mode), self.assertRaisesRegex(c.FeedError, "source_stopped_or_busy"):
+                self.collect(mode, ["000001"], server="192.0.2.2:7710", factory=factory, now=NOW,
+                             historical_date="2026-11-16" if mode == "transactions" else None)
+        factory.assert_called_once()
+
+    def test_stop_survives_a_new_python_process(self):
+        with self.assertRaises(c.FeedError):
+            self.collect("daily", ["600519"], factory=Mock(side_effect=TimeoutError()))
+        script = (
+            "import sys; from pathlib import Path; from unittest.mock import Mock, patch\n"
+            "from tools.mootdx_feed import collector as c\n"
+            "c.STATE_DIR = Path(sys.argv[1]); factory = Mock(side_effect=AssertionError('factory called'))\n"
+            "with patch('socket.socket.connect', side_effect=AssertionError('network')):\n"
+            " try:\n"
+            "  c.collect('quotes', ['000001'], server='192.0.2.2:7709', network_enabled=True, factory=factory)\n"
+            " except c.FeedError as e:\n"
+            "  assert str(e) == 'source_stopped_or_busy', str(e)\n"
+            " else:\n"
+            "  raise AssertionError('stop not enforced')\n"
+            " factory.assert_not_called()\n"
+        )
+        result = subprocess.run([sys.executable, "-c", script, str(c.STATE_DIR)],
+                                cwd=c.ROOT, text=True, capture_output=True, timeout=15)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_malformed_inprogress_and_linked_markers_block(self):
+        for kind in ("malformed", "in_progress", "symlink", "hardlink"):
+            self.fresh_state()
+            c.STATE_DIR.mkdir(mode=0o700)
+            marker = c.STATE_DIR / "source-state.json"
+            if kind == "symlink":
+                marker.symlink_to(self.root / "missing")
+            elif kind == "hardlink":
+                target = self.root / "marker-target"
+                target.write_text("keep")
+                os.link(target, marker)
+            else:
+                marker.write_text("{" if kind == "malformed" else '{"state":"in_progress"}')
+            factory = Mock()
+            with self.subTest(kind=kind), self.assertRaisesRegex(c.FeedError, "source_stopped_or_busy"):
+                self.collect("daily", ["600519"], factory=factory)
+            factory.assert_not_called()
+
+    def test_state_persistence_failure_prevents_factory(self):
+        factory = Mock()
+        with patch.object(c, "write_record", side_effect=OSError("disk full")), self.assertRaises(OSError):
+            self.collect("daily", ["600519"], factory=factory)
+        factory.assert_not_called()
+        self.assertTrue((c.STATE_DIR / "source-state.json").exists())
+        with self.assertRaisesRegex(c.FeedError, "source_stopped_or_busy"):
+            self.collect("daily", ["600519"], factory=factory)
+        factory.assert_not_called()
+
+    def test_interrupt_leaves_stop_and_no_retry(self):
+        factory = Mock(side_effect=KeyboardInterrupt)
+        with self.assertRaises(KeyboardInterrupt):
+            self.collect("daily", ["600519"], factory=factory)
+        self.assertEqual(json.loads((c.STATE_DIR / "source-state.json").read_text())["state"], "stopped")
+        with self.assertRaisesRegex(c.FeedError, "source_stopped_or_busy"):
+            self.collect("daily", ["600519"], factory=factory)
+        factory.assert_called_once()
+
+    def test_concurrent_request_blocked_before_second_factory(self):
+        inner = Mock()
+        client = self.client()
+        def outer(**options):
+            with self.assertRaisesRegex(c.FeedError, "source_stopped_or_busy"):
+                self.collect("quotes", ["000001"], factory=inner)
+            return client
+        self.collect("daily", ["600519"], factory=outer, now=NOW)
+        inner.assert_not_called()
+        self.assertFalse((c.STATE_DIR / "source-state.json").exists())
+
+    def test_success_releases_guard_for_next_manual_call(self):
+        factory = Mock(return_value=self.client())
+        self.collect("daily", ["600519"], factory=factory, now=NOW)
+        self.collect("daily", ["600519"], factory=factory, now=NOW)
+        self.assertEqual(factory.call_count, 2)
+        self.assertEqual(list(c.STATE_DIR.iterdir()), [])
+
+    def test_no_cli_reset_or_state_override(self):
+        for flag in ("--reset", "--force", "--state-dir"):
+            with self.subTest(flag=flag), patch("sys.stderr"), self.assertRaises(SystemExit):
+                c.main(["--symbols", "600519", flag])
+
+    def safe_options(self):
+        return dict(market="std", server=("192.0.2.1", 7709), timeout=10,
+                    bestip=False, heartbeat=False, auto_retry=False, raise_exception=True)
+
+    def test_upstream_constructor_attempts_scan_for_missing_or_corrupt_config(self):
+        from mootdx import config
+        from mootdx.quotes import Quotes
+        for kind in ("missing", "corrupt"):
+            conf = self.root / (kind + "-config.json")
+            if kind == "corrupt":
+                conf.write_text("{")
+            with self.subTest(kind=kind), patch.object(config, "CONF", conf), \
+                    patch.object(config, "bestip", side_effect=RuntimeError("scan intercepted")) as scan:
+                with self.assertRaises((FileNotFoundError, json.JSONDecodeError, RuntimeError)):
+                    Quotes.factory(**self.safe_options())
+                scan.assert_called_once()
+
+    def test_fixed_factory_uses_real_parsers_without_config_bootstrap_or_scan(self):
+        from mootdx import config, quotes
+        for kind in ("missing", "corrupt", "other_server"):
+            conf = self.root / (kind + "-safe-config.json")
+            if kind != "missing":
+                conf.write_text("{" if kind == "corrupt" else '{"BESTIP":{"HQ":["192.0.2.99",1234]}}')
+            before = conf.read_bytes() if conf.exists() else None
+            transport = Mock()
+            transport.connect.return_value = True
+            transport.get_security_bars.return_value = [BAR]
+            transport.get_security_quotes.return_value = [QUOTE]
+            transport.get_history_transaction_data.return_value = [{"time": "09:31", "price": 11.0, "vol": 10.0}]
+            with self.subTest(kind=kind), patch.object(config, "CONF", conf), \
+                    patch.object(config, "setup", side_effect=AssertionError("bootstrap")) as setup, \
+                    patch.object(config, "bestip", side_effect=AssertionError("scan")) as scan, \
+                    patch.object(quotes, "check_server", side_effect=AssertionError("scan")) as check, \
+                    patch.object(quotes, "TdxHq_API", return_value=transport) as api:
+                client = c.default_factory(**self.safe_options())
+                api.assert_called_once_with(heartbeat=False, auto_retry=False, raise_exception=True)
+                transport.connect.assert_called_once_with("192.0.2.1", 7709, time_out=10)
+                c.normalize_daily(client.bars(symbol="600519", frequency=9, start=0, offset=5), "600519.SH", NOW)
+                c.normalize_quotes(client.quotes(symbol=["000001"]), ["000001.SZ"])
+                c.normalize_transactions(client.transactions(symbol="000001", start=0, offset=10, date="20250624"),
+                                         "000001.SZ", "2025-06-24")
+                transport.get_security_bars.assert_called_once_with(9, 1, "600519", 0, 5)
+                with self.assertRaisesRegex(c.FeedError, "automatic_reconnect_disabled"):
+                    client.reconnect()
+                client.close()
+                client.close()
+                transport.close.assert_called_once()
+                setup.assert_not_called()
+                scan.assert_not_called()
+                check.assert_not_called()
+            self.assertEqual(conf.read_bytes() if conf.exists() else None, before)
+
+    def test_fixed_factory_failure_closes_transport_and_stops_source(self):
+        from mootdx import quotes
+        for result in (False, TimeoutError("private")):
+            self.fresh_state()
+            transport = Mock()
+            if isinstance(result, Exception):
+                transport.connect.side_effect = result
+            else:
+                transport.connect.return_value = result
+            with self.subTest(result=result), patch.object(quotes, "TdxHq_API", return_value=transport) as api:
+                with self.assertRaises(c.FeedError):
+                    self.collect("daily", ["600519"], now=NOW)
+                transport.connect.assert_called_once()
+                transport.close.assert_called_once()
+                with self.assertRaisesRegex(c.FeedError, "source_stopped_or_busy"):
+                    self.collect("daily", ["600519"], now=NOW)
+                api.assert_called_once()
 
     def test_real_package_imports_without_connecting(self):
         with patch("socket.socket.connect", side_effect=AssertionError("Unexpected network")):
