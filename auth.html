@@ -18,7 +18,7 @@
 </style>
 <main>
   <h1>Books</h1>
-  <p class="muted">测试版登录。模拟权限可用，真实交易功能尚未开启。</p>
+  <p class="muted">正式账户入口。登录后可管理资料、钱包和充值确认状态；交易执行仍需单独配置与授权。</p>
   <form id="auth-form">
     <label>邮箱<input name="email" type="email" autocomplete="email" required></label>
     <label>密码<input name="password" type="password" minlength="10" autocomplete="current-password" required></label>
@@ -48,7 +48,11 @@
     status.textContent = '处理中…';
     try {
       const result = action === 'logout' ? await BooksAuth.logout() : await BooksAuth[action](values());
-      status.textContent = action === 'logout' ? '已退出' : `已${action === 'register' ? '注册并登录' : '登录'}：${result.user.email}（${result.user.role}）`;
+      if (action !== 'logout') {
+        status.textContent = `已${action === 'register' ? '注册并登录' : '登录'}：${result.user.email}（${result.user.role}）`;
+        const next = new URLSearchParams(location.search).get('next');
+        if (next) setTimeout(() => { location.href = next; }, 400);
+      } else status.textContent = '已退出';
     } catch (error) {
       status.textContent = error.message;
     }
