@@ -30,6 +30,11 @@
     register: (value) => request('/api/auth/register', { method: 'POST', body: JSON.stringify(value) }),
     login: (value) => request('/api/auth/login', { method: 'POST', body: JSON.stringify(value) }),
     logout: () => request('/api/auth/logout', { method: 'POST', body: '{}' }),
+    profile: () => request('/api/account/profile'),
+    setAvatar: (value) => request('/api/account/profile/avatar', { method: 'POST', body: JSON.stringify(value) }),
+    wallet: () => request('/api/wallet'),
+    recharges: () => request('/api/wallet/recharges'),
+    recharge: (value) => request('/api/wallet/recharge', { method: 'POST', body: JSON.stringify(value) }),
     adminUsers: () => request('/api/admin/users'),
     disableUser: (userId) => request('/api/admin/users/disable', { method: 'POST', body: JSON.stringify({ userId }) })
   });
