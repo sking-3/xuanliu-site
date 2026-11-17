@@ -35,4 +35,10 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/setup-public-release
       - name: Inspect the public widget constructor once
-        run: node audit/read-widget-docs.cjs
+        run: node audit/accept-tv-widget.cjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-widget-acceptance
+          path: audit/browser-output/widget/
+          retention-days: 7
