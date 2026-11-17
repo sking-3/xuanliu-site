@@ -73,6 +73,15 @@ function stale(id,c,now=Date.now(),readFailed=false){
   const missedDailyChecks=id==='macro'&&isStatisticsLink(c.sourceUrl)&&now-Date.parse(c.fetchedAt)>2*86400000;
   return !!c.data&&(readFailed||c.status!=='ready'||missedDailyChecks||now-Date.parse(c.asOf)>MAX_AGE_DAYS[id]*86400000);
 }
+function cardState(id,c,now=Date.now(),readFailed=false){
+  if(!c?.data)return 'unavailable';
+  return stale(id,c,now,readFailed)?'stale':'ready';
+}
+function cardStateLabel(state,readFailed=false){
+  if(state==='ready')return '已更新';
+  if(state==='stale')return readFailed?'读取失败 · 保留旧值':'历史快照 · 待更新';
+  return readFailed?'来源读取失败':'暂无可核验数据';
+}
 function dateLabel(v,time=false){return new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',month:'2-digit',day:'2-digit',...(time?{hour:'2-digit',minute:'2-digit',hour12:false}:{year:'numeric'})}).format(new Date(v));}
 function decimal(v,n=2){return v.toLocaleString('zh-CN',{minimumFractionDigits:n,maximumFractionDigits:n});}
 function signed(v,n=2){return (v>0?'+':'')+decimal(v,n);}
@@ -115,9 +124,9 @@ function macroSnapshot(payload,base,now=Date.now()){
 function node(doc,tag,text,cls){const el=doc.createElement(tag);if(text!==undefined)el.textContent=text;if(cls)el.className=cls;return el;}
 function anchor(doc,text,url,cls){const a=node(doc,'a',text,cls);a.href=url;a.target='_blank';a.rel='noopener noreferrer';return a;}
 function renderCard(doc,host,id,c,now,readFailed){
-  const status=stale(id,c,now,readFailed)?'stale':c.data?'ready':'unavailable';
+  const status=cardState(id,c,now,readFailed);
   const head=node(doc,'div',undefined,'insight-heading');head.append(node(doc,'h2',LABELS[id]));
-  head.append(node(doc,'span',status==='ready'?({sentiment:'日度',valuation:'月末',flows:'月度',active:'快照',macro:'官方发布'})[id]:status==='stale'?'待更新':'暂无数据','insight-state'));
+  head.append(node(doc,'span',status==='ready'?({sentiment:'日度',valuation:'月末',flows:'月度',active:'快照',macro:'官方发布'})[id]:cardStateLabel(status,readFailed),'insight-state'));
   const foreignMacro=id==='macro'&&!isStatisticsLink(c.sourceUrl);
   const scope=node(doc,'p',foreignMacro?'美国宏观 · 备用发布与日历':SCOPES[id],'insight-scope'),body=node(doc,'div',undefined,'insight-body');
   const metric=(value,unit,label)=>{const line=node(doc,'div',undefined,'insight-metric');line.append(node(doc,'strong',value));if(unit)line.append(node(doc,'span',unit));body.append(line);if(label)body.append(node(doc,'p',label,'insight-caption'));};
@@ -142,7 +151,7 @@ function renderCard(doc,host,id,c,now,readFailed){
       for(const e of events){const a=anchor(doc,eventTitle(e.title),e.url,'insight-event');a.append(node(doc,'time',dateLabel(e.startAt,true)+' 北京时间'));body.append(a);}
       if(!events.length&&foreignMacro)body.append(node(doc,'p','暂无未来已核验发布，等待下一次官方日历更新','insight-caption'));
     }
-  }else body.append(node(doc,'p',status==='stale'?'最近一次快照已过期，等待来源恢复':'暂无可核验快照，来源未返回数据','insight-empty'));
+  }else body.append(node(doc,'p',status==='stale'?'最近一次快照已过期，等待来源恢复':readFailed?'本次来源读取失败，未取得可用快照':'来源返回成功，但没有可核验数据','insight-empty'));
   const cadenceText=foreignMacro?'中文快照暂不可用 · 美国官方备用来源':CADENCE[id];
   const cadence=node(doc,'p',cadenceText+(c.errorCode?(c.errorCode==='http_403'||c.errorCode==='http_429'?' · 来源访问已停止':' · 本次读取失败，保留旧值'):''),'insight-cadence');
   const foot=node(doc,'footer',undefined,'insight-footer');foot.append(anchor(doc,c.sourceName+' ↗',c.sourceUrl,'insight-source'));
@@ -169,7 +178,8 @@ function mount(doc,options={}){
       }else{
         hosts[id].setAttribute('aria-busy','false');
         const state=hosts[id].querySelector('.insight-state');
-        if(state)state.textContent='暂未取得数据';
+        if(state)state.textContent=aggregateFailed||chineseFailed?'来源读取失败':'暂未取得数据';
+        hosts[id].dataset.state=aggregateFailed||chineseFailed?'unavailable':'loading';
       }
     }
     if(focusId&&href){const replacement=[...hosts[focusId].querySelectorAll('a')].find(a=>a.href===href);replacement?.focus();}
@@ -222,7 +232,7 @@ function mount(doc,options={}){
   doc.addEventListener('visibilitychange',()=>{if(doc.visibilityState==='visible'){render();refresh();}});
   refresh();return {refresh,render,getSnapshot,destroy:()=>clearInterval(interval)};
 }
-const api={IDS,MAX_BYTES,MAX_AGE_DAYS,validate,validateSnapshot:validate,macroSnapshot,stale,dateLabel,employmentHeadline,eventTitle,renderCard,mount};
+const api={IDS,MAX_BYTES,MAX_AGE_DAYS,validate,validateSnapshot:validate,macroSnapshot,stale,cardState,cardStateLabel,dateLabel,employmentHeadline,eventTitle,renderCard,mount};
 if(typeof module!=='undefined'&&module.exports)module.exports=api;
 if(global.document)mount(global.document);
 })(typeof window!=='undefined'?window:globalThis);
