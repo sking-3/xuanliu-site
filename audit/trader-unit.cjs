@@ -699,6 +699,9 @@ await test('ROI ordering retains accounts with missing selected-period returns a
  unifiedSetup();const bitget=context.BooksBitgetPeriodData=require('../trader/bitget-period-data.js'),okx=context.BooksOKXPeriodData=require('../trader/okx-period-data.js');
  const read=rel=>JSON.parse(fs.readFileSync(path.resolve(__dirname,'../trader',rel),'utf8'));
  const b=bitget.parse(read('bitget/period-returns.json')).accounts[0],o=okx.parse(read('okx/period-returns.json')).accounts[0];
+ // Explicit synthetic missing-period variants; daily source refresh may add 7D.
+ delete b.performance['7D'];delete o.performance['7D'];
+ assert.equal(bitget.performance(b,'7D'),null);assert.equal(okx.performance(o,'7D'),null);
  const bg={...bitget.trader(b),activity:b.activity,windows:{},positions:[],points:[],orders:[]},ox={...okx.trader(o),windows:{},positions:[],points:[],orders:[]};
  const hl=a.state.rows.find(a.isPublicAccount),missing={...hl,id:hl.id+'-missing',name:'SYNTHETIC MISSING',windows:{...hl.windows,'7D':undefined}};
  const binance=a.state.binanceRows.find(r=>!r.referenceOnly);assert.ok(Number.isFinite(a.sortValue(hl,'7D','roi')));
