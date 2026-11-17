@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="books-api-base" content="/">
+<title>Books · 登录</title>
+<style>
+  :root { color-scheme: light; font-family: Inter, system-ui, sans-serif; color: #17253d; background: #f7f9fc; }
+  body { max-width: 520px; margin: 8vh auto; padding: 0 20px; }
+  form { display: grid; gap: 14px; padding: 24px; border: 1px solid #dbe3ef; border-radius: 16px; background: white; box-shadow: 0 12px 32px #17253d12; }
+  label { display: grid; gap: 6px; font-size: 14px; }
+  input, button { font: inherit; padding: 11px 12px; border-radius: 9px; border: 1px solid #cbd6e5; }
+  button { cursor: pointer; background: #1565c0; color: #fff; border: 0; }
+  button.secondary { background: #edf3fb; color: #17375f; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .muted, #status { color: #68778f; }
+  #status { min-height: 24px; }
+</style>
+<main>
+  <h1>Books</h1>
+  <p class="muted">测试版登录。模拟权限可用，真实交易功能尚未开启。</p>
+  <form id="auth-form">
+    <label>邮箱<input name="email" type="email" autocomplete="email" required></label>
+    <label>密码<input name="password" type="password" minlength="10" autocomplete="current-password" required></label>
+    <label>显示名称<input name="displayName" autocomplete="nickname"></label>
+    <div class="row">
+      <button type="button" data-action="register">注册</button>
+      <button type="button" data-action="login">登录</button>
+      <button type="button" class="secondary" data-action="logout">退出</button>
+    </div>
+    <p id="status" role="status" aria-live="polite"></p>
+  </form>
+  <p><a href="index.html">返回 Books</a></p>
+</main>
+<script src="books-auth-config.js"></script>
+<script>
+  // The optional config file overrides the same-origin default after the VPS domain is ready.
+  window.BOOKS_API_BASE = window.BOOKS_API_BASE || document.querySelector('meta[name="books-api-base"]').content;
+</script>
+<script src="books-auth.js"></script>
+<script>
+  const form = document.querySelector('#auth-form');
+  const status = document.querySelector('#status');
+  const values = () => ({ email: form.email.value, password: form.password.value, displayName: form.displayName.value });
+  form.addEventListener('click', async (event) => {
+    const action = event.target.dataset.action;
+    if (!action) return;
+    status.textContent = '处理中…';
+    try {
+      const result = action === 'logout' ? await BooksAuth.logout() : await BooksAuth[action](values());
+      status.textContent = action === 'logout' ? '已退出' : `已${action === 'register' ? '注册并登录' : '登录'}：${result.user.email}（${result.user.role}）`;
+    } catch (error) {
+      status.textContent = error.message;
+    }
+  });
+</script>
