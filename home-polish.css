@@ -7,7 +7,7 @@
 }
 .books-shell .books-page-heading h1 { font-size: 25px; line-height: 1.25; }
 .books-page-heading .index-labels { align-items: center; flex-wrap: wrap; padding: 0; gap: 4px 14px; }
-.books-page-heading .index-labels a { padding: 6px 0; }
+.books-page-heading .index-labels a { display: inline-flex; align-items: center; justify-content: center; min-height: 32px; padding: 6px 10px; border: 1px solid #d8e1e5; border-radius: 7px; background: #fff; color: #365c82; text-decoration: none; font-size: 11px; font-weight: 650; box-shadow: 0 1px 2px #1823350a; }
 .books-page-heading .index-labels span { font-size: 11px; color: #667388; }
 
 .books-shell .market-insights {
@@ -122,8 +122,8 @@
   border-radius: 8px;
 }
 .research-actions h2 { margin: 0; font-size: 15px; }
-.research-actions a { padding: 7px 0; color: #365c82; font-size: 13px; }
-.research-actions a:hover, .index-labels a:hover { text-decoration: underline; }
+.research-actions a { display: inline-flex; align-items: center; justify-content: center; min-height: 34px; padding: 6px 10px; border: 1px solid #d8e1e5; border-radius: 7px; background: #fff; color: #365c82; font-size: 11px; font-weight: 650; text-decoration: none; box-shadow: 0 1px 2px #1823350a; }
+.research-actions a:hover, .index-labels a:hover { border-color: #b9cbe4; background: #f5f8ff; color: #254f87; text-decoration: none; }
 .research-actions a:focus-visible, .home-quote-detail summary:focus-visible,
 .index-labels a:focus-visible { outline: 2px solid #486a95; outline-offset: 2px; }
 
