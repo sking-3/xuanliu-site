@@ -9,7 +9,8 @@ const INFO = 'https://api.hyperliquid.xyz/info';
 const SOCKET = 'wss://api.hyperliquid.xyz/ws';
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 const LIMIT = 200, MAX_BYTES = 5 * 1024 * 1024;
-const TYPES = ['userFills', 'orderUpdates'];
+const POSITION_STREAM = 'clearinghouseState';
+const TYPES = ['userFills', 'orderUpdates', POSITION_STREAM];
 const clone = value => JSON.parse(JSON.stringify(value));
 const invalid = () => { throw Error('invalid_response'); };
 function object(v) { if (!v || typeof v !== 'object' || Array.isArray(v)) invalid(); return v; }
@@ -162,7 +163,7 @@ function create(options={}) {
     try {
       const payload=await request(type,token);if(!valid(token))return;
       const fetchedAt=now();
-      if(name==='positions'){const parsed=positions(payload,fetchedAt);state.positions={status:'ready',...parsed,fetchedAt,error:null};(options.positionArchive||globalThis.BooksPositionObservations?.local)?.record(state.address,state.positions,'rest');}
+      if(name==='positions'){const parsed=positions(payload,fetchedAt);if(state.positions.sourceTime===null||parsed.sourceTime>=state.positions.sourceTime){state.positions={status:'ready',...parsed,fetchedAt,error:null};(options.positionArchive||globalThis.BooksPositionObservations?.local)?.record(state.address,state.positions,'rest');}else state.positions.status='ready';}
       else if(name==='orders'){state.orders={status:'ready',rows:orders(payload,fetchedAt),fetchedAt,sourceTime:null,error:null};}
       else {const parsed=fills(payload,state.address,fetchedAt);state.fills={...state.fills,status:'ready',rows:merge(state.fills.rows,parsed,now()),receivedCount:parsed.length,fetchedAt,error:null};}
     } catch(error) {
@@ -197,7 +198,7 @@ function create(options={}) {
     }
     thisSocket.onopen=()=>{
       if(!alive())return;seenOpen=true;
-      for(const type of TYPES)thisSocket.send(JSON.stringify({method:'subscribe',subscription:{type,user:state.address}}));
+      for(const type of TYPES)thisSocket.send(JSON.stringify({method:'subscribe',subscription:{type,user:state.address,...(type===POSITION_STREAM?{dex:''}:{})}}));
       status('connecting');clear(pingTimer);pingTimer=setTimer(heartbeat,30000);
     };
     thisSocket.onmessage=event=>{
@@ -208,11 +209,21 @@ function create(options={}) {
         if(message.channel==='pong')return;
         if(message.channel==='subscriptionResponse'){
           const response=object(message.data),sub=object(response.subscription);
-          if(response.method!=='subscribe'||!TYPES.includes(sub.type)||String(sub.user).toLowerCase()!==state.address)invalid();
+          if(response.method!=='subscribe'||!TYPES.includes(sub.type)||String(sub.user).toLowerCase()!==state.address||(sub.type===POSITION_STREAM&&sub.dex!==''))invalid();
           acknowledgments.add(sub.type);accepted=acknowledgments.size===TYPES.length;if(accepted){clear(openTimer);openTimer=null;}if(sub.type==='orderUpdates'){state.events.status='ready';state.events.fetchedAt=now();}state.connection.status=accepted?'live':'connecting';state.connection.reason=null;emit();return;
         }
         if(message.channel==='error'){policy?.stop('stream_rejected');halt('stream_rejected');return;}
-        if(message.channel==='userFills'){
+        if(message.channel===POSITION_STREAM){
+          const data=object(message.data),receivedAt=now();
+          if(String(data.user).toLowerCase()!==state.address||data.dex!=='')invalid();
+          const parsed=positions(data.clearinghouseState,receivedAt);
+          if(receivedAt-parsed.sourceTime>15000||parsed.sourceTime>receivedAt+1000)invalid();
+          if(state.positions.sourceTime!==null&&parsed.sourceTime<state.positions.sourceTime)return;
+          state.positions={status:'ready',...parsed,fetchedAt:receivedAt,error:null};
+          (options.positionArchive||globalThis.BooksPositionObservations?.local)?.record(state.address,state.positions,'websocket');
+          acknowledgments.add(POSITION_STREAM);accepted=acknowledgments.size===TYPES.length;if(accepted){clear(openTimer);openTimer=null;state.connection.status='live';state.connection.reason=null;}
+          emit();return;
+        }else if(message.channel==='userFills'){
           const data=object(message.data);if(String(data.user).toLowerCase()!==state.address)invalid();
           if(data.isSnapshot!==undefined&&typeof data.isSnapshot!=='boolean')invalid();
           const parsed=fills(data.fills,state.address,now());

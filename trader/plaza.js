@@ -1395,7 +1395,7 @@ function liveSection(title,columns) {
   heading.append(node('h3',title),count);for(const label of columns){const th=node('th',label);th.setAttribute('scope','col');tr.append(th);}thead.append(tr);table.append(thead,tbody);wrap.append(table);section.append(heading,status,emptyMessage,wrap);return {section,status,count,wrap,tbody,emptyMessage};
 }
 function buildLivePanel(r,b) {
-  const root=node('div',undefined,'live-panel'),toolbar=node('div',undefined,'live-toolbar'),connection=node('p','正在连接…','live-connection'),retry=button('刷新连接',()=>state.liveClient?.refresh(),'live-refresh'),scope=node('p','持仓与挂单每 60 秒对齐 · 成交与订单事件实时推送 · 持仓范围：永续主市场','live-scope'),gap=node('p',undefined,'live-gap');
+  const root=node('div',undefined,'live-panel'),toolbar=node('div',undefined,'live-toolbar'),connection=node('p','正在连接…','live-connection'),retry=button('刷新连接',()=>state.liveClient?.refresh(),'live-refresh'),scope=node('p','持仓、成交与订单事件实时推送 · 持仓与挂单每 60 秒对齐 · 持仓范围：永续主市场','live-scope'),gap=node('p',undefined,'live-gap');
   connection.setAttribute('role','status');connection.setAttribute('aria-live','polite');toolbar.append(connection,retry);root.append(toolbar,scope,gap);
   const sections={
     positions:liveSection('当前持仓',['品种','方向','数量','开仓均价（报价币）','仓位价值（报价币）','未实现盈亏（USDC）','杠杆']),
