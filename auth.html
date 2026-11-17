@@ -7,7 +7,7 @@
   <meta name="books-api-base" content="/">
   <meta name="description" content="Books 账户入口">
   <title>Books · 账户入口</title>
-  <link rel="stylesheet" href="auth.css?v=711ceafc">
+  <link rel="stylesheet" href="auth.css?v=4c9140c4">
 </head>
 <body class="auth-page">
   <header class="auth-topbar">
@@ -58,9 +58,10 @@
       </form>
 
       <section class="provider-block" aria-labelledby="provider-title">
-        <div class="provider-heading"><span id="provider-title">登录方式</span><span>按服务配置</span></div>
-        <div id="providers" class="provider-list"><span class="provider-chip pending">正在读取…</span></div>
-        <p class="provider-note">手机、Google、微信和 QQ 需要完成对应服务配置后才会启用；不会显示成可点击的假入口。</p>
+        <div class="provider-heading"><span id="provider-title">登录方式</span><button type="button" id="provider-settings" class="provider-settings-button">配置登录服务</button></div>
+        <div id="providers" class="provider-list"><button type="button" class="provider-chip pending" disabled>正在读取…</button></div>
+        <button type="button" id="provider-help-toggle" class="provider-help-toggle" aria-expanded="false">查看登录方式说明</button>
+        <div id="provider-help" class="provider-help-panel" hidden>邮箱密码和 QQ 邮箱当前可用；手机号短信、Google、微信和 QQ 需要完成服务端配置后才会启用。配置完成后会在这里显示为可用入口。</div>
       </section>
     </section>
   </main>
@@ -161,13 +162,29 @@
       }
     });
 
+    const providerHelpToggle = document.querySelector('#provider-help-toggle');
+    const providerHelp = document.querySelector('#provider-help');
+    const providerSettings = document.querySelector('#provider-settings');
+
+    function toggleProviderHelp(open = providerHelp.hidden) {
+      providerHelp.hidden = !open;
+      providerHelpToggle.setAttribute('aria-expanded', String(open));
+      providerHelpToggle.textContent = open ? '收起登录方式说明' : '查看登录方式说明';
+    }
+    providerHelpToggle.addEventListener('click', () => toggleProviderHelp());
+    providerSettings.addEventListener('click', () => toggleProviderHelp(true));
+
     async function loadProviders() {
       const target = document.querySelector('#providers');
       try {
         const result = await BooksAuth.providers();
-        target.innerHTML = result.providers.map((provider) => `<span class="provider-chip ${provider.enabled ? 'enabled' : 'pending'}"><i aria-hidden="true"></i>${provider.name}<small>${provider.enabled ? '可用' : '待配置'}</small></span>`).join('');
+        target.innerHTML = result.providers.map((provider) => `<button type="button" class="provider-chip ${provider.enabled ? 'enabled' : 'pending'}" data-provider="${provider.id}" aria-disabled="${provider.enabled ? 'false' : 'true'}"><i aria-hidden="true"></i><span>${provider.name}</span><small>${provider.enabled ? '可用' : '待配置'}</small></button>`).join('');
+        target.querySelectorAll('.provider-chip').forEach((chip) => chip.addEventListener('click', () => {
+          if (chip.getAttribute('aria-disabled') === 'true') toggleProviderHelp(true);
+          else { success.textContent = `${chip.querySelector('span').textContent}已选为当前登录方式。`; error.textContent = ''; }
+        }));
       } catch {
-        target.innerHTML = '<span class="provider-chip enabled"><i aria-hidden="true"></i>邮箱和密码<small>可用</small></span>';
+        target.innerHTML = '<button type="button" class="provider-chip enabled" data-provider="email_password"><i aria-hidden="true"></i><span>邮箱和密码</span><small>可用</small></button>';
       }
     }
     setMode(mode);
