@@ -629,7 +629,7 @@ function renderLeadPerformance(r,parent,period,compact=false){
   const body=node('div',undefined,'performance-body'),stats=node('div',undefined,'performance-stats');
   const roi=signedValue(part.roi,pct(part.roi));
   stats.append(node('div',roi,'roi '+directionClass(part.roi)+(roi.length>8?' long-roi':'')),node('div',r.exchange+' '+period+' 收益率','roi-label'));
-  if(part.fullPeriod===false)stats.append(node('p','带单未满所选周期 · 来源窗口数值，不参与收益率排名','detail-method'));
+  if(part.fullPeriod===false)stats.append(node('p',(Number.isFinite(part.accountAgeDays)?'带单未满所选周期':'周期覆盖待核验')+' · 来源窗口数值，不参与同期排名','detail-method'));
   const figures=node('div',undefined,'metrics'),unit=part.currency||r.currency;
   const fields=[['同期盈亏 '+unit,signedValue(part.pnl,compact?compactMoney(part.pnl,unit):money(part.pnl,unit)),directionClass(part.pnl)]];
   if(compact){
