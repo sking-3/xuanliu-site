@@ -1,60 +1,177 @@
 <!doctype html>
 <html lang="zh-CN">
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="books-api-base" content="/">
-<title>Books · 登录</title>
-<style>
-  :root { color-scheme: light; font-family: Inter, system-ui, sans-serif; color: #17253d; background: #f7f9fc; }
-  body { max-width: 520px; margin: 8vh auto; padding: 0 20px; }
-  form { display: grid; gap: 14px; padding: 24px; border: 1px solid #dbe3ef; border-radius: 16px; background: white; box-shadow: 0 12px 32px #17253d12; }
-  label { display: grid; gap: 6px; font-size: 14px; }
-  input, button { font: inherit; padding: 11px 12px; border-radius: 9px; border: 1px solid #cbd6e5; }
-  button { cursor: pointer; background: #1565c0; color: #fff; border: 0; }
-  button.secondary { background: #edf3fb; color: #17375f; }
-  .row { display: flex; gap: 8px; flex-wrap: wrap; }
-  .muted, #status { color: #68778f; }
-  #status { min-height: 24px; }
-</style>
-<main>
-  <h1>Books</h1>
-  <p class="muted">正式账户入口。登录后可管理资料、钱包和充值确认状态；交易执行仍需单独配置与授权。</p>
-  <form id="auth-form">
-    <label>邮箱<input name="email" type="email" autocomplete="email" required></label>
-    <label>密码<input name="password" type="password" minlength="10" autocomplete="current-password" required></label>
-    <label>显示名称<input name="displayName" autocomplete="nickname"></label>
-    <div class="row">
-      <button type="button" data-action="register">注册</button>
-      <button type="button" data-action="login">登录</button>
-      <button type="button" class="secondary" data-action="logout">退出</button>
-    </div>
-    <p id="status" role="status" aria-live="polite"></p>
-  </form>
-  <p><a href="index.html">返回 Books</a></p>
-</main>
-<script src="books-auth-config.js"></script>
-<script>
-  // The optional config file overrides the same-origin default after the VPS domain is ready.
-  window.BOOKS_API_BASE = window.BOOKS_API_BASE || document.querySelector('meta[name="books-api-base"]').content;
-</script>
-<script src="books-auth.js"></script>
-<script>
-  const form = document.querySelector('#auth-form');
-  const status = document.querySelector('#status');
-  const values = () => ({ email: form.email.value, password: form.password.value, displayName: form.displayName.value });
-  form.addEventListener('click', async (event) => {
-    const action = event.target.dataset.action;
-    if (!action) return;
-    status.textContent = '处理中…';
-    try {
-      const result = action === 'logout' ? await BooksAuth.logout() : await BooksAuth[action](values());
-      if (action !== 'logout') {
-        status.textContent = `已${action === 'register' ? '注册并登录' : '登录'}：${result.user.email}（${result.user.role}）`;
-        const next = new URLSearchParams(location.search).get('next');
-        if (next) setTimeout(() => { location.href = next; }, 400);
-      } else status.textContent = '已退出';
-    } catch (error) {
-      status.textContent = error.message;
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f7f8fa">
+  <meta name="books-api-base" content="/">
+  <meta name="description" content="Books 账户入口">
+  <title>Books · 账户入口</title>
+  <link rel="stylesheet" href="auth.css?v=711ceafc">
+</head>
+<body class="auth-page">
+  <header class="auth-topbar">
+    <a class="auth-brand" href="index.html" aria-label="返回 Books 首页">Books<span>RESEARCH STUDIO</span></a>
+    <a class="auth-back" href="index.html">返回公开研究</a>
+  </header>
+
+  <main class="auth-layout">
+    <section class="auth-copy" aria-labelledby="auth-title">
+      <p class="auth-kicker">ACCOUNT ACCESS</p>
+      <h1 id="auth-title">进入你的研究工作台</h1>
+      <p>行情、带单员广场和公开资料可以直接浏览。登录后，才能保存关注、连接交易账户、确认充值和执行受保护操作。</p>
+      <ul class="auth-points">
+        <li><span>01</span><div><strong>公开研究</strong><small>不登录也能查看市场和带单员资料</small></div></li>
+        <li><span>02</span><div><strong>账户权限</strong><small>跟单、连接和资金操作逐项确认</small></div></li>
+        <li><span>03</span><div><strong>风险边界</strong><small>真实下单仍需独立授权，当前接口默认关闭</small></div></li>
+      </ul>
+    </section>
+
+    <section class="auth-card" aria-labelledby="auth-form-title">
+      <div class="auth-card-head">
+        <div>
+          <p class="auth-kicker">BOOKS ACCOUNT</p>
+          <h2 id="auth-form-title">登录</h2>
+        </div>
+        <span class="auth-status-dot" aria-hidden="true"></span>
+      </div>
+
+      <div class="auth-tabs" role="tablist" aria-label="账户操作">
+        <button type="button" role="tab" id="tab-login" aria-selected="true" data-mode="login">登录</button>
+        <button type="button" role="tab" id="tab-register" aria-selected="false" data-mode="register">注册</button>
+      </div>
+
+      <form id="auth-form" novalidate>
+        <label for="email">邮箱 / QQ邮箱 <span>必填</span>
+          <input id="email" name="email" type="email" maxlength="254" autocomplete="email" inputmode="email" required placeholder="you@example.com">
+        </label>
+        <label id="display-field" for="displayName" hidden>显示名称 <span>选填</span>
+          <input id="displayName" name="displayName" autocomplete="nickname" maxlength="60" placeholder="用于账户和研究记录">
+        </label>
+        <label for="password">密码 <span id="password-hint">至少 10 位</span>
+          <span class="password-wrap"><input id="password" name="password" type="password" minlength="10" autocomplete="current-password" required placeholder="至少 10 位字符"><button type="button" id="toggle-password" aria-label="显示密码">显示</button></span>
+        </label>
+        <div id="password-meter" class="password-meter" hidden aria-live="polite"><span></span><small></small></div>
+        <p id="form-error" class="form-message error" role="alert" aria-live="assertive"></p>
+        <p id="form-success" class="form-message success" role="status" aria-live="polite"></p>
+        <button class="auth-submit" id="submit" type="submit">登录</button>
+      </form>
+
+      <section class="provider-block" aria-labelledby="provider-title">
+        <div class="provider-heading"><span id="provider-title">登录方式</span><span>按服务配置</span></div>
+        <div id="providers" class="provider-list"><span class="provider-chip pending">正在读取…</span></div>
+        <p class="provider-note">手机、Google、微信和 QQ 需要完成对应服务配置后才会启用；不会显示成可点击的假入口。</p>
+      </section>
+    </section>
+  </main>
+
+  <script src="books-auth-config.js"></script>
+  <script>window.BOOKS_API_BASE = window.BOOKS_API_BASE || document.querySelector('meta[name="books-api-base"]').content;</script>
+  <script src="books-auth.js?v=61c49539"></script>
+  <script>
+    const form = document.querySelector('#auth-form');
+    const title = document.querySelector('#auth-form-title');
+    const submit = document.querySelector('#submit');
+    const displayField = document.querySelector('#display-field');
+    const password = document.querySelector('#password');
+    const passwordHint = document.querySelector('#password-hint');
+    const passwordMeter = document.querySelector('#password-meter');
+    const passwordMeterBar = passwordMeter.querySelector('span');
+    const passwordMeterText = passwordMeter.querySelector('small');
+    const error = document.querySelector('#form-error');
+    const success = document.querySelector('#form-success');
+    const next = new URLSearchParams(location.search).get('next');
+    let mode = new URLSearchParams(location.search).get('mode') === 'register' ? 'register' : 'login';
+
+    function setMode(nextMode) {
+      mode = nextMode;
+      const registering = mode === 'register';
+      title.textContent = registering ? '创建账户' : '登录';
+      submit.textContent = registering ? '创建账户' : '登录';
+      displayField.hidden = !registering;
+      password.autocomplete = registering ? 'new-password' : 'current-password';
+      passwordHint.textContent = registering ? '至少 10 位，建议包含数字和符号' : '至少 10 位';
+      passwordMeter.hidden = !registering;
+      document.querySelectorAll('[data-mode]').forEach((tab) => tab.setAttribute('aria-selected', String(tab.dataset.mode === mode)));
+      error.textContent = '';
+      success.textContent = '';
     }
-  });
-</script>
+
+    function scorePassword(value) {
+      let score = 0;
+      if (value.length >= 10) score++;
+      if (/[A-Z]/.test(value) && /[a-z]/.test(value)) score++;
+      if (/\d/.test(value)) score++;
+      if (/[^A-Za-z0-9]/.test(value)) score++;
+      return Math.min(score, 4);
+    }
+
+    function updatePasswordMeter() {
+      if (passwordMeter.hidden) return;
+      const score = scorePassword(password.value);
+      passwordMeter.dataset.score = String(score);
+      passwordMeterBar.style.width = `${score * 25}%`;
+      passwordMeterText.textContent = score < 2 ? '较弱' : score < 4 ? '可以再加强' : '强度良好';
+    }
+
+    function validate() {
+      const email = form.email.value.trim();
+      const value = password.value;
+      if (!email || email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return '请输入有效的邮箱地址。';
+      if (value.length < 10) return '密码至少需要 10 位字符。';
+      return '';
+    }
+
+    function friendlyError(err) {
+      const code = err?.payload?.error || err?.message;
+      if (code === 'invalid_registration') return '注册信息不完整，请检查邮箱格式和密码长度。';
+      if (code === 'invalid_login') return '邮箱或密码不正确。';
+      if (code === 'email_already_registered' || code === 'email_exists' || code === 'user_exists') return '该邮箱已经注册，请切换到登录。';
+      if (code === 'live_trading_disabled') return '当前仅开放账户和研究功能，真实下单接口仍处于关闭状态。';
+      return '请求未完成，请稍后重试；如果持续出现，请保留这条错误信息。';
+    }
+
+    document.querySelectorAll('[data-mode]').forEach((tab) => tab.addEventListener('click', () => setMode(tab.dataset.mode)));
+    document.querySelector('#toggle-password').addEventListener('click', (event) => {
+      const visible = password.type === 'text';
+      password.type = visible ? 'password' : 'text';
+      event.currentTarget.textContent = visible ? '显示' : '隐藏';
+      event.currentTarget.setAttribute('aria-label', visible ? '显示密码' : '隐藏密码');
+    });
+    password.addEventListener('input', updatePasswordMeter);
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      error.textContent = '';
+      success.textContent = '';
+      const validation = validate();
+      if (validation) { error.textContent = validation; return; }
+      submit.disabled = true;
+      submit.textContent = mode === 'register' ? '正在创建…' : '正在登录…';
+      try {
+        const payload = { email: form.email.value.trim(), password: password.value };
+        if (mode === 'register') payload.displayName = form.displayName.value.trim();
+        await BooksAuth[mode](payload);
+        success.textContent = mode === 'register' ? '账户已创建，正在打开账户中心…' : '登录成功，正在打开账户中心…';
+        setTimeout(() => { location.href = next || 'account.html'; }, 350);
+      } catch (err) {
+        error.textContent = friendlyError(err);
+      } finally {
+        submit.disabled = false;
+        submit.textContent = mode === 'register' ? '创建账户' : '登录';
+      }
+    });
+
+    async function loadProviders() {
+      const target = document.querySelector('#providers');
+      try {
+        const result = await BooksAuth.providers();
+        target.innerHTML = result.providers.map((provider) => `<span class="provider-chip ${provider.enabled ? 'enabled' : 'pending'}"><i aria-hidden="true"></i>${provider.name}<small>${provider.enabled ? '可用' : '待配置'}</small></span>`).join('');
+      } catch {
+        target.innerHTML = '<span class="provider-chip enabled"><i aria-hidden="true"></i>邮箱和密码<small>可用</small></span>';
+      }
+    }
+    setMode(mode);
+    loadProviders();
+  </script>
+</body>
+</html>
