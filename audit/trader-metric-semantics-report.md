@@ -29,7 +29,7 @@
 
 **修复策略：**公开账户的标准“最大回撤%”显示“—”，直到取得可验证的资金流调整净值序列。周度 19.15% 与 180D 226.36% 同样处理，不能只删大于 100% 的值或截成 100%。若保留原比值，应仅在详情明确称“PnL 回落／峰值时账户权益”；可另列 PnL 最大回落金额。金额必须在完整原始窗口点上计算后再降采样，不能从绘图点反算。
 
-来源：[官方 UI 指标说明](https://hyperliquid.gitbook.io/hyperliquid-docs/trading/miscellaneous-ui)、[公开 portfolio 缓存](https://sking-3.github.io/xuanliu-site/trader/portfolios.json)。截图复核缓存截至 2026-11-09T23:12:51.814Z；不代表完整盘中历史。
+来源：[官方 UI 指标说明](https://hyperliquid.gitbook.io/hyperliquid-docs/trading/miscellaneous-ui)、[公开 portfolio 缓存](https://45-77-39-98.sslip.io/trader/portfolios.json)。截图复核缓存截至 2026-11-09T23:12:51.814Z；不代表完整盘中历史。
 
 ## 100%：近期永续平仓分笔样本，不是周期或账户整体胜率
 
