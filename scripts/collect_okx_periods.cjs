@@ -89,17 +89,44 @@ async function collect(read,wait=async()=>{}){
     rankSourceUrl:leaderboard.url,rankFetchedAt:leaderboard.receivedAt,rankVersion:leaderboard.payload.data[0].dataVer,accounts};
   return {bundle:model.parse(bundle),archive};
 }
+function mergeDirectory(previous,next){
+  model.parse(next);
+  if(!previous)return next;
+  model.parse(previous);
+  expect(Date.parse(next.rankFetchedAt)>=Date.parse(previous.rankFetchedAt),'refusing to overwrite a newer leaderboard');
+  const old=new Map(previous.accounts.map(row=>[row.uniqueCode,row]));
+  const accounts=next.accounts.map(row=>{
+    const former=old.get(row.uniqueCode);old.delete(row.uniqueCode);
+    // Missing new windows retain their own original evidence and observation time.
+    return former?{...row,performance:{...former.performance,...row.performance}}:row;
+  });
+  for(const row of old.values())accounts.push({...row,selection:row.selection||{
+    status:'historical',rankEvidencePath:previous.rankEvidencePath,rankEvidenceSha256:previous.rankEvidenceSha256,
+    rankSourceUrl:previous.rankSourceUrl,rankFetchedAt:previous.rankFetchedAt,rankVersion:previous.rankVersion
+  }});
+  expect(accounts.length<=model.archiveLimit,'OKX directory archive limit reached');
+  return model.parse({...next,accounts});
+}
 async function publish(dir,{bundle,archive}){
   const destination=path.join(dir,'period-returns.json');
   await fs.mkdir(path.join(dir,'evidence'),{recursive:true});
   let previous;
   try {previous=JSON.parse(await fs.readFile(destination,'utf8'));}catch(err){if(err.code!=='ENOENT')throw err;}
-  if(previous)expect(Date.parse(bundle.rankFetchedAt)>=Date.parse(previous.rankFetchedAt),'refusing to overwrite a newer leaderboard');
+  bundle=mergeDirectory(previous,bundle);
   for(const source of archive){
     const file=path.join(dir,'evidence',path.basename(source.evidencePath));
     // Content-addressed paths may be shared by past and future snapshots.
     try { await fs.writeFile(file,source.bytes,{flag:'wx'}); }
     catch(err){if(err.code!=='EEXIST')throw err;expect((await fs.readFile(file)).equals(source.bytes),'stored evidence mismatch');}
+  }
+  const references=new Map([[bundle.rankEvidencePath,bundle.rankEvidenceSha256]]);
+  for(const row of bundle.accounts){
+    if(row.selection)references.set(row.selection.rankEvidencePath,row.selection.rankEvidenceSha256);
+    for(const part of Object.values(row.performance))references.set(part.evidencePath,part.evidenceSha256);
+  }
+  for(const [ref,sha] of references){
+    const bytes=await fs.readFile(path.join(dir,'evidence',path.basename(ref)));
+    expect(createHash('sha256').update(bytes).digest('hex')===sha,'missing or changed OKX evidence');
   }
   const tmp=destination+'.'+randomUUID()+'.tmp';
   try{await fs.writeFile(tmp,JSON.stringify(bundle)+'\n');await fs.rename(tmp,destination);}
@@ -113,5 +140,5 @@ async function main(args){
   await publish(argsMap.get('--out')||path.resolve(__dirname,'../trader/okx'),result);
   console.log('OKX verified',Object.fromEntries(Object.keys(model.days).map(p=>[p,result.bundle.accounts.filter(r=>r.performance[p]).length])));
 }
-module.exports={select,curve,receipt,stored,collect,publish};
+module.exports={select,curve,receipt,stored,collect,mergeDirectory,publish};
 if(require.main===module)main(process.argv.slice(2)).catch(err=>{console.error(err.message);process.exitCode=1;});

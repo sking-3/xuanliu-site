@@ -107,6 +107,11 @@
         check(Object.hasOwn(days,period) && part.sourcePeriod === period && part.sourceUrl === row.sourceUrl
           && part.currency === 'USD' && part.sourceAsOf === null && part.lastSuccessAt === part.fetchedAt);
         evidence(part,id+'-p'+days[period],end);
+        if(part.accountAgeDaysAtCapture!==undefined || part.accountAgeEvidence!==undefined) {
+          check(whole(part.accountAgeDaysAtCapture));
+          evidence(part.accountAgeEvidence,id+'-profile',end);
+          check(Date.parse(part.accountAgeEvidence.fetchedAt)<=Date.parse(part.fetchedAt));
+        }
         evidence({fetchedAt:part.curveFetchedAt,evidencePath:part.curveEvidencePath,evidenceSha256:part.curveEvidenceSha256},id+'-curve'+days[period],end);
         check(Array.isArray(part.curve) && part.curve.length>0 && part.curve.length<=days[period]+1
           && part.curve.every((point,i)=>number(point.value) && timestamp(point.time,Date.parse(part.curveFetchedAt))
@@ -148,8 +153,13 @@
   }
   function performance(row, period, now = Date.now()) {
     const part = row?.performance?.[period];
-    return part ? {...part, status: now-Date.parse(part.lastSuccessAt)>day?'stale':'ready',
-      accountAgeDays:row.leadDays,fullPeriod:row.leadDays>=days[period],periodSupported:true} : null;
+    if(!part)return null;
+    // Older archives have no age attached to each period. A newer profile cannot
+    // prove the account had reached that age when the older return was fetched.
+    const captureAge=part.accountAgeDaysAtCapture!==undefined ? part.accountAgeDaysAtCapture :
+      Date.parse(row.profileEvidence?.fetchedAt)<=Date.parse(part.fetchedAt) ? row.leadDays : null;
+    return {...part, status: now-Date.parse(part.lastSuccessAt)>day?'stale':'ready',
+      accountAgeDays:captureAge,fullPeriod:captureAge!==null && captureAge>=days[period],periodSupported:true};
   }
   function trader(row) {
     return {id:'bitget-'+row.portfolioId,accountId:row.portfolioId,name:row.name,sourceKind:source,exchange:'Bitget',

@@ -664,33 +664,43 @@ await test('enabled owner actions URL-encode only the selected public account an
 await test('cards omit repeated position warnings while the source notice preserves stale state',()=>{
  const before={source:a.state.source,lastReadFailed:a.state.lastReadFailed,positionExclusions:a.state.positionExclusions};const exchange=ids.exchange.value;ids.exchange.value='Hyperliquid';try{const f=qualify(published,Date.now()-3700000),rows=a.validate(f);a.state.source=a.validateSource(f,rows);a.state.lastReadFailed=false;a.state.positionExclusions={};const r=rows[0];assert.doesNotMatch(content(a.card(r,'7D')),/当前仓位未知|上次持仓|核验时持仓|快照过期|北京时间/);a.renderSource();assert.match(ids['position-notice'].textContent,/核验已过期.*当前仓位未知/);assert.match(ids['position-notice'].textContent,/详情查看/);assert.equal(a.currentHolding(r),false);a.state.lastReadFailed=true;assert.doesNotMatch(content(a.card(r,'7D')),/快照读取失败|当前仓位未知/);a.renderSource();assert.match(ids['position-notice'].textContent,/快照读取失败/);}finally{ids.exchange.value=exchange;Object.assign(a.state,before);}
 });
-await test('published Bitget and OKX details retain real windows, records, and hidden-position states',async()=>{
+await test('Bitget and OKX details render controlled visible, protected and hidden position states',async()=>{
  const read=rel=>JSON.parse(fs.readFileSync(path.resolve(__dirname,'../trader',rel),'utf8'));
  const bitget=context.BooksBitgetPeriodData=require('../trader/bitget-period-data.js');
  const okx=context.BooksOKXPeriodData=require('../trader/okx-period-data.js');
- const activity=require('../trader/okx-trades.js').parse(read('okx/trades.json'));
+ require('../trader/okx-trades.js').parse(read('okx/trades.json'));
  const bg=bitget.parse(read('bitget/period-returns.json')),ox=okx.parse(read('okx/period-returns.json'));
  const real=(r,adapter,group)=>({...adapter.trader(r),activity:group,windows:{},positions:[],points:[],orders:[]});
- const visible=bg.accounts.find(r=>r.activity.positions.rows.length),b=real(visible,bitget,visible.activity);
+ const captured=new Date(Date.now()-1000).toISOString(),opened=new Date(Date.now()-7200000).toISOString(),closed=new Date(Date.now()-3600000).toISOString();
+ const position={symbol:'SYNTHETIC-OPEN',side:'long',openedAt:opened,entryPrice:100,markPrice:105,quantity:2,leverage:3,unit:'TEST',currency:'USDT',unrealizedPnl:10};
+ const historical={...position,symbol:'SYNTHETIC-CLOSE',closedAt:closed,exitPrice:105,realizedPnl:10};
+ const history={status:'ready',fetchedAt:captured,rows:[historical],hasMore:false,pagesFetched:1,truncated:false};
+ const visible=structuredClone(bg.accounts[0]);
+ visible.performance['30D']={...(visible.performance['30D']||visible.performance['90D']),roi:12,pnl:100,mdd:8,winRate:50,curve:[{time:opened,value:0},{time:closed,value:12}]};
+ visible.activity={...visible.activity,positions:{status:'ready',fetchedAt:captured,rows:[position],publicDelayMinutes:60},history};
+ const b=real(visible,bitget,visible.activity);
  a.selectPlatform('Bitget');assert.ok(ids['position-notice'].hidden);assert.doesNotMatch(content(ids.status),/Hyperliquid/);assert.ok(ids['source-summary'].hidden);
  const shown=a.card(b,'30D');assert.match(content(shown),/同期盈亏 USD/);assert.match(content(shown),/来源回撤/);assert.match(content(shown),/每日收益率/);assert.match(content(shown),/历史仓位/);
- a.openDetail(b,'365D');assert.equal(a.state.window,'90D');assert.match(content(ids['detail-body']),/365D 暂无可核实收益/);assert.match(content(ids['detail-body']),/Bitget 90D 收益率/);assert.match(content(ids['detail-body']),/官方每日收益率/);
+ const missingYear=structuredClone(visible);delete missingYear.performance['365D'];
+ a.openDetail(real(missingYear,bitget,missingYear.activity),'365D');assert.equal(a.state.window,'90D');assert.match(content(ids['detail-body']),/365D 暂无可核实收益/);assert.match(content(ids['detail-body']),/Bitget 90D 收益率/);assert.match(content(ids['detail-body']),/官方每日收益率/);
+ a.openDetail(b,'30D');
  assert.match(content(ids['detail-body']),/已平仓样本分析/);assert.match(content(ids['detail-overview']),/Bitget.*持仓快照/);
  a.activateDetailTab('positions');assert.match(content(ids['detail-body']),new RegExp(visible.activity.history.rows[0].symbol));assert.match(content(ids['detail-body']),/已平仓仓位/);
  a.activateDetailTab('live');assert.match(content(ids['detail-body']),new RegExp(visible.activity.positions.rows[0].symbol));assert.match(content(ids['detail-body']),/延迟约 1 小时/);
  a.activateDetailTab('orders');assert.equal(a.state.tab,'live');
- const shielded=bg.accounts.find(r=>r.activity.positions.status==='restricted');
+ const shielded=structuredClone(visible);shielded.activity.positions={status:'restricted',fetchedAt:captured,rows:[]};
  a.openDetail(real(shielded,bitget,shielded.activity),'30D');assert.match(content(ids['detail-body']),/策略保护/);a.activateDetailTab('live');assert.equal(a.state.tab,'analysis');
- const hidden=activity.accounts.find(a=>a.activity.positions.hiddenCount&&!a.activity.positions.rows.length);
- const record=ox.accounts.find(r=>r.uniqueCode===hidden.uniqueCode);
+ const hidden={positions:{status:'partial',fetchedAt:captured,hiddenCount:3,rows:[]},history,orders:{status:'unsupported',fetchedAt:captured,rows:[]}};
+ const record=ox.accounts[0];
  a.selectPlatform('OKX');assert.ok(ids['position-notice'].hidden);assert.match(ids.status.textContent,/OKX/);
- a.openDetail(real(record,okx,hidden.activity),'90D');assert.match(content(ids['detail-overview']),/来源隐藏了/);assert.doesNotMatch(content(ids['detail-overview']),/敞口.*0/);assert.match(content(ids['detail-body']),/来源隐藏了/);a.activateDetailTab('positions');assert.match(content(ids['detail-body']),new RegExp(hidden.activity.history.rows[0].symbol));
+ a.openDetail(real(record,okx,hidden),'90D');assert.match(content(ids['detail-overview']),/来源隐藏了 3 条明细/);assert.doesNotMatch(content(ids['detail-overview']),/敞口.*0/);assert.match(content(ids['detail-body']),/来源隐藏了 3 条明细/);a.activateDetailTab('positions');assert.match(content(ids['detail-body']),/SYNTHETIC-CLOSE/);
  delete context.BooksBitgetPeriodData;delete context.BooksOKXPeriodData;
 });
 await test('ROI ordering retains accounts with missing selected-period returns across platforms',()=>{
  unifiedSetup();const bitget=context.BooksBitgetPeriodData=require('../trader/bitget-period-data.js'),okx=context.BooksOKXPeriodData=require('../trader/okx-period-data.js');
  const read=rel=>JSON.parse(fs.readFileSync(path.resolve(__dirname,'../trader',rel),'utf8'));
- const b=bitget.parse(read('bitget/period-returns.json')).accounts[0],o=okx.parse(read('okx/period-returns.json')).accounts[0];
+ const b=structuredClone(bitget.parse(read('bitget/period-returns.json')).accounts[0]),o=structuredClone(okx.parse(read('okx/period-returns.json')).accounts[0]);
+ delete b.performance['7D'];delete o.performance['7D'];
  const bg={...bitget.trader(b),activity:b.activity,windows:{},positions:[],points:[],orders:[]},ox={...okx.trader(o),windows:{},positions:[],points:[],orders:[]};
  const hl=a.state.rows.find(a.isPublicAccount),missing={...hl,id:hl.id+'-missing',name:'SYNTHETIC MISSING',windows:{...hl.windows,'7D':undefined}};
  const binance=a.state.binanceRows.find(r=>!r.referenceOnly);assert.ok(Number.isFinite(a.sortValue(hl,'7D','roi')));
