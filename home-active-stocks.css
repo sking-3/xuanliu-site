@@ -18,3 +18,12 @@
 
 .home-tv-movers .tradingview-widget-container,.home-tv-movers .tradingview-widget-container__widget{height:450px;min-height:450px;width:100%;min-width:0}
 .home-tv-movers .tradingview-widget-copyright{margin-top:8px;font-size:12px;line-height:1.5}
+
+.home-short-leaders .leader-status { padding: 2px 9px; border-radius: 999px; background: #f0f3f5; color: #526474; font-size: 12px; }
+.home-short-leaders .leader-evidence { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 12px; margin: 14px 0 0; }
+.home-short-leaders .leader-evidence > div { min-width: 0; padding: 10px 12px; border-radius: 7px; background: #f7f9fa; }
+.home-short-leaders dt { font-size: 13px; font-weight: 600; color: #31495b; }
+.home-short-leaders dd { margin: 5px 0 0; font-size: 12px; line-height: 1.6; color: #647382; overflow-wrap: anywhere; }
+.home-short-leaders .leader-method { color: #647382; }
+@media(max-width:900px) { .home-short-leaders .leader-evidence { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+@media(max-width:420px) { .home-short-leaders .leader-evidence { gap: 8px; } .home-short-leaders .leader-evidence > div { padding: 9px; } }

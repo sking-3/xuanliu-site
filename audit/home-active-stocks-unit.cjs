@@ -70,12 +70,13 @@ test('the shipped snapshot stays empty until source integration is separately re
   const changed=JSON.parse(JSON.stringify(data));change(changed);assert.throws(()=>api.summarize(changed,now));
  }
 });
-test('production code cannot load the synthetic audit fixture or call a provider',()=>{
+test('dormant turnover code cannot call providers and is not mounted as leader observation',()=>{
  const root=path.join(__dirname,'..');
  const source=fs.readFileSync(path.join(root,'home-active-stocks.js'),'utf8'),html=fs.readFileSync(path.join(root,'index.html'),'utf8');
  assert.doesNotMatch(source,/active-stocks-fixture|raw\.githubusercontent|gtimg|7709|localStorage|sessionStorage/);
  assert.match(source,/credentials:'omit',redirect:'error'/);assert.match(source,/cache:'no-store'/);
- assert.match(html,/id="home-active-stocks"/);assert.match(html,/home-active-stocks\.js/);
+ assert.doesNotMatch(html,/id="home-active-stocks"|<script[^>]+home-active-stocks\.js/);
+ assert.match(html,/id="home-short-leaders"/);
  assert.doesNotMatch(html,/合成样本|合成测试源/);
  assert.match(fs.readFileSync(path.join(root,'scripts/stage_public_release.cjs'),'utf8'),/'audit'/);
 });
