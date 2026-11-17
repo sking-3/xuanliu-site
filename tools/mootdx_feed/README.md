@@ -78,10 +78,18 @@ GitHub Actions 的 `Verify mootdx feed` 使用 Python 3.11/3.12 和真实安装�
 
 GitHub Pages 是静态网站，不能运行 Python 或 TCP 行情采集。安装到仓库也不会自动建立常驻服务。是否能连通与网络、服务端状态和访问策略有关；不能保证没有 IP 限制、不会超时，不能保证某个地区一定可用或不可用。
 
+## 可用性证据的范围
+
+[第三方项目 issue #52](https://github.com/simonlin1212/a-stock-data/issues/52) 报告：2026-09-11，在其 Windows 本地网络与 Linux 云环境，mootdx 0.11.7 / tdxpy 0.2.7 的 TCP 和部分非行情命令正常，但 bars、quotes、transaction 返回空。该项目维护者在 9 月 20 日评论中确认了其环境的类似现象。这是他人的特定环境报告，不能推出目前所有服务都失效，也不能证明本项目可用。
+
+本项目没有运行报告内的扫描/复现脚本。离线回归使用真实固定版本解析器和模拟传输，验证“连接成功但行情为空”仍会失败并留下停止记录；不以股票列表可返回来替代行情内容验收。
+
 ## 上游依据
 
 - [mootdx 0.11.7 发布页与安装说明](https://pypi.org/project/mootdx/0.11.7/)
 - [固定版本 Quotes API 源码](https://github.com/mootdx/mootdx/blob/v0.11.7/mootdx/quotes.py)
 - [固定版本 DataFrame 转换源码](https://github.com/mootdx/mootdx/blob/v0.11.7/mootdx/utils/__init__.py)
 
-上游标示 MIT 软件许可证，并在项目介绍中声明用于学习交流、不得用于商业目的。这些文字不构成通达信行情的公开再展示授权；公开榜单启用前仍需核实数据权利。
+固定版本 [LICENSE](https://github.com/mootdx/mootdx/blob/v0.11.7/LICENSE) 是 MIT 软件许可证，而同版本 [README](https://github.com/mootdx/mootdx/blob/v0.11.7/README.md) 又写有学习交流、不得商业使用的声明。两份文字存在需向权利人澄清的使用边界，本项目不自行裁定哪一份覆盖另一份，也不将软件许可证当成行情公开再展示授权。
+
+[通达信 AI 积分量化数据服务用户协议](https://help.tdx.com.cn/quant/docs/markdown/mindoc-1hp49ff1nkrus.html)（2026-11-01 版）对该项服务的数据使用、再分发和第三方接入有明确限制；它属于特定 AI 积分服务，不可未经核实直接套用于本入口拟访问的 7709 服务。现有证据没有给出本项目的来源访问、长期保存或公开榜单展示许可，相关状态保持未知与关闭。

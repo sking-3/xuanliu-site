@@ -509,6 +509,29 @@ class CollectorTests(unittest.TestCase):
                     self.collect("daily", ["600519"], now=NOW)
                 api.assert_called_once()
 
+    def test_connected_transport_with_empty_market_data_stops_without_probe_or_fallback(self):
+        from mootdx import quotes
+        for mode in ("daily", "quotes", "transactions"):
+            self.fresh_state()
+            transport = Mock()
+            transport.connect.return_value = True
+            transport.get_security_bars.return_value = []
+            transport.get_security_quotes.return_value = []
+            transport.get_history_transaction_data.return_value = []
+            transport.get_security_list.return_value = [{"code": "600519"}]
+            with self.subTest(mode=mode), patch.object(quotes, "TdxHq_API", return_value=transport) as api:
+                with self.assertRaisesRegex(c.FeedError, "empty_or_invalid_response"):
+                    self.collect(mode, ["600519"], now=NOW,
+                                 historical_date="2026-11-16" if mode == "transactions" else None)
+                transport.connect.assert_called_once_with("192.0.2.1", 7709, time_out=10)
+                transport.get_security_list.assert_not_called()
+                transport.close.assert_called_once()
+                marker = json.loads((c.STATE_DIR / "source-state.json").read_text())
+                self.assertEqual(marker["reason"], "empty_or_invalid_response")
+                with self.assertRaisesRegex(c.FeedError, "source_stopped_or_busy"):
+                    self.collect("daily", ["600519"], now=NOW, server="192.0.2.2:7709")
+                api.assert_called_once()
+
     def test_real_package_imports_without_connecting(self):
         with patch("socket.socket.connect", side_effect=AssertionError("Unexpected network")):
             from mootdx.quotes import Quotes
