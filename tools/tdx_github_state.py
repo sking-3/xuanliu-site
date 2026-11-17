@@ -1,4 +1,4 @@
-"""GitHub Contents API CAS adapter; construction is inert and never creates state.
+"""Non-authorizing GitHub audit mirror; inert construction, never creates state.
 
 Production wiring is deliberately absent. Configure one exact repository, branch,
 path and token only after legacy migration is reconciled. No queues, run inventory,
@@ -105,6 +105,9 @@ def _record(value):
 
 
 class GitHubContentsStore:
+    # GitHub content can be restored out of band. It cannot authorize collection.
+    authorizes_source = False
+
     def __init__(self, *, repository, branch, path, token, transport=request_once, timeout=10):
         # Each segment must be literal, not an URL, traversal, query or fragment.
         segment = r"[A-Za-z0-9_-][A-Za-z0-9._-]*"

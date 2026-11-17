@@ -48,36 +48,100 @@ The independent verify-shared-tdx-guard workflow runs these offline tests on Pyt
 no workflow_dispatch, schedule, deployment or collector invocation. No live-source
 availability or cross-runner production-store acceptance is claimed.
 
-## GitHub Contents adapter (implemented, not connected)
+## Independent authority protocol (implemented offline, not deployed)
 
-tools/tdx_github_state.py implements read/CAS against api.github.com only.
-Construction requires one explicit repository, branch and path, plus a token;
-there is no default production location and construction makes no request.
-The token is held only in memory and is not included in records, messages,
-exception details or repr. State requests use only the Contents endpoint;
-no Actions run/queue API is involved. Redirects and retries are disabled.
+A fresh runner cannot distinguish a valid old GitHub ready file from current
+state using only that file, a signature, or a process-local watermark. Therefore
+GitHubContentsStore is now explicitly non-authorizing; Guard rejects it before
+any GitHub or source request. It remains an optional audit-mirror utility.
+No production mirroring is configured. No mirror failure or old ready record
+can grant source access.
 
-An existing file must contain books.source.cas.v1 with the fixed source identity,
-positive integer generation and a validated guard record. Reads verify the
-Git blob SHA against the decoded file bytes. Every CAS requires a revision from
-that adapter's most recent validated read and writes generation + 1 together
-with the expected GitHub blob SHA. Even equal guard records therefore get a new
-blob SHA, preventing ABA within this protocol. Generation exhaustion refuses
-writes. No POST/create/initialization or fallback branch/path exists.
+tools/tdx_authority_state.py defines AuthorityStore. Its required trust root is a
+separately administered, authenticated authority with linearizable reads and
+atomic conditional transitions. The authority owns the complete guard record;
+GitHub is not a second writer to the authorization state. Construction is inert.
+There is no default transport, endpoint, credential, create, reset or resume API.
 
-HTTP 401/403/429, failed reads/writes and uncertain receipts stop that adapter.
-409/422 returns a CAS conflict once and stops it. If a reservation write applied
-but its response was lost, the next instance observes pending and cannot call
-the source. Failed denial persistence similarly leaves the already-stored pending
-reservation. No automatic recovery or expiration of pending is implemented.
+Each adapter is pinned to authority_id, a non-reusable stream_id and a SHA-256
+migration-evidence digest. A missing/unknown stream or mismatched binding refuses.
+The migration digest binds an already-reviewed inventory; it does not prove that
+an inventory is complete or grant data rights. Production has no such attestation.
 
-This adapter requires a protected state branch: out-of-band deletion, force-push
-or manual replacement with old state is outside the CAS protocol and must not
-be interpreted as a fresh initialization. No branch protection or real backend
-has been configured or verified. Existing stop evidence remains unchanged.
+Each request uses a fresh challenge and a digest binding the complete request.
+Replies must echo the binding, operation, challenge and request digest, and have
+a valid full snapshot. This rejects replayed replies from another request.
+It is not a substitute for transport authentication or the authority's durable
+non-rollback guarantee; a dishonest or rolled-back authority can still lie.
 
-tools/test_tdx_github_state.py uses one in-memory simulated HTTP server with
-independent adapter instances. It covers exact URLs, conditional writes,
-generation/ABA, refusals, conflicts, malformed state and ambiguous writes.
-It does not connect to GitHub or TDX. The default PRODUCTION_GUARD still has no
-adapter and migration_complete=False; network operation remains unavailable.
+The runner may only CAS ready to pending, or its current pending revision to
+ready/stopped. Revisions increase by exactly one. Tokens never expire. Every
+source callback follows a confirmed pending write and a fresh check. False
+results, exceptions and interruption cannot complete to ready. A failed stop
+write leaves pending. A lost reservation response invokes no callback; a new
+runner observes pending. A conflicting/invalid/uncertain reply latches that client
+closed without retry. Old tokens cannot overwrite an operator pause or controlled
+resume, because the authority revision has advanced.
+
+Operator pause uses stopped with an explicit reason. Resume is outside runner
+permissions; any reviewed administrative recovery must advance the same durable
+stream revision. Stream deletion/recreation, backup rollback, or revision reset
+under the same identity must be impossible for runner credentials and detectable
+by an independent durable control. A normal SQLite database, another GitHub file,
+branch protection alone, or signatures on historical snapshots do not establish
+this property. No such production infrastructure is provisioned or verified.
+
+A pause prevents subsequently granted reservations. It cannot revoke packets
+already sent, nor make the client check and TCP send atomic. Hard prevention of
+new bytes after pause requires an authority-controlled execution/egress gate.
+The client protocol does not claim that stronger guarantee. A lost completion
+reply closes that client; if the authority actually completed the request, another
+runner may observe the newer ready. No automatic quarantine is falsely inferred
+from a client's inability to receive that reply.
+
+## Offline evidence and scope
+
+tools/test_tdx_authority_state.py models the authority with temporary SQLite.
+It covers old GitHub ready restoration, a fresh adapter and separate process,
+concurrent reservations, read/CAS races, lost reservation replies, stop-write
+failure, False/interruption, operator pause/resume, wrong migration/stream identity,
+replayed replies and malformed/exhausted revisions. All network connects are
+blocked; all authority records are synthetic. SQLite here tests protocol and
+process consistency, not infrastructure anti-rollback guarantees.
+
+The existing GitHub adapter tests still verify strict Contents API paths,
+generation/ABA within CAS, refusal handling and response validation. A regression
+explicitly demonstrates that a fresh mirror reader accepts a restored old file
+and that Guard refuses to use that reader as an authority. This is intentional
+evidence of the trust boundary, not a claim that GitHub alone detects restoration.
+
+Run:
+python -B -m unittest tools.test_tdx_authority_state tools.test_tdx_github_state -v
+
+## Remaining production decisions and evidence
+
+- Legacy inventory: scripts/source-holds.json has no TDX approval; its other
+  source/API stops are unrelated and unchanged. No actual legacy TDX stop event
+  has been located in accessible repository data. The new local
+  ~/.local/state/books/mootdx-feed/source-state.json has not been inspected on
+  the user's machine. Unknown is not clean. Migration must reconcile all old
+  TDX identities and unresolved pending/stopped evidence before any ready grant.
+- Published-site browser stops protect owned JSON, not TDX; the private worker's
+  source_stops records concern Tushare. Neither can be copied as TDX clearance.
+  Tencent aliases also remain separate; this PR does not reset their history.
+- Cross-runner: synthetic shared-state/process tests pass only after CI confirms
+  the exact commit. Production needs independently authenticated runner clients,
+  a non-reusable authority identity, monotonic retention/restore guarantees, and
+  tests of two actual runners plus outage/recovery. No infrastructure is deployed.
+- Display scope: the user's personal-use intent is recorded. The existing
+  GitHub Pages website remains publicly reachable; it has not been made private.
+  Repository software licensing and a personal-use statement do not constitute
+  evidence of permission to redistribute provider data. No new terms search or
+  license determination is performed in this patch. No verified public-data grant
+  is recorded here. Choose and document a permitted source/display scope before
+  a real producer publishes data; do not mark migration complete to bypass this.
+- Daily five-session turnover output still needs real cloud availability,
+  complete trading-day coverage, producer validation, and the publication/
+  withdrawal protocol verified before release. The empty production list and
+  both source closures remain in place. This draft must not be represented as
+  completed live collection or cross-day production acceptance.

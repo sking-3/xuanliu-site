@@ -53,6 +53,9 @@ class Guard:
         self.active = ContextVar("tdx_request_reservation", default=None)
 
     def _read(self):
+        # A rollbackable GitHub mirror is never a source authorization backend.
+        if getattr(self.store, "authorizes_source", None) is False:
+            raise SourceStopped("source_backend_not_authoritative")
         try:
             revision, record = self.store.read(SOURCE)
         except Exception:
@@ -105,7 +108,10 @@ class Guard:
         if self.active.get() is not None:
             # Nested factory internals share the reservation, but must re-read it.
             try:
-                return operation()
+                result = operation()
+                if result is False:
+                    raise SourceStopped("source_request_failed")
+                return result
             except BaseException as error:
                 self._failed(error)
                 raise
@@ -117,6 +123,8 @@ class Guard:
             self.check(alias)
             try:
                 result = operation()
+                if result is False:
+                    raise SourceStopped("source_request_failed")
             except BaseException as error:
                 # Never overwrite an independently recorded stop/revocation.
                 self._failed(error)

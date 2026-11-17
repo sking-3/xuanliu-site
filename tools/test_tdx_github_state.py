@@ -176,44 +176,33 @@ class GitHubStateTests(unittest.TestCase):
             store.compare_and_swap(g.SOURCE, revision, READY)
         self.assertEqual(json.loads(self.server.raw)["generation"], 1)
 
-    def test_uncertain_reservation_write_stops_another_instance(self):
-        callback = Mock()
-        first = g.Guard(self.store(), migration_complete=True)
+    def test_ambiguous_mirror_write_is_visible_to_another_reader(self):
+        first = self.store()
+        revision, _ = first.read(g.SOURCE)
         self.server.raise_after_put = True
-        with self.assertRaises(g.SourceStopped):
-            first.run("mootdx", callback)
-        callback.assert_not_called()
-        self.assertEqual(json.loads(self.server.raw)["record"]["state"], "pending")
+        with self.assertRaises(b.StateBackendError):
+            first.compare_and_swap(g.SOURCE, revision, dict(READY, state="pending", token="fixture"))
         self.server.raise_after_put = False
-        second = g.Guard(self.store(), migration_complete=True)
-        with self.assertRaises(g.SourceStopped):
-            second.run("pytdx", callback)
-        callback.assert_not_called()
+        self.assertEqual(self.store().read(g.SOURCE)[1]["state"], "pending")
 
-    def test_denial_persists_between_independent_adapters(self):
-        first = g.Guard(self.store(), migration_complete=True)
-        second = g.Guard(self.store(), migration_complete=True)
-        with self.assertRaises(PermissionError):
-            first.run("mootdx", Mock(side_effect=PermissionError("403 synthetic")))
+    def test_github_mirror_cannot_authorize_source_even_when_ready(self):
         callback = Mock()
-        with self.assertRaises(g.SourceStopped):
-            second.run("tdxpy", callback)
+        with self.assertRaisesRegex(g.SourceStopped, "source_backend_not_authoritative"):
+            g.Guard(self.store(), migration_complete=True).run("mootdx", callback)
         callback.assert_not_called()
-        envelope = json.loads(self.server.raw)
-        self.assertEqual(envelope["generation"], 3)
-        self.assertEqual(envelope["record"]["reason"], "provider_access_denied")
+        self.assertEqual(self.server.calls, [])
 
-    def test_failed_denial_write_keeps_persisted_pending(self):
-        first = g.Guard(self.store(), migration_complete=True)
-        def denied():
-            self.server.raise_before_put = True
-            raise PermissionError("429 synthetic")
-        with self.assertRaises(g.SourceStopped):
-            first.run("mootdx", denied)
-        self.assertEqual(json.loads(self.server.raw)["record"]["state"], "pending")
-        second = g.Guard(self.store(), migration_complete=True)
-        with self.assertRaises(g.SourceStopped):
-            second.run("tdx", Mock())
+    def test_fresh_mirror_reader_cannot_detect_rollback_but_guard_rejects_it(self):
+        old_raw = self.server.raw
+        first = self.store()
+        revision, _ = first.read(g.SOURCE)
+        first.compare_and_swap(g.SOURCE, revision, dict(READY, state="stopped", reason="fixture"))
+        self.server.raw = old_raw  # Out-of-band reset: old generation and SHA are valid.
+        self.assertEqual(self.store().read(g.SOURCE)[1], READY)
+        callback = Mock()
+        with self.assertRaisesRegex(g.SourceStopped, "source_backend_not_authoritative"):
+            g.Guard(self.store(), migration_complete=True).run("tdx", callback)
+        callback.assert_not_called()
 
     def test_invalid_write_receipt_is_uncertain_and_not_retried(self):
         store = self.store()

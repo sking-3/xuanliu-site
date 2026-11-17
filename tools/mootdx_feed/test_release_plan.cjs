@@ -6,7 +6,7 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto');
 const root=path.resolve(__dirname,'../..');
 const reviewed={
-  ".github/workflows/verify-shared-tdx-guard.yml": "57e4200621590d6191bb27d532688ae329177fe5",
+  ".github/workflows/verify-shared-tdx-guard.yml": "8769ff26d5422d6bee63ca31368e02b238922cbd",
   ".github/actions/setup-public-release/action.yml": "189be9e13a8a5b7236b3a5837803184c3f58e46f",
   ".github/workflows/a-share-collector.yml": "ce4a80e0cc07db35ed3d8552c6384695a6d94743",
   ".github/workflows/binance-public-orders.yml": "2703d67cc9e50c1554663558b099a2b008596bee",
