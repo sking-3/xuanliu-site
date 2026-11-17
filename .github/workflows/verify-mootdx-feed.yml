@@ -4,12 +4,16 @@ on:
     paths:
       - 'tools/mootdx_feed/**'
       - 'scripts/requirements-mootdx.txt'
+      - 'scripts/source-holds.json'
+      - 'tools/binance_watch/source_holds.py'
       - '.github/workflows/verify-mootdx-feed.yml'
   push:
     branches: ['codex/mootdx-feed']
     paths:
       - 'tools/mootdx_feed/**'
       - 'scripts/requirements-mootdx.txt'
+      - 'scripts/source-holds.json'
+      - 'tools/binance_watch/source_holds.py'
       - '.github/workflows/verify-mootdx-feed.yml'
   workflow_dispatch:
 permissions:

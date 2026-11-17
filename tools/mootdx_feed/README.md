@@ -1,12 +1,12 @@
 # mootdx 行情采集入口
 
-为首页“沪深成交活跃榜”准备可核查的日线输入，也支持单次报价和历史分笔采样。这是仓库中的可运行采集工具，**尚未接入首页、没有日更排程，也不代表全市场热度榜已上线**。
+为首页“沪深成交活跃榜”准备可核查的日线输入，也支持单次报价和历史分笔采样。目前只能安装和运行离线验证，**尚未接入首页、没有日更排程，也不代表全市场热度榜已上线**。
 
 旧的多来源入口仍在 `tools/stock_research/a_share_sources.py`。本入口使用独立依赖环境，避免与旧适配器及待复核修复交叉修改。不要在同一虚拟环境同时安装两个 requirements 文件。
 
 ## 安装与启用状态
 
-此入口**默认禁用网络**，PR 仍处于复核阶段。文件保护机制要求 POSIX。验证环境为 Ubuntu 24.04 / Python 3.11、3.12；用户 Mac、Apple Silicon 依赖 wheel 兼容性及 Windows 均未验收。
+此入口**保持关闭**，PR 仍处于复核阶段。`--enable-network` 只是请求参数，当前不能开启真实采集：必须先检查共享来源政策，而旧来源停止状态尚未完成整合，所以即使政策写成 approved 也会拒绝连接。文件保护机制要求 POSIX。验证环境为 Ubuntu 24.04 / Python 3.11、3.12；用户 Mac、Apple Silicon 依赖 wheel 兼容性及 Windows 均未验收。
 
 `requirements-mootdx.txt` 锁定实际解析的完整依赖版本及 PyPI SHA256 哈希，强制 `--require-hashes` 和 `--only-binary=:all:`。Python 3.11/3.12 的 NumPy 版本分别锁定；哈希来自 Actions run 44003820417 所对应的 PyPI 版本元数据。没有兼容 wheel 时安装会停止，不回退到含未锁定构建依赖的源码构建。版本/哈希锁定用于可重复安装，不能称为完整依赖安全审计。
 
@@ -18,22 +18,23 @@ source /tmp/books-mootdx-venv/bin/activate
 python -m pip install --require-hashes --only-binary=:all: -r scripts/requirements-mootdx.txt
 ```
 
-## 手动采集与持久停止
+## 来源准入与持久停止
 
-普通命令只返回 `network_disabled`，不会初始化客户端。启用时必须同时指定 `--enable-network` 和已获准访问的单个 IPv4 地址、端口。没有内置默认服务器，没有域名解析、IP 探测、自动重连或服务器回退。下方 `MOOTDX_SERVER` 必须由实际部署者设置为已核实可用且获准使用的 `IPv4:port`，不能把更换地址作为访问拒绝后的恢复方式。
+普通命令返回 `network_disabled`。传入 `--enable-network` 后，程序先读取既有 `scripts/source-holds.json` 的来源政策；预留操作键为 `aShareTdxCollector`，仓库当前没有这项授权。缺失、拒绝、暂停或无法读取时返回 `source_permission_unverified`。没有为完成这项开发而添加 approved 项。
+
+即使该项未来被写成 approved，当前代码仍返回 `legacy_source_stops_unverified`。旧采集器的来源停止记录路径、格式、来源别名及恢复规则尚未核实，**此版本没有可启用的真实采集路径**。授权、清空新目录、更换参数或传入 factory 都不能解除这一限制。CLI、collect、内部采集函数和客户端工厂分别检查；工厂在导入 mootdx 前先拒绝。这里只读取共享政策，不修改任何旧停止记录。
+
+`~/.local/state/books/mootdx-feed/source-state.json` 只是新入口自己的附加锁和失败记录，**不代表已经整合旧来源状态，也不能充当来源授权**。后续整合须采用“任一入口停止，全部相关入口停止”的合并规则；读取异常或来源映射不明同样停止，不能自动把不存在的文件认定为允许。具体实施条件与待交接材料见 [SOURCE_ACCESS.md](SOURCE_ACCESS.md)。
+
+以下仅检查入口和参数，不会采集：
 
 ```bash
-python -m tools.mootdx_feed.collector --enable-network --server "$MOOTDX_SERVER" \
-  --mode daily --symbols 000001.SZ,600519.SH,300750.SZ,688981.SH --rows 60
-
-python -m tools.mootdx_feed.collector --enable-network --server "$MOOTDX_SERVER" \
-  --mode quotes --symbols 000001,600300
-
-python -m tools.mootdx_feed.collector --enable-network --server "$MOOTDX_SERVER" \
-  --mode transactions --symbols 000001.SZ --date 2025-06-24 --rows 10
+python -m tools.mootdx_feed.collector --help
+python -m tools.mootdx_feed.collector --symbols 600519
+# 返回 network_disabled，退出码 2
 ```
 
-采集前先在 `~/.local/state/books/mootdx-feed/source-state.json` 独占写入运行记录并落盘，之后才能创建客户端。任何请求异常（包括拒绝、超时、空返回、校验失败和中断）都会留下停止记录。后续进程、其他模式、股票或服务器都使用同一个守卫，遇到既有记录立即退出；损坏记录、符号链接和并发运行也会阻止联网。成功采集才移除运行记录。程序没有 reset、force 或自定义状态路径选项。异常中断遗留的记录须先查明原因并交维护者复核，不自动重试或清除。
+离线测试中，模拟准入通过后会验证本入口的持久锁：先独占写入并落盘，再构建模拟客户端；拒绝、超时、空返回、校验失败和中断都保留停止记录，下一进程不能继续；成功批次才移除运行记录。测试替换只存在于 unittest，生产代码没有测试模式、reset、force 或自定义状态路径开关。
 
 mootdx 0.11.7 的原始 `Quotes.factory` 会在缺失或损坏配置时扫描服务器，即使设置 `bestip=False` 也无法阻止。本入口直接构建单一 TDX 传输连接，复用固定版本的报价、日线和分笔解析方法，跳过 `BaseQuotes/StdQuotes.__init__` 和 `config.setup()`；不读取或改写原 mootdx 配置。这一有限适配依赖已锁定的 mootdx/tdxpy 版本，升级必须重新测试。
 
@@ -73,7 +74,7 @@ daily = reader.daily(symbol="600036")
 python -B -m unittest tools.mootdx_feed.test_collector -v
 ```
 
-GitHub Actions 的 `Verify mootdx feed` 使用 Python 3.11/3.12 和真实安装的固定版本包进行离线模拟。测试拦截 socket，覆盖上游扫描触发条件、固定服务器适配、跨进程停止记录、输出路径限制与并发覆盖保护。它不连接真实通达信、不生成或上传行情产物，也不证明数据源可用、行情准确或依赖经过完整安全审计。真实连通性、数据日期、单位和公开展示权利仍未验收。
+GitHub Actions 的 `Verify mootdx feed` 使用 Python 3.11/3.12 和真实安装的固定版本包进行离线模拟。测试拦截 socket，覆盖上游扫描触发条件、固定服务器适配、跨进程停止记录、输出路径限制与并发覆盖保护。它不连接真实通达信、不生成或上传行情产物，也不证明数据源可用、行情准确或依赖经过完整安全审计。新增准入测试不替换准入检查，确认即使新目录为空、来源键为 approved、换模式/服务器或重启进程，也不会创建客户端。旧停止记录的实际读取、双向传播和共同锁迁移尚未完成，不能把这些拒绝测试称为旧来源整合验收。真实连通性、数据日期、单位和公开展示权利仍未验收。
 
 GitHub Pages 是静态网站，不能运行 Python 或 TCP 行情采集。安装到仓库也不会自动建立常驻服务。是否能连通与网络、服务端状态和访问策略有关；不能保证没有 IP 限制、不会超时，不能保证某个地区一定可用或不可用。
 

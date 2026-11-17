@@ -27,6 +27,11 @@ class CollectorTests(unittest.TestCase):
         self.data.start()
         self.addCleanup(self.state.stop)
         self.addCleanup(self.data.stop)
+        # Only these offline behavior tests substitute the unfinished access gate.
+        # SourceAccessTests below exercise the real gate with no such patch.
+        access = patch.object(c, "require_source_access")
+        access.start()
+        self.addCleanup(access.stop)
         # Every test blocks raw sockets even when testing the real pinned parser.
         self.socket = patch("socket.socket.connect", side_effect=AssertionError("Unexpected network"))
         self.socket.start()
@@ -361,7 +366,7 @@ class CollectorTests(unittest.TestCase):
             "import sys; from pathlib import Path; from unittest.mock import Mock, patch\n"
             "from tools.mootdx_feed import collector as c\n"
             "c.STATE_DIR = Path(sys.argv[1]); factory = Mock(side_effect=AssertionError('factory called'))\n"
-            "with patch('socket.socket.connect', side_effect=AssertionError('network')):\n"
+            "with patch.object(c, 'require_source_access'), patch('socket.socket.connect', side_effect=AssertionError('network')):\n"
             " try:\n"
             "  c.collect('quotes', ['000001'], server='192.0.2.2:7709', network_enabled=True, factory=factory)\n"
             " except c.FeedError as e:\n"
@@ -510,6 +515,150 @@ class CollectorTests(unittest.TestCase):
             from mootdx.reader import Reader
             self.assertTrue(callable(Quotes.factory))
             self.assertTrue(callable(Reader.factory))
+
+
+class SourceAccessTests(unittest.TestCase):
+    """No test here replaces the real access gate or connects to a provider."""
+
+    def setUp(self):
+        from tools.binance_watch import source_holds
+        self.holds = source_holds
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name).resolve()
+        for module, name, value in (
+            (c, "STATE_DIR", self.root / "new-state"),
+            (c, "DATA_DIR", self.root / "new-output"),
+            (source_holds, "POLICY", self.root / "source-holds.json"),
+        ):
+            guard = patch.object(module, name, value)
+            guard.start()
+            self.addCleanup(guard.stop)
+        network = patch("socket.socket.connect", side_effect=AssertionError("Unexpected network"))
+        network.start()
+        self.addCleanup(network.stop)
+
+    def policy(self, value):
+        self.holds.POLICY.write_text(json.dumps(value))
+
+    def attempt(self, **extra):
+        args = dict(mode="daily", requested=["600519"], server="192.0.2.1:7709",
+                    network_enabled=True, factory=Mock(), now=NOW)
+        args.update(extra)
+        try:
+            with self.assertRaises(c.FeedError) as failure:
+                c.collect(**args)
+            return str(failure.exception)
+        finally:
+            args["factory"].assert_not_called()
+
+    def test_shared_permission_missing_stops_before_factory_or_new_state(self):
+        self.assertEqual(self.attempt(), "source_permission_unverified")
+        self.assertFalse(c.STATE_DIR.exists())
+        self.assertFalse(c.DATA_DIR.exists())
+
+    def test_other_operation_approval_cannot_authorize_tdx(self):
+        self.policy({"binancePublicCollector": "approved", "githubRunInventory": "approved"})
+        self.assertEqual(self.attempt(), "source_permission_unverified")
+
+    def test_stopped_paused_unknown_and_malformed_permissions_deny(self):
+        for value in ("stopped_after_403", "stopped_after_429", "paused", "", True, None,
+                      {"approved": True}):
+            with self.subTest(value=value):
+                self.policy({c.SOURCE_OPERATION: value})
+                self.assertEqual(self.attempt(), "source_permission_unverified")
+        for raw in ("{", "null", "[]"):
+            with self.subTest(raw=raw):
+                self.holds.POLICY.write_text(raw)
+                self.assertEqual(self.attempt(), "source_permission_unverified")
+
+    def test_approval_alone_cannot_bypass_unreconciled_legacy_stops(self):
+        self.policy({c.SOURCE_OPERATION: "approved"})
+        self.assertEqual(self.attempt(), "legacy_source_stops_unverified")
+        self.assertFalse(c.STATE_DIR.exists())
+
+    def test_empty_new_namespace_does_not_authorize_any_mode_or_server(self):
+        self.policy({c.SOURCE_OPERATION: "approved"})
+        c.STATE_DIR.mkdir(mode=0o700)
+        for mode in ("daily", "quotes", "transactions"):
+            with self.subTest(mode=mode):
+                self.assertEqual(self.attempt(
+                    mode=mode, server="192.0.2.2:7710", requested=["000001"],
+                    historical_date="2026-11-16" if mode == "transactions" else None,
+                ), "legacy_source_stops_unverified")
+        self.assertEqual(list(c.STATE_DIR.iterdir()), [])
+
+    def test_real_cli_enable_flag_cannot_create_files_or_client(self):
+        self.policy({c.SOURCE_OPERATION: "approved"})
+        with patch.object(c, "default_factory") as factory, patch.object(c, "collect") as collect, \
+                patch("builtins.print") as output:
+            code = c.main(["--enable-network", "--server", "192.0.2.1:7709", "--symbols", "600519"])
+        self.assertEqual(code, 2)
+        self.assertEqual(json.loads(output.call_args.args[0])["error"], "legacy_source_stops_unverified")
+        factory.assert_not_called()
+        collect.assert_not_called()
+        self.assertFalse(c.STATE_DIR.exists())
+        self.assertFalse(c.DATA_DIR.exists())
+
+    def test_direct_factory_call_is_blocked_before_provider_import(self):
+        import builtins
+        self.policy({c.SOURCE_OPERATION: "approved"})
+        real_import = builtins.__import__
+        attempted = []
+        def inspect(name, *args, **kwargs):
+            if name == "mootdx" or name.startswith("mootdx."):
+                attempted.append(name)
+                raise AssertionError("Provider imported before access gate")
+            return real_import(name, *args, **kwargs)
+        with patch("builtins.__import__", side_effect=inspect), \
+                self.assertRaisesRegex(c.FeedError, "legacy_source_stops_unverified"):
+            c.default_factory()
+        self.assertEqual(attempted, [])
+
+    def test_internal_helper_is_also_blocked(self):
+        self.policy({c.SOURCE_OPERATION: "approved"})
+        factory = Mock()
+        with self.assertRaisesRegex(c.FeedError, "legacy_source_stops_unverified"):
+            c._collect_guarded("daily", ["600519.SH"], 5, None, {}, factory, NOW)
+        factory.assert_not_called()
+
+    def test_checked_in_policy_does_not_authorize_live_collection(self):
+        with patch.object(self.holds, "POLICY", c.ROOT / "scripts/source-holds.json"):
+            with self.assertRaises(c.FeedError):
+                c.require_source_access()
+
+    def test_policy_and_previous_local_stop_are_never_modified(self):
+        self.policy({c.SOURCE_OPERATION: "approved", "other": "stopped_after_403"})
+        before = self.holds.POLICY.read_bytes()
+        c.STATE_DIR.mkdir(mode=0o700)
+        marker = c.STATE_DIR / "source-state.json"
+        marker.write_text('{"state":"stopped","reason":"provider_access_denied"}')
+        previous = marker.read_bytes()
+        self.assertEqual(self.attempt(), "legacy_source_stops_unverified")
+        self.assertEqual(self.holds.POLICY.read_bytes(), before)
+        self.assertEqual(marker.read_bytes(), previous)
+
+    def test_new_process_cannot_enable_with_approved_key_and_empty_namespace(self):
+        self.policy({c.SOURCE_OPERATION: "approved"})
+        script = (
+            "import sys; from pathlib import Path; from unittest.mock import Mock, patch\n"
+            "from tools.mootdx_feed import collector as c\n"
+            "from tools.binance_watch import source_holds\n"
+            "source_holds.POLICY = Path(sys.argv[1]); c.STATE_DIR = Path(sys.argv[2])\n"
+            "factory = Mock(side_effect=AssertionError('factory called'))\n"
+            "with patch('socket.socket.connect', side_effect=AssertionError('network')):\n"
+            " try:\n"
+            "  c.collect('quotes', ['000001'], server='192.0.2.1:7709', network_enabled=True, factory=factory)\n"
+            " except c.FeedError as e:\n"
+            "  assert str(e) == 'legacy_source_stops_unverified', str(e)\n"
+            " else:\n"
+            "  raise AssertionError('gate bypassed')\n"
+            " factory.assert_not_called()\n"
+            " assert not c.STATE_DIR.exists()\n"
+        )
+        result = subprocess.run([sys.executable, "-c", script, str(self.holds.POLICY), str(c.STATE_DIR)],
+                                cwd=c.ROOT, text=True, capture_output=True, timeout=15)
+        self.assertEqual(result.returncode, 0, result.stderr)
 
 if __name__ == "__main__":
     unittest.main()

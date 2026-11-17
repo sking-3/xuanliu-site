@@ -17,12 +17,31 @@ from zoneinfo import ZoneInfo
 ROOT = Path(__file__).resolve().parents[2]
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 MAX_SYMBOLS = 50
+SOURCE_OPERATION = "aShareTdxCollector"
 STATE_DIR = Path.home() / '.local/state/books/mootdx-feed'
 DATA_DIR = Path.home() / '.local/share/books/mootdx-feed'
 
 
 class FeedError(ValueError):
     """An error code safe to show without provider payloads."""
+
+
+def require_source_access():
+    """Consult shared holds, then fail closed until legacy TDX stops are reconciled.
+
+    The private mootdx-feed lease is only an additional local lock. It is not
+    source authorization and cannot override another collector's stop record.
+    No runtime flag, empty directory, mock factory or approval string can lift
+    the unfinished legacy migration. See SOURCE_ACCESS.md.
+    """
+    from tools.binance_watch import source_holds
+
+    if source_holds.reason(SOURCE_OPERATION) is not None:
+        raise FeedError("source_permission_unverified")
+    # The latest legacy A-share guard and its deployed state paths/schema are
+    # not available in this branch. Do not guess paths, synthesize a clean
+    # record, or treat an approved key as proof of a completed migration.
+    raise FeedError("legacy_source_stops_unverified")
 
 
 def symbols(values):
@@ -88,6 +107,7 @@ def server_address(value):
 
 def default_factory(**options):
     """Use mootdx parsing methods without its configuration/bootstrap constructor."""
+    require_source_access()
     from mootdx.quotes import StdQuotes, TdxHq_API
 
     if set(options) != {"market", "server", "timeout", "bestip", "heartbeat",
@@ -304,11 +324,13 @@ def collect(mode, requested, *, rows=60, historical_date=None, timeout=10,
     if server is None:
         raise FeedError("explicit_server_required")
     options["server"] = server_address(server)
+    require_source_access()
     with source_guard():
         return _collect_guarded(mode, requested, rows, historical_date, options, factory, now)
 
 
 def _collect_guarded(mode, requested, rows, historical_date, options, factory, now):
+    require_source_access()
     client = None
     try:
         client = factory(**options)
@@ -396,12 +418,13 @@ def main(argv=None):
     parser.add_argument("--date", help="Historical transaction date, YYYY-MM-DD")
     parser.add_argument("--timeout", type=float, default=10)
     parser.add_argument("--server", help="Explicit authorized IPv4:port; required when enabling network")
-    parser.add_argument("--enable-network", action="store_true", help="Opt in to one manual request; source stops still apply")
+    parser.add_argument("--enable-network", action="store_true", help="Request network use; remains blocked pending source authorization and legacy-stop integration")
     parser.add_argument("--output", help="New snapshot basename within the dedicated private data directory")
     args = parser.parse_args(argv)
     try:
         if not args.enable_network:
             raise FeedError("network_disabled")
+        require_source_access()
         name = args.output or args.mode + "-" + uuid.uuid4().hex + ".json"
         destination = output_path(name)
         batch = collect(args.mode, args.symbols.split(","), rows=args.rows,
