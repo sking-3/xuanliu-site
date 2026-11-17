@@ -16,7 +16,7 @@ function evidence(ref) {
 }
 for (const row of snapshot.accounts) {
   assert.equal(model.trader(row).accountId,row.portfolioId);
-  assert.equal(model.performance(row,'365D',asOf),null);
+  for(const [period,part] of Object.entries(row.performance)) assert.equal(model.performance(row,period,asOf).fullPeriod,row.leadDays>=model.days[period]);
   const profile=evidence(row.profileEvidence);
   assert.equal(profile.publicDetail.portfolioId,row.portfolioId);
   assert.equal(model.trader(row).avatarUrl,model.avatarUrl(profile.headPic));
@@ -89,4 +89,19 @@ replaced.accounts[0].performance['90D'].curveEvidencePath=replaced.accounts[0].p
 assert.throws(()=>model.parse(replaced,asOf));
 assert.throws(()=>collector.activity({data:{strategySafe:true,rows:[{}]}},false,'irrelevant'),/protected/);
 assert.throws(()=>collector.receipt('test','performance',{portfolioId:'1'},Buffer.from('{}'),{method:'POST',url:'bad'}),/receipt/);
-console.log('Bitget public portfolios, primary evidence, return units, daily curves and privacy states verified');
+(async()=>{
+  const rankData=evidence(snapshot.rankEvidence);
+  const rank={...snapshot.rankEvidence,fetchedAt:snapshot.generatedAt,bytes:Buffer.from('{}'),data:rankData};
+  let calls=[];
+  await assert.rejects(collector.collect(async(name)=>{calls.push(name);if(name==='leaders-aum')return {...rank,data:{...rankData,nextFlag:true}};throw Object.assign(Error('blocked'),{stopReason:'http_429'});}),/blocked/);
+  assert.deepEqual(calls,['leaders-aum','leaders-aum-2']);
+  calls=[];
+  const old=structuredClone(snapshot);
+  const result=await collector.collect(async(name)=>{calls.push(name);if(name==='leaders-aum')return rank;throw Error('temporary failure');},undefined,old);
+  assert.deepEqual(result.bundle.accounts.map(r=>r.portfolioId),old.accounts.map(r=>r.portfolioId));
+  assert.ok(result.bundle.accounts.every(r=>r.catalogStatus==='retained'));
+  assert.equal(result.bundle.accounts[0].profileEvidence.fetchedAt,old.accounts[0].profileEvidence.fetchedAt);
+  const os=require('node:os'),fsp=require('node:fs/promises');const dir=await fsp.mkdtemp(path.join(os.tmpdir(),'bitget-stop-'));
+  try {assert.equal(await collector.readStop(dir),null);await collector.writeStop(dir,'http_403');assert.equal((await collector.readStop(dir)).reason,'http_403');await assert.rejects(collector.writeStop(dir,'invalid'));}finally{await fsp.rm(dir,{recursive:true,force:true});}
+  console.log('Bitget public evidence, period coverage, partial failures and source stop verified');
+})().catch(err=>{console.error(err);process.exitCode=1});

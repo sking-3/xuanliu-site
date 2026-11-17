@@ -5,7 +5,7 @@
 })(globalThis, function () {
   'use strict';
   const day = 86400000;
-  const days = {'30D': 30, '90D': 90};
+  const days = {'7D': 7, '30D': 30, '90D': 90, '180D': 180, '365D': 365};
   const source = 'bitget_public_lead';
   const rankUrl = 'https://www.bitget.com/copy-trading/futures';
   const profileUrl = id => 'https://www.bitget.com/copy-trading/futures-trader/' + id;
@@ -59,8 +59,18 @@
   function parse(raw, now = Date.now()) {
     check(raw && raw.schemaVersion === 1 && raw.source === source && timestamp(raw.generatedAt,now));
     const end = Date.parse(raw.generatedAt);
-    check(raw.rankSourceUrl === rankUrl && Array.isArray(raw.accounts) && raw.accounts.length > 0 && raw.accounts.length <= 6);
+    check(raw.rankSourceUrl === rankUrl && Array.isArray(raw.accounts) && raw.accounts.length > 0 && raw.accounts.length <= 100);
     evidence(raw.rankEvidence,'leaders-aum',end);
+    if(raw.rankPages!==undefined) {
+      check(Array.isArray(raw.rankPages) && raw.rankPages.length>=1 && raw.rankPages.length<=3
+        && raw.rankPages[0].evidencePath===raw.rankEvidence.evidencePath);
+      for(const [i,p] of raw.rankPages.entries()) {
+        check(p.pageNo===i+1 && whole(p.rowCount) && p.rowCount<=30 && typeof p.hasMore==='boolean'
+          && (i===raw.rankPages.length-1 || p.hasMore));
+        evidence(p,'leaders-aum'+(i?'-'+(i+1):''),end);
+      }
+      check(typeof raw.rankTruncated==='boolean' && raw.rankTruncated===raw.rankPages.at(-1).hasMore);
+    }
     const seen = new Set();
     for (const row of raw.accounts) {
       const id = row.portfolioId;
@@ -68,6 +78,7 @@
       seen.add(id);
       check(row.sourceUrl === profileUrl(id) && whole(row.leadDays) && row.leadDays >= 90
         && whole(row.copyTraderNum) && row.copyTraderNum > 0 && row.performance?.['90D']?.roi > 0);
+      check(row.catalogStatus===undefined || ['selected','retained'].includes(row.catalogStatus));
       evidence(row.profileEvidence,id+'-profile',end);
       if(row.balance) {
         const value=row.balance,period=row.performance[value.sourcePeriod];
@@ -142,7 +153,7 @@
   }
   function trader(row) {
     return {id:'bitget-'+row.portfolioId,accountId:row.portfolioId,name:row.name,sourceKind:source,exchange:'Bitget',
-      currency:'USD',sourceUrl:row.sourceUrl,avatarUrl:avatarUrl(row.avatarUrl),bitgetRecord:row};
+      currency:'USD',sourceUrl:row.sourceUrl,avatarUrl:avatarUrl(row.avatarUrl),catalogStatus:row.catalogStatus||'selected',bitgetRecord:row};
   }
   return {parse,performance,trader,avatarUrl,validId,rankUrl,profileUrl,evidencePath,source,days};
 });

@@ -5,6 +5,7 @@ const fs=require('node:fs/promises');
 const path=require('node:path');
 const {createHash,randomUUID}=require('node:crypto');
 const model=require('../trader/okx-period-data.js');
+const guard=require('./okx_source_guard.cjs');
 const day=86400000;
 function expect(ok,reason){if(!ok)throw Error(reason);}
 function number(value){
@@ -47,7 +48,9 @@ function receipt(name,url,bytes,meta){
   return {name,url,bytes,receivedAt:meta.receivedAt,payload,sha,evidencePath:model.evidencePath(name,sha)};
 }
 async function fetchReceipt(name,url){
+  await guard.check();
   const response=await fetch(url,{redirect:'error',credentials:'omit',signal:AbortSignal.timeout(15000)});
+  if(response.status===403||response.status===429)await guard.stop(response.status);
   expect(response.ok,'OKX HTTP '+response.status+' for '+name);
   const bytes=Buffer.from(await response.arrayBuffer());
   return receipt(name,url,bytes,{name,sourceUrl:url,httpStatus:response.status,code:'0',bytes:bytes.length,receivedAt:new Date().toISOString()});
@@ -62,7 +65,7 @@ async function collect(read,wait=async()=>{}){
   let generatedAt=leaderboard.receivedAt;
   for(const r of selected){
     const id=r.uniqueCode,performance={};
-    for(const p of ['90D','30D','365D']){
+    for(const p of ['90D','7D','30D','365D']){
       if(number(r.leadDays)<model.days[p])continue;
       await wait();
       const source=await read(id+'-'+model.ranges[p],model.curveUrl(id,p));
