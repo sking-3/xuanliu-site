@@ -39,7 +39,13 @@ const html='<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta 
   await page.waitForTimeout(12000);
   const frame=page.frames().find(f=>f.url().includes('embed-widget/hotlists'));
   assert.ok(frame,'official iframe created');
-  const active=frame.getByRole('button',{name:/^活跃/}).first();
+  const before=await frame.evaluate(()=>({
+   title:document.title,controls:[...document.querySelectorAll('button,[role=button],[role=tab]')].map(n=>({tag:n.tagName,role:n.getAttribute('role'),label:n.getAttribute('aria-label'),text:n.textContent?.trim(),class:n.className,selected:n.getAttribute('aria-selected')})),
+   sseLinks:[...document.querySelectorAll('a')].filter(n=>/SSE[-:%]/.test(n.href)).length,
+   errors:[...document.querySelectorAll('[role=alert],.tv-widget-error,.tv-widget-error__message')].map(n=>n.textContent?.trim().slice(0,300))
+  }));
+  console.log('BEFORE_TAB',JSON.stringify({...before,blocked:[...blocked],errors:errors.slice(0,5)}));
+  const active=frame.locator('button,[role=button],[role=tab]').filter({hasText:'活跃'}).first();
   await active.click();
   const activeTab=true;
   await page.waitForTimeout(5000);
