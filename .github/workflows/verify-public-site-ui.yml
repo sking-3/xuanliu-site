@@ -24,3 +24,17 @@ jobs:
           name: public-release-regressions
           path: audit/browser-output/release/
           retention-days: 7
+
+  widget-documentation:
+    if: github.event_name == 'pull_request' && github.head_ref == 'codex/mootdx-feed'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - name: Read three official widget documentation pages once
+        run: node audit/read-widget-docs.cjs
