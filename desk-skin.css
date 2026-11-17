@@ -27,10 +27,11 @@ body.books-shell {
 .books-shell .books-sidebar { padding-top: 14px; }
 .books-shell .books-nav { margin-top: 18px; }
 .books-shell .books-shortcuts {
-  display: grid; gap: 0; margin: 15px 0 0; padding: 10px 0 0; border-top: 1px solid var(--desk-border);
+  display: grid; gap: 7px; margin: 15px 0 0; padding: 12px 0 0; border-top: 1px solid var(--desk-border);
 }
-.books-shortcuts a { display: block; padding: 5px 0; color: var(--desk-muted); text-align: center; text-decoration: none; font-size: 12px; }
-.books-shortcuts a:hover, .books-shortcuts a[aria-current=page] { color: var(--desk-accent); text-decoration: underline; text-underline-offset: 3px; }
+.books-shortcuts a { display: flex; align-items: center; justify-content: center; min-height: 34px; padding: 7px 9px; border: 1px solid #d8e1e5; border-radius: 8px; background: #fff; color: var(--desk-muted); text-align: center; text-decoration: none; font-size: 11px; font-weight: 650; box-shadow: 0 1px 2px #1823350a; transition: border-color .16s ease, background .16s ease, color .16s ease, transform .16s ease; }
+.books-shortcuts a:hover, .books-shortcuts a[aria-current=page] { border-color: #d2b39d; background: #fff8f2; color: #a94d17; text-decoration: none; transform: translateY(-1px); }
+.books-shortcuts a:focus-visible { outline: 2px solid #278487; outline-offset: 2px; }
 .books-shell .desk-heading { display: block; }
 .books-shell .desk-paper { min-width: 0; border: 1px solid var(--desk-border); border-radius: var(--books-radius); background: var(--desk-paper); margin: 0 0 14px; overflow: clip; }
 .desk-section-title, .desk-toolbar, .desk-foot { display: flex; align-items: baseline; justify-content: space-between; gap: 8px 16px; flex-wrap: wrap; padding: 10px var(--desk-pad); }
@@ -66,7 +67,7 @@ body.books-shell {
 .books-shell.trader-page .plaza { padding: var(--desk-pad); }
 .books-shell.trader-page .filters { border-radius: 5px; gap: 8px 12px; padding: 10px; background: #f8fafa; }
 .books-shell.trader-page .platform-switch { flex-wrap: wrap; }
-.books-shell.trader-page .evidence-entry { color: var(--desk-accent); font-size: 13px; text-decoration: underline; text-underline-offset: 3px; }
+.books-shell.trader-page .evidence-entry { display: inline-flex; align-items: center; min-height: 32px; padding: 6px 10px; border: 1px solid #d8e1e5; border-radius: 7px; background: #fff; color: var(--desk-accent); font-size: 11px; font-weight: 650; text-decoration: none; }
 .books-shell.trader-page .heading .actions { flex-wrap: wrap; }
 .books-shell .books-load-screen { position: fixed; top: 0; left: 0; right: 0; bottom: auto; height: 2px; display: block; overflow: hidden; background: transparent; }
 .books-shell .books-load-screen::before { content: ""; display: block; width: 25%; height: 100%; background: var(--desk-accent); animation: books-progress 780ms ease-out both; }
