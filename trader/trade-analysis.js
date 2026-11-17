@@ -4,6 +4,7 @@
 // Preserve the existing saved-data detail when a dependency failed to load.
 if(!env.BooksTradeReplayModel||!env.BooksTradeReplayData)return;
 const M=env.BooksTradeReplayModel,D=env.BooksTradeReplayData.create(env);
+const aoyingDisplayAudit=env.BooksBinancePublicRecords?.displayAudit?.(env);
 let current=null;
 const el=(tag,text,cls)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(cls)n.className=cls;return n;};
 const fmt=(x,d=4)=>x===null||x===undefined||!Number.isFinite(Number(x))?'—':Number(x).toLocaleString('zh-CN',{maximumFractionDigits:d});
@@ -177,8 +178,17 @@ function positions(c){
 function orders(c,target,events,compact=false){
  if(!compact)target.append(note(c.archiveSource==='alphafox'?'以下为 AlphaFox 保存的第三方公开操作。':'实际公开成交 / 聚合成交记录；不包含未成交挂单。来源时间与本系统首次发现时间独立展示。'));
  if(!events.length){target.append(empty('尚未归档逐条操作','仅有开平仓汇总时可查看均价；无法回放未取得的操作。'));return;}
- const t=table(['来源时间（北京）','合约','动作 / 方向','买卖','成交均价','数量','来源已实现盈亏','手续费',isHL(c.context.r)?'本机首次发现':'系统首次发现','订单 ID',...(c.archiveSource==='alphafox'?['归档记录标识']:[])]);
- for(const x of [...events].reverse()){const tr=el('tr');cell(tr,date(x.time));cell(tr,x.symbol,'ta-contract');cell(tr,x.action+(x.ambiguous?' · 版本待核':''));cell(tr,x.side==='buy'?'买':'卖');cell(tr,fmt(x.price,8)+' '+x.quote);cell(tr,fmt(x.quantity,8));tone(cell(tr,signed(x.pnl)+' '+x.quote+(x.pnlEstimated?' · 估算':'')),x.pnl);cell(tr,x.fee===null?'—':fmt(x.fee,8)+' '+(x.feeToken||'来源费用币未知'));cell(tr,date(x.firstSeenAt));cell(tr,x.orderId==null?'来源未提供':String(x.orderId));if(c.archiveSource==='alphafox')cell(tr,x.id);t.body.append(tr);}target.append(t.wrap);
+ const trackDisplay=!compact&&isAoying(c.context.r)&&c.archiveSource!=='alphafox'&&!!aoyingDisplayAudit;
+ const t=table(['来源时间（北京）','合约','动作 / 方向','买卖','成交均价','数量','来源已实现盈亏','手续费',isHL(c.context.r)?'本机首次发现':'系统首次发现',...(trackDisplay?['本机页面首次写入']:[]),'订单 ID',...(c.archiveSource==='alphafox'?['归档记录标识']:[])]);
+ const displayCells=new Map();
+ for(const x of [...events].reverse()){const tr=el('tr');cell(tr,date(x.time));cell(tr,x.symbol,'ta-contract');cell(tr,x.action+(x.ambiguous?' · 版本待核':''));cell(tr,x.side==='buy'?'买':'卖');cell(tr,fmt(x.price,8)+' '+x.quote);cell(tr,fmt(x.quantity,8));tone(cell(tr,signed(x.pnl)+' '+x.quote+(x.pnlEstimated?' · 估算':'')),x.pnl);cell(tr,x.fee===null?'—':fmt(x.fee,8)+' '+(x.feeToken||'来源费用币未知'));cell(tr,date(x.firstSeenAt));if(trackDisplay)displayCells.set(x.id,cell(tr,'—'));cell(tr,x.orderId==null?'来源未提供':String(x.orderId));if(c.archiveSource==='alphafox')cell(tr,x.id);t.body.append(tr);}target.append(t.wrap);
+ if(trackDisplay){
+  const sourceRows=c.records?.allRows||[];
+  const visibleRows=sourceRows.filter(row=>displayCells.has(row.id));
+  const measured=document.visibilityState==='visible'&&t.wrap.isConnected?aoyingDisplayAudit.record(visibleRows,c.records?.checkedAt):aoyingDisplayAudit.load();
+  for(const [id,td] of displayCells){const sample=measured[id];if(sample){td.textContent=date(sample.pageInsertedAt);td.title=sample.kind==='initial_page_load'?'首次打开页面时已有的记录，不能视为新成交':'本页运行后写入；若页面或采集中断，不能证明连续监测';}}
+  target.append(note('本机页面首次写入仅记录此浏览器打开流水时的时间；首次打开时已有的记录为基线，时间不代表成交时间，也不证明持续监测。'));
+ }
 }
 function jump(c,x){c.selected=x.id;c.filter='all';c.context.activate('points');}
 function points(c){
