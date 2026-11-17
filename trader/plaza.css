@@ -199,6 +199,7 @@ th{color:#728098;font-weight:500;background:#fbfcfe}
 .books-shell.trader-page .cards{grid-template-columns:repeat(3,minmax(0,1fr));gap:22px;align-items:start}
 .books-shell.trader-page .card{min-height:300px;padding:28px;border-radius:12px;box-shadow:0 2px 9px #1b305004}
 .books-shell.trader-page .card-top{display:grid;grid-template-columns:34px minmax(0,1fr) auto;align-items:center;gap:10px}
+.books-shell.trader-page .card-top>.card-data-status{grid-column:1/-1;margin:0;overflow-wrap:anywhere}
 .books-shell.trader-page .card .avatar{width:34px;height:34px;border-radius:9px;font-size:12px}
 .books-shell.trader-page .card-identity{min-width:0}
 .books-shell.trader-page .card h3{font-size:15px;line-height:1.5;overflow-wrap:anywhere;margin:0}
