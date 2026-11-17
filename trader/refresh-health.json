@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "recordedAt": "2026-11-17T04:43:12.522Z",
+  "recordedAt": "2026-11-17T07:54:15.532Z",
   "mode": "full",
   "platforms": {
     "Binance": {
@@ -14,18 +14,18 @@
       "outcome": "success",
       "stopReason": null,
       "stopAt": null,
-      "lastCompletedAt": "2026-11-17T04:43:12.522Z",
-      "dataAt": "2026-11-17T04:12:16.482Z"
+      "lastCompletedAt": "2026-11-17T07:54:15.532Z",
+      "dataAt": "2026-11-17T07:46:56.478Z"
     },
     "Bitget": {
       "outcome": "success",
       "stopReason": null,
       "stopAt": null,
-      "lastCompletedAt": "2026-11-17T04:43:12.522Z",
-      "dataAt": "2026-11-17T04:12:53.522Z"
+      "lastCompletedAt": "2026-11-17T07:54:15.532Z",
+      "dataAt": "2026-11-17T07:47:35.235Z"
     },
     "Hyperliquid": {
-      "outcome": "success",
+      "outcome": "unknown",
       "stopReason": null,
       "stopAt": null,
       "lastCompletedAt": "2026-11-17T04:43:12.522Z",
