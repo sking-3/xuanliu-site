@@ -53,3 +53,22 @@ test('a new empty checkpoint keeps prior observations and their own source times
  const last=await api.reader(env).read();
  assert.equal(last.retainedRecords,1);assert.equal(last.allRows[0].updatedAt,NOW-2000);assert.equal(last.checkedAt,empty.lastSuccessAt);
 });
+test('page insertion audit preserves initial baseline and later updates without asserting a new trade',()=>{
+ const env=environment(null),audit=api.displayAudit(env),row=api.parse(fixture(),NOW).allRows[0];
+ const baseline=audit.record([row],stamp,NOW),id=row.id;
+ assert.equal(baseline[id].pageInsertedAt,new Date(NOW).toISOString());
+ assert.equal(baseline[id].kind,'initial_page_load');
+ assert.equal(baseline[id].sourceCreatedAt,new Date(row.createdAt).toISOString());
+ assert.equal(baseline[id].collectorFirstSeenAt,row.firstSeenAt);
+ const next=api.parse({...fixture(),records:{['c'.repeat(64)]:record('c')}},NOW).allRows[0];
+ const updated=audit.record([row,next],stamp,NOW+5000);
+ assert.equal(updated[id].pageInsertedAt,new Date(NOW).toISOString());
+ assert.equal(updated[next.id].kind,'later_page_render');
+ assert.equal(updated[next.id].pageInsertedAt,new Date(NOW+5000).toISOString());
+ const afterReload=api.displayAudit(env).record([row,next],stamp,NOW+10000);
+ assert.equal(afterReload[next.id].pageInsertedAt,new Date(NOW+5000).toISOString());
+});
+test('page insertion audit does not fabricate evidence if storage fails',()=>{
+ const audit=api.displayAudit({localStorage:{getItem(){throw Error('unavailable');},setItem(){throw Error('unavailable');}}});
+ assert.deepEqual(audit.record(api.parse(fixture(),NOW).allRows,stamp,NOW),{});
+});
