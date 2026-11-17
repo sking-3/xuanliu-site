@@ -229,26 +229,48 @@ jobs:
         continue-on-error: true
         run: node scripts/collect_bitget_periods.cjs
 
-      # Preserve source refusals before unrelated collectors can fail the job.
-      - name: Save exchange source-stop markers
+      # Preserve exchange data and stops before the independent Hyperliquid batch.
+      - name: Checkpoint exchange snapshots before Hyperliquid
+        id: exchange-checkpoint
         if: steps.refresh-mode.outputs.mode == 'full'
+        env:
+          REFRESH_MODE: ${{ steps.refresh-mode.outputs.mode }}
+          BINANCE_OUTCOME: unknown
+          BINANCE_GUARD_ALLOWED: ${{ steps.binance-guard.outputs.allowed }}
+          OKX_OUTCOME: ${{ steps.okx-periods.outcome }}
+          OKX_POSITIONS_OUTCOME: ${{ steps.okx-positions.outcome }}
+          BITGET_OUTCOME: ${{ steps.bitget-refresh.outcome }}
+          HYPERLIQUID_OUTCOME: unknown
         shell: bash
         run: |
           set -euo pipefail
-          for marker in trader/okx/source-stop.json trader/bitget/source-stop.json; do
-            if [ -f "$marker" ]; then git add -- "$marker"; fi
-          done
+          node scripts/trader-refresh-health.cjs
+          git add -- trader/okx trader/bitget trader/refresh-health.json
+          changed=false
           if ! git diff --cached --quiet; then
             git fetch --no-tags --depth=1 origin main
             if [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]; then
-              echo '::error::main changed before the source-stop marker could be saved.'
+              echo '::error::main changed before exchange snapshots could be saved.'
               exit 1
             fi
             git config user.name 'github-actions[bot]'
             git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-            git commit -m 'chore: preserve public source stop [skip ci]'
+            git commit -m 'chore: checkpoint public exchange snapshots [skip ci]'
             git push origin HEAD:main
+            changed=true
           fi
+          mkdir -p "$RUNNER_TEMP/exchange-checkpoint"
+          git rev-parse HEAD > "$RUNNER_TEMP/exchange-checkpoint/sha"
+          printf '%s\n' "$changed" > "$RUNNER_TEMP/exchange-checkpoint/changed"
+
+      - name: Preserve exchange checkpoint for recovery
+        if: steps.exchange-checkpoint.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: exchange-checkpoint-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/exchange-checkpoint/
+          retention-days: 1
+          if-no-files-found: error
 
       - name: Refresh Aoying public reference archive
         if: steps.refresh-mode.outputs.mode == 'full'
@@ -420,5 +442,114 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: release-failure-${{ github.run_id }}-${{ github.job }}
+          path: audit/browser-output/release/
+          retention-days: 7
+
+  recover-exchange:
+    # A failed or timed-out long batch can still publish its already committed
+    # exchange checkpoint. An intentionally cancelled workflow does not deploy.
+    needs: collect-build
+    if: ${{ !cancelled() && (needs.collect-build.result == 'failure' || needs.collect-build.result == 'cancelled') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Restore exchange checkpoint from this run
+        id: restore
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: exchange-checkpoint-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/exchange-checkpoint
+
+      - name: Validate the recovery commit
+        id: recovery
+        if: steps.restore.outcome == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha=$(cat "$RUNNER_TEMP/exchange-checkpoint/sha")
+          changed=$(cat "$RUNNER_TEMP/exchange-checkpoint/changed")
+          if ! [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || ! [[ "$changed" =~ ^(true|false)$ ]]; then
+            echo '::error::Invalid exchange checkpoint.'
+            exit 1
+          fi
+          printf 'sha=%s\nready=%s\n' "$sha" "$changed" >> "$GITHUB_OUTPUT"
+
+      - name: Check out the exchange checkpoint
+        if: steps.recovery.outputs.ready == 'true'
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.recovery.outputs.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+
+      - uses: ./.github/actions/setup-public-release
+        if: steps.recovery.outputs.ready == 'true'
+
+      - name: Gate the exchange checkpoint on offline unit, static and browser checks
+        if: steps.recovery.outputs.ready == 'true'
+        run: node scripts/verify_public_release.cjs
+
+      - name: Configure Pages for exchange recovery
+        if: steps.recovery.outputs.ready == 'true'
+        uses: actions/configure-pages@v5
+
+      - name: Stage the committed exchange checkpoint
+        if: steps.recovery.outputs.ready == 'true'
+        env:
+          BOOKS_STAGE_DIR: ${{ runner.temp }}/books-exchange-pages
+          EXPECTED_SHA: ${{ steps.recovery.outputs.sha }}
+        run: node scripts/stage_public_release.cjs
+
+      - name: Upload exchange recovery Pages artifact
+        if: steps.recovery.outputs.ready == 'true'
+        uses: actions/upload-pages-artifact@v4
+        with:
+          name: github-pages-exchange-recovery
+          path: ${{ runner.temp }}/books-exchange-pages
+          retention-days: 1
+          include-hidden-files: true
+
+      - name: Stop recovery if main advanced
+        if: steps.recovery.outputs.ready == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_SHA: ${{ steps.recovery.outputs.sha }}
+          BOOKS_REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual_sha=$(gh api "repos/$BOOKS_REPOSITORY/git/ref/heads/main" --jq '.object.sha')
+          if [ "$actual_sha" != "$EXPECTED_SHA" ]; then
+            echo '::error::A newer main commit exists. Skipping this older exchange checkpoint.'
+            exit 1
+          fi
+
+      - name: Deploy the validated exchange checkpoint
+        id: deployment
+        if: steps.recovery.outputs.ready == 'true'
+        uses: actions/deploy-pages@v4
+        with:
+          artifact_name: github-pages-exchange-recovery
+
+      - name: Verify the published exchange revision, assets and browser behavior
+        if: steps.recovery.outputs.ready == 'true'
+        env:
+          EXPECTED_SHA: ${{ steps.recovery.outputs.sha }}
+          RELEASE_BASE_URL: https://sking-3.github.io/xuanliu-site/
+        run: node scripts/verify_public_release.cjs --live
+
+      - name: Preserve failed exchange release evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: exchange-release-failure-${{ github.run_id }}-${{ github.job }}
           path: audit/browser-output/release/
           retention-days: 7

@@ -629,7 +629,7 @@ function renderLeadPerformance(r,parent,period,compact=false){
   const body=node('div',undefined,'performance-body'),stats=node('div',undefined,'performance-stats');
   const roi=signedValue(part.roi,pct(part.roi));
   stats.append(node('div',roi,'roi '+directionClass(part.roi)+(roi.length>8?' long-roi':'')),node('div',r.exchange+' '+period+' 收益率','roi-label'));
-  if(part.fullPeriod===false)stats.append(node('p','带单未满所选周期 · 来源窗口数值，不参与收益率排名','detail-method'));
+  if(part.fullPeriod===false)stats.append(node('p',(Number.isFinite(part.accountAgeDays)?'带单未满所选周期':'周期覆盖待核验')+' · 来源窗口数值，不参与同期排名','detail-method'));
   const figures=node('div',undefined,'metrics'),unit=part.currency||r.currency;
   const fields=[['同期盈亏 '+unit,signedValue(part.pnl,compact?compactMoney(part.pnl,unit):money(part.pnl,unit)),directionClass(part.pnl)]];
   if(compact){
@@ -1219,6 +1219,7 @@ function card(r,period) {
   const idLine=node('div',isPublicAccount(r)?'钱包 '+r.accountId.slice(0,8)+'…'+r.accountId.slice(-6):sourceIdentity(r),'platform-id');
   idLine.setAttribute('title',sourceIdentity(r));identity.append(name,identityMeta,idLine);
   if(r.exchange==='Bitget'&&r.catalogStatus==='retained')identity.append(node('div','历史收录 · 待重新筛选','platform-id'));
+  if(r.exchange==='OKX'&&r.selectionStatus==='historical')identity.append(node('div','历史收录 · 资料为旧快照','platform-id'));
   const actions=privateCardActions(r),controls={r,detailButton:detail};
   if(actions){links.append(actions.paperLink,actions.followLink);Object.assign(controls,actions);}
   else{controls.sourceLink=sourceLink(r);links.append(controls.sourceLink);}

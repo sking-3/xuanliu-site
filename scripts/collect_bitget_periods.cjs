@@ -165,7 +165,7 @@ function mergeHistory(current,old,id) {
   return {...current,rows:[...rows.values()].sort(recentFirst),
     ...(pages.size?{priorPages:[...pages.values()]}:{})};
 }
-function normalizePerformance(source,charts,n,sourceUrl) {
+function normalizePerformance(source,charts,n,sourceUrl,age=null) {
   const d=source.data,series=charts.data.roiRows;
   expect(series?.dataCycle===n && Array.isArray(series.rows) && series.rows.length>0 && series.rows.length<=n+1,'invalid Bitget daily ROI curve');
   const curve=series.rows.map(row=>({time:iso(row.dataTime),value:number(row.amount)}));
@@ -178,6 +178,7 @@ function normalizePerformance(source,charts,n,sourceUrl) {
   expect(curve.every((point,i)=>Date.parse(point.time)<=Date.parse(charts.fetchedAt) && (!i || point.time>curve[i-1].time)),'invalid Bitget curve date');
   const mdd=optional(d.maxDrawDown),win=optional(d.winRate);
   return {...ref(source),sourcePeriod:n+'D',sourceUrl,currency:'USD',sourceAsOf:null,lastSuccessAt:source.fetchedAt,
+    ...(age?{accountAgeDaysAtCapture:age.days,accountAgeEvidence:ref(age.source)}:{}),
     roi:number(d.roi),pnl:number(d.profit),mdd:mdd===null?null:Number((100*mdd).toFixed(6)),
     winRate:win===null?null:Number((100*win).toFixed(6)),totalTrades:optional(d.totalTrades),winningTrades:optional(d.profitTrades),
     lastOrderTime:d.lastOrderTime ? iso(d.lastOrderTime) : null,
@@ -213,7 +214,7 @@ async function collect(read,readActivity=read,previous=null) {
       const summary=await readPart('p'+n,'performance',{cycleTime:n});
       if (n===90 && number(summary.data.roi)<=0) break;
       const chart=await readPart('curve'+n,'cycleChartData',{cycleTime:n});
-      performance[n+'D']=normalizePerformance(summary,chart,n,sourceUrl);
+      performance[n+'D']=normalizePerformance(summary,chart,n,sourceUrl,{days:detail.tradingDays,source:profile});
       if(n===90)verified90=true;
       if(detail.showBalance===true && summary.data.totalEquity!=null && (!balance || balance.fetchedAt<summary.fetchedAt)) {
         balance={...ref(summary),sourcePeriod:n+'D',value:number(summary.data.totalEquity),currency:'USD',sourceUrl};

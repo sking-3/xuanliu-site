@@ -5,7 +5,7 @@ const fs=require('node:fs/promises');
 const os=require('node:os');
 const path=require('node:path');
 const m=require('../trader/okx-period-data.js');
-const {select,curve,receipt,collect,publish}=require('../scripts/collect_okx_periods.cjs');
+const {select,curve,receipt,collect,mergeDirectory,publish}=require('../scripts/collect_okx_periods.cjs');
 const guard=require('../scripts/okx_source_guard.cjs');
 const day=86400000, end=Date.parse('2026-01-01T00:00:00Z'),received=new Date(end+1800000).toISOString();
 const id='5B123E456F789A11';
@@ -15,9 +15,9 @@ function series(period,ratio='0.34'){
 }
 const leader={uniqueCode:id,nickName:'Public A',ccy:'USDT',leadDays:'400',copyTraderNum:'11',pnl:'100',pnlRatio:'0.34',pnlRatios:[{beginTs:String(end),pnlRatio:'0.34'}]};
 function board(list){return {code:'0',data:[{dataVer:'20260101000000',ranks:list}]};}
-function fixture(receipts={}){return async(name,url)=>{
-  const p=Object.entries(m.ranges).find(([,code])=>name===id+'-'+code)?.[0];
-  const data=receipts[name]||(name==='leaders'?board([leader]):series(p,p==='365D'?'0.81':'0.34'));
+function fixture(receipts={},who=leader){return async(name,url)=>{
+  const p=Object.entries(m.ranges).find(([,code])=>name===who.uniqueCode+'-'+code)?.[0];
+  const data=receipts[name]||(name==='leaders'?board([who]):series(p,p==='365D'?'0.81':'0.34'));
   const bytes=Buffer.from(JSON.stringify(data));
   return receipt(name,url,bytes,{name,sourceUrl:url,httpStatus:200,code:'0',receivedAt:received,bytes:bytes.length});
 };}
@@ -59,6 +59,39 @@ test('published evidence remains intact on a rejected replacement, supports retr
     assert.equal(await fs.readFile(out,'utf8'),old);
   }finally{await fs.rm(dir,{recursive:true,force:true});}
 });
+test('refresh retains departed traders and previously verified windows with their evidence and original time',async()=>{
+  const dir=await fs.mkdtemp(path.join(os.tmpdir(),'okx-archive-'));
+  try{
+    const old=await collect(fixture());
+    await publish(dir,old);
+    const newer=await collect(fixture({}, {...leader,uniqueCode:'5B123E456F789A22',nickName:'Public B'}));
+    await publish(dir,newer);
+    const result=m.parse(JSON.parse(await fs.readFile(path.join(dir,'period-returns.json'),'utf8')));
+    assert.equal(result.accounts.length,2);
+    const archived=result.accounts.find(row=>row.uniqueCode===id);
+    assert.equal(m.trader(archived).selectionStatus,'historical');
+    assert.deepEqual(archived.performance,old.bundle.accounts[0].performance);
+    assert.equal(archived.selection.rankEvidenceSha256,old.bundle.rankEvidenceSha256);
+    assert.equal(archived.selection.rankFetchedAt,old.bundle.rankFetchedAt);
+    assert.equal(m.performance(archived,'30D',end+day).status,'stale');
+    const later=structuredClone(old.bundle);delete later.accounts[0].performance['365D'];
+    later.rankFetchedAt=new Date(Date.parse(later.rankFetchedAt)+day).toISOString();
+    later.generatedAt=new Date(Date.parse(later.generatedAt)+day).toISOString();
+    for(const part of Object.values(later.accounts[0].performance)){
+      part.beginTs+=day;part.endTs+=day;
+      part.lastSuccessAt=new Date(Date.parse(part.lastSuccessAt)+day).toISOString();
+    }
+    const restored=mergeDirectory(old.bundle,later).accounts[0];
+    assert.deepEqual(restored.performance['365D'],old.bundle.accounts[0].performance['365D']);
+    assert.notEqual(restored.performance['365D'].endTs,restored.performance['90D'].endTs);
+    assert.notEqual(restored.performance['365D'].lastSuccessAt,restored.performance['90D'].lastSuccessAt);
+    assert.equal(m.trader(restored).selectionStatus,'current');
+    await fs.rm(path.join(dir,'evidence',path.basename(archived.performance['30D'].evidencePath)));
+    const before=await fs.readFile(path.join(dir,'period-returns.json'),'utf8');
+    await assert.rejects(()=>publish(dir,newer));
+    assert.equal(await fs.readFile(path.join(dir,'period-returns.json'),'utf8'),before);
+  }finally{await fs.rm(dir,{recursive:true,force:true});}
+});
 test('provider refusal persists and prevents the next scheduled collection',async()=>{
   const dir=await fs.mkdtemp(path.join(os.tmpdir(),'okx-stop-')),file=path.join(dir,'source-stop.json');
   try{
@@ -69,13 +102,33 @@ test('provider refusal persists and prevents the next scheduled collection',asyn
   }finally{await fs.rm(dir,{recursive:true,force:true});}
 });
 
+test('the bounded directory refuses growth without discarding historical records',async()=>{
+  const base=(await collect(fixture())).bundle;
+  function clone(n,historical){
+    const row=structuredClone(base.accounts[0]),id='A'+String(n).padStart(15,'0');
+    row.uniqueCode=id;row.sourceUrl=m.accountSourceUrl(id);
+    for(const [p,part] of Object.entries(row.performance)){
+      part.sourceUrl=m.curveUrl(id,p);part.evidencePath=m.evidencePath(id+'-'+m.ranges[p],part.evidenceSha256);
+    }
+    if(historical)row.selection={status:'historical',rankEvidencePath:base.rankEvidencePath,rankEvidenceSha256:base.rankEvidenceSha256,
+      rankSourceUrl:base.rankSourceUrl,rankFetchedAt:base.rankFetchedAt,rankVersion:base.rankVersion};
+    return row;
+  }
+  const previous={...base,accounts:Array.from({length:m.archiveLimit},(_,i)=>clone(i,i>=m.limit))};
+  const next={...base,accounts:[clone(m.archiveLimit,false)]};
+  m.parse(previous);
+  assert.throws(()=>mergeDirectory(previous,next),/archive limit/);
+  assert.equal(previous.accounts.length,m.archiveLimit);
+});
+
 test('directory photos map each portfolio to its head image in the hash-verified rank archive',async()=>{
   const root=path.join(__dirname,'../trader');
   const raw=JSON.parse(await fs.readFile(path.join(root,'okx/period-returns.json')));
-  const bytes=await fs.readFile(path.join(root,raw.rankEvidencePath));
-  assert.equal(require('node:crypto').createHash('sha256').update(bytes).digest('hex'),raw.rankEvidenceSha256);
-  const rank=JSON.parse(bytes).data[0].ranks;
   for(const row of m.parse(raw,Date.parse(raw.generatedAt)).accounts){
+    const rankRef=row.selection||raw;
+    const bytes=await fs.readFile(path.join(root,rankRef.rankEvidencePath));
+    assert.equal(require('node:crypto').createHash('sha256').update(bytes).digest('hex'),rankRef.rankEvidenceSha256);
+    const rank=JSON.parse(bytes).data[0].ranks;
     const pub=rank.find(r=>r.uniqueCode===row.uniqueCode);
     assert.ok(pub);
     assert.equal(m.trader(row).avatarUrl,m.avatarUrl(pub.portLink));

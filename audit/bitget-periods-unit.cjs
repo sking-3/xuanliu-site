@@ -16,7 +16,7 @@ function evidence(ref) {
 }
 for (const row of snapshot.accounts) {
   assert.equal(model.trader(row).accountId,row.portfolioId);
-  for(const [period,part] of Object.entries(row.performance)) assert.equal(model.performance(row,period,asOf).fullPeriod,row.leadDays>=model.days[period]);
+  for(const [period,part] of Object.entries(row.performance)) assert.equal(model.performance(row,period,asOf).fullPeriod,Date.parse(row.profileEvidence.fetchedAt)<=Date.parse(part.fetchedAt) && row.leadDays>=model.days[period]);
   const profile=evidence(row.profileEvidence);
   assert.equal(profile.publicDetail.portfolioId,row.portfolioId);
   assert.equal(model.trader(row).avatarUrl,model.avatarUrl(profile.headPic));
@@ -81,6 +81,29 @@ for (const row of snapshot.accounts) {
 for(const bad of [undefined,'http://img.bgstatic.com/otc/images/invalid.png','https://img.bgstatic.com.evil.example/otc/images/a.png','https://img.bgstatic.com/image/other.png'])
   assert.equal(model.trader({...snapshot.accounts[0],avatarUrl:bad}).avatarUrl,null);
 assert.equal(model.avatarUrl('https://img.bgstatic.com/image/third/avatar-default-1747644203.png'),'https://img.bgstatic.com/image/third/avatar-default-1747644203.png');
+// A fresh profile must never upgrade a retained, shorter historical sample.
+const short=structuredClone(snapshot.accounts.find(r=>r.performance['180D']));
+const profileAtCapture=structuredClone(short.profileEvidence);
+short.performance['180D'].accountAgeDaysAtCapture=98;
+short.performance['180D'].accountAgeEvidence=profileAtCapture;
+short.leadDays=200;
+short.profileEvidence.fetchedAt=new Date(Date.parse(short.performance['180D'].fetchedAt)+86400000).toISOString();
+assert.equal(model.performance(short,'180D',asOf).fullPeriod,false);
+assert.equal(model.performance(short,'180D',asOf).accountAgeDays,98);
+short.performance['180D'].accountAgeDaysAtCapture=180;
+assert.equal(model.performance(short,'180D',asOf).fullPeriod,true);
+delete short.performance['180D'].accountAgeDaysAtCapture;
+delete short.performance['180D'].accountAgeEvidence;
+assert.equal(model.performance(short,'180D',asOf).fullPeriod,false); // old archive: coverage unknown
+short.profileEvidence=profileAtCapture;
+assert.equal(model.performance(short,'180D',asOf).fullPeriod,true); // legacy profile observed before sample
+const captured=structuredClone(snapshot);
+const part=captured.accounts.find(r=>r.performance['180D']);
+part.performance['180D'].accountAgeDaysAtCapture=part.leadDays;
+part.performance['180D'].accountAgeEvidence=structuredClone(part.profileEvidence);
+model.parse(captured,asOf);
+part.performance['180D'].accountAgeEvidence.fetchedAt=new Date(Date.parse(part.performance['180D'].fetchedAt)+1000).toISOString();
+assert.throws(()=>model.parse(captured,asOf));
 const invalid=structuredClone(snapshot);
 invalid.accounts[0].performance['365D']=invalid.accounts[0].performance['90D'];
 assert.throws(()=>model.parse(invalid,asOf));
