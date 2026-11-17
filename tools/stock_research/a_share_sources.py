@@ -253,8 +253,7 @@ def _call(module: Any, path: str, *args: Any, **kwargs: Any) -> Any:
     except TimeoutError as error:
         raise ProviderError("provider_timeout", path) from error
     except Exception as error:  # provider exceptions vary by version
-        text = str(error).lower()
-        if any(token in text for token in ("403", "429", "forbidden", "rate limit", "permission")):
+        if shared_tdx.access_denied(error):
             raise ProviderError("provider_access_denied", path) from error
         raise ProviderError("provider_request_failed", path) from error
 

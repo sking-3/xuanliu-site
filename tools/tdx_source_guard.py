@@ -8,6 +8,7 @@ pending records across processes; a pending record never expires into ready.
 from contextvars import ContextVar
 from copy import deepcopy
 from uuid import uuid4
+import re
 
 SOURCE = "tdx.marketdata.cn"
 ALIASES = frozenset((SOURCE, "tdx", "mootdx", "pytdx", "tdxpy"))
@@ -22,6 +23,27 @@ def source_id(alias):
     if alias not in ALIASES:
         raise SourceStopped("source_identity_unverified")
     return SOURCE
+
+
+def access_denied(error):
+    """Recognize explicit HTTP refusal fields without depending on message text."""
+    if isinstance(error, PermissionError):
+        return True
+    try:
+        response = getattr(error, "response", None)
+        for value in (error, response):
+            if value is None:
+                continue
+            for name in ("status", "status_code", "code"):
+                status = getattr(value, name, None)
+                if not isinstance(status, bool) and str(status) in ("401", "403", "429"):
+                    return True
+        text = str(error).lower()
+    except Exception:
+        # An unreadable error must not become permission to try another request.
+        return True
+    return bool(re.search(r"(?<!\d)(401|403|429)(?!\d)", text)) or any(
+        word in text for word in ("forbidden", "denied", "rate limit", "permission"))
 
 
 class Guard:
@@ -74,8 +96,7 @@ class Guard:
         revision, current = self._read()
         if current["state"] == "pending" and current.get("token") == self.active.get():
             stopped = dict(current, state="stopped", reason="request_failed_or_interrupted")
-            if isinstance(error, PermissionError) or any(
-                    word in str(error).lower() for word in ("401", "403", "429", "forbidden", "denied")):
+            if access_denied(error):
                 stopped["reason"] = "provider_access_denied"
             self._cas(revision, stopped)
 

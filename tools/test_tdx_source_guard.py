@@ -41,6 +41,18 @@ class SQLiteFixture:
             return result.rowcount == 1
 
 
+def refusal_examples():
+    for status in (401, 403, 429):
+        yield RuntimeError("HTTP " + str(status))
+        for name in ("status", "status_code", "code"):
+            error = RuntimeError("synthetic opaque refusal")
+            setattr(error, name, status)
+            yield error
+        error = RuntimeError("synthetic opaque response")
+        error.response = SimpleNamespace(status_code=status)
+        yield error
+
+
 class SharedGuardTests(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
@@ -222,29 +234,46 @@ class SharedGuardTests(unittest.TestCase):
         imports.assert_not_called()
 
     def test_denial_is_not_swallowed_by_fallback(self):
-        first, second = Mock(side_effect=PermissionError("403 synthetic")), Mock()
-        module = SimpleNamespace(first=first, second=second)
-        with self.assertRaises(old.ProviderError):
-            old._try_calls(module, (("first", (), {}), ("second", (), {})))
-        second.assert_not_called()
+        for error in refusal_examples():
+            with self.subTest(error=repr(error), fields=vars(error)):
+                first, second = Mock(side_effect=error), Mock()
+                module = SimpleNamespace(first=first, second=second)
+                with self.assertRaisesRegex(old.ProviderError, "first") as raised:
+                    old._try_calls(module, (("first", (), {}), ("second", (), {})))
+                self.assertEqual(raised.exception.code, "provider_access_denied")
+                second.assert_not_called()
+
+    def test_structured_refusal_is_persisted(self):
+        for error in refusal_examples():
+            # Independent synthetic database per subcase; never resets a real stop.
+            with tempfile.TemporaryDirectory() as directory:
+                store = SQLiteFixture(Path(directory) / "synthetic.sqlite")
+                store.seed({"schema": g.SCHEMA, "source": g.SOURCE, "state": "ready"})
+                guard = g.Guard(store, migration_complete=True)
+                with self.assertRaises(type(error)):
+                    guard.run("tdx", Mock(side_effect=error))
+                self.assertEqual(store.read(g.SOURCE)[1]["reason"], "provider_access_denied")
 
     def test_daily_and_intraday_loops_stop_after_first_denial(self):
         from datetime import datetime, timezone
         for mode in ("daily", "intraday"):
-            source = Mock()
-            source.directory.return_value = [
-                {"代码": "600519", "名称": "synthetic"}, {"代码": "600036", "名称": "synthetic"}]
-            source.spot.return_value = []
-            source.daily.side_effect = old.ProviderError("provider_access_denied")
-            with patch.object(old, "provider", return_value=source):
-                with self.assertRaises(old.ProviderError):
-                    if mode == "daily":
-                        old.build_stock_input(now=datetime(2026, 11, 16, tzinfo=timezone.utc))
-                    else:
-                        old.build_a14_input(now=datetime(2026, 11, 16, tzinfo=timezone.utc))
-            self.assertEqual(source.daily.call_count, 1)
-            source.minute.assert_not_called()
-            source.benchmark.assert_not_called()
+            for error in refusal_examples():
+                source = Mock()
+                source.directory.return_value = [
+                    {"代码": "600519", "名称": "synthetic"}, {"代码": "600036", "名称": "synthetic"}]
+                source.spot.return_value = []
+                module = SimpleNamespace(read=Mock(side_effect=error))
+                source.daily.side_effect = lambda *a, **k: old._call(module, "read")
+                with patch.object(old, "provider", return_value=source):
+                    with self.assertRaises(old.ProviderError) as raised:
+                        if mode == "daily":
+                            old.build_stock_input(now=datetime(2026, 11, 16, tzinfo=timezone.utc))
+                        else:
+                            old.build_a14_input(now=datetime(2026, 11, 16, tzinfo=timezone.utc))
+                self.assertEqual(raised.exception.code, "provider_access_denied")
+                self.assertEqual(source.daily.call_count, 1)
+                source.minute.assert_not_called()
+                source.benchmark.assert_not_called()
 
 
 if __name__ == "__main__":

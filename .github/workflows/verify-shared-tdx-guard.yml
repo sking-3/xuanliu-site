@@ -26,7 +26,7 @@ jobs:
           python-version: '${{ matrix.python }}'
       - name: Check reviewed release routing
         run: node --test tools/mootdx_feed/test_release_plan.cjs
-      - name: Cross-runner CAS and legacy integration fixtures
+      - name: Separate process/shared-store fixtures
         run: python -B -m unittest tools.test_tdx_source_guard tools.stock_research.test_a_share_sources -v
       - name: Install existing hash-locked parser dependencies
         run: |
