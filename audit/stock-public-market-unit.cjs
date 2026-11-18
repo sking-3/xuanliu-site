@@ -33,5 +33,19 @@ test('reload occurs only on explicit action and a second click cannot duplicate 
 test('US recovery markup supplies an official source and keeps the existing attribution and page hierarchy',()=>{
  const html=fs.readFileSync(path.join(root,'us.html'),'utf8'),main=html.match(/<section class="stock-public-market"[^>]*>(.*?)<\/section>/s)?.[1];
  assert.ok(main);assert.match(main,/data-public-market-widget/);assert.match(main,/data-public-market-recovery hidden/);assert.match(main,/<button type="button" data-public-market-reload>重新加载页面<\/button>/);assert.match(main,/<a class="feed-source" href="https:\/\/www\.tradingview\.com\/markets\/stocks-usa\/" target="_blank" rel="noopener noreferrer">/);
- assert.equal((html.match(/<h1(?:\s|>)/g)||[]).length,1);assert.match(html,/<h2>美股行情与选股<\/h2>/);assert.match(main,/<tv-screener\s/);assert.match(main,/TradingView/);assert.match(main,/<details class="symbol-shortcuts">/);assert.equal((main.match(/href="chart\.html\?tvwidgetsymbol=NASDAQ%3A/g)||[]).length,8);assert.match(main,/AMEX%3ASPY/);assert.match(main,/AMEX%3ADIA/);assert.match(main,/NASDAQ%3AQQQ/);assert.doesNotMatch(html,/data-feed-config/);assert.match(html,/当前不启用新策略或后台排程/);
+ const attribution=main.match(/<a id="us-market-source"[^>]*>TradingView<\/a>/)?.[0];
+ assert.ok(attribution);
+ assert.match(attribution,/href="https:\/\/www\.tradingview\.com\/markets\/stocks-usa\/"/);
+ assert.ok(main.indexOf(attribution)<main.indexOf('data-public-market-widget'));
+ assert.equal((html.match(/<h1(?:\s|>)/g)||[]).length,1);
+ assert.match(main,/<h2 id="public-market-title">公开行情与筛选<\/h2>/);
+ assert.match(html,/<h2>美股行情与选股<\/h2>/);
+ assert.match(main,/<tv-screener\s/);
+ const shortcuts=main.match(/<details class="symbol-shortcuts">([\s\S]*?)<\/details>/)?.[1]||'';
+ assert.match(shortcuts,/href="chart\.html\?tvwidgetsymbol=NASDAQ%3AAAPL"/);
+ for(const [,href] of shortcuts.matchAll(/href="([^"]+)"/g)){
+  assert.match(href,/^chart\.html\?tvwidgetsymbol=(?:NASDAQ|NYSE|AMEX)%3A[A-Z0-9.]+$/);
+ }
+ assert.doesNotMatch(html,/data-feed-config/);
+ assert.match(html,/当前不启用新策略或后台排程/);
 });

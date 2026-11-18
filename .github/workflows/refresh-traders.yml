@@ -1,13 +1,6 @@
-name: Refresh trader data and deploy Pages
+name: Refresh trader data and verify production
 
 on:
-  push:
-    branches: [main]
-    # Saving a non-secret copy draft must not start full-site source collection.
-    paths-ignore:
-      - 'copy-config/**'
-      - 'tools/copy_plan/**'
-      - '.github/workflows/copy-signal-dry-run.yml'
   workflow_dispatch:
     inputs:
       refresh_scope:
@@ -25,38 +18,34 @@ on:
 permissions:
   contents: read
 
-# Use the same group for every Pages deployment. Never interrupt a live deploy.
+# Serialize collection and formal-site snapshot verification.
 concurrency:
-  group: pages
+  group: trader-production
   queue: max
   cancel-in-progress: false
 
 jobs:
   collect-build:
-    # Code publication must never collect or inspect source checkpoints.
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
-    # Serialize Binance requests with the Python watch. UI-only publications
-    # never request a source and keep their own unique job group.
+    # Preserve serialization around the existing Binance source gates.
     concurrency:
-      group: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[ui-only]') && format('binance-ui-only-{0}-{1}', github.run_id, github.run_attempt) || 'binance-public-source' }}
+      group: binance-public-source
       queue: max
       cancel-in-progress: false
     permissions:
       contents: write
-      pages: read
       actions: read
     outputs:
       published_sha: ${{ steps.snapshot.outputs.sha }}
     steps:
-      - name: Pin UI-only pushes; otherwise check out the latest main branch
+      - name: Check out the latest main branch
         id: checkout
         uses: actions/checkout@v6
         with:
-          # A queued UI publication must validate the triggering commit even if
-          # main advances. Other refreshes retain the latest source-stop state.
-          ref: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[ui-only]') && github.event.after || 'main' }}
+          # Retain the latest committed source-stop state after a queued run.
+          ref: main
           fetch-depth: 1
 
       - name: Resolve Hyperliquid refresh scope
@@ -373,69 +362,29 @@ jobs:
           fi
           printf 'sha=%s\n' "$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
-      - uses: ./.github/actions/setup-public-release
-
-      - name: Gate the final snapshot on offline unit, static and browser checks
-        run: node scripts/verify_public_release.cjs
-
-      - name: Configure Pages
-        uses: actions/configure-pages@v5
-
-      - name: Stage only the committed website
-        env:
-          BOOKS_STAGE_DIR: ${{ runner.temp }}/books-pages
-          EXPECTED_SHA: ${{ steps.snapshot.outputs.sha }}
-        run: node scripts/stage_public_release.cjs
-
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v4
-        with:
-          path: ${{ runner.temp }}/books-pages
-          retention-days: 1
-          include-hidden-files: true
-
-  deploy:
+  release-checks:
     needs: collect-build
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    permissions:
-      contents: read
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v6
         with:
           ref: ${{ needs.collect-build.outputs.published_sha }}
           persist-credentials: false
-      - uses: ./.github/actions/setup-public-release
 
-      - name: Stop if main advanced after this artifact was built
-        env:
-          GH_TOKEN: ${{ github.token }}
-          EXPECTED_SHA: ${{ needs.collect-build.outputs.published_sha }}
-          BOOKS_REPOSITORY: ${{ github.repository }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          actual_sha=$(gh api "repos/$BOOKS_REPOSITORY/git/ref/heads/main" --jq '.object.sha')
-          if [ "$actual_sha" != "$EXPECTED_SHA" ]; then
-            echo '::error::A newer main commit exists. Skipping this older Pages artifact.'
-            exit 1
-          fi
-          printf 'Website commit: `%s`\n' "$EXPECTED_SHA" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install the static checks dependency
+        run: python3 -m pip install --retries 1 --timeout 25 lxml==6.1.3
 
-      - name: Deploy the validated website and snapshot
-        id: deployment
-        uses: actions/deploy-pages@v4
-
-      - name: Verify the published revision, assets and browser behavior
-        env:
-          EXPECTED_SHA: ${{ needs.collect-build.outputs.published_sha }}
-          RELEASE_BASE_URL: https://sking-3.github.io/xuanliu-site/
-        run: node scripts/verify_public_release.cjs --live
+      # Production consumes only data files from this workflow. The code release
+      # workflow separately tests the full site in Chromium and WebKit.
+      - name: Gate the final snapshot on offline unit and static checks
+        run: node scripts/verify_public_release.cjs --offline-only
 
       - name: Preserve failed release evidence
         if: failure()
@@ -444,21 +393,28 @@ jobs:
           name: release-failure-${{ github.run_id }}-${{ github.job }}
           path: audit/browser-output/release/
           retention-days: 7
+          if-no-files-found: ignore
+
+  verify-production:
+    needs: collect-build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.collect-build.outputs.published_sha }}
+          persist-credentials: false
+
+      - name: Verify the exact snapshots on the formal site
+        run: bash scripts/verify-trader-vps-publication.sh
 
   recover-exchange:
-    # A failed or timed-out long batch can still publish its already committed
-    # exchange checkpoint. An intentionally cancelled workflow does not deploy.
+    # The formal-site timer can still consume the verified early exchange checkpoint.
+    # A failed collection keeps its original failure status.
     needs: collect-build
     if: ${{ !cancelled() && (needs.collect-build.result == 'failure' || needs.collect-build.result == 'cancelled') }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    permissions:
-      contents: read
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+    timeout-minutes: 10
     steps:
       - name: Restore exchange checkpoint from this run
         id: restore
@@ -490,66 +446,6 @@ jobs:
           persist-credentials: false
           fetch-depth: 1
 
-      - uses: ./.github/actions/setup-public-release
+      - name: Verify the formal site received the exchange checkpoint
         if: steps.recovery.outputs.ready == 'true'
-
-      - name: Gate the exchange checkpoint on offline unit, static and browser checks
-        if: steps.recovery.outputs.ready == 'true'
-        run: node scripts/verify_public_release.cjs
-
-      - name: Configure Pages for exchange recovery
-        if: steps.recovery.outputs.ready == 'true'
-        uses: actions/configure-pages@v5
-
-      - name: Stage the committed exchange checkpoint
-        if: steps.recovery.outputs.ready == 'true'
-        env:
-          BOOKS_STAGE_DIR: ${{ runner.temp }}/books-exchange-pages
-          EXPECTED_SHA: ${{ steps.recovery.outputs.sha }}
-        run: node scripts/stage_public_release.cjs
-
-      - name: Upload exchange recovery Pages artifact
-        if: steps.recovery.outputs.ready == 'true'
-        uses: actions/upload-pages-artifact@v4
-        with:
-          name: github-pages-exchange-recovery
-          path: ${{ runner.temp }}/books-exchange-pages
-          retention-days: 1
-          include-hidden-files: true
-
-      - name: Stop recovery if main advanced
-        if: steps.recovery.outputs.ready == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          EXPECTED_SHA: ${{ steps.recovery.outputs.sha }}
-          BOOKS_REPOSITORY: ${{ github.repository }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          actual_sha=$(gh api "repos/$BOOKS_REPOSITORY/git/ref/heads/main" --jq '.object.sha')
-          if [ "$actual_sha" != "$EXPECTED_SHA" ]; then
-            echo '::error::A newer main commit exists. Skipping this older exchange checkpoint.'
-            exit 1
-          fi
-
-      - name: Deploy the validated exchange checkpoint
-        id: deployment
-        if: steps.recovery.outputs.ready == 'true'
-        uses: actions/deploy-pages@v4
-        with:
-          artifact_name: github-pages-exchange-recovery
-
-      - name: Verify the published exchange revision, assets and browser behavior
-        if: steps.recovery.outputs.ready == 'true'
-        env:
-          EXPECTED_SHA: ${{ steps.recovery.outputs.sha }}
-          RELEASE_BASE_URL: https://sking-3.github.io/xuanliu-site/
-        run: node scripts/verify_public_release.cjs --live
-
-      - name: Preserve failed exchange release evidence
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: exchange-release-failure-${{ github.run_id }}-${{ github.job }}
-          path: audit/browser-output/release/
-          retention-days: 7
+        run: bash scripts/verify-trader-vps-publication.sh --exchange-only

@@ -7,6 +7,7 @@ After=network-online.target
 Type=oneshot
 ExecStart=/usr/bin/flock -n /var/lib/books-trader-publish/publish.lock /usr/bin/node /opt/books/trader-publisher/publish-books-trader-snapshots.cjs
 Environment=BOOKS_TRADER_PUBLISH_STATE=/var/lib/books-trader-publish/state.json
+Environment=BOOKS_TRADER_PUBLISH_STAGE=/opt/books/site/trader/.publisher-stage
 StateDirectory=books-trader-publish
 TimeoutStartSec=360
 NoNewPrivileges=yes
@@ -14,5 +15,5 @@ ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes
 PrivateDevices=yes
-ReadWritePaths=/opt/books/trader-publisher-stage /opt/books/site/trader
+ReadWritePaths=/opt/books/site/trader
 MemoryMax=256M

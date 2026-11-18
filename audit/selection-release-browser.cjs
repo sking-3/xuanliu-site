@@ -7,6 +7,14 @@ const snapshot=require('./release-fixtures.cjs');
 const batch=JSON.parse(fs.readFileSync(path.join(__dirname,'../research-data/snapshot.json'),'utf8'));
 const record={at:new Date().toISOString(),network:'Synthetic fixtures; all external HTTP and WebSocket traffic blocked; no denied source contacted',checks:[],screens:[]};
 const base=process.env.RELEASE_BASE_URL;assert.ok(base,'test server required');
+function waitWorkspaceState(page,state){
+ return page.locator(`[data-stock-workspace][data-published-state="${state}"]`).waitFor({state:'attached'});
+}
+async function openWorkspace(page){
+ const disclosure=page.locator('details.stock-custom-results');
+ if(!await disclosure.evaluate(node=>node.open))await disclosure.locator('summary').click();
+ await disclosure.locator('[data-stock-workspace]').waitFor({state:'visible'});
+}
 (async()=>{
  const browser=await playwright[engine].launch(engine==='chromium'&&process.env.RELEASE_BROWSER_EXECUTABLE?{executablePath:process.env.RELEASE_BROWSER_EXECUTABLE}:{});
  async function context(handler,now='2026-11-16T08:00:00Z'){
@@ -24,11 +32,11 @@ const base=process.env.RELEASE_BASE_URL;assert.ok(base,'test server required');
   let requests=0;
   let c=await context(async(r,u)=>{if(u.pathname.endsWith('/research-data/snapshot.json')){requests++;await r.fulfill({status:requests===1?429:200,json:batch});return true;}});
   let page=await c.newPage();await page.goto(base+'us.html',{waitUntil:'domcontentloaded'});
-  await page.locator('[data-selection-batch][data-state=restricted]').waitFor();
-  assert.equal(requests,1);assert.equal(await page.locator('[data-stock-workspace]').getAttribute('data-published-state'),'restricted');
+  await waitWorkspaceState(page,'restricted');await openWorkspace(page);
+  assert.equal(requests,1);assert.match(await page.locator('.sr-toolbar strong').innerText(),/来源拒绝或限流/);
   assert.ok(await page.locator('.sr-toolbar button').first().isDisabled());
-  await page.reload({waitUntil:'domcontentloaded'});await page.locator('[data-selection-batch][data-state=restricted]').waitFor();assert.equal(requests,1);
-  record.checks.push({name:'429 followed by late-200 fixture',requests,header:'restricted',workspace:'restricted',reloadRequests:0});
+  await page.reload({waitUntil:'domcontentloaded'});await waitWorkspaceState(page,'restricted');assert.equal(requests,1);
+  record.checks.push({name:'429 followed by late-200 fixture',requests,workspace:'restricted',reloadRequests:0});
   await c.close();
   // A readable but unwritable store must block the first request and every reload.
   const storageBlocked=[];
@@ -42,16 +50,15 @@ const base=process.env.RELEASE_BASE_URL;assert.ok(base,'test server required');
    page=await c.newPage();await page.goto(base+route,{waitUntil:'domcontentloaded'});
    for(let load=0;load<3;load++){
     if(load)await page.reload({waitUntil:'domcontentloaded'});
-    await page.locator('[data-selection-batch][data-state=unavailable]').waitFor();
+    await waitWorkspaceState(page,'unavailable');await openWorkspace(page);
     assert.equal(await page.evaluate(()=>localStorage.getItem('fixture.storage-readable')),'readable');
-    assert.equal(await page.locator('[data-stock-workspace]').getAttribute('data-published-state'),'unavailable');
-    assert.match(await page.locator('[data-selection-batch]').innerText(),/本机存储不可用.*已停止读取/);
+    assert.match(await page.locator('.sr-toolbar strong').innerText(),/本机存储不可用.*已停止读取/);
     assert.match(await page.locator('.sr-notice').textContent(),/无法可靠保存来源停止记录/);
     assert.ok(await page.locator('.sr-toolbar button').first().isDisabled());
     await page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));
     assert.equal(attempted,0);
    }
-   storageBlocked.push({page:route,requests:attempted,reloads:2,header:'unavailable',workspace:'unavailable'});await c.close();
+   storageBlocked.push({page:route,requests:attempted,reloads:2,workspace:'unavailable'});await c.close();
   }
   record.checks.push({name:'readable storage with QuotaExceededError blocks before fetch and across reloads',markets:storageBlocked});
   // An initial successful read cannot cache permission to write later stop records.
@@ -62,22 +69,21 @@ const base=process.env.RELEASE_BASE_URL;assert.ok(base,'test server required');
    const original=Storage.prototype.setItem;
    Storage.prototype.setItem=function(key,value){if(window.failStopStorage)throw new DOMException('Quota exceeded','QuotaExceededError');return original.call(this,key,value);};
   });
-  page=await c.newPage();await page.goto(base+'us.html#strategy-results',{waitUntil:'domcontentloaded'});
-  await page.locator('[data-selection-batch][data-state=not_configured]').waitFor();assert.equal(requests,1);
+  page=await c.newPage();await page.goto(base+'us.html',{waitUntil:'domcontentloaded'});
+  await waitWorkspaceState(page,'not_configured');await openWorkspace(page);assert.equal(requests,1);
   await page.evaluate(()=>{window.failStopStorage=true;window.name='force-storage-failure';});
   await page.locator('.sr-toolbar button').first().click();
-  await page.locator('[data-selection-batch][data-state=unavailable]').waitFor();assert.equal(requests,1);
+  await waitWorkspaceState(page,'unavailable');assert.equal(requests,1);
   assert.ok(await page.locator('.sr-toolbar button').first().isDisabled());
-  await page.reload({waitUntil:'domcontentloaded'});await page.locator('[data-selection-batch][data-state=unavailable]').waitFor();assert.equal(requests,1);
-  record.checks.push({name:'storage rechecked before a manual refresh after a successful batch',initialRequests:1,additionalRequests:requests-1,reloadRequests:0,header:'unavailable'});await c.close();
+  await page.reload({waitUntil:'domcontentloaded'});await waitWorkspaceState(page,'unavailable');assert.equal(requests,1);
+  record.checks.push({name:'storage rechecked before a manual refresh after a successful batch',initialRequests:1,additionalRequests:requests-1,reloadRequests:0,workspace:'unavailable'});await c.close();
   // A different tab's persistent stop appears while a successful response is in flight.
   let release,started;const ready=new Promise(resolve=>started=resolve);requests=0;
   c=await context(async(r,u)=>{if(u.pathname.endsWith('/research-data/snapshot.json')){requests++;started();await new Promise(resolve=>release=resolve);await r.fulfill({json:batch});return true;}});
   page=await c.newPage();await page.goto(base+'us.html',{waitUntil:'domcontentloaded'});await ready;
   await page.evaluate(()=>localStorage.setItem('books.stock.published-source-stop.v1','http_429'));release();
-  await page.locator('[data-selection-batch][data-state=restricted]').waitFor();assert.equal(requests,1);
-  assert.equal(await page.locator('[data-stock-workspace]').getAttribute('data-published-state'),'restricted');
-  record.checks.push({name:'in-flight 200 cannot override a newly persisted denial',requests,header:'restricted'});await c.close();
+  await waitWorkspaceState(page,'restricted');assert.equal(requests,1);
+  record.checks.push({name:'in-flight 200 cannot override a newly persisted denial',requests,workspace:'restricted'});await c.close();
   // Denial on the original daily-bar source blocks repeat calls, aliases and reloads.
   let daily=0;const requestedHosts=[];
   c=await context(async(r,u)=>{if(u.pathname.endsWith('/appstock/app/fqkline/get')&&r.request().frame()===r.request().frame().page().mainFrame()){daily++;requestedHosts.push(u.hostname);await r.fulfill({status:429,json:{}});return true;}});

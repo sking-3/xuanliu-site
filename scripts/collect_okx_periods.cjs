@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* Collect public aggregate SWAP leaderboard and dated PnL curves. No account, API key or trading endpoints. */
+/* Collect the public SWAP leaderboard, dated PnL curves and official period win ratios. */
 'use strict';
 const fs=require('node:fs/promises');
 const path=require('node:path');
@@ -30,14 +30,26 @@ function select(payload){
 function curve(payload,period,receivedAt){
   const rows=payload.data,days=model.days[period];
   expect(payload.code==='0' && Array.isArray(rows),'invalid OKX curve reply');
-  if(rows.length!==days+1)return null;
+  // A provider snapshot can omit one day. Keep the actual returned points and window.
+  if(rows.length!==days && rows.length!==days+1)return null;
   const points=rows.map(p=>({t:number(p.beginTs),pnl:number(p.pnl),ratio:number(p.pnlRatio)})).sort((a,b)=>a.t-b.t);
   const first=points[0],last=points.at(-1);
-  if(first.ratio!==0 || first.pnl!==0 || !points.every((p,i)=>Number.isSafeInteger(p.t)&&p.t>0&&p.t===first.t+i*day))return null;
+  if(first.ratio!==0 || first.pnl!==0 || last.t-first.t!==days*day ||
+    !points.every((p,i)=>Number.isSafeInteger(p.t)&&p.t>0&&(p.t-first.t)%day===0&&(!i||p.t>points[i-1].t)))return null;
   const age=Date.parse(receivedAt)-last.t;
   if(!(age>=0 && age<2*day))return null;
   return {sourcePeriod:period,roi:Number((last.ratio*100).toFixed(10)),pnl:last.pnl,mdd:null,winRate:null,
     beginTs:first.t,endTs:last.t,pointCount:points.length,sourceAsOf:null,lastSuccessAt:receivedAt};
+}
+function sourceWinRate(payload,period){
+  const row=payload?.data?.[0];
+  if(payload?.code!=='0'||!Array.isArray(payload.data)||payload.data.length!==1||row?.ccy!=='USDT' ||
+    typeof row.winRatio!=='string'||!/^(?:0|1)(?:\.\d+)?$/.test(row.winRatio)||
+    typeof row.profitDays!=='string'||!/^\d+$/.test(row.profitDays)||typeof row.lossDays!=='string'||!/^\d+$/.test(row.lossDays))return null;
+  const winRate=Number((Number(row.winRatio)*100).toFixed(10));
+  const profitDays=Number(row.profitDays),lossDays=Number(row.lossDays);
+  if(!model.winMatchesDays(winRate,profitDays,lossDays,period))return null;
+  return {winRate,profitDays,lossDays};
 }
 function receipt(name,url,bytes,meta){
   expect(meta.sourceUrl===url && meta.name===name && meta.httpStatus===200 && meta.code==='0' &&
@@ -63,6 +75,7 @@ async function collect(read,wait=async()=>{}){
   const leaderboard=await read('leaders',model.rankUrl);
   const selected=select(leaderboard.payload),accounts=[],archive=[leaderboard];
   let generatedAt=leaderboard.receivedAt;
+  let statsReadFailed=false;
   for(const r of selected){
     const id=r.uniqueCode,performance={};
     for(const p of ['90D','7D','30D','365D']){
@@ -80,11 +93,27 @@ async function collect(read,wait=async()=>{}){
       performance[p]={...part,sourceUrl:source.url,evidenceSha256:source.sha,evidencePath:source.evidencePath};
       archive.push(source);
       if(Date.parse(source.receivedAt)>Date.parse(generatedAt))generatedAt=source.receivedAt;
+      if(statsReadFailed)continue;
+      await wait();
+      const stats=await read(model.statsName(id,p),model.statsUrl(id,p)).catch(err=>{
+        if(err.code==='OKX_SOURCE_STOPPED')throw err;
+        // Older saved evidence sets may never have fetched this optional endpoint.
+        if(err.code!=='ENOENT')statsReadFailed=true;
+        return null;
+      });
+      const win=sourceWinRate(stats?.payload,p);
+      if(!win)continue;
+      // Older loaded pages require winRate=null on the curve itself.
+      performance[p].winRateEvidence={sourceUrl:stats.url,evidenceSha256:stats.sha,evidencePath:stats.evidencePath,
+        lastSuccessAt:stats.receivedAt,percent:win.winRate,profitDays:win.profitDays,lossDays:win.lossDays};
+      archive.push(stats);
+      if(Date.parse(stats.receivedAt)>Date.parse(generatedAt))generatedAt=stats.receivedAt;
     }
     if(!performance['90D'])continue;
     accounts.push({uniqueCode:id,name:r.nickName.trim(),avatarUrl:model.avatarUrl(r.portLink),leadDays:number(r.leadDays),copyTraderNum:number(r.copyTraderNum),
       sourceUrl:model.accountSourceUrl(id),performance});
   }
+  expect(accounts.length>0,'no OKX 90D curve matched the leaderboard; previous archive kept');
   const bundle={schemaVersion:1,source:'okx_public_lead',generatedAt,rankEvidencePath:leaderboard.evidencePath,rankEvidenceSha256:leaderboard.sha,
     rankSourceUrl:leaderboard.url,rankFetchedAt:leaderboard.receivedAt,rankVersion:leaderboard.payload.data[0].dataVer,accounts};
   return {bundle:model.parse(bundle),archive};
@@ -122,7 +151,10 @@ async function publish(dir,{bundle,archive}){
   const references=new Map([[bundle.rankEvidencePath,bundle.rankEvidenceSha256]]);
   for(const row of bundle.accounts){
     if(row.selection)references.set(row.selection.rankEvidencePath,row.selection.rankEvidenceSha256);
-    for(const part of Object.values(row.performance))references.set(part.evidencePath,part.evidenceSha256);
+    for(const part of Object.values(row.performance)){
+      references.set(part.evidencePath,part.evidenceSha256);
+      if(part.winRateEvidence)references.set(part.winRateEvidence.evidencePath,part.winRateEvidence.evidenceSha256);
+    }
   }
   for(const [ref,sha] of references){
     const bytes=await fs.readFile(path.join(dir,'evidence',path.basename(ref)));

@@ -3,18 +3,28 @@ const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('n
 const fixture=require('./active-stocks-fixture.cjs'),marketFixture=require('./release-fixtures.cjs');
 const disabledFixture=require('../research-data/a-active-stocks.json');
 const base=new URL(process.env.RELEASE_BASE_URL),engine=process.env.RELEASE_BROWSER||'chromium';
+const auditPage=new URL('__audit-active-stocks.html',base);
+const auditMarkup=`<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>活跃股离线测试</title><link rel="stylesheet" href="home-active-stocks.css">
+<script defer src="home-active-stocks.js"></script></head><body class="books-shell">
+<main><section id="home-active-stocks" class="home-active-stocks" aria-busy="true">
+<h1>活跃股离线测试</h1><p id="active-stocks-status" role="status"></p>
+<p id="active-stocks-meta"></p><ol id="active-stocks-list"></ol>
+</section></main></body></html>`;
 const output=path.join(process.env.RELEASE_OUTPUT||path.join(__dirname,'browser-output/release'),engine);
 const report={engine,synthetic:true,externalRequestsBlocked:true,checks:[]};
 async function main(){
  fs.mkdirSync(output,{recursive:true});
- const browser=await playwright[engine].launch();
+ const browser=await playwright[engine].launch(engine==='chromium'&&process.env.RELEASE_BROWSER_EXECUTABLE?{executablePath:process.env.RELEASE_BROWSER_EXECUTABLE}:{});
  try{
   for(const width of [1440,768,390,375]){
    const context=await browser.newContext({viewport:{width,height:960},serviceWorkers:'block'});
    await context.routeWebSocket('**/*',ws=>ws.close());
-   let mode='production',nativeMode='blocked',snapshotRequests=0,providerAttempts=0;
+   let mode='production',snapshotRequests=0,providerAttempts=0;
    await context.route('**/*',route=>{
     const url=new URL(route.request().url());
+    if(url.href===auditPage.href)return route.fulfill({contentType:'text/html; charset=utf-8',body:auditMarkup});
     if(url.origin===base.origin&&url.pathname===new URL('research-data/a-active-stocks.json',base).pathname){
      snapshotRequests++;
      if(mode==='production')return route.continue();
@@ -35,11 +45,6 @@ async function main(){
      if(mode==='hostile')data.rows[1].name='<img src=x onerror=alert(1)>';
      return route.fulfill({json:data});
     }
-    if(url.hostname==='s3.tradingview.com'&&url.pathname==='/external-embedding/embed-widget-hotlists.js'){
-     providerAttempts++;
-     if(nativeMode==='fixture')return route.fulfill({contentType:'text/javascript',body:"const s=document.currentScript,c=JSON.parse(s.textContent);if(c.exchange!=='SSE'||c.locale!=='zh_CN'||c.showChart!==false)throw Error('wrong hot-list configuration');const f=document.createElement('iframe');f.title='合成组件测试';f.style.cssText='width:100%;height:450px;border:0';f.srcdoc='<p>合成组件测试 · 非真实行情</p><a target=\"_top\" href=\"'+c.largeChartUrl+'?tvwidgetsymbol=SSE%3A600519\">合成组件测试</a>';s.parentElement.querySelector('.tradingview-widget-container__widget').replaceChildren(f);"});
-     return route.abort();
-    }
     if(url.href.includes('market-heatmap-fallback.json'))return route.fulfill({json:marketFixture});
     if(url.origin===base.origin&&url.pathname.startsWith(base.pathname))return route.continue();
     if(url.hostname==='s3.tradingview.com')providerAttempts++;
@@ -48,23 +53,20 @@ async function main(){
    const page=await context.newPage(),errors=[];
    page.on('pageerror',error=>errors.push(error.message));page.setDefaultTimeout(15000);
    async function visit(state){
-    await page.goto(new URL('index.html',base).href,{waitUntil:'domcontentloaded'});
+    await page.goto(auditPage.href,{waitUntil:'domcontentloaded'});
     await page.locator('#home-active-stocks[data-state="'+state+'"][aria-busy=false]').waitFor();
     const geometry=await page.evaluate(()=>({width:innerWidth,scroll:document.documentElement.scrollWidth}));
     assert.ok(geometry.scroll<=geometry.width+1,'no overflow '+width);
    }
+   // The public homepage uses the market radar; the dormant ranking module runs only on the intercepted test page.
+   const home=await page.goto(new URL('index.html',base).href,{waitUntil:'domcontentloaded'});
+   assert.equal(home.status(),200);
+   await page.locator('#market-radar [data-home-radar]').waitFor();
+   assert.equal(await page.locator('#home-active-stocks').count(),0);
+   assert.equal(snapshotRequests,0,'home does not request the dormant ranking snapshot');
    await visit('not_configured');
    assert.match(await page.locator('#active-stocks-status').innerText(),/待接入/);
    assert.equal(await page.locator('#active-stocks-list li').count(),0);
-   await page.locator('#tv-hotlists-host[data-widget-state="unavailable"]').waitFor();
-   assert.match(await page.locator('#tv-movers-status').innerText(),/暂不可用/);
-   assert.equal(await page.locator('[data-home-movers-source]').isVisible(),true);
-   nativeMode='fixture';await visit('not_configured');
-   const nativeFrame=page.frameLocator('#tv-hotlists-host iframe');
-   await nativeFrame.getByRole('link',{name:'合成组件测试',exact:true}).click();
-   await page.waitForFunction(()=>document.querySelector('#chart-symbol')?.textContent==='SSE:600519');
-   assert.equal(new URL(page.url()).origin,base.origin);
-   nativeMode='blocked';
    mode='fixture';await visit('ready');
    assert.match(await page.locator('#active-stocks-status').innerText(),/合成测试数据 · 非真实行情/);
    assert.match(await page.locator('#active-stocks-status').innerText(),/2026-11-13/);
@@ -144,7 +146,7 @@ async function main(){
    await page.evaluate(()=>window.activeTestApp.destroy());
    assert.ok(providerAttempts>0,'provider attempts intercepted and aborted');
    assert.deepEqual(errors,[],'uncaught errors');
-   report.checks.push({width,syntheticRows:3,chartSymbols:['SZSE:000001','SSE:600519'],failureStates:3,refreshAndExpiry:true,withdrawalRollback:true,externalProviderAttemptsBlocked:providerAttempts});
+   report.checks.push({width,homepageRadar:true,syntheticRows:3,chartSymbols:['SZSE:000001','SSE:600519'],failureStates:3,refreshAndExpiry:true,withdrawalRollback:true,externalProviderAttemptsBlocked:providerAttempts});
    await context.close();
   }
   console.log('PASS '+engine+': active stocks, 4 viewports, 8 in-site chart navigations, synthetic fixtures and failures');

@@ -20,6 +20,7 @@ async function main() {
   }else if(live){
     await run(process.execPath,['scripts/check_published_release.cjs']);
   }
+  if(process.argv.includes('--offline-only'))return;
   let server;
   try{
     let base=process.env.RELEASE_BASE_URL;

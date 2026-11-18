@@ -22,18 +22,14 @@ test('workflow schedules and collection stages use the one resolved scope',()=>{
  assert.deepEqual([...workflow.matchAll(/- cron: '([^']+)'/g)].map(m=>m[1]),['27,57 * * * *','12 */6 * * *']);
  assert.match(step('Resolve Hyperliquid refresh scope'),/BOOKS_CHECKOUT_SHA:.*steps.checkout.outputs.commit/);
  assert.match(step('Resolve Hyperliquid refresh scope'),/node scripts\/resolve_trader_refresh_mode\.cjs/);
- // Job scheduling and checkout may inspect the UI-only label directly; source stages
- // still use the resolver with its event/checkout SHA equality validation.
- const directLabels=workflow.split('\n').filter(line=>line.includes('github.event.head_commit.message'));
- assert.equal(directLabels.length,2);
- assert.match(directLabels[0],/^      group:.*github.event_name == 'push'.*\[ui-only\].*github.run_id.*github.run_attempt.*'binance-public-source'/);
- assert.equal(directLabels[1].trim(), "ref: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[ui-only]') && github.event.after || 'main' }}");
+ assert.doesNotMatch(workflow,/^  push:|github\.event\.head_commit\.message/m);
+ assert.match(step('Check out the latest main branch'),/ref: main/);
  for(const name of ['Record this collection start','Collect one public Hyperliquid snapshot'])assert.match(step(name),/if: steps.refresh-mode.outputs.mode != 'skip'/);
  for(const name of ['Precompute native and 90/180/365-day portfolio windows','Separate shared API rate windows','Precompute closing-fill win rates with persistent last-good cache','Reverify holdings after the long analytics batch'])assert.match(step(name),/if: steps.refresh-mode.outputs.mode == 'full'/);
 });
-test('UI-only skips Binance while Pages serialization and peer source guards remain required',()=>{
- assert.match(workflow,/concurrency:\n  group: pages\n  queue: max\n  cancel-in-progress: false/);
- assert.match(workflow,/    concurrency:\n      group:.*'binance-public-source'.*\n      queue: max\n      cancel-in-progress: false/);
+test('Production collection serializes and retains peer source guards',()=>{
+ assert.match(workflow,/concurrency:\n  group: trader-production\n  queue: max\n  cancel-in-progress: false/);
+ assert.match(workflow,/    concurrency:\n      group: binance-public-source\n      queue: max\n      cancel-in-progress: false/);
  const watch=fs.readFileSync(path.join(root,'.github/workflows/binance-python-watch.yml'),'utf8');
  assert.match(watch,/    concurrency:\n      group: binance-public-records-source\n      queue: max\n      cancel-in-progress: false/);
  assert.match(step('Reverify holdings after the long analytics batch'),/sleep 60\n.*refresh_trader_positions\.cjs --not-before "\$BOOKS_COLLECTION_STARTED_AT"/);
@@ -44,7 +40,6 @@ test('UI-only skips Binance while Pages serialization and peer source guards rem
   assert.ok(workflow.indexOf('      - name: Verify the preceding Binance run was safely committed') < workflow.indexOf('      - name: '+name));
  }
  assert.match(step('Save the snapshot without overwriting concurrent edits'),/git push origin HEAD:main/);
- assert.match(workflow,/actual_sha.*EXPECTED_SHA/);
 });
 test('peer checkpoint failures skip Binance without rewriting existing source state',()=>{
  const names=['Select the latest Python Binance source checkpoint','Restore the exact Python Binance source checkpoint','Validate the Python Binance global source-stop state'];
@@ -60,7 +55,7 @@ test('peer checkpoint failures skip Binance without rewriting existing source st
  const nonblocking=workflow.split(/^      - name: /m).slice(1).filter(block=>/^        continue-on-error: true$/m.test(block)).map(block=>block.split('\n')[0]);
  assert.deepEqual(nonblocking.sort(),[...names,'Restore exchange checkpoint from this run','Verify the preceding Binance run was safely committed','Refresh verified public 90-day and 365-day returns','Refresh verified OKX public trader returns','Archive Aoying public execution history','Refresh verified OKX public position history','Refresh verified Bitget public trader records','Refresh Aoying public reference archive'].sort());
 });
-test('exchange checkpoint recovers after a failed batch with the full release gates',()=>{
+test('exchange checkpoint verifies formal publication after a failed batch',()=>{
  const checkpoint=step('Checkpoint exchange snapshots before Hyperliquid');
  assert.ok(workflow.indexOf('      - name: Checkpoint exchange snapshots before Hyperliquid') < workflow.indexOf('      - name: Collect one public Hyperliquid snapshot'));
  assert.match(checkpoint,/git add -- trader\/okx trader\/bitget trader\/refresh-health\.json/);
@@ -71,11 +66,9 @@ test('exchange checkpoint recovers after a failed batch with the full release ga
  const recovery=workflow.split('  recover-exchange:\n')[1];
  assert.ok(recovery);
  assert.ok(recovery.includes("if: ${{ !cancelled() && (needs.collect-build.result == 'failure' || needs.collect-build.result == 'cancelled') }}"));
- for(const command of ['actions/download-artifact@v4','actions/checkout@v6','./.github/actions/setup-public-release','node scripts/verify_public_release.cjs','node scripts/stage_public_release.cjs','actions/upload-pages-artifact@v4','actions/deploy-pages@v4','node scripts/verify_public_release.cjs --live']) assert.ok(recovery.includes(command),command);
- assert.match(recovery,/gh api .*git\/ref\/heads\/main/);
- assert.match(recovery,/\"\$actual_sha\" != \"\$EXPECTED_SHA\"/);
- assert.match(recovery,/EXPECTED_SHA: \${{ steps.recovery.outputs.sha }}/);
- assert.match(recovery,/artifact_name: github-pages-exchange-recovery/);
+ for(const command of ['actions/download-artifact@v4','actions/checkout@v6','bash scripts/verify-trader-vps-publication.sh --exchange-only']) assert.ok(recovery.includes(command),command);
+ assert.match(recovery,/ref: \$\{\{ steps.recovery.outputs.sha \}\}/);
+ assert.match(recovery,/name: Verify the formal site received the exchange checkpoint\n        if: steps.recovery.outputs.ready == 'true'/);
 });
 test('mode resolution failure cannot emit a mode or allow downstream always-run collectors',()=>{
  const output=[],raw=JSON.stringify(push('[ui-only]',OTHER));

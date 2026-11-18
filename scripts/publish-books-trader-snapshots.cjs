@@ -259,6 +259,7 @@ async function sync({
     hyperliquid = { status: 'retained', reason: error.message };
   }
 
+  await fs.mkdir(staging, { recursive: true, mode: 0o700 });
   const staged = await fs.mkdtemp(path.join(staging, 'sync-'));
   try {
     const replace = [];

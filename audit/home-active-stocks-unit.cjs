@@ -75,8 +75,8 @@ test('production code cannot load the synthetic audit fixture or call a provider
  const source=fs.readFileSync(path.join(root,'home-active-stocks.js'),'utf8'),html=fs.readFileSync(path.join(root,'index.html'),'utf8');
  assert.doesNotMatch(source,/active-stocks-fixture|raw\.githubusercontent|gtimg|7709|localStorage|sessionStorage/);
  assert.match(source,/credentials:'omit',redirect:'error'/);assert.match(source,/cache:'no-store'/);
- assert.match(html,/id="home-active-stocks"/);assert.match(html,/home-active-stocks\.js/);
- assert.doesNotMatch(html,/合成样本|合成测试源/);
+ // The discontinued homepage surface stays off the page while its publication helper is tested below.
+ assert.doesNotMatch(html,/id="home-active-stocks"|home-active-stocks\.js|active-stocks-fixture|合成样本|合成测试源/);
  assert.match(fs.readFileSync(path.join(root,'scripts/stage_public_release.cjs'),'utf8'),/'audit'/);
 });
 test('release metadata binds schema, method and source dates and rejects synthetic publication',()=>{

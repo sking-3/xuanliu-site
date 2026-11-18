@@ -34,10 +34,13 @@ async function check(page,baseURL) {
       const envelope=JSON.parse(raw);
       assert.equal(envelope.code,'0');
       const points=envelope.data.map(x=>({at:Number(x.beginTs),ratio:Number(x.pnlRatio)})).sort((a,b)=>a.at-b.at);
-      assert.ok(a.leadDays>=days && points.length===days+1);
+      assert.ok(a.leadDays>=days && points.length===part.pointCount && (points.length===days || points.length===days+1));
+      assert.equal(points[0].at,part.beginTs);
+      assert.equal(points.at(-1).at,part.endTs);
+      assert.equal(part.endTs-part.beginTs,days*day);
       assert.equal(points[0].ratio,0);
       for(let i=1;i<points.length;i++) {
-        assert.equal(points[i].at-points[i-1].at,day);
+        assert.ok([day,2*day].includes(points[i].at-points[i-1].at));
         assert.ok(Number.isFinite(points[i].ratio));
       }
       const roi=points.at(-1).ratio*100;

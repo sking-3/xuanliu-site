@@ -12,6 +12,8 @@
   const day=86400000,limit=6,archiveLimit=100;
   const rankUrl='https://www.okx.com/api/v5/copytrading/public-lead-traders?instType=SWAP&sortType=pnl_ratio&minLeadDays=3&page=1&limit=20';
   const curveUrl=(id,p)=>'https://www.okx.com/api/v5/copytrading/public-pnl?instType=SWAP&uniqueCode='+id+'&lastDays='+ranges[p];
+  const statsUrl=(id,p)=>'https://www.okx.com/api/v5/copytrading/public-stats?instType=SWAP&uniqueCode='+id+'&lastDays='+ranges[p];
+  const statsName=(id,p)=>id+'-stats-'+ranges[p];
   const accountSourceUrl=id=>curveUrl(id,'90D');
   const validId=id=>typeof id==='string' && /^(?:[a-zA-Z0-9]{16}|[a-zA-Z0-9]{18})$/.test(id);
   const hashOk=value=>typeof value==='string' && /^[a-f0-9]{64}$/.test(value);
@@ -19,6 +21,11 @@
   const num=Number.isFinite;
   const whole=n=>Number.isSafeInteger(n) && n>=0;
   const stamp=(s,now)=>typeof s==='string' && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(s) && Number.isFinite(Date.parse(s)) && Date.parse(s)<=now+5000;
+  function winMatchesDays(winRate,profitDays,lossDays,period){
+    const total=profitDays+lossDays;
+    return num(winRate) && winRate>=0 && winRate<=100 && whole(profitDays) && whole(lossDays) && total>0 &&
+      total<=days[period] && Math.abs(winRate-100*profitDays/total)<=0.0050000001;
+  }
   function check(value) {if(!value)throw Error('Invalid OKX public performance snapshot');}
   function avatarUrl(value) {
     if (typeof value !== 'string' || value.length>2048 || /[\s\\\u0000-\u001f\u007f]/.test(value)) return null;
@@ -52,7 +59,14 @@
         check(stamp(part.lastSuccessAt,now) && Date.parse(part.lastSuccessAt)<=Date.parse(raw.generatedAt) && part.sourceAsOf===null);
         check(num(part.roi) && num(part.pnl) && part.mdd===null && part.winRate===null);
         check(hashOk(part.evidenceSha256) && part.evidencePath===evidencePath(id+'-'+ranges[p],part.evidenceSha256));
-        check(whole(part.beginTs) && whole(part.endTs) && part.endTs-part.beginTs===days[p]*day && part.pointCount===days[p]+1);
+        const stats=part.winRateEvidence;
+        if(stats!=null){
+          check(stats.sourceUrl===statsUrl(id,p) && winMatchesDays(stats.percent,stats.profitDays,stats.lossDays,p));
+          check(hashOk(stats.evidenceSha256) && stats.evidencePath===evidencePath(statsName(id,p),stats.evidenceSha256));
+          check(stamp(stats.lastSuccessAt,now) && Date.parse(stats.lastSuccessAt)>=Date.parse(part.lastSuccessAt) && Date.parse(stats.lastSuccessAt)<=Date.parse(raw.generatedAt));
+        }
+        check((part.pointCount===days[p] || part.pointCount===days[p]+1) && whole(part.beginTs) && whole(part.endTs) &&
+          part.endTs-part.beginTs===days[p]*day);
         // Older windows can remain when a later collection omits a period.
         check((part.endTs===row.performance['90D'].endTs || Date.parse(part.lastSuccessAt)<Date.parse(selectedAt)) && part.endTs<=Date.parse(part.lastSuccessAt));
       }
@@ -63,12 +77,13 @@
   function performance(row,period,now=Date.now()){
     const part=row?.performance?.[period];
     if(!part)return null;
-    return {...part,status:row.selection?.status==='historical'||now-Date.parse(part.lastSuccessAt)>day?'stale':'ready',sourceAsOf:null,
+    return {...part,winRate:part.winRateEvidence?.percent??null,
+      status:row.selection?.status==='historical'||now-Date.parse(part.lastSuccessAt)>day?'stale':'ready',sourceAsOf:null,
       accountAgeDays:row.leadDays,fullPeriod:row.leadDays>=days[period],periodSupported:true,currency:'USDT'};
   }
   function trader(row){
     return {id:'okx-'+row.uniqueCode,accountId:row.uniqueCode,name:row.name,sourceKind:'okx_public_lead',exchange:'OKX',
       currency:'USDT',sourceUrl:row.sourceUrl,avatarUrl:avatarUrl(row.avatarUrl),selectionStatus:row.selection?.status||'current',okxRecord:row};
   }
-  return {parse,performance,trader,avatarUrl,rankUrl,curveUrl,accountSourceUrl,evidencePath,validId,days,ranges,limit,archiveLimit};
+  return {parse,performance,trader,avatarUrl,rankUrl,curveUrl,statsUrl,statsName,winMatchesDays,accountSourceUrl,evidencePath,validId,days,ranges,limit,archiveLimit};
 });

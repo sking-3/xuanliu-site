@@ -16,6 +16,7 @@ function series(period,ratio='0.34'){
 const leader={uniqueCode:id,nickName:'Public A',ccy:'USDT',leadDays:'400',copyTraderNum:'11',pnl:'100',pnlRatio:'0.34',pnlRatios:[{beginTs:String(end),pnlRatio:'0.34'}]};
 function board(list){return {code:'0',data:[{dataVer:'20260101000000',ranks:list}]};}
 function fixture(receipts={},who=leader){return async(name,url)=>{
+  if(name.includes('-stats-')&&!Object.hasOwn(receipts,name))throw Object.assign(Error('no saved stats receipt'),{code:'ENOENT'});
   const p=Object.entries(m.ranges).find(([,code])=>name===who.uniqueCode+'-'+code)?.[0];
   const data=receipts[name]||(name==='leaders'?board([who]):series(p,p==='365D'?'0.81':'0.34'));
   const bytes=Buffer.from(JSON.stringify(data));
@@ -34,6 +35,23 @@ test('curves require full elapsed days and zero baseline, independently of reque
   raw.data[5].beginTs=raw.data[6].beginTs;assert.equal(curve(raw,'365D',received),null);
   assert.equal(curve(series('30D'),'30D',new Date(end+3*day).toISOString()),null);
 });
+test('rank-matched OKX curves can omit one daily bucket without shifting the source window',async()=>{
+  const gapped=series('90D');
+  gapped.data.splice(1,1);
+  const result=await collect(fixture({[id+'-3']:gapped}));
+  const snapshot=m.parse(result.bundle),window=snapshot.accounts[0].performance['90D'];
+  assert.equal(window.pointCount,90);
+  assert.equal(window.endTs-window.beginTs,90*day);
+  assert.equal(window.roi,34);
+  assert.equal(m.performance(snapshot.accounts[0],'90D').fullPeriod,true);
+  const truncated=structuredClone(gapped);
+  truncated.data.splice(0,1,{...truncated.data[0],beginTs:String(end-day)});
+  assert.equal(curve(truncated,'90D',received),null);
+  const shorter=structuredClone(gapped);
+  shorter.data.splice(-2,1);
+  assert.equal(curve(shorter,'90D',received),null);
+  await assert.rejects(()=>collect(fixture({[id+'-3']:shorter})),/no OKX 90D curve matched/);
+});
 test('snapshot links authentic bytes, receiver times and ratios per selected window',async()=>{
   const result=await collect(fixture()),snap=m.parse(result.bundle,end+day);
   assert.equal(result.archive.length,5);
@@ -48,6 +66,48 @@ test('snapshot links authentic bytes, receiver times and ratios per selected win
   await assert.rejects(()=>collect(fixture({[id+'-3']:wrong})));
   snap.accounts[0].performance['90D'].evidencePath='okx/fake.json';
   assert.throws(()=>m.parse(snap),/Invalid OKX/);
+});
+test('official win ratio uses its own receipt for the same OKX period and account',async()=>{
+  const stats=(winRatio,profitDays,lossDays,ccy='USDT')=>({code:'0',data:[{ccy,winRatio,profitDays,lossDays}]});
+  const result=await collect(fixture({
+    [m.statsName(id,'7D')]:stats('0','0','4'),
+    [m.statsName(id,'30D')]:stats('0.6429','9','5'),
+    [m.statsName(id,'90D')]:stats('0.10','7','1'),
+    [m.statsName(id,'365D')]:stats('0.80','8','2','BTC')
+  }));
+  const account=result.bundle.accounts[0],windows=account.performance;
+  assert.deepEqual(['7D','30D','90D','365D'].map(p=>m.performance(account,p).winRate),[0,64.29,null,null]);
+  assert.ok(Object.values(windows).every(part=>part.mdd===null&&part.winRate===null));
+  const evidence=windows['30D'].winRateEvidence;
+  assert.equal(evidence.sourceUrl,m.statsUrl(id,'30D'));
+  assert.equal(evidence.lastSuccessAt,received);
+  assert.deepEqual([evidence.profitDays,evidence.lossDays],[9,5]);
+  assert.ok(result.archive.some(row=>row.sha===evidence.evidenceSha256&&row.evidencePath===evidence.evidencePath));
+
+  const dir=await fs.mkdtemp(path.join(os.tmpdir(),'okx-win-ratio-'));
+  try{
+    await assert.rejects(()=>publish(dir,{...result,archive:result.archive.filter(row=>row.sha!==evidence.evidenceSha256)}),{code:'ENOENT'});
+    await publish(dir,result);
+    const saved=JSON.parse(await fs.readFile(path.join(dir,'period-returns.json'),'utf8'));
+    assert.equal(m.performance(m.parse(saved).accounts[0],'30D').winRate,64.29);
+  }finally{await fs.rm(dir,{recursive:true,force:true});}
+  evidence.sourceUrl=m.statsUrl(id,'7D');
+  assert.throws(()=>m.parse(result.bundle),/Invalid OKX/);
+});
+test('an optional stats failure preserves curves while a durable source stop aborts collection',async()=>{
+  const read=fixture();
+  let statsAttempts=0;
+  const result=await collect(async(name,url)=>{
+    if(name.includes('-stats-')){statsAttempts++;throw Error('temporary stats read failure');}
+    return read(name,url);
+  });
+  assert.equal(statsAttempts,1);
+  assert.deepEqual(Object.keys(result.bundle.accounts[0].performance),['90D','7D','30D','365D']);
+  assert.ok(Object.values(result.bundle.accounts[0].performance).every(part=>part.winRateEvidence===undefined));
+  await assert.rejects(()=>collect(async(name,url)=>{
+    if(name.includes('-stats-'))throw guard.error(429);
+    return read(name,url);
+  }),{code:'OKX_SOURCE_STOPPED'});
 });
 test('published evidence remains intact on a rejected replacement, supports retry',async()=>{
   const dir=await fs.mkdtemp(path.join(os.tmpdir(),'okx-periods-'));

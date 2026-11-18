@@ -21,7 +21,13 @@ function chineseFixture(checked=T,published=checked-3600000,title='国家统计�
     fetchedAt:time,lastAttemptAt:time,asOf:date,errorCode:null,data:{latest,events:[]}}};
 }
 class Element{
- constructor(doc,tag='div'){this.doc=doc;this.tagName=tag;this.children=[];this.attrs={};this.className='';this.own='';}
+ constructor(doc,tag='div'){
+  this.doc=doc;this.tagName=tag;this.children=[];this.attrs={};this.className='';this.own='';
+  this.dataset={};
+  Object.defineProperty(this.dataset,'state',{
+   get:()=>this.getAttribute('data-state'),set:value=>this.setAttribute('data-state',value),
+  });
+ }
  append(...nodes){this.children.push(...nodes);}
  replaceChildren(...nodes){this.children=nodes;this.own='';}
  set textContent(v){this.own=String(v);this.children=[];}
@@ -88,7 +94,7 @@ await test('an unavailable aggregate on first load still displays the Chinese re
  const {doc,ids}=dom();const app=API.mount(doc,{now:()=>T,fetch:async url=>{
   if(url==='macro-cn.json')return response(chineseFixture());throw Error('offline');
  }});
- try{await app.refresh();assert.match(ids['insight-macro'].textContent,/国家统计局最新发布/);assert.match(ids['insight-valuation'].textContent,/暂未取得数据/);}finally{app.destroy();}
+ try{await app.refresh();assert.match(ids['insight-macro'].textContent,/国家统计局最新发布/);assert.match(ids['insight-valuation'].textContent,/来源读取失败/);assert.equal(ids['insight-valuation'].dataset.state,'unavailable');}finally{app.destroy();}
 });
 await test('the fallback identifies its actual source when no Chinese snapshot can be validated',async()=>{
  const {doc,ids}=dom();const invalid=chineseFixture();invalid.card.data.latest.url='https://www.bls.gov/';
@@ -99,9 +105,9 @@ await test('a missed daily collection is distinct from a quiet publication day',
  const old=chineseFixture(T,T-5*86400000).card;
  assert.equal(API.stale('macro',old,T+2*86400000),false);assert.equal(API.stale('macro',old,T+2*86400000+1),true);
 });
-await test('network failure retains last good values and visibly marks them stale',async()=>{const {doc,ids}=dom();let failed=false;const app=API.mount(doc,{now:()=>T,fetch:async()=>{if(failed)throw Error('offline');return response(fixture());}});try{await app.refresh();failed=true;await app.refresh();assert.match(ids['insight-sentiment'].textContent,/32/);assert.equal(ids['insight-sentiment'].attrs['data-state'],'stale');assert.match(ids['insight-sentiment'].textContent,/待更新/);}finally{app.destroy();}});
+await test('network failure retains last good values and visibly marks them stale',async()=>{const {doc,ids}=dom();let failed=false;const app=API.mount(doc,{now:()=>T,fetch:async()=>{if(failed)throw Error('offline');return response(fixture());}});try{await app.refresh();failed=true;await app.refresh();assert.match(ids['insight-sentiment'].textContent,/32/);assert.equal(ids['insight-sentiment'].attrs['data-state'],'stale');assert.match(ids['insight-sentiment'].textContent,/读取失败 · 保留旧值/);}finally{app.destroy();}});
 await test('generation rollback and per-card older statistics never replace successful values',async()=>{const {doc,ids}=dom();let p=fixture();const app=API.mount(doc,{now:()=>T+60000,fetch:async()=>response(p)});try{await app.refresh();p=fixture();p.generatedAt=iso(T-60000);p.cards.sentiment.data.value=1;await app.refresh();assert.equal(app.getSnapshot().cards.sentiment.data.value,32);p=fixture();p.generatedAt=iso(T+30000);p.cards.sentiment.data.value=2;p.cards.sentiment.asOf=iso(T-7200000);await app.refresh();assert.equal(app.getSnapshot().cards.sentiment.data.value,32);assert.equal(ids['insight-sentiment'].attrs['data-state'],'stale');}finally{app.destroy();}});
-await test('failed first read leaves values empty and oversized or HTML responses fail closed',async()=>{for(const kind of ['html','oversized']){const {doc,ids}=dom();const app=API.mount(doc,{now:()=>T,fetch:async()=>kind==='html'?new Response('<h1>error</h1>',{headers:{'content-type':'text/html'}}):new Response('x'.repeat(API.MAX_BYTES+1),{headers:{'content-type':'application/json'}})});try{await app.refresh();assert.equal(app.getSnapshot(),null);assert.match(ids['insight-active'].textContent,/暂未取得数据/);assert.doesNotMatch(ids['insight-active'].textContent,/USDT|0%/);}finally{app.destroy();}}});
+await test('failed first read leaves values empty and oversized or HTML responses fail closed',async()=>{for(const kind of ['html','oversized']){const {doc,ids}=dom();const app=API.mount(doc,{now:()=>T,fetch:async()=>kind==='html'?new Response('<h1>error</h1>',{headers:{'content-type':'text/html'}}):new Response('x'.repeat(API.MAX_BYTES+1),{headers:{'content-type':'application/json'}})});try{await app.refresh();assert.equal(app.getSnapshot(),null);assert.match(ids['insight-active'].textContent,/来源读取失败/);assert.equal(ids['insight-active'].dataset.state,'unavailable');assert.doesNotMatch(ids['insight-active'].textContent,/USDT|0%/);}finally{app.destroy();}}});
 await test('successful reload clears stale state while retaining source-link keyboard focus',async()=>{const {doc,ids}=dom();let failed=false;const app=API.mount(doc,{now:()=>T,fetch:async()=>{if(failed)throw Error('offline');return response(fixture());}});try{await app.refresh();const link=ids['insight-sentiment'].querySelector('a');link.focus();failed=true;await app.refresh();assert.equal(doc.activeElement.href,link.href);failed=false;await app.refresh();assert.equal(ids['insight-sentiment'].attrs['data-state'],'ready');assert.equal(doc.activeElement.href,link.href);}finally{app.destroy();}});
 await test('page integration retains existing markets and allows only same-origin snapshot connections',()=>{const root=path.join(__dirname,'..'),html=fs.readFileSync(path.join(root,'index.html'),'utf8'),css=fs.readFileSync(path.join(root,'market-overview.css'),'utf8');assert.equal((html.match(/data-feed-config/g)||[]).length,3);assert.equal((html.match(/class="market-insight(?: pulse-card)?"/g)||[]).length,5);assert.match(html,/connect-src 'self'(?: [^;]+)?;/);assert.match(html,/data-local-feed="crypto"/);assert.match(html,/market-overview\.js/);assert.match(css,/repeat\(5,minmax\(0,1fr\)\)/);assert.match(css,/@media\(max-width:520px\)/);});
 console.log('PASS '+count+' market overview UI checks. Offline synthetic fixtures only.');

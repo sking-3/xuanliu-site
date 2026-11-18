@@ -1549,7 +1549,7 @@ function publicListCard(entry,period,failed){
   if(Number.isFinite(record?.pnl))appendMetric(record.derived?'采样盈亏':'来源盈亏',signedValue(record.pnl,money(record.pnl,currency))+' '+currency);
   if(Number.isFinite(record?.mdd)&&!record.derived)appendMetric('来源回撤',pct(record.mdd));
   if(Number.isFinite(sampleMdd))appendMetric('采样回撤',pct(sampleMdd));
-  if(Number.isFinite(record?.winRate))appendMetric('来源胜率',pct(record.winRate));
+  if(Number.isFinite(record?.winRate))appendMetric(row.exchange==='OKX'?'盈利日比例':'来源胜率',pct(record.winRate));
   if(Number.isFinite(sampleWin?.value))appendMetric('片段胜率',pct(sampleWin.value));
   if(metrics.children.length)card.append(metrics);
 
@@ -1593,7 +1593,7 @@ function publicListCard(entry,period,failed){
   }
   const days=lead?leadRecord(row)?.leadDays:binance?record?.accountAgeDays:null;
   const range=Number.isFinite(record?.beginTs)&&Number.isFinite(record?.endTs)?`${timeLabel(record.beginTs)} 至 ${timeLabel(record.endTs)}`:null;
-  const missing=[!Number.isFinite(record?.mdd)&&'来源最大回撤',!publicAccount&&!Number.isFinite(record?.winRate)&&'来源胜率',!Number.isFinite(days)&&'带单天数',!range&&'来源业绩统计区间'].filter(Boolean);
+  const missing=[!Number.isFinite(record?.mdd)&&'来源最大回撤',!publicAccount&&!Number.isFinite(record?.winRate)&&(row.exchange==='OKX'?'盈利日比例':'来源胜率'),!Number.isFinite(days)&&'带单天数',!range&&'来源业绩统计区间'].filter(Boolean);
   if(Number.isFinite(days))explanations.append(node('p',`带单 ${days} 天`));
   if(range)explanations.append(node('p','来源业绩统计区间 '+range));
   if(missing.length)explanations.append(node('p',missing.join('、')+' · '+(record?notProvided:'该周期暂无资料')));
@@ -1953,7 +1953,9 @@ async function okxEvidenceCurve(part){
   const curves={roi:[],pnl:[]};
   sorted.forEach((point,i)=>{
     const time=Number(point.beginTs);
-    if(time!==part.beginTs+i*86400000||i===sorted.length-1&&time!==part.endTs)throw Error('curve_window');
+    const step=86400000;
+    const gap=i===0?0:time-Number(sorted[i-1].beginTs);
+    if((i===0?time!==part.beginTs:gap!==step&&gap!==2*step)||i===sorted.length-1&&time!==part.endTs)throw Error('curve_window');
     for(const [field,key,scale] of [['pnlRatio','roi',100],['pnl','pnl',1]]){
       if(typeof point[field]!=='string'||!point[field].trim()||!Number.isFinite(Number(point[field])))throw Error('curve_value');
       curves[key].push({time:new Date(time).toISOString(),value:Number(point[field])*scale});
@@ -1971,7 +1973,8 @@ function renderLeadCurve(r,b,part){
       const data=curves[metric];if(!data||data.length<2)return;
       const isPnl=metric==='pnl',unit=isPnl?(part.currency||r.currency):'%',latest=data.at(-1);
       heading.textContent=r.exchange==='OKX'?(isPnl?'累计盈亏 · 日采样':'累计收益率 · 日采样'):(isPnl?'来源盈亏曲线':'来源收益率曲线');
-      const description=data[0].time.slice(0,10)+' 至 '+latest.time.slice(0,10)+' · '+data.length+' 个来源日点 · 单位 '+unit;
+      const omitted=r.exchange==='OKX'?Math.round((Date.parse(latest.time)-Date.parse(data[0].time))/86400000)+1-data.length:0;
+      const description=data[0].time.slice(0,10)+' 至 '+latest.time.slice(0,10)+' · '+data.length+' 个来源日点 · 单位 '+unit+(omitted>0?' · 来源缺 '+omitted+' 天':'');
       plot.replaceChildren(chart({curve:data},isPnl?'pnl':'return',unit),node('small',description));
       if(part.curveEvidencePath||part.evidencePath)plot.append(evidenceLink('曲线凭证',part.curveEvidencePath||part.evidencePath));
       for(const entry of choices)entry.button.setAttribute('aria-pressed',String(entry.metric===metric));
@@ -2232,8 +2235,9 @@ function renderLeadDetail(r,b){
   const part=detailPeriod(r,state.window);
   if(provider&&part){
     const metrics=node('div',undefined,'lead-detail-metrics');
-    for(const [label,n,suffix] of [['公开跟随人数',leadRecord(r).copyTraderNum,' 人'],['来源胜率',part.winRate,'%'],['来源回撤',part.mdd,'%'],['来源统计交易数',part.totalTrades,'']]){
-      if(Number.isFinite(n)||['来源胜率','来源回撤'].includes(label)){const item=node('div');item.append(node('small',label),node('strong',Number.isFinite(n)?value(n)+suffix:'平台未提供'));metrics.append(item);}
+    const winLabel=r.exchange==='OKX'?'盈利日比例':'来源胜率';
+    for(const [label,n,suffix] of [['公开跟随人数',leadRecord(r).copyTraderNum,' 人'],[winLabel,part.winRate,'%'],['来源回撤',part.mdd,'%'],['来源统计交易数',part.totalTrades,'']]){
+      if(Number.isFinite(n)||[winLabel,'来源回撤'].includes(label)){const item=node('div');item.append(node('small',label),node('strong',Number.isFinite(n)?value(n)+suffix:'平台未提供'));metrics.append(item);}
     }
     if(metrics.children.length)b.append(metrics);
   }
