@@ -12,7 +12,7 @@ function mount(container,playback,options){
  const series=chart.addSeries(lib.CandlestickSeries,{upColor:'#16a085',downColor:'#e25371',borderVisible:false,wickUpColor:'#16a085',wickDownColor:'#e25371'}),markers=lib.createSeriesMarkers(series,[]);
  let volume=null;
  if(bars.some(b=>b.volume!==undefined)){volume=chart.addSeries(lib.HistogramSeries,{priceScaleId:'volume',priceFormat:{type:'volume'},lastValueVisible:false,priceLineVisible:false});chart.priceScale('volume').applyOptions({scaleMargins:{top:.83,bottom:0},visible:false});}
- const groups=M.markerGroups(events,bars,seconds),byId=new Map(groups.map(m=>[m.id,m])),byTime=new Map();for(const e of events){const t=Math.floor(e.time/1000/seconds)*seconds;if(!byTime.has(t))byTime.set(t,[]);byTime.get(t).push(e);}
+ const groups=M.markerGroups(events,bars,seconds).map(marker=>options.aggregate?{...marker,text:marker.events[0]?.effect==='open'?'开仓均价':'平仓均价'}:marker),byId=new Map(groups.map(m=>[m.id,m])),byTime=new Map();for(const e of events){const t=Math.floor(e.time/1000/seconds)*seconds;if(!byTime.has(t))byTime.set(t,[]);byTime.get(t).push(e);}
  const tooltip=el('div',undefined,'ta-chart-tooltip');tooltip.hidden=true;tooltip.setAttribute('role','status');tooltip.setAttribute('aria-live','polite');container.append(tooltip);
  let cursor=bars.length,playing=false,timer=null,pinned=false,lastKey='',lines=[];
  const button=(label,fn)=>{const b=el('button',label,'ta-button');b.type='button';b.onclick=fn;return b;};
@@ -56,10 +56,12 @@ function mount(container,playback,options){
   if(!found?.list.length){if(!pinned)hide();return;}if(!pin&&pinned)return;
   const key=found.key+'|'+pin;
   if(lastKey!==key){
-   tooltip.replaceChildren();const header=el('div',undefined,'ta-tooltip-head');header.append(el('strong',name+' · '+cycle.symbol),el('span',found.list.length+' 条操作'));if(pin){const close=button('×',hide);close.className='ta-tooltip-close';close.setAttribute('aria-label','关闭点位明细');header.append(close);}tooltip.append(header);
+   tooltip.replaceChildren();const header=el('div',undefined,'ta-tooltip-head');header.append(el('strong',name+' · '+cycle.symbol),el('span',found.list.length+(options.aggregate?' 条仓位汇总':' 条操作')));if(pin){const close=button('×',hide);close.className='ta-tooltip-close';close.setAttribute('aria-label','关闭点位明细');header.append(close);}tooltip.append(header);
    const list=pin?found.list:found.list.slice(0,6);
-   for(const e of list){const row=el('div',undefined,'ta-tooltip-record'),head=el('strong',e.action+' · '+(({long:'多仓',short:'空仓'})[e.positionSide]||'开平未知')+' · '+(e.side==='buy'?'买入':'卖出'),e.side==='buy'?'ta-tooltip-buy':'ta-tooltip-sell');
-    row.append(head,el('p',fmt(e.quantity)+' @ '+fmt(e.price)+' '+e.quote),el('p','名义金额 '+fmt(Number(e.quantity)*Number(e.price),2)+' '+e.quote),el('small','来源时间 '+stamp(e.time)+' 北京时间'),el('small','首次发现 '+(e.firstSeenAt?stamp(e.firstSeenAt):'未记录')));
+   for(const e of list){const row=el('div',undefined,'ta-tooltip-record'),head=el('strong',e.action+' · '+(({long:'多仓',short:'空仓'})[e.positionSide]||'开平未知')+(options.aggregate?'':' · '+(e.side==='buy'?'买入':'卖出')),e.side==='buy'?'ta-tooltip-buy':'ta-tooltip-sell');
+    row.append(head);
+    if(options.aggregate)row.append(el('p','来源均价 '+fmt(e.price)+' '+e.quote),el('small','来源仓位时间 '+stamp(e.time)+' 北京时间'));
+    else row.append(el('p',fmt(e.quantity)+' @ '+fmt(e.price)+' '+e.quote),el('p','名义金额 '+fmt(Number(e.quantity)*Number(e.price),2)+' '+e.quote),el('small','来源时间 '+stamp(e.time)+' 北京时间'),el('small','首次发现 '+(e.firstSeenAt?stamp(e.firstSeenAt):'未记录')));
     if(e.startPosition!==undefined)row.append(el('small','成交前 / 后仓位 '+e.startPosition+' / '+e.endPosition));
     if(e.ambiguous)row.append(el('small','记录版本存在歧义，不叠加推算仓位。'));tooltip.append(row);
    }

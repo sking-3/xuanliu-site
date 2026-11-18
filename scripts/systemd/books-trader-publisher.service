@@ -1,5 +1,5 @@
 [Unit]
-Description=Publish verified Books OKX and Bitget snapshots
+Description=Publish verified Books Hyperliquid, OKX and Bitget snapshots
 Wants=network-online.target
 After=network-online.target
 
@@ -14,5 +14,5 @@ ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes
 PrivateDevices=yes
-ReadWritePaths=/opt/books/trader-publisher-stage /opt/books/site/trader/okx /opt/books/site/trader/bitget
+ReadWritePaths=/opt/books/trader-publisher-stage /opt/books/site/trader
 MemoryMax=256M

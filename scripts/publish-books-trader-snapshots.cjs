@@ -16,6 +16,11 @@ const files = [
   ['okx/period-returns.json', 'okx-period-data.js', MiB],
   ['bitget/period-returns.json', 'bitget-period-data.js', 32 * MiB],
 ];
+const hyperliquidFiles = [
+  ['analytics', 2 * MiB, 'win'],
+  ['portfolios', 12 * MiB, 'portfolio'],
+  ['feed', 2 * MiB],
+];
 
 async function mainRevision() {
   const { stdout } = await run('git', ['ls-remote', '--refs', 'https://github.com/' + repository + '.git', 'refs/heads/main'], {
@@ -104,6 +109,128 @@ function collectEvidence(record, exchange, evidence) {
   }
 }
 
+function compareTime(previous, next, label) {
+  if (previous && !(Date.parse(next) >= Date.parse(previous))) {
+    throw Error(label + ' would regress');
+  }
+}
+
+function addressIndex(feed) {
+  const rows = new Map(feed.traders.map(row => [row.accountId, row]));
+  if (rows.size !== feed.traders.length) throw Error('Hyperliquid feed contains duplicate accounts');
+  return rows;
+}
+
+function validateAggregateSource(data, field) {
+  const source = data.source;
+  const validCounters = ['accounts', 'available', 'cached', 'attempted', 'succeeded', 'failed', 'unattempted'].every(key =>
+    Number.isSafeInteger(source?.[key]) && source[key] >= 0 && source[key] <= 200);
+  if (!validCounters || source.completedAt !== data.generatedAt ||
+      !(Date.parse(source.startedAt) <= Date.parse(data.generatedAt)) ||
+      source.available !== Object.values(data.accounts).filter(entry => entry[field]).length ||
+      source.accounts !== source.cached + source.attempted + source.unattempted ||
+      source.attempted !== source.succeeded + source.failed) {
+    throw Error('Invalid Hyperliquid aggregate collection counters');
+  }
+}
+
+function validateHyperliquidTransition(before, after) {
+  const priorFeed = before.feed;
+  const feed = after.feed;
+  const priorRows = priorFeed ? addressIndex(priorFeed) : new Map();
+  const rows = addressIndex(feed);
+  const added = [...rows.keys()].filter(address => !priorRows.has(address)).sort();
+  const removed = [...priorRows.keys()].filter(address => !rows.has(address)).sort();
+  if (priorFeed) {
+    if (priorFeed.status === 'ready' && feed.status !== 'ready') {
+      throw Error('Hyperliquid unavailable feed would replace the last verified directory');
+    }
+    for (const key of ['fetchedAt', 'snapshotAt', 'lastAttemptAt']) {
+      compareTime(priorFeed.source[key], feed.source[key], 'Hyperliquid feed ' + key);
+    }
+    const priorVerification = priorFeed.source.positionVerification;
+    const verification = feed.source.positionVerification;
+    compareTime(priorVerification?.completedAt, verification?.completedAt, 'Hyperliquid verification time');
+    if (removed.length && (verification?.failedAccounts || verification?.unattemptedAccounts)) {
+      throw Error('Hyperliquid incomplete verification would remove previously published accounts');
+    }
+    for (const [address, row] of rows) {
+      compareTime(priorRows.get(address)?.positionCheck?.checkedAt, row.positionCheck?.checkedAt,
+        'Hyperliquid position check for ' + address);
+    }
+  }
+  const coverage = {};
+  for (const [kind, , field] of hyperliquidFiles) {
+    if (!field) continue;
+    const previous = before[kind];
+    const incoming = after[kind];
+    compareTime(previous?.generatedAt, incoming.generatedAt, 'Hyperliquid ' + kind + ' snapshot');
+    let available = 0;
+    const omitted = [];
+    for (const address of rows.keys()) {
+      const last = previous?.accounts[address];
+      const next = incoming.accounts[address];
+      if (next?.[field]) available++;
+      if (last?.[field] && !next) omitted.push(address);
+      if (last && next) {
+        compareTime(last.lastAttemptAt, next.lastAttemptAt, 'Hyperliquid ' + kind + ' attempt for ' + address);
+        compareTime(last.fetchedAt, next.fetchedAt, 'Hyperliquid ' + kind + ' observation for ' + address);
+        if (last[field] && !next[field]) throw Error('Hyperliquid ' + kind + ' would erase a verified sample for ' + address);
+      }
+    }
+    coverage[kind] = { available, missing: rows.size - available, omittedPreviouslyAvailable: omitted.sort() };
+  }
+  return { accounts: rows.size, added, removed, coverage };
+}
+
+async function stageHyperliquid(root, revision, loadFile) {
+  const validators = require(path.join(root, 'plaza.js'));
+  const policy = require(path.join(root, 'source-policy.js'));
+  const snapshots = [];
+  const before = {};
+  const after = {};
+  for (const [kind, limit, field] of hyperliquidFiles) {
+    const file = kind + '.json';
+    const bytes = await loadFile(revision, file, limit);
+    if (bytes.length > limit) throw Error(file + ' exceeds the download limit');
+    const parse = value => {
+      const data = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(value));
+      if (kind === 'feed') {
+        validators.validateSource(data, validators.validate(data));
+        // The list parser checks representation, but automatic publication also
+        // needs to reject a corrupt timestamp that could lock subsequent updates.
+        if (Date.parse(data.source?.lastAttemptAt) > Date.now() + 5000) {
+          throw Error('Hyperliquid feed observation is in the future');
+        }
+      }
+      else {
+        if (kind === 'analytics') validators.validateWinCache(data);
+        else validators.validatePortfolioCache(data);
+        validateAggregateSource(data, field);
+      }
+      return data;
+    };
+    let incoming;
+    let last;
+    try {
+      incoming = parse(bytes);
+      last = await readLocal(path.join(root, file), limit);
+      before[kind] = last && parse(last);
+    } catch (error) {
+      throw Error(file + ' failed its deployed Hyperliquid schema validator', { cause: error });
+    }
+    after[kind] = incoming;
+    snapshots.push({
+      file, bytes, last, changed: !last || !bytes.equals(last),
+      count: field ? Object.keys(incoming.accounts).length : incoming.traders.length,
+      generatedAt: field ? incoming.generatedAt : incoming.source.lastAttemptAt,
+    });
+  }
+  const decision = policy.decision(after);
+  const summary = validateHyperliquidTransition(before, after);
+  return { snapshots, summary: { status: 'verified', ...summary, sourceStop: decision.allowed ? null : decision } };
+}
+
 async function sync({
   root, staging, stateFile, check = false, getRevision = mainRevision, loadFile = githubFile,
 }) {
@@ -120,6 +247,16 @@ async function sync({
     retainPublished(last && parseCatalog(last, parser, file), incoming, file);
     collectEvidence(incoming, file.split('/')[0], evidence);
     snapshots.push({ file, bytes, last, changed: !last || !bytes.equals(last), count: incoming.accounts.length, generatedAt: incoming.generatedAt });
+  }
+  // Hyperliquid and copy-platform catalogs may be published by separate jobs.
+  // A rejected Hyperliquid batch keeps all three of its previous production files.
+  let hyperliquid;
+  try {
+    const batch = await stageHyperliquid(root, revision, loadFile);
+    snapshots.push(...batch.snapshots);
+    hyperliquid = batch.summary;
+  } catch (error) {
+    hyperliquid = { status: 'retained', reason: error.message };
   }
 
   const staged = await fs.mkdtemp(path.join(staging, 'sync-'));
@@ -141,7 +278,7 @@ async function sync({
     }
 
     const changed = snapshots.filter(snapshot => snapshot.changed);
-    const actions = { revision, check, evidence: replace.length, catalogs: Object.fromEntries(snapshots.map(({file, count, generatedAt}) => [file, { count, generatedAt }])), updated: changed.map(({file}) => file) };
+    const actions = { revision, check, evidence: replace.length, hyperliquid, catalogs: Object.fromEntries(snapshots.map(({file, count, generatedAt}) => [file, { count, generatedAt }])), updated: changed.map(({file}) => file) };
     if (check) return actions;
 
     // Install immutable evidence before changing the pointers that refer to it.
@@ -165,7 +302,7 @@ async function sync({
     }
     const installed = [];
     try {
-      // trades.json is replaced before the OKX catalog advertises a new account.
+      // Install account detail data before the list that advertises an account.
       for (const snapshot of changed) {
         await fs.rename(path.join(staged, snapshot.file), path.join(root, snapshot.file));
         installed.push(snapshot);

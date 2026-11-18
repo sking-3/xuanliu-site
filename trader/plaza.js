@@ -1,7 +1,7 @@
 'use strict';
 (() => {
 const $ = id => document.getElementById(id);
-const publicListPage = document.body.dataset.publicList === 'true';
+const publicListPage = typeof document!=='undefined'&&document.body.dataset.publicList==='true';
 const periods = ['7D','30D','90D','180D','365D','ALL'], derivedPeriods=['90D','180D','365D'];
 const exchanges = ['Binance','OKX','Hyperliquid','Gate','Bitget','Bybit','Polymarket'];
 const currencies = ['USDT','USD','USDC','BTC','ETH'];
@@ -269,7 +269,7 @@ function validatePortfolioCache(p) {
       if(clean.coverageDays===null||clean.coverageDays<0||clean.maxSampleGapMs!==null&&clean.maxSampleGapMs<0||clean.mdd!==null&&clean.mdd<0||clean.mdd===null&&!clean.mddUnavailableReason||clean.mdd!==null&&clean.mddUnavailableReason!==null||clean.sourceSampleCount<clean.sampleCount||clean.mddPairedSampleCount>clean.sampleCount)fail();
       if(clean.mdd===null?(!['insufficient_samples','unpaired_samples','non_positive_peak_equity','no_valid_peak','invalid_denominator'].includes(clean.mddUnavailableReason)||clean.mddPairedSampleCount!==0):(clean.sampleCount<2||clean.mddPairedSampleCount!==clean.sampleCount))fail();
       if(!derived&&(clean.sourceSampleCount!==clean.sampleCount||clean.sourceHistoryStartAt!==clean.startAt||clean.sourceHistoryEndAt!==clean.endAt))fail();
-      if(derived){if(typeof BooksPeriodROI==='undefined')fail();Object.assign(clean,BooksPeriodROI.validateWindow(w,address,now));if(clean.roiEvidence&&Date.parse(clean.roiEvidence.ledgerFetchedAt)>Date.parse(fetchedAt)+5000)fail();}
+      if(derived){const adapter=typeof document==='undefined'?require('./period-roi.js'):globalThis.BooksPeriodROI;if(!adapter)fail();Object.assign(clean,adapter.validateWindow(w,address,now));if(clean.roiEvidence&&Date.parse(clean.roiEvidence.ledgerFetchedAt)>Date.parse(fetchedAt)+5000)fail();}
       if(!Array.isArray(w.points)||w.points.length>240||w.points.length>clean.sampleCount||(clean.sampleCount>1&&w.points.length<2))fail();
       let previous=-Infinity;
       for(const point of w.points){if(!point||typeof point!=='object'||Array.isArray(point))fail();const time=date(point.time),value=metric(point.value),t=Date.parse(time);if(value===null||t<=previous||!clean.startAt||!clean.endAt||t<Date.parse(clean.startAt)||t>Date.parse(clean.endAt))fail();previous=t;clean.points.push({time,value});}
@@ -411,7 +411,7 @@ function cachedWin(r) {return isPublicAccount(r)?state.winCache[r.accountId]||nu
 function winCacheIsStale(entry,now=Date.now()) {return !!entry?.win&&(state.winCacheReadFailed||entry.status!=='ready'||now-Date.parse(entry.fetchedAt)>3600000);}
 function winCacheDescription(r) {
   const entry=cachedWin(r),w=entry?.win;
-  if(!w)return '平仓片段胜率暂缺：尚未取得有效后台统计；资料不足时留空。'+(entry?.lastAttemptAt?'最近尝试 '+timeLabel(entry.lastAttemptAt):'');
+  if(!w)return (entry?'平仓片段胜率暂缺：'+hyperliquidSnapshotReason(entry,'本批未取得可用成交样本'):'平仓片段胜率暂缺：本次公开成交快照尚未覆盖此账户。')+(entry?.lastAttemptAt?' · 最近尝试 '+timeLabel(entry.lastAttemptAt):'');
   const sample=`来源返回 ${w.receivedFills} 条成交，有效 ${w.eligibleCount}、排除 ${w.excludedCount}${w.duplicateCount?'、重复 '+w.duplicateCount:''}`;
   const coverage=w.sourceSampleStartAt?`来源成交样本 ${timeLabel(w.sourceSampleStartAt)} 至 ${timeLabel(w.sourceSampleEndAt)}；`:'';
   const result=w.eligibleCount?`${w.eligibleCount} 笔近期永续平仓片段，独立于所选表现周期；不含现货、开仓及其他不符合口径的成交，非完整订单或开平仓回合；样本 ${timeLabel(w.startAt)} 至 ${timeLabel(w.endAt)}；盈利 ${w.winning} · 亏损 ${w.losing} · 持平 ${w.breakeven}；仅扣平仓成交手续费，未扣开仓手续费和资金费；`:'平仓片段胜率暂缺：返回的近期成交中，没有符合当前口径的永续平仓片段；不能据此判断账户从未平仓；';
@@ -972,7 +972,9 @@ function avatar(r) {
 }
 const positionSnapshotMaxAge=120000;
 let detailLiveSnapshot=null,detailPositionExpiry=null,ledgerView=null,historyView=null;
+let leadPointFocus=null,leadPointPanel=null,leadPointClient=null;
 function resetDetailWidgets(){
+  clearLeadPointChart();leadPointFocus=null;
   clearTimeout(detailPositionExpiry);detailPositionExpiry=null;
   ledgerView?.handle?.destroy();historyView?.handle?.destroy();
   ledgerView=null;historyView=null;
@@ -1496,6 +1498,9 @@ function publicDetailLink(row,period,label,style){
   });
   return link;
 }
+function hyperliquidSnapshotReason(entry,fallback){
+  return ({batch_timeout:'采集批次超时',rate_limited:'来源限流',http_429:'来源限流',http_403:'来源拒绝读取',request_timeout:'来源读取超时'})[entry?.errorCode]||fallback;
+}
 function publicListCard(entry,period,failed){
   const {row,record,history,sample,sampleMdd,wins,currency}=entry;
   const lead=isPublicLead(row),binance=isBinanceTrader(row),publicAccount=isPublicAccount(row);
@@ -1571,7 +1576,11 @@ function publicListCard(entry,period,failed){
     }
   }
   if(!graph.children.length){
-    if(publicAccount&&state.portfolioCacheLoading)missingCurve='读取曲线…';
+    if(publicAccount){
+      const cached=state.portfolioCache[row.accountId];
+      missingCurve=cached?hyperliquidSnapshotReason(cached,'暂无该周期有效曲线'):'曲线快照尚未覆盖此账户';
+      if(state.portfolioCacheLoading)missingCurve='读取曲线…';
+    }
     if(publicAccount&&state.portfolioCacheReadFailed)missingCurve='曲线快照读取失败';
     graph.append(node('figcaption','业绩曲线'),node('p',missingCurve,'public-curve-empty'));
   }
@@ -1905,7 +1914,14 @@ function renderLeadActivity(r,b,key,part=r.activity?.[key],freshPublic=false){
         if(formatter)value.title=String(amount)+suffix;
         const field=node('div');field.append(node('dt',label),value);fields.append(field);
       }
-      item.append(fields);list.append(item);
+      item.append(fields);
+      if(row.openedAt&&Number.isFinite(row.entryPrice)){
+        item.append(button('查看开仓点',()=>{
+          leadPointFocus={accountId:r.accountId,row:{...row,closedAt:null,exitPrice:null}};
+          activateDetailTab('points');
+        },'detail-button'));
+      }
+      list.append(item);
     }
     if(!freshPublic)b.append(node('p',note,'live-scope'));
     b.append(list);
@@ -2086,19 +2102,117 @@ function renderOKXCurrent(r,b){
   }
   b.append(okxCurrent.host);okxCurrentContent(r,okxCurrent);
 }
+function clearLeadPointChart(){
+  if(!leadPointPanel)return;
+  leadPointPanel.chart?.destroy();
+  leadPointPanel=null;
+}
+function leadPointTimes(row){
+  const opened=Date.parse(row.openedAt),closed=row.closedAt?Date.parse(row.closedAt):null;
+  if(!Number.isFinite(opened)||opened>Date.now()||closed!==null&&(!Number.isFinite(closed)||closed<opened||closed>Date.now()))return null;
+  return {opened,closed};
+}
 function renderLeadPoints(r,b){
   const history=r.activity?.history;
-  if(!history?.rows?.length){empty(b,'暂无可核验的开平仓价',leadActivityNote(r,'history',history));return;}
-  b.append(node('p','按交易所公开仓位汇总展示。开平仓均价与逐笔成交价口径不同。','detail-method'));
-  binanceTable(b,'公开开平仓点位',['合约','方向','开仓时间（北京）','开仓均价','平仓时间（北京）','平仓均价'],
-    history.rows.map(row=>[row.symbol,liveSide(row.side),row.openedAt?timeLabel(row.openedAt):null,row.entryPrice,
-      row.closedAt?timeLabel(row.closedAt):null,row.exitPrice]),leadActivityNote(r,'history',history)+(history.fetchedAt?' · 采集 '+timeLabel(history.fetchedAt):''));
+  const focused=leadPointFocus?.accountId===r.accountId?leadPointFocus.row:null;
+  const key=[r.id,history?.fetchedAt,history?.rows?.length,focused?.symbol,focused?.openedAt].join('|');
+  if(leadPointPanel?.key===key&&leadPointPanel.root.isConnected)return;
+  clearLeadPointChart();
+  b.replaceChildren();
+  const saved=history?.rows||[];
+  const choices=[...(focused?[focused]:[]),...saved].filter(row=>leadPointTimes(row)&&
+    ['long','short'].includes(row.side)&&Number.isFinite(row.entryPrice)&&row.entryPrice>0);
+  if(!saved.length&&!choices.length){empty(b,'暂无可核验的开平仓价',leadActivityNote(r,'history',history));return;}
+  const root=node('section',undefined,'trade-analysis');
+  b.append(root);
+  if(choices.length&&globalThis.BooksLeadPositionCandles&&globalThis.BooksTradeChart&&globalThis.LightweightCharts){
+    const panel={root,key,chart:null,version:0};
+    leadPointPanel=panel;
+    const client=leadPointClient??=BooksLeadPositionCandles.create(globalThis);
+    const filters=node('div',undefined,'ta-chart-tools');
+    const symbol=node('select'),position=node('select'),interval=node('select');
+    symbol.setAttribute('aria-label','选择交易合约');
+    position.setAttribute('aria-label','选择仓位记录');
+    interval.setAttribute('aria-label','K 线周期');
+    const symbols=[...new Set(choices.map(row=>row.symbol))];
+    for(const name of symbols){const o=node('option',name);o.value=name;symbol.append(o);}
+    filters.append(symbol,position,interval);
+    const note=node('p','开仓、平仓标记取自仓位汇总时间和均价，逐笔成交未公开。','detail-method');
+    const area=node('div',undefined,'ta-replay-main'),toolbar=node('div',undefined,'ta-chart-tools');
+    const chartRoot=node('div',undefined,'ta-chart'),playback=node('div',undefined,'ta-playback'),status=node('p',undefined,'detail-method');
+    status.setAttribute('role','status');
+    area.append(filters,note,toolbar,chartRoot,playback,status);root.append(area);
+    const intervals={'15m':900,'1h':3600,'4h':14400,'1d':86400};
+    function selectIntervals(){
+      const row=choices[Number(position.value)],range=leadPointTimes(row);
+      const span=(range.closed??range.opened)-range.opened;
+      interval.replaceChildren();
+      for(const [code,seconds] of Object.entries(intervals)){
+        if(code!=='1d'&&span/(seconds*1000)>140)continue;
+        const option=node('option',code==='15m'?'15 分钟':code==='1h'?'1 小时':code==='4h'?'4 小时':'日线');
+        option.value=code;interval.append(option);
+      }
+      redraw();
+    }
+    function selectPositions(){
+      position.replaceChildren();
+      for(const [i,row] of choices.entries()){
+        if(row.symbol!==symbol.value)continue;
+        const option=node('option',(row===focused?'当前 · ':'')+timeLabel(row.openedAt)+' · '+liveSide(row.side));
+        option.value=String(i);position.append(option);
+      }
+      selectIntervals();
+    }
+    async function redraw(){
+      panel.chart?.destroy();panel.chart=null;
+      chartRoot.replaceChildren();toolbar.replaceChildren();playback.replaceChildren();
+      const version=++panel.version,row=choices[Number(position.value)],span=leadPointTimes(row),code=interval.value;
+      const seconds=intervals[code],step=seconds*1000;
+      const last=span.closed??span.opened;
+      const end=Math.min(Date.now(),last+14*step);
+      const start=Math.max(span.opened-14*step,end-(code==='1d'?500:170)*step);
+      chartRoot.hidden=false;
+      status.textContent='正在读取该交易所的公开 K 线…';
+      try{
+        const result=await client.candles(r.exchange,row.symbol,code,start,end);
+        if(leadPointPanel!==panel||version!==panel.version||!chartRoot.isConnected)return;
+        if(!result.bars?.length){chartRoot.hidden=true;status.textContent='该合约在所选时间暂无可用 K 线，仓位时间和均价仍可查看。';return;}
+        const event=(effect,time,price)=>({id:effect+':'+time,time,price,effect,positionSide:row.side,
+          side:effect==='open'?(row.side==='long'?'buy':'sell'):(row.side==='long'?'sell':'buy'),
+          action:effect==='open'?'开仓汇总':'平仓汇总',quote:row.currency||r.currency});
+        const events=[event('open',span.opened,row.entryPrice)];
+        if(span.closed!==null&&Number.isFinite(row.exitPrice)&&row.exitPrice>0)events.push(event('close',span.closed,row.exitPrice));
+        const cycle={symbol:row.symbol,official:true,avgEntry:row.entryPrice,avgExit:row.exitPrice??null};
+        panel.chart=BooksTradeChart.mount(chartRoot,playback,{bars:result.bars,events,seconds,cycle,name:r.name,toolbar,aggregate:true});
+        const mapped=BooksTradeReplayModel.markerGroups(events,result.bars,seconds).length;
+        status.textContent=result.source+' · '+result.bars.length+' 根 K 线 · 已对应 '+mapped+' / '+events.length+
+          ' 个仓位汇总点 · 读取 '+timeLabel(result.fetchedAt)+'（北京）'+(mapped<events.length?' · 有点位超出 K 线覆盖或位于同一根 K 线':'');
+      }catch(error){
+        if(leadPointPanel===panel&&version===panel.version){
+          chartRoot.hidden=true;
+          const reason={'source_http_429':'行情来源限流，请一分钟后再试。','source_http_403':'行情来源拒绝访问。','unsupported_contract':'该来源未提供此类合约的 K 线。'}[error?.message]||'本次 K 线读取失败，可切换周期重试。';
+          status.textContent=reason+'可在下方查看仓位时间和均价。';
+        }
+      }
+    }
+    symbol.addEventListener('change',selectPositions);position.addEventListener('change',selectIntervals);interval.addEventListener('change',redraw);
+    selectPositions();
+  }else if(choices.length){
+    root.append(node('p','行情图暂未加载，仍可查看来源的开平仓时间及均价。','detail-method'));
+  }
+  const rows=[...(focused?[focused]:[]),...saved];
+  const tableDetails=node('details',undefined,'public-detail-context');
+  tableDetails.append(node('summary','开平仓均价档案'));root.append(tableDetails);
+  if(!leadPointPanel)tableDetails.open=true;
+  binanceTable(tableDetails,'开平仓汇总',['合约','方向','开仓时间（北京）','开仓均价','平仓时间（北京）','平仓均价'],
+    rows.map(row=>[row.symbol,liveSide(row.side),row.openedAt?timeLabel(row.openedAt):null,row.entryPrice,
+      row.closedAt?timeLabel(row.closedAt):null,row.exitPrice]),leadActivityNote(r,'history',history)+(history?.fetchedAt?' · 采集 '+timeLabel(history.fetchedAt):''));
 }
 function renderLeadDetail(r,b){
   const provider=isPublicLead(r),tabs=detailTabs(r);
   if(!Object.hasOwn(tabs,state.tab))state.tab='analysis';
-  b.replaceChildren();
   if(state.tab==='points'){renderLeadPoints(r,b);return;}
+  b.replaceChildren();
   if(state.tab==='live'&&r.exchange==='OKX'){renderOKXCurrent(r,b);return;}
   if(state.tab!=='analysis'){renderLeadActivity(r,b,activityKeys[state.tab]);return;}
   const candidates=provider?['7D','30D','90D','180D','365D']:['30D','90D','365D'];
@@ -2145,6 +2259,7 @@ function activateDetailTab(tab) {
   if(!state.detail||!['analysis','live','positions','points','orders'].includes(tab)||tab===state.tab)return;
   if(!Object.hasOwn(detailTabs(state.detail),tab))return;
   if(state.tab==='live'){stopLive();stopOKXCurrent();}
+  if(state.tab==='points')clearLeadPointChart();
   state.tab=tab;
   saveDetailURL();
   renderDetail();
@@ -2361,6 +2476,11 @@ async function revalidate(background=false) {
   }
   if(publicListPage)saveURL(true);
   openLinkedAccount(true);
+}
+// Initialize the list in the browser or expose the same validators to the publisher.
+if(typeof document==='undefined'&&typeof module==='object'&&module.exports){
+  module.exports={validate,validateSource,validatePortfolioCache,validateWinCache};
+  return;
 }
 for(const id of controls)$(id).addEventListener('change',()=>{if(id==='period')state.explicitPeriod=true;state.page=1;render();if(id==='exchange'||id==='source')renderSource();saveURL(false,true);});
 for(const [id,exchange]of [['platform-all','all'],['platform-hl','Hyperliquid'],['platform-binance','Binance'],['platform-okx','OKX'],['platform-bitget','Bitget']])if($(id))$(id).onclick=()=>selectPlatform(exchange);

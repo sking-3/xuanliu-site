@@ -7,7 +7,7 @@ const vm=require('node:vm');
 const BinanceData=require('../trader/binance-data.js');
 const BooksBitgetPeriodData=require('../trader/bitget-period-data.js');
 const trader=path.join(__dirname,'../trader');
-const code=fs.readFileSync(path.join(trader,'plaza.js'),'utf8').split("for(const id of controls)$(id).addEventListener")[0].replace("(() => {","");
+const code=fs.readFileSync(path.join(trader,'plaza.js'),'utf8').split("if(typeof document==='undefined'&&typeof module==='object'&&module.exports)")[0].split("for(const id of controls)$(id).addEventListener")[0].replace("(() => {","");
 const snapshot=fs.readFileSync(path.join(trader,'binance/period-returns.json'),'utf8');
 const id='4664928038467820544';
 function fixture(id,replies,params='exchange=Binance&period=365D',adapters={BinanceData}){
