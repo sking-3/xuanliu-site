@@ -27,8 +27,7 @@
   <script defer src="position-history-view.js?v=ef26e4c4"></script>
   <script defer src="strategy-analytics.js?v=b23abbcc"></script><script defer src="strategy-analysis-view.js?v=daf1a80e"></script>
   <script defer src="trade-analysis.js?v=a55574b2"></script>
-  <script defer src="plaza.js?v=fa0a3f6f"></script>
-  <script defer src="refresh-health.js?v=a5cd9789"></script>
+  <script defer src="plaza.js?v=85561395"></script>
   <link rel="stylesheet" href="../books-ui.css?v=52cf1963"><link rel="stylesheet" href="../public-shell.css?v=6bcf60e1">
   <link rel="stylesheet" href="strategy-analysis.css?v=72e6e8d3">
   <link rel="stylesheet" href="trade-analysis.css?v=bcad7798">
@@ -74,7 +73,7 @@
     <section class="plaza" aria-labelledby="plaza-title">
       <div class="heading">
         <div><h2 id="plaza-title">公开名单</h2><p id="count" aria-live="polite"></p></div>
-        <div class="actions"><button id="reset" type="button" hidden>重置筛选</button><button id="refresh" type="button">刷新快照</button></div>
+        <div class="actions"><button id="reset" type="button" hidden>重置筛选</button><button id="refresh" type="button">检查快照</button></div>
       </div>
       <nav class="platform-switch" aria-label="选择账户平台"><button type="button" id="platform-all" aria-pressed="true">全部平台</button><button type="button" id="platform-hl" aria-pressed="false">Hyperliquid</button><button type="button" id="platform-binance" aria-pressed="false">币安</button><button type="button" id="platform-okx" aria-pressed="false">OKX</button><button type="button" id="platform-bitget" aria-pressed="false">Bitget</button></nav>
       <div class="filters">
@@ -88,6 +87,13 @@
       <p id="sort-hint" class="hint">按永续持仓筛选 · 收益率沿用来源榜单</p>
       <p id="bitget-selection" class="hint" hidden></p>
       <p id="position-notice" class="position-notice" role="status" hidden></p>
+      <p id="public-refresh-result" class="position-notice" role="status">正在读取本站已发布快照…</p>
+      <details class="position-notice">
+        <summary>查看四个平台的数据更新时间</summary>
+        <p>所有精确时间使用北京时间。检查快照仅重新读取本站已发布资料。</p>
+        <p id="public-workflow-note">正在查看后台状态记录…</p>
+        <ul id="public-platform-status"></ul>
+      </details>
       <p id="public-list-status" class="position-notice" role="status">正在读取公开快照…</p>
       <div id="leaders" class="cards"></div>
       <div class="pagination"><button id="prev" type="button">上一页</button><span id="page" role="status">0 / 0</span><button id="next" type="button">下一页</button></div>
