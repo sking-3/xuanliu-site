@@ -1,0 +1,60 @@
+.bdr-radar {
+  --bdr-ink: #263e50;
+  --bdr-secondary: #506779;
+  --bdr-line: #dce5eb;
+  min-width: 0;
+  color: var(--bdr-ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.bdr-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 3px 8px;
+}
+
+.bdr-header h3 { margin: 0; font-size: 15px; font-weight: 650; }
+.bdr-header span, .bdr-meta, .bdr-empty { color: var(--bdr-secondary); font-size: 11px; }
+.bdr-meta { margin: 3px 0 0; }
+.bdr-empty { margin: 12px 0; }
+.bdr-chart { display: block; width: 100%; height: auto; max-height: 158px; margin: 5px auto; }
+.bdr-grid, .bdr-axis { fill: none; stroke: var(--bdr-line); stroke-width: 1; }
+.bdr-label { fill: var(--bdr-secondary); font-family: inherit; font-size: 11px; }
+.bdr-area { fill: #47768e; fill-opacity: .15; stroke: #34627b; stroke-width: 1.7; }
+.bdr-edge { fill: none; stroke: #34627b; stroke-width: 1.7; }
+.bdr-point { fill: #34627b; stroke: #fff; stroke-width: 1.2; }
+
+.bdr-legend {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0 8px;
+  margin: 0;
+  font-size: 11px;
+}
+
+.bdr-score {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 4px;
+  padding: 4px 0;
+  border-top: 1px solid var(--bdr-line);
+}
+
+.bdr-score dt { color: var(--bdr-secondary); overflow-wrap: anywhere; }
+.bdr-score dd { margin: 0; font-weight: 650; }
+.bdr-score[data-available="false"] dd { color: var(--bdr-secondary); font-weight: 400; }
+.bdr-method { margin-top: 4px; color: var(--bdr-secondary); font-size: 11px; }
+.bdr-method summary { min-height: 44px; align-content: center; cursor: pointer; }
+.bdr-method summary:focus-visible { outline: 2px solid #34627b; outline-offset: 2px; }
+.bdr-method p { margin: 0 0 5px; }
+.bdr-method dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 9px; margin: 6px 0; }
+.bdr-method dt { font-weight: 650; }
+.bdr-method dd { margin: 0; overflow-wrap: anywhere; }
+
+@media (max-width: 420px) {
+  .bdr-chart { max-height: 147px; }
+  .bdr-legend { gap: 0 6px; }
+}

@@ -671,7 +671,7 @@ function renderOKXCardCurve(plot,part){
   }
   pending.then(curves=>plot.replaceChildren(chart({curve:curves.roi})),()=>{plot.textContent='日线读取失败';});
 }
-function renderBinancePerformance(r,parent,period,compact=false) {
+function renderBinancePerformance(r,parent,period,compact=false,includeChart=true) {
   const value=binancePerformance(r,period),context=node('div',undefined,'card-context');context.append(node('span',periodLabel(period)),node('span','币安来源 · USDT'));if(!compact)parent.append(context);
   const body=node('div',undefined,'performance-body binance-performance'),stats=node('div',undefined,'performance-stats'),roiText=signedValue(value.roi,pct(value.roi)),roi=node('div',roiText,'roi '+directionClass(value.roi)+(roiText.length>8?' long-roi':''));
   roi.setAttribute('title',periodLabel(period)+' 收益率 '+roiText);if(!compact||Number.isFinite(value.roi))stats.append(roi,node('div',value.coverageLabel||'收益率','roi-label'));
@@ -681,7 +681,7 @@ function renderBinancePerformance(r,parent,period,compact=false) {
     const item=node('div'),amount=node('strong',display,key==='pnl'?directionClass(value.pnl):key==='mdd'&&value.mdd!==null?'negative':'');
     amount.setAttribute('title',key==='pnl'?(value.pnl===null?'—':signedValue(value.pnl,money(value.pnl,value.currency||r.currency))+' '+(value.currency||r.currency)):label+' · '+display);item.append(node('small',label),amount);figures.append(item);
   }
-  stats.append(figures);body.append(stats);if(!compact||binanceChart(r,period).pointCount>1)body.append(binanceChartArea(r,period));parent.append(body);
+  stats.append(figures);body.append(stats);if(includeChart&&(!compact||binanceChart(r,period).pointCount>1))body.append(binanceChartArea(r,period));parent.append(body);
   let note=!value.periodSupported?'未接入该周期的币安表现':value.status==='restricted'?'表现资料不可见':value.lastSuccessAt?'表现采集 '+timeLabel(value.lastSuccessAt)+(value.status==='ready'?' · 有效期 60 分钟':' · 上次成功结果，待更新'):'尚未取得该周期的币安表现';
   if(value.lastSuccessAt&&!value.sourceAsOf)note+=' · 来源未提供统计截止时间';
   body.setAttribute('title',note);
@@ -1397,6 +1397,22 @@ function publicPerformance(row,period){
   if(isBinanceTrader(row))return binancePerformance(row,period);
   return performanceWindow(row,period);
 }
+function hasDetailPerformance(row,period){
+  const record=publicPerformance(row,period);
+  if(['roi','pnl','mdd','winRate'].some(key=>Number.isFinite(record?.[key]))||win(record)!==null||record?.curve?.length>1)return true;
+  if(isBinanceTrader(row))return binanceChart(row,period).pointCount>1;
+  const portfolio=portfolioSection(row,period);
+  return portfolio?.status==='ready'&&portfolio.windows[period]?.sampleCount>1;
+}
+function detailAnalysisPeriods(row){return hasDetailPerformance(row,'ALL')?periods:periods.slice(0,-1);}
+function resolveDetailPeriod(row,period){
+  if(period!=='ALL'||hasDetailPerformance(row,'ALL'))return period;
+  return periods.slice(0,-1).reverse().find(candidate=>hasDetailPerformance(row,candidate))||'30D';
+}
+function setDetailPeriod(period){
+  if(!state.detail||!detailAnalysisPeriods(state.detail).includes(period))return;
+  state.window=period;state.requestedDetailPeriod=period;saveDetailURL();renderDetail();
+}
 function publicCardData(row,period){
   const record=publicPerformance(row,period),history=portfolioSection(row,period);
   const sample=history?.status==='ready'?history.windows[period]:null;
@@ -1915,31 +1931,73 @@ async function okxEvidenceCurve(part){
   if(Math.abs(curves.roi.at(-1).value-part.roi)>1e-7||Math.abs(curves.pnl.at(-1).value-part.pnl)>1e-6)throw Error('curve_endpoint');
   leadCurveCache.set(part.evidencePath,curves);return curves;
 }
-function renderLeadCurve(r,b,part){
-  if(!part||r.exchange!=='OKX'&&!part.curve?.length)return;
-  const section=node('section',undefined,'lead-curve'),plot=node('div'),controls=node('div',undefined,'lead-metric-switch'),heading=node('h4',r.exchange==='OKX'?'累计收益率 · 日采样':'来源收益率曲线');
-  controls.setAttribute('role','group');controls.setAttribute('aria-label','官方日线指标');section.append(heading,controls,plot);b.append(section);
+function renderLeadCurve(r,section,part,onData){
+  const plot=node('div'),controls=node('div',undefined,'lead-metric-switch'),heading=node('h3','来源盈亏曲线');
+  controls.hidden=true;controls.setAttribute('role','group');controls.setAttribute('aria-label','官方日线指标');section.append(heading,controls,plot);
+  const noData=()=>{plot.textContent='暂无此周期的已核验曲线。';plot.className='detail-performance-note';};
+  if(!part){noData();return;}
   const draw=curves=>{
+    const sampledAt=part.curveFetchedAt||part.lastSuccessAt,choices=[];
     function select(metric){
-      const data=curves[metric];if(!data||data.length<2)return;
-      const isPnl=metric==='pnl',unit=isPnl?(part.currency||r.currency):'%',latest=data.at(-1);
-      heading.textContent=r.exchange==='OKX'?(isPnl?'累计盈亏 · 日采样':'累计收益率 · 日采样'):(isPnl?'来源盈亏曲线':'来源收益率曲线');
-      const omitted=r.exchange==='OKX'?Math.round((Date.parse(latest.time)-Date.parse(data[0].time))/86400000)+1-data.length:0;
-      const description=data[0].time.slice(0,10)+' 至 '+latest.time.slice(0,10)+' · '+data.length+' 个来源日点 · 单位 '+unit+(omitted>0?' · 来源缺 '+omitted+' 天':'');
-      plot.replaceChildren(chart({curve:data},isPnl?'pnl':'return',unit),node('small',description));
+      const data=curves[metric],isPnl=metric==='pnl',unit=isPnl?(part.currency||r.currency):'%';
+      const title=isPnl?'来源盈亏曲线':'来源收益率曲线';
+      heading.textContent=title;plot.replaceChildren();plot.className='';
+      const drawn=globalThis.BooksDetailPerformanceCurve?.mount(plot,data,{unit,label:title});
+      if(!drawn)plot.append(node('p',data.length===1?timeLabel(data[0].time)+' · '+value(data[0].value)+(unit==='%'?'%':' '+unit)+' · 仅 1 个来源采样点':'暂无此周期的已核验曲线。','detail-performance-note'));
+      const omitted=r.exchange==='OKX'?Math.round((Date.parse(data.at(-1).time)-Date.parse(data[0].time))/86400000)+1-data.length:0;
+      plot.append(node('p',data.length+' 个来源日点'+(sampledAt?' · 采集 '+timeLabel(sampledAt)+'（北京）':'')+(part.status==='stale'?' · 历史快照':'')+(omitted>0?' · 来源缺 '+omitted+' 天':''),'detail-performance-note'));
       if(part.curveEvidencePath||part.evidencePath)plot.append(evidenceLink('曲线凭证',part.curveEvidencePath||part.evidencePath));
       for(const entry of choices)entry.button.setAttribute('aria-pressed',String(entry.metric===metric));
     }
-    const choices=[];
-    for(const [metric,label] of [['roi','收益率'],['pnl','盈亏']]){
+    for(const [metric,label] of [['pnl','盈亏'],['roi','收益率']]){
       if(!curves[metric]?.length)continue;
       const control=button(label,()=>select(metric));choices.push({metric,button:control});controls.append(control);
     }
-    controls.hidden=choices.length<2;select('roi');
+    controls.hidden=choices.length<2;
+    if(choices.length)select(choices[0].metric);else noData();
+    onData(curves);
   };
-  if(part.curve?.length){draw({roi:part.curve,pnl:part.pnlCurve});section.append(node('small','日线截止最近的来源日点，周期收益率取平台最新统计。'));return;}
+  if(part.curve?.length){draw({roi:part.curve,pnl:part.pnlCurve});return;}
+  if(r.exchange!=='OKX'||!part.evidencePath){noData();return;}
   plot.textContent='正在读取已归档日线…';
-  okxEvidenceCurve(part).then(draw,()=>{plot.textContent='日线暂不可读，可打开收益凭证核对。';});
+  okxEvidenceCurve(part).then(curves=>{if(section.isConnected)draw(curves);},()=>{
+    if(!section.isConnected)return;
+    plot.textContent='日线暂不可读。';plot.className='detail-performance-note';
+    plot.append(evidenceLink('曲线凭证',part.evidencePath));
+  });
+}
+function leadHistoryWindow(r,period){
+  const section=r.activity?.history,days=parseInt(period,10),end=Date.parse(section?.fetchedAt);
+  if(!section?.rows?.length||!Number.isFinite(end)||!Number.isFinite(days))return null;
+  const start=end-days*86400000;
+  return {section,end,start,rows:section.rows.filter(p=>{const at=Date.parse(p.closedAt);return at>=start&&at<=end;})};
+}
+function renderDetailPerformancePanels(r,parent,period,part){
+  const provider=isPublicLead(r),curve=provider?null:binanceChart(r,period);
+  const visuals=node('div',undefined,'ta-analysis-visuals detail-performance-visuals');
+  const radar=node('section',undefined,'ta-analysis-section detail-performance-panel'),profit=node('section',undefined,'ta-analysis-section detail-performance-panel');
+  visuals.append(radar,profit);parent.append(visuals);
+  const history=provider?leadHistoryWindow(r,period):null;
+  const leverages=(history?.rows||[]).map(p=>p.leverage).filter(n=>Number.isFinite(n)&&n>0);
+  const paintRadar=points=>{
+    radar.replaceChildren();
+    globalThis.BooksDetailRadar?.mount(radar,{
+      roi:part?.roi,mdd:part?.mdd,mddLabel:r.exchange+' 来源回撤',winRate:part?.winRate,
+      winLabel:r.exchange==='OKX'?'OKX 盈利日比例':r.exchange==='Binance'?'币安已平仓仓位胜率':'Bitget 来源胜率',
+      leverage:leverages.length?leverages.reduce((sum,n)=>sum+n,0)/leverages.length:null,
+      leverageCount:leverages.length,leverageAt:history?.section.fetchedAt,points,curveLabel:r.exchange==='OKX'?'OKX 累计收益率日点':'币安原始盈亏采样',
+      metricsAt:part?.lastSuccessAt,winAt:part?.winRateEvidence?.lastSuccessAt||part?.lastSuccessAt,
+      curveAt:provider?(part?.curveFetchedAt||part?.lastSuccessAt):curve?.lastSuccessAt,
+      currency:part?.currency||r.currency,periodLabel:periodLabel(period)
+    });
+  };
+  paintRadar(curve?.points);
+  if(provider){renderLeadCurve(r,profit,part,curves=>{if(r.exchange==='OKX')paintRadar(curves.roi);});return;}
+  profit.append(node('h3','来源盈亏曲线'));
+  const points=curve.points;
+  const drawn=globalThis.BooksDetailPerformanceCurve?.mount(profit,points,{unit:curve.currency||'USDT',label:'来源盈亏曲线'});
+  if(!drawn)profit.append(node('p',points.length===1?timeLabel(points[0].time)+' · '+value(points[0].value)+' USDT · 仅 1 个来源采样点':curve.status==='restricted'?'来源未公开此周期曲线。':'暂无此周期的已核验曲线。','detail-performance-note'));
+  if(curve.lastSuccessAt)profit.append(node('p','币安原始盈亏 · '+points.length+' 点 · 采集 '+timeLabel(curve.lastSuccessAt)+'（北京）'+(curve.status==='stale'?' · 历史快照':''),'detail-performance-note'));
 }
 function renderLeadCapital(r,b,period){
   const record=leadRecord(r),balance=record.balance,transfers=record.transfers;
@@ -1971,9 +2029,9 @@ function renderLeadCapital(r,b,period){
   if(transfers.sourceUrl)links.append(evidenceLink('交易所调拨记录 ↗',transfers.sourceUrl));detail.append(links);section.append(detail);
 }
 function renderLeadSample(r,b,period){
-  const section=r.activity?.history,days=parseInt(period,10),end=Date.parse(section?.fetchedAt);
-  if(!section?.rows?.length||!Number.isFinite(end)||!Number.isFinite(days))return;
-  const start=end-days*86400000,rows=section.rows.filter(p=>{const at=Date.parse(p.closedAt);return at>=start&&at<=end;});
+  const history=leadHistoryWindow(r,period);
+  if(!history)return;
+  const {start,end,rows}=history;
   const root=node('section',undefined,'lead-sample-analysis');root.append(node('h4','已平仓样本分析'));b.append(root);
   root.append(node('p',timeLabel(new Date(start))+' 至 '+timeLabel(new Date(end))+' · 按平仓时间 · 本站已归档 '+rows.length+' 条','detail-method'));
   if(!rows.length)return;
@@ -2169,8 +2227,8 @@ function renderLeadDetail(r,b){
   b.replaceChildren();
   if(state.tab==='live'&&r.exchange==='OKX'){renderOKXCurrent(r,b);return;}
   if(state.tab!=='analysis'){renderLeadActivity(r,b,activityKeys[state.tab]);return;}
-  const candidates=provider?['7D','30D','90D','180D','365D']:['30D','90D','365D'];
-  const available=candidates.filter(period=>Number.isFinite(detailPeriod(r,period)?.roi));
+  const candidates=detailAnalysisPeriods(r);
+  const available=candidates.filter(period=>hasDetailPerformance(r,period));
   if(!available.includes(state.window)){
     const gap=okxPeriodGap(r,state.window);
     b.append(node('p',gap?gap.summary+'，可切换已收录周期。':periodLabel(state.window)+' 暂无可核实的收益率，可切换已收录周期。','detail-method'));
@@ -2178,11 +2236,11 @@ function renderLeadDetail(r,b){
   const buttons=node('div',undefined,'period-switch');buttons.setAttribute('role','group');buttons.setAttribute('aria-label','收益统计周期');
   for(const period of candidates){
     const has=available.includes(period);
-    const control=button(publicListPage?period:('近 '+parseInt(period,10)+' 天'+(has?'':' · 暂缺')),()=>{state.window=period;state.requestedDetailPeriod=period;saveDetailURL();renderDetail();},'detail-button');
-    control.disabled=!has;if(!has)control.title='此周期暂无可核实收益率';control.setAttribute('aria-pressed',String(has&&state.window===period));buttons.append(control);
+    const control=button(publicListPage||period==='ALL'?periodLabel(period):('近 '+parseInt(period,10)+' 天'+(has?'':' · 暂缺')),()=>setDetailPeriod(period),'detail-button');
+    control.disabled=!has;if(!has)control.title='此周期暂无可核实数据';control.setAttribute('aria-pressed',String(has&&state.window===period));buttons.append(control);
   }
   b.append(buttons);
-  if(provider)renderLeadPerformance(r,b,state.window);else renderBinancePerformance(r,b,state.window,true);
+  if(provider)renderLeadPerformance(r,b,state.window);else renderBinancePerformance(r,b,state.window,true,false);
   const part=detailPeriod(r,state.window);
   if(provider&&part){
     const metrics=node('div',undefined,'lead-detail-metrics');
@@ -2195,7 +2253,8 @@ function renderLeadDetail(r,b){
   if(Number.isFinite(part?.accountAgeDays))b.append(node('p','采集时已带单 '+part.accountAgeDays+' 天 · '+timeLabel(part.lastSuccessAt),'binance-performance-note'));
   const links=node('div',undefined,'lead-source-links');
   if(part?.evidencePath)links.append(evidenceLink('收益凭证',part.evidencePath));
-  if(provider){renderLeadCurve(r,b,part);renderLeadCapital(r,b,state.window);renderLeadSample(r,b,state.window);}
+  renderDetailPerformancePanels(r,b,state.window,part);
+  if(provider){renderLeadCapital(r,b,state.window);renderLeadSample(r,b,state.window);}
   else if(r.periodRecord?.profileEvidencePath)links.append(evidenceLink('带单起始资料',r.periodRecord.profileEvidencePath));
   links.append(sourceLink(r));b.append(links);
   if(provider&&!publicListPage){
@@ -2235,13 +2294,20 @@ function openDetail(r,p,view='analysis') {
 }
 function renderDetail() {
   const r=state.detail,b=$('detail-body');if(!r)return;
+  if(state.requestedDetailPeriod==='ALL'){
+    const period=resolveDetailPeriod(r,'ALL');
+    if(state.window!==period){state.window=period;saveDetailURL();}
+  }
   renderDetailIdentity(r);paintDetailTabs(r);
   const context=$('public-detail-context'),record=publicPerformance(r,state.window);
   const collected=record?.lastSuccessAt||(record?.asOfType==='observed'?record.asOf:null)||(isPublicAccount(r)?state.source?.fetchedAt:null);
   const asOf=record?.sourceAsOf||(record?.asOfType==='source'?record.asOf:null);
+  const cumulativeFallback=state.requestedDetailPeriod==='ALL'&&state.window!=='ALL'?
+    '来源未提供累计业绩'+(hasDetailPerformance(r,state.window)?'，已切换至 '+periodLabel(state.window):''):null;
   context.hidden=state.tab!=='analysis';
-  context.textContent=[periodLabel(state.window),asOf?'来源 '+timeLabel(asOf):null,collected?'采集 '+timeLabel(collected):null,
-    asOf||collected?'北京时间':'业绩时间未提供'].filter(Boolean).join(' · ');
+  context.textContent=[state.window==='ALL'?periodName(state.window,record):periodLabel(state.window),
+    asOf?'来源 '+timeLabel(asOf):null,collected?'采集 '+timeLabel(collected):null,
+    asOf||collected?'北京时间':'业绩时间未提供',cumulativeFallback].filter(Boolean).join(' · ');
   renderDetailOverview(r);syncDetailWidgets(r);
   if(publicListPage&&state.tab!=='live')$('detail-overview').hidden=true;
   if(isPublicLead(r)&&state.tab==='live')$('detail-overview').hidden=true;
@@ -2257,7 +2323,7 @@ function renderDetail() {
       publicExecutionReader ||= BooksBinancePublicRecords.reader(globalThis);
       const w=isBinanceTrader(r)?binancePerformance(r,state.window):performanceWindow(r,state.window),cached=cachedWin(r),portfolio=isPublicAccount(r)?portfolioSection(r,state.window):null,history=portfolio?.status==='ready'?portfolio.windows[state.window]:null;
       const curve=isBinanceTrader(r)?binanceChart(r,state.window):history?{points:history.points,lastSuccessAt:portfolio.fetchedAt,status:portfolio.stale?'stale':'ready',currency:history.curveUnit,basis:history.curveBasis}:null;
-      BooksTradeAnalysis.render(b,{r,tab:state.tab,period:state.window,periodLabel:periodName(state.window,w),compact:publicListPage,metrics:w?{...w,mdd:isPublicAccount(r)?sampledDrawdown(history,state.window):w.mdd,winRate:isPublicAccount(r)?cached?.win?.value??null:w.winRate}:null,curve,profile:r.referenceOnly?globalThis.BooksReferenceData?.profile(globalThis.BooksAoyingHistory,r.accountId):null,binanceView:isBinanceTrader(r)?binanceView(r):null,publicReader:publicExecutionReader,onPositions:p=>{if(state.detail?.accountId===r.accountId&&state.tab==='analysis'&&isPublicFocus(r))syncPublicFocusLive(r,{address:r.accountId,positions:p});acceptDetailPositions(r,p,globalThis.BooksFloatingPnl?.FRESH);},activate:activateDetailTab,setPeriod:p=>{if(periods.includes(p)){state.window=p;saveDetailURL();renderDetail();}},metricNote:r.exchange==='Hyperliquid'?'收益率与盈亏沿用已核验周期数据；长期区间对账未通过时收益率留空。采样盈亏回撤不是标准净值最大回撤。'+winCacheDescription(r):'收益率、回撤、胜率沿用币安来源字段与周期；不以操作样本推算账户表现。',winNote:r.exchange==='Binance'?'币安所选周期平台统计':cached?.win?.eligibleCount?'近期 '+cached.win.eligibleCount+' 个片段 · 独立于所选周期':'缺少有效成交样本'});
+      BooksTradeAnalysis.render(b,{r,tab:state.tab,period:state.window,analysisPeriods:detailAnalysisPeriods(r),periodLabel:periodName(state.window,w),compact:publicListPage,metrics:w?{...w,mdd:isPublicAccount(r)?sampledDrawdown(history,state.window):w.mdd,winRate:isPublicAccount(r)?cached?.win?.value??null:w.winRate}:null,curve,winAt:cached?.fetchedAt,performanceAt:w?.derived?portfolio?.fetchedAt:null,profile:r.referenceOnly?globalThis.BooksReferenceData?.profile(globalThis.BooksAoyingHistory,r.accountId):null,binanceView:isBinanceTrader(r)?binanceView(r):null,publicReader:publicExecutionReader,onPositions:p=>{if(state.detail?.accountId===r.accountId&&state.tab==='analysis'&&isPublicFocus(r))syncPublicFocusLive(r,{address:r.accountId,positions:p});acceptDetailPositions(r,p,globalThis.BooksFloatingPnl?.FRESH);},activate:activateDetailTab,setPeriod:setDetailPeriod,metricNote:r.exchange==='Hyperliquid'?'收益率与盈亏沿用已核验周期数据；长期区间对账未通过时收益率留空。采样盈亏回撤不是标准净值最大回撤。'+winCacheDescription(r):'收益率、回撤、胜率沿用币安来源字段与周期；不以操作样本推算账户表现。',winNote:r.exchange==='Binance'?'币安所选周期平台统计':cached?.win?.eligibleCount?'近期 '+cached.win.eligibleCount+' 个片段 · 独立于所选周期':'缺少有效成交样本'});
       return;
     }
     BooksTradeAnalysis.pause();

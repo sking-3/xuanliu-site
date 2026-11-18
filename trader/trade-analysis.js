@@ -67,7 +67,7 @@ function analysis(c){
  const historical=el('details',undefined,'ta-historical'),summary=el('summary','历史周期统计与已平仓分析');historical.append(summary);c.root.append(historical);
  const statsRoot=live?historical:c.root;if(!live)historical.remove();
  const period=el('div',undefined,'ta-period-bar');period.append(el('strong','分析周期'));const switches=el('div',undefined,'ta-period-switch');
- for(const p of ['7D','30D','90D','180D','365D','ALL']){const b=btn(p==='ALL'?'累计':p,()=>c.context.setPeriod(p),'ta-period');b.setAttribute('aria-pressed',String(c.context.period===p));switches.append(b);}period.append(switches);statsRoot.append(period);
+ for(const p of c.context.analysisPeriods||['7D','30D','90D','180D','365D']){const b=btn(p==='ALL'?'累计':p,()=>c.context.setPeriod(p),'ta-period');b.setAttribute('aria-pressed',String(c.context.period===p));switches.append(b);}period.append(switches);statsRoot.append(period);
  const profile=c.context.profile;
  if(profile){const top=el('div',undefined,'ta-account-facts');for(const [label,value]of [['带单保证金余额 · USDT',fmt(profile.marginBalance,2)],['资产管理规模 AUM · USDT',fmt(profile.aumAmount,2)],['跟单用户数',fmt(profile.currentCopyCount,0)+' / '+fmt(profile.maxCopyCount,0)],['当前持仓',profile.positionShow?'以有效公开快照为准':'币安未公开'],['最近公开交易',profile.lastTradeAt?date(profile.lastTradeAt):'来源未提供']]){const item=el('div');item.append(el('small',label),el('strong',value));top.append(item);}statsRoot.append(top,note('组合资料读取 '+date(profile.fetchedAt)+(profile.status==='stale'?' · 历史快照':'')));}
  const w=c.context.metrics||{},grid=el('div',undefined,'ta-metrics');
@@ -77,14 +77,33 @@ function analysis(c){
  [c.context.r.exchange==='Binance'?'已平仓仓位胜率':'近期平仓片段胜率',percentage(w.winRate),null,c.context.winNote||'资料不足时留空']];
  for(const [label,value,n,caption]of data){const item=el('div',undefined,'ta-metric');item.append(el('span',label),tone(el('strong',value),n),el('small',caption));grid.append(item);}statsRoot.append(grid);
  const end=new Date(c.officialHistory?.fetchedAt||c.context.binanceView?.closedPositions?.fetchedAt||c.history?.fetchedAt||Date.now()).getTime(),days=Number.parseInt(c.context.period,10)||Math.max(1,Math.ceil((end-Math.min(end,...c.cycles.map(x=>x.closed||end)))/86400000)+1),stats=M.summary(c.cycles,days,end);
+ const visuals=el('div',undefined,'ta-analysis-visuals detail-performance-visuals');
+ const radar=el('section',undefined,'ta-analysis-section detail-performance-panel'),profit=el('section',undefined,'ta-analysis-section detail-performance-panel');
+ const binance=c.context.r.exchange==='Binance'&&!c.context.r._local,hl=isHL(c.context.r),curve=c.context.curve;
+ const metricsAt=w.lastSuccessAt||w.fetchedAt||c.context.performanceAt||w.asOf;
+ env.BooksDetailRadar?.mount(radar,{
+  roi:w.roi,roiLabel:w.coverageLabel||(w.derived?'Hyperliquid 已对账区间收益率':binance?'币安所选周期':'来源所选周期'),
+  mdd:w.mdd,mddLabel:binance?'币安来源回撤':hl?'永续采样盈亏回撤':'来源回撤',drawdownAxisLabel:hl?'采样回撤':undefined,
+  drawdownAt:hl?curve?.lastSuccessAt:metricsAt,
+  winRate:w.winRate,winLabel:binance?'币安已平仓仓位胜率':hl?c.context.winNote:'来源胜率',winAxisLabel:hl?'片段胜率':undefined,
+  aum:profile?.aumAmount,aumLabel:binance?'币安公开组合资料':undefined,currency:profile?.currency||w.currency||c.context.r.currency,
+  leverage:stats.averageLeverage,leverageCount:stats.leverageCount,leverageLabel:'已归档平仓样本',
+  points:curve?.points,curveLabel:binance?'币安原始盈亏采样':'永续盈亏采样',metricsAt,winAt:hl?c.context.winAt:metricsAt,aumAt:profile?.fetchedAt,
+  leverageAt:c.officialHistory?.fetchedAt||c.context.binanceView?.closedPositions?.fetchedAt,curveAt:curve?.lastSuccessAt,
+  periodLabel:c.context.periodLabel||c.context.period
+ });
+ profit.append(el('h3','来源盈亏曲线'));profitCurve(profit,curve,c.context.r.exchange);
+ visuals.append(radar,profit);statsRoot.append(visuals);
+ const sampleDetail=el('details',undefined,'ta-sample-detail');
+ sampleDetail.append(el('summary','已平仓样本分析'));statsRoot.append(sampleDetail);
  const samples=el('div',undefined,'ta-sample-metrics');
- for(const [label,value,caption]of [['分析仓位样本',String(stats.count),'官方已平仓 / 连续闭合样本'],['平均持仓时间',stats.averageDuration===null?'—':duration(1,stats.averageDuration+1),'按样本数量等权'],['历史样本杠杆均值',stats.averageLeverage===null?'—':fmt(stats.averageLeverage,2)+'×',stats.leverageCount+' 个有来源杠杆的样本'],['多 / 空样本',stats.longs+' / '+stats.shorts,'按已闭合仓位数量']]){const item=el('div',undefined,'ta-sample-metric');item.append(el('span',label),el('strong',value),el('small',caption));samples.append(item);}statsRoot.append(samples);
- statsRoot.append(note(`样本区间（按平仓时间）${shortDate(stats.start)} — ${shortDate(stats.end)} · 已返回历史中的 ${stats.count} 个样本，独立于平台收益与胜率统计。`));
- const visuals=el('div',undefined,'ta-analysis-visuals'),structure=el('section',undefined,'ta-analysis-section'),profit=el('section',undefined,'ta-analysis-section');structure.append(el('h3','样本结构'));profit.append(el('h3','来源盈亏曲线'));
- if(stats.count){distribution(structure,'方向分布',[['多仓',stats.longs,'#28a58c'],['空仓',stats.shorts,'#dc607a']],stats.count);distribution(structure,'来源盈利分布',[['盈利',stats.wins,'#28a58c'],['亏损',stats.losses,'#dc607a'],['持平',stats.breakeven,'#9ca9b6']],stats.count);structure.append(note('按每个闭合样本的来源已实现盈亏分类；费用口径尚未统一，不冒充净收益胜率或能力评分。'));}else structure.append(note('所选区间暂无闭合样本；当前持仓走势显示在上方。'));
- profitCurve(profit,c.context.curve,c.context.r.exchange);visuals.append(structure,profit);statsRoot.append(visuals);
+ for(const [label,value,caption]of [['分析仓位样本',String(stats.count),'官方已平仓 / 连续闭合样本'],['平均持仓时间',stats.averageDuration===null?'—':duration(1,stats.averageDuration+1),'按样本数量等权'],['历史样本杠杆均值',stats.averageLeverage===null?'—':fmt(stats.averageLeverage,2)+'×',stats.leverageCount+' 个有来源杠杆的样本'],['多 / 空样本',stats.longs+' / '+stats.shorts,'按已闭合仓位数量']]){const item=el('div',undefined,'ta-sample-metric');item.append(el('span',label),el('strong',value),el('small',caption));samples.append(item);}sampleDetail.append(samples);
+ sampleDetail.append(note(`样本区间（按平仓时间）${shortDate(stats.start)} — ${shortDate(stats.end)} · 已返回历史中的 ${stats.count} 个样本，独立于平台收益与胜率统计。`));
+ const structure=el('section',undefined,'ta-analysis-section');
+ if(stats.count){distribution(structure,'方向分布',[['多仓',stats.longs,'#28a58c'],['空仓',stats.shorts,'#dc607a']],stats.count);distribution(structure,'来源盈利分布',[['盈利',stats.wins,'#28a58c'],['亏损',stats.losses,'#dc607a'],['持平',stats.breakeven,'#9ca9b6']],stats.count);structure.append(note('按每个闭合样本的来源已实现盈亏分类；各来源的费用口径不同。'));}else structure.append(note('所选区间暂无闭合样本。'));
+ sampleDetail.append(structure);
  const coins=el('section',undefined,'ta-analysis-section ta-coins');coins.append(el('h3','币种盈亏汇总'),note('仅统计上方区间内的已闭合样本；盈利占比按来源盈亏大于零计数，持平计入分母。不同报价币分列，不合并金额。'));
- if(stats.bySymbol.length){const t=table(['合约','仓位样本','来源盈亏合计','盈利占比','多 / 空']);for(const row of stats.bySymbol){const tr=el('tr');cell(tr,row.symbol,'ta-contract');cell(tr,String(row.count));tone(cell(tr,signed(row.pnl)+' '+row.quote),row.pnl);cell(tr,fmt(row.winRate,1)+'%');const entries=stats.rows.filter(x=>x.symbol===row.symbol&&x.quote===row.quote);cell(tr,entries.filter(x=>x.positionSide==='long').length+' / '+entries.filter(x=>x.positionSide==='short').length);t.body.append(tr);}coins.append(t.wrap);}else coins.append(note('所选区间暂无闭合仓位，不合并未实现盈亏。'));statsRoot.append(coins);
+ if(stats.bySymbol.length){const t=table(['合约','仓位样本','来源盈亏合计','盈利占比','多 / 空']);for(const row of stats.bySymbol){const tr=el('tr');cell(tr,row.symbol,'ta-contract');cell(tr,String(row.count));tone(cell(tr,signed(row.pnl)+' '+row.quote),row.pnl);cell(tr,fmt(row.winRate,1)+'%');const entries=stats.rows.filter(x=>x.symbol===row.symbol&&x.quote===row.quote);cell(tr,entries.filter(x=>x.positionSide==='long').length+' / '+entries.filter(x=>x.positionSide==='short').length);t.body.append(tr);}coins.append(t.wrap);}else coins.append(note('所选区间暂无闭合仓位，不合并未实现盈亏。'));sampleDetail.append(coins);
  const heading=el('div',undefined,'ta-section-head');heading.append(el('h3','仓位观察'),el('span','实际当前仓位以官方新鲜快照为准'));c.root.append(heading);
  if(!c.events.length)c.root.append(empty('尚无可重建的操作记录',isHL(c.context.r)?'正在读取此账户官方近期成交；读取成功后会建立样本回放。':'该来源没有可用的逐条操作。历史汇总仍可在“历史仓位”查看。'));
  else{
@@ -105,17 +124,13 @@ function distribution(target,title,rows,total){
  const legend=el('div',undefined,'ta-distribution-legend');for(const [name,count,color]of rows){const item=el('span'),dot=el('i');dot.style.background=color;item.append(dot,document.createTextNode(name+' '+count+' · '+fmt(count/total*100,1)+'%'));legend.append(item);}group.append(legend);target.append(group);
 }
 function profitCurve(target,data,exchange){
- const points=data?.points||[];if(points.length<2){target.append(note('暂无可信的历史周期曲线；实时持仓与行情显示在上方，二者独立统计。'));return;}
- const unit=data.currency||'USD',first=Date.parse(points[0].time),last=Date.parse(points.at(-1).time),values=points.map(x=>x.value),low=Math.min(0,...values),high=Math.max(0,...values),span=high-low||1,x=t=>36+520*(Date.parse(t)-first)/Math.max(1,last-first),y=v=>18+174*(high-v)/span;
- const wrap=el('div',undefined,'ta-profit-wrap'),readout=el('p',undefined,'ta-profit-readout'),svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('viewBox','0 0 600 230');svg.setAttribute('role','img');svg.setAttribute('aria-label',exchange+' 来源盈亏 '+points.length+' 个实际采样点，单位 '+unit);
- const make=(tag,attrs)=>{const n=document.createElementNS('http://www.w3.org/2000/svg',tag);for(const [k,v]of Object.entries(attrs))n.setAttribute(k,String(v));return n;};
- for(const value of [high,(high+low)/2,low]){const yy=y(value);svg.append(make('line',{x1:36,y1:yy,x2:556,y2:yy,stroke:'#e9edf2','stroke-width':1}));const text=make('text',{x:560,y:yy+4,fill:'#8290a0','font-size':9});text.textContent=fmt(value,0);svg.append(text);}
- const coordinates=points.map(p=>[x(p.time),y(p.value)]),path='M'+coordinates.map(p=>p.join(',')).join(' L'),area=path+' L '+coordinates.at(-1)[0]+','+y(0)+' L '+coordinates[0][0]+','+y(0)+' Z';
- svg.append(make('path',{d:area,fill:'#24a68b','fill-opacity':.09}),make('path',{d:path,fill:'none',stroke:'#24a68b','stroke-width':2}));
- const show=p=>{readout.textContent=date(p.time)+' · '+signed(p.value)+' '+unit;};show(points.at(-1));
- for(const p of points){const dot=make('circle',{cx:x(p.time),cy:y(p.value),r:5,fill:'transparent',tabindex:0,role:'img','aria-label':date(p.time)+'，'+p.value+' '+unit});dot.addEventListener('pointerenter',()=>show(p));dot.addEventListener('focus',()=>show(p));svg.append(dot);}
- for(const p of [points[0],points[Math.floor(points.length/2)],points.at(-1)]){const text=make('text',{x:x(p.time),y:218,'text-anchor':'middle',fill:'#8290a0','font-size':10});text.textContent=new Date(p.time).toLocaleDateString('zh-CN',{timeZone:'Asia/Shanghai',month:'2-digit',day:'2-digit'});svg.append(text);}
- wrap.append(readout,svg);target.append(wrap,note(`${exchange==='Binance'?'币安 PNL 原始金额':'永续盈亏变化，自首采样归零'} · ${unit} · ${points.length} 个来源采样 · ${data.lastSuccessAt?'读取 '+date(data.lastSuccessAt):'读取时间未取得'}${data.status==='stale'?' · 历史采样，待更新':''}。连线仅连接返回采样，不是完整盘中净值。`));
+ const points=data?.points||[],unit=data?.currency||'USD';
+ const mounted=env.BooksDetailPerformanceCurve?.mount(target,points,{unit,label:'来源盈亏曲线'});
+ if(!mounted){
+  target.append(note(points.length===1?'仅有 1 个来源采样点。':data?.status==='restricted'?'来源未公开此周期曲线。':'暂无此周期的已核验曲线。'));
+  if(points.length===1)target.append(note(date(points[0].time)+' · '+signed(points[0].value)+' '+unit+' · 北京时间'));
+ }
+ if(data?.lastSuccessAt)target.append(note((exchange==='Binance'?'币安原始盈亏':'永续盈亏变化，自首个采样点归零')+' · '+points.length+' 点 · 采集 '+date(data.lastSuccessAt)+'（北京）'+(data.status==='stale'?' · 历史快照':'')));
 }
 function duration(a,b){if(!a||!b)return '—';const m=Math.max(0,Math.round((b-a)/60000));return (m>=1440?Math.floor(m/1440)+'天 ':'')+(m>=60?Math.floor(m%1440/60)+'时 ':'')+m%60+'分';}
 function positions(c){
@@ -199,7 +214,7 @@ function render(root,context){
   if(isAoying(context.r)&&env.BooksAoyingHistory)current.officialHistory=env.BooksAoyingHistory;
   rebuild(current);draw(current);load(current);const owner=current;current.refreshTimer=setInterval(()=>{if(current===owner&&!owner.paused&&document.visibilityState!=='hidden'&&root.closest('dialog').open&&owner.context.tab!=='live')load(owner);},60000);return;
  }
- const changed=current.context.tab!==context.tab||current.context.period!==context.period,updated=context.tab==='analysis'&&(JSON.stringify(current.context.metrics)!==JSON.stringify(context.metrics)||JSON.stringify(current.context.curve)!==JSON.stringify(context.curve));if(context.tab!=='analysis')stopFloating(current);current.context=context;current.root=root;current.paused=false;rebuild(current);if(changed||updated||current.needsDraw||!root.firstChild){const scroller=root.closest('dialog'),offset=scroller.scrollTop;current.needsDraw=false;draw(current);scroller.scrollTop=changed?0:offset;}
+ const changed=current.context.tab!==context.tab||current.context.period!==context.period,updated=context.tab==='analysis'&&(JSON.stringify(current.context.metrics)!==JSON.stringify(context.metrics)||JSON.stringify(current.context.curve)!==JSON.stringify(context.curve)||JSON.stringify(current.context.profile)!==JSON.stringify(context.profile)||String(current.context.analysisPeriods)!==String(context.analysisPeriods)||current.context.winAt!==context.winAt);if(context.tab!=='analysis')stopFloating(current);current.context=context;current.root=root;current.paused=false;rebuild(current);if(changed||updated||current.needsDraw||!root.firstChild){const scroller=root.closest('dialog'),offset=scroller.scrollTop;current.needsDraw=false;draw(current);scroller.scrollTop=changed?0:offset;}
 }
 function dispose(){if(current){current.root.closest('dialog')?.classList.remove('ta-detail');stopFloating(current);teardown(current);clearInterval(current.refreshTimer);}current=null;}
 env.BooksTradeAnalysis={render,dispose,pause(){if(current){stopFloating(current);teardown(current);current.needsDraw=true;current.paused=true;current.root.classList.remove('trade-analysis');}}};

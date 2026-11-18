@@ -80,3 +80,20 @@
 /* Current positions lead; unavailable historical statistics remain a compact disclosure. */
 .ta-historical{border-block:1px solid #e3e8ee;margin:20px 0;padding:14px 0;color:#536779}.ta-historical>summary{cursor:pointer;font-size:14px;font-weight:600}.ta-historical .ta-analysis-section .ta-empty{min-height:0;padding:16px}.ta-position-market{margin-top:26px}.ta-position-market .ta-section-head{margin-bottom:8px}.ta-position-market label{display:flex;align-items:center;gap:12px;font-size:14px;font-weight:600;color:#243347}.ta-position-market select{font:inherit;border:1px solid #cbd6df;border-radius:7px;background:#fff;color:#334b60;padding:6px 28px 6px 10px;min-height:38px}.ta-position-candles{height:320px;width:100%;position:relative}.ta-position-market .ta-note{color:#536779}.ta-position-market .ta-section-head>span{font-size:12px;color:#536779}.ta-position-market .ta-attribution a{color:#536779}.ta-floating{border-bottom:0;margin-bottom:10px}.ta-historical .ta-note{color:#536779}
 @media(max-width:640px){.ta-position-market .ta-section-head{align-items:flex-start;flex-wrap:wrap}.ta-position-market .ta-section-head>span{text-align:left;max-width:none}.ta-position-candles{height:280px}.ta-position-market label{font-size:14px}.ta-position-market select{font-size:16px}.ta-historical>summary{font-size:14px}}
+
+.detail-performance-visuals{gap:14px;margin:16px 0}
+.detail-performance-panel{background:linear-gradient(145deg,#fff,#f8fafc);border:1px solid #e1e8ee;border-radius:14px;padding:14px}
+.detail-performance-panel>h3{margin:0 0 8px}
+.detail-performance-panel .lead-metric-switch{margin:0 0 9px}
+.detail-performance-panel .lead-metric-switch[hidden]{display:none}
+.detail-performance-panel .lead-metric-switch button{min-height:36px}
+.detail-performance-note,.detail-performance-panel>.ta-note{margin:8px 0 0;color:#506779;font-size:11px;line-height:1.55}
+.detail-performance-panel .dpc+ p{margin-top:10px}
+.detail-performance-panel a{display:inline-block;font-size:11px;margin-top:5px}
+.ta-sample-detail{border-block:1px solid #e3e8ee;margin:16px 0}
+.ta-sample-detail>summary{min-height:44px;align-content:center;color:#506779;cursor:pointer;font-size:12px}
+@media(max-width:640px){
+  .detail-performance-visuals{gap:10px}
+  .detail-performance-panel{padding:12px}
+  .detail-performance-panel .lead-metric-switch button{min-height:44px}
+}

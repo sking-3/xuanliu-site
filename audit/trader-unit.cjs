@@ -10,7 +10,7 @@ require('./public-focus-ui-unit.cjs');
 require('./public-executions-unit.cjs');
 const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict'),path=require('node:path');
 class Element {
-  constructor(){this.children=[];this.attrs={};this.value='';this.options=[];this.textContent='';this.open=false;this.dataset={};this.checked=false;this.hidden=false;this.events={};}
+  constructor(){this.children=[];this.attrs={};this.value='';this.options=[];this.textContent='';this.open=false;this.dataset={};this.checked=false;this.hidden=false;this.isConnected=true;this.events={};}
   get textContent(){return this._textContent||'';} set textContent(v){this._textContent=String(v);this.children=[];}
   get value(){return this._value||'';} set value(v){this._value=String(v);}
   append(...children){this.children.push(...children);} replaceChildren(...children){this._textContent='';this.children=children;} setAttribute(k,v){this.attrs[k]=v;}
@@ -252,6 +252,28 @@ await test('long periods always retain independent cached win rate without a nat
 await test('all period headlines stay return percentages and derived missing return never duplicates monetary profit',async()=>{const r=installQualified(),nativeReturn=r.windows['30D'].roi,nativePnl=r.windows['30D'].pnl;a.state.portfolioCache={};a.state.portfolioCacheGeneratedAt=null;remotePortfolios=portfolioFixture(r.accountId);await a.refreshPortfolioCache();for(const period of ['90D','180D','365D']){const w=remotePortfolios.accounts[r.accountId].portfolio.windows[period],card=a.card(r,period),view=a.state.analyticsViews.at(-1);assert.equal(a.performanceWindow(r,period).pnl,w.pnl);assert.equal(a.performanceWindow(r,period).roi,null);assert.match(view.roiLabel.textContent,/收益率 · 暂缺/);assert.equal(view.roi.textContent,'—');assert.match(view.roi.attrs.title,/尚无可核验的资金流水和资金基准/);assert.ok(content(view.metrics).includes(String(a.performanceWindow(r,period).pnl)));assert.equal(view.winNote,undefined);assert.match(view.detailButton.attrs.title,/独立于所选表现周期/);assert.match(content(view.metrics),/采样盈亏回撤/);assert.equal(view.metrics.children[1].children[1].textContent,w.mdd.toFixed(2)+'%');assert.match(view.rangeNote.textContent,/实际区间.*覆盖/);assert.doesNotMatch(card.className,/compact-history/);assert.ok(view.graph.children[1].children[0].attrs['aria-label'].includes('USD'));}assert.equal(a.performanceWindow(r,'30D').roi,nativeReturn);assert.equal(a.performanceWindow(r,'30D').pnl,nativePnl);});
 await test('native week and month retain the source percentage while long-window detail shows return unavailable',()=>{const r=a.state.rows.find(a.isPublicAccount);for(const period of ['7D','30D']){a.card(r,period);const view=a.state.analyticsViews.at(-1),roi=r.windows[period].roi;assert.equal(view.roi.textContent,(roi>0?'+':'')+roi.toFixed(2)+'%');assert.doesNotMatch(view.roiLabel.textContent,/暂缺/);}a.openDetail(r,'180D');const view=a.state.analyticsViews.find(v=>v.kind==='detail');assert.equal(view.metrics.children[0].children[0].textContent,'自算收益率');assert.equal(view.metrics.children[0].children[1].textContent,'—');assert.match(content(ids['detail-body']),/180天滚动窗口/);});
 await test('source lifetime is labeled as source cumulative with actual available date range',()=>{const r=a.state.rows.find(a.isPublicAccount),card=a.card(r,'ALL'),view=a.state.analyticsViews.at(-1);assert.match(content(card),/来源累计/);assert.match(view.rangeNote.textContent,/来源覆盖/);assert.doesNotMatch(content(card),/完整账户历史/);});
+await test('Hyperliquid keeps native cumulative and promotes a legacy link when verified cumulative history arrives',()=>{
+ const r=a.state.rows.find(a.isPublicAccount),previousURL=location.href,previousPortfolioCache=a.state.portfolioCache,previousAnalytics=a.state.analytics;
+ try{
+   location.href='https://example.com/trader/?account='+r.accountId+'&detailExchange=Hyperliquid&detailPeriod=ALL';
+   a.state.analytics={};a.state.portfolioCache={};a.openDetail(r,'ALL');
+   assert.equal(a.state.window,'ALL');
+   assert.match(ids['public-detail-context'].textContent,/来源累计/);
+   assert.doesNotMatch(ids['public-detail-context'].textContent,/来源未提供累计业绩/);
+   assert.equal(a.performanceWindow(r,'ALL').roi,r.windows.ALL.roi);
+   const waiting={...r,windows:{'30D':r.windows['30D']}};
+   a.openDetail(waiting,'ALL');
+   assert.equal(a.state.window,'30D');
+   assert.equal(new URL(location.href).searchParams.get('detailPeriod'),'30D');
+   a.state.portfolioCache=a.validatePortfolioCache(portfolioFixture(r.accountId)).accounts;
+   a.renderDetail();
+   assert.equal(a.state.window,'ALL');
+   assert.equal(new URL(location.href).searchParams.get('detailPeriod'),'ALL');
+   assert.doesNotMatch(ids['public-detail-context'].textContent,/来源未提供累计业绩/);
+ }finally{
+   location.href=previousURL;a.state.analytics=previousAnalytics;a.state.portfolioCache=previousPortfolioCache;
+ }
+});
 await test('short source histories disclose insufficient coverage rather than inventing a full year',async()=>{const r=a.state.rows.find(a.isPublicAccount);remotePortfolios=portfolioFixture(r.accountId,1,20);await a.refreshPortfolioCache();a.card(r,'365D');const view=a.state.analyticsViews.at(-1);assert.match(view.rangeNote.textContent,/覆盖 20 天 · 历史不足/);assert.equal(a.performanceWindow(r,'365D').roi,null);});
 await test('one source sample retains null interval profit and drawdown with a compact card',async()=>{const r=a.state.rows.find(a.isPublicAccount),at=new Date().toISOString(),raw=[['perpAllTime',{pnlHistory:[[Date.parse(at),123]],accountValueHistory:[[Date.parse(at),1000]]}]];remotePortfolios={schemaVersion:1,methodVersion:'portfolio-periods-v2',generatedAt:at,accounts:{[r.accountId]:{status:'ready',fetchedAt:at,lastAttemptAt:at,errorCode:null,portfolio:normalizer.normalize.portfolio(raw)}}};await a.refreshPortfolioCache();const card=a.card(r,'90D'),view=a.state.analyticsViews.at(-1);assert.equal(a.performanceWindow(r,'90D').pnl,null);assert.equal(view.roi.textContent,'—');assert.match(card.className,/compact-history/);assert.doesNotMatch(content(view.metrics),/最大回撤 0.00%/);});
 await test('empty all-time source windows validate without turning missing profit into zero',()=>{const p=portfolioFixture(cacheAddress),entry=p.accounts[cacheAddress];entry.portfolio=normalizer.normalize.portfolio([['perpAllTime',{pnlHistory:[],accountValueHistory:[]}]]);const valid=a.validatePortfolioCache(p);assert.equal(valid.accounts[cacheAddress].portfolio.windows['180D'].pnl,null);});
@@ -638,6 +660,32 @@ await test('independent Aoying public performance participates in default Binanc
  unifiedSetup();context.BooksReferenceData=require('../trader/reference-data.js');const bundle={};vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../trader/aoying-history.js'),'utf8'),bundle);context.BooksAoyingHistory=bundle.BooksAoyingHistory;
  ids.exchange.value='Binance';ids.sort.value='roi';ids.period.value='30D';a.render();assert.equal(ids.leaders.children.length,a.state.binanceRows.length);assert.match(content(ids.leaders.children[0]),/熬鹰资本/);assert.match(content(ids.leaders.children[1]),/暂无已核实收益率/);const r=a.state.binanceRows.find(x=>x.accountId==='5075281354358777856');assert.equal(a.sortValue(r,'30D','roi'),bundle.BooksAoyingHistory.performance.roi);assert.equal(a.binanceView(r).currentPositionCount,null);assert.equal(a.binanceChart(r,'30D').pointCount,30);
 });
+await test('a legacy Aoying cumulative link selects the longest verified period and keeps the URL accurate',()=>{
+ const previousURL=location.href;
+ let shown;
+ context.BooksBinancePublicRecords=require('../trader/public-executions.js');
+ context.BooksTradeAnalysis={dispose(){},render(_,value){shown=value;}};
+ try{
+   location.href='https://example.com/trader/?account=5075281354358777856&detailExchange=Binance&detailPeriod=ALL&q=%E7%86%AC%E9%B9%B0';
+   a.readURL();assert.equal(a.openLinkedAccount(true),true);
+   const r=a.state.detail,params=new URL(location.href).searchParams;
+   assert.equal(shown.period,'365D');
+   assert.equal(shown.analysisPeriods.includes('ALL'),false);
+   assert.equal(shown.metrics.roi,a.binancePerformance(r,'365D').roi);
+   assert.equal(shown.curve.pointCount,365);
+   assert.equal(params.get('detailPeriod'),'365D');
+   assert.equal(params.get('q'),'熬鹰');
+   assert.match(ids['public-detail-context'].textContent,/来源未提供累计业绩，已切换至 365D/);
+   shown.setPeriod('ALL');
+   assert.equal(shown.period,'365D');
+   shown.setPeriod('7D');
+   assert.equal(shown.period,'7D');
+   assert.equal(new URL(location.href).searchParams.get('detailPeriod'),'7D');
+   assert.doesNotMatch(ids['public-detail-context'].textContent,/来源未提供累计业绩/);
+ }finally{
+   location.href=previousURL;delete context.BooksTradeAnalysis;delete context.BooksBinancePublicRecords;filters();
+ }
+});
 await test('search finds Aoying by name and exact public ID without switching away from ROI',()=>{
  for(const query of ['熬鹰','5075281354358777856']){ids.search.value=query;a.render();assert.equal(ids.leaders.children.length,1);assert.match(content(ids.leaders),/熬鹰资本/);assert.equal(ids.sort.value,'roi');}
 });
@@ -736,25 +784,31 @@ await test('official OKX and Bitget ROI and PnL controls use their source series
  const saved=context.fetch;context.crypto=require('node:crypto').webcrypto;context.TextDecoder=TextDecoder;
  const find=(element,predicate)=>{if(predicate(element))return element;for(const item of element.children||[]){const child=find(item,predicate);if(child)return child;}};
  try{
+   const seenCurves=[];
+   context.BooksDetailPerformanceCurve={mount(_,points,options){seenCurves.push({points,options});return points.length>=2;}};
    context.BooksBitgetPeriodData=bitget;context.BooksOKXPeriodData=okx;
    context.fetch=async url=>{const bytes=read(url);return {ok:true,headers:{get:()=>String(bytes.length)},arrayBuffer:async()=>bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength)};};
    for(const [exchange,adapter] of [['bitget',bitget],['okx',okx]]){
      const row=adapter.parse(JSON.parse(read(exchange+'/period-returns.json'))).accounts[0];
      const r={...adapter.trader(row),activity:row.activity,windows:{},positions:[],points:[],orders:[]};a.openDetail(r,'30D');
-     const view=find(ids['detail-body'],x=>x.className==='lead-curve');
+     const view=find(ids['detail-body'],x=>x.className==='ta-analysis-section detail-performance-panel'&&x.children.some(child=>child.className==='lead-metric-switch'));
      const controls=find(view,x=>x.attrs['aria-label']==='官方日线指标');
      assert.equal(controls.className,'lead-metric-switch');assert.equal(controls.attrs.role,'group');
      assert.equal(find(view,x=>x.className==='period-switch'),undefined);
      const periodGroup=find(ids['detail-body'],x=>x.className==='period-switch');assert.equal(periodGroup.attrs['aria-label'],'收益统计周期');
      if(exchange==='okx')for(let i=0;i<40&&!find(view,x=>x.textContent==='盈亏');i++)await new Promise(res=>setTimeout(res,2));
-     const pnl=find(view,x=>x.textContent==='盈亏');assert.ok(pnl);pnl.click();assert.match(content(view),exchange==='okx'?/累计盈亏 · 日采样/:/来源盈亏曲线/);
-     const svg=find(view,x=>x.attrs?.role==='img');assert.ok(svg.attrs['aria-label'].includes(r.currency));
+     const pnl=find(view,x=>x.textContent==='盈亏');assert.ok(pnl);pnl.click();assert.match(content(view),/来源盈亏曲线/);
+     assert.equal(seenCurves.at(-1).options.unit,r.currency);
+     assert.equal(seenCurves.at(-1).points.at(-1).value,row.performance['30D'].pnlCurve?.at(-1)?.value??row.performance['30D'].pnl);
+     find(view,x=>x.textContent==='收益率').click();
+     assert.equal(seenCurves.at(-1).options.unit,'%');
+     assert.match(content(view),/来源收益率曲线/);
      if(exchange==='bitget'){
        assert.match(content(ids['detail-body']),/组合资产与资金调拨/);assert.match(content(ids['detail-body']),/组合净值.*USD/);
        assert.match(content(ids['detail-body']),/USDT/);assert.match(content(ids['detail-body']),/调拨凭证/);
      }
    }
- }finally{context.fetch=saved;delete context.BooksBitgetPeriodData;delete context.BooksOKXPeriodData;}
+ }finally{context.fetch=saved;delete context.BooksDetailPerformanceCurve;delete context.BooksBitgetPeriodData;delete context.BooksOKXPeriodData;}
 });
 await test('Aoying distinguishes hidden official holdings and never reads third-party archives',()=>{
  const before=context.fetch,requests=[];
@@ -774,11 +828,34 @@ await test('Aoying distinguishes hidden official holdings and never reads third-
    }
  }finally{context.fetch=before;delete context.BooksAoyingPublicArchive;delete context.BooksReferenceData;}
 });
+await test('OKX and Bitget legacy cumulative selections use each archive’s longest recorded period',()=>{
+ const read=rel=>JSON.parse(fs.readFileSync(path.resolve(__dirname,'../trader',rel),'utf8'));
+ context.BooksOKXPeriodData=require('../trader/okx-period-data.js');
+ context.BooksBitgetPeriodData=require('../trader/bitget-period-data.js');
+ try{
+   for(const [adapter,file,name,expected] of [
+     [context.BooksOKXPeriodData,'okx/period-returns.json','CchrisBbtc','90D'],
+     [context.BooksBitgetPeriodData,'bitget/period-returns.json','盗野','365D']
+   ]){
+     const account=adapter.parse(read(file)).accounts.find(row=>row.name===name);
+     const row={...adapter.trader(account),windows:{},positions:[],orders:[],points:[]};
+     a.openDetail(row,'ALL');
+     const switches=descendants(ids['detail-body']).find(element=>element.className==='period-switch');
+     assert.equal(a.state.window,expected);
+     assert.ok(!switches.children.some(child=>child.textContent==='累计'));
+     assert.ok(switches.children.some(child=>child.attrs['aria-pressed']==='true'));
+     assert.match(ids['public-detail-context'].textContent,new RegExp('来源未提供累计业绩，已切换至 '+expected));
+   }
+ }finally{delete context.BooksOKXPeriodData;delete context.BooksBitgetPeriodData;}
+});
 await test('mk4 opens via its verified research address without joining the ranked or live portfolio set',()=>{
  const address='0x77375a8c9d13bf79afb2a87f1b0ac1dfd5f5bf66';
  location.href='https://example.com/trader/?exchange=Hyperliquid&account='+address+'&period=30D';
  a.readURL();a.openLinkedAccount(true);assert.equal(a.state.detail.name,'mk4');assert.equal(a.state.detail.accountId,address);assert.ok(a.canReadLive(a.state.detail));
  assert.equal(a.state.detail.windows['30D'],undefined);assert.ok(!a.state.rows.some(r=>r.id==='research-'+address));
+ a.openDetail(a.state.detail,'ALL');assert.equal(a.state.window,'30D');
+ assert.match(ids['public-detail-context'].textContent,/来源未提供累计业绩/);
+ assert.doesNotMatch(ids['public-detail-context'].textContent,/已切换至/);
 });
 console.log(`${passed} logic and DOM-model tests passed. Synthetic fixtures stay local; the published feed is checked separately.`);
 })().catch(e=>{console.error(e);process.exitCode=1;});

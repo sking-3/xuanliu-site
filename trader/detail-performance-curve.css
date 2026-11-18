@@ -1,0 +1,122 @@
+.dpc {
+  --dpc-positive: #147461;
+  --dpc-negative: #ac4059;
+  --dpc-neutral: #495e70;
+  --dpc-ink: var(--dpc-neutral);
+  --dpc-axis-width: clamp(2.75rem, 13%, 4.15rem);
+  min-width: 0;
+  color: #4d6173;
+  font-size: .75rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.dpc[data-direction='up'] { --dpc-ink: var(--dpc-positive); }
+.dpc[data-direction='down'] { --dpc-ink: var(--dpc-negative); }
+
+.dpc-readout {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: .125rem .75rem;
+  margin-block: .375rem .5rem;
+}
+
+.dpc-value {
+  color: var(--dpc-ink);
+  font-size: 1.0625rem;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+  line-height: 1.3;
+}
+
+.dpc-time { white-space: nowrap; }
+
+.dpc-board {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--dpc-axis-width);
+  gap: .5rem;
+}
+
+.dpc-plot {
+  position: relative;
+  min-width: 0;
+  height: clamp(7.25rem, 17vw, 10rem);
+  cursor: crosshair;
+  touch-action: pan-y;
+  user-select: none;
+}
+
+.dpc-plot:focus-within {
+  outline: 2px solid #5072a4;
+  outline-offset: 3px;
+  border-radius: .25rem;
+}
+
+.dpc-plot > svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.dpc-grid-line { stroke: #dce5eb; }
+.dpc-zero { stroke: #a8b8c5; stroke-dasharray: 4 3; }
+.dpc-rule { stroke: #7891a1; stroke-dasharray: 3 3; }
+.dpc-up { color: var(--dpc-positive); }
+.dpc-down { color: var(--dpc-negative); }
+.dpc[data-flat] :is(.dpc-up, .dpc-down) { color: var(--dpc-neutral); }
+
+.dpc-area {
+  fill: currentColor;
+  fill-opacity: .125;
+}
+
+.dpc-line {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.dpc-marker {
+  position: absolute;
+  box-sizing: border-box;
+  width: .5625rem;
+  height: .5625rem;
+  transform: translate(-50%, -50%);
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: var(--dpc-ink);
+  box-shadow: 0 0 0 1px var(--dpc-ink);
+  pointer-events: none;
+}
+
+.dpc-scrubber {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.dpc-axis { position: relative; }
+
+.dpc-axis-label {
+  position: absolute;
+  inset-inline-start: 0;
+  transform: translateY(-50%);
+  white-space: nowrap;
+  line-height: 1;
+}
+
+.dpc-dates {
+  display: flex;
+  justify-content: space-between;
+  gap: .5rem;
+  margin-block-start: .375rem;
+  margin-inline-end: calc(var(--dpc-axis-width) + .5rem);
+}
