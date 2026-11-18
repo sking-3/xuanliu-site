@@ -122,12 +122,15 @@ th{color:#728098;font-weight:500;background:#fbfcfe}
 @media(max-width:420px){.record-tools .page-actions{right:auto;left:0}}
 
 .source-summary{margin-top:20px;padding:16px 18px;border:1px solid #dfe8e6;border-radius:12px;background:#f7fbfa}
-.public-disclaimer{margin:14px 0;padding:12px 14px;border:1px solid #ead9b5;border-radius:9px;background:#fffaf0;color:#745a2b;font-size:12px;line-height:1.6}
-.trader-page .featured-section,.trader-page .public-focus-section,.trader-page .record-tools,.trader-page .platform-switch,.trader-page .filters,.trader-page #sort-hint,.trader-page #bitget-selection{display:none!important}
-.public-metrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 12px;margin-top:14px;padding-top:12px;border-top:1px solid #edf0f5}
-.public-metrics>div{display:grid;gap:3px;min-width:0}
-.public-metrics small{font-size:10px;color:#7b8798;line-height:1.4}
-.public-metrics strong{font-size:12px;color:#30445e;line-height:1.5;overflow-wrap:anywhere}
+.public-disclaimer{position:sticky;top:var(--books-ticker-height,45px);z-index:10;margin:14px 0;padding:12px 14px;border:1px solid #ead9b5;border-radius:9px;background:#fffaf0;color:#745a2b;font-size:14px;line-height:1.6}
+[data-public-list] :is(.featured-section,.public-focus-section,.record-tools,.platform-switch,.filters,#sort-hint,#bitget-selection){display:none!important}
+.public-trader-card{min-width:0;padding:18px;border:1px solid #dce4ef;border-radius:12px;background:#fff}
+.public-trader-card h3{margin:0;color:#23344b;font-size:16px;line-height:1.5;overflow-wrap:anywhere}
+.public-trader-source,.public-trader-status{margin:6px 0 0;color:#52637b;font-size:13px;line-height:1.6}
+.public-metrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:14px 0 0;padding:12px 0;border-top:1px solid #edf0f5}
+.public-metrics>div:last-child{grid-column:1/-1}
+.public-metrics dt{color:#52637b;font-size:13px;line-height:1.45}
+.public-metrics dd{margin:3px 0 0;color:#23344b;font-size:14px;line-height:1.5;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
 .source-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
 .source-heading strong{font-size:14px;color:#25574e}.source-heading a{font-size:12px;color:#347b6d}
 .source-summary p{font-size:11px;line-height:1.8;margin-top:3px;color:#6e827c}

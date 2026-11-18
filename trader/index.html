@@ -7,7 +7,7 @@
   <meta name="referrer" content="no-referrer">
   <meta name="robots" content="noindex,nofollow">
   <title>Books · 带单员广场</title>
-  <link rel="stylesheet" href="plaza.css?v=ef639741"><link rel="stylesheet" href="plaza-premium.css?v=28fd5974">
+  <link rel="stylesheet" href="plaza.css?v=06afadc3"><link rel="stylesheet" href="plaza-premium.css?v=28fd5974">
   <script defer src="source-policy.js?v=533f3992"></script><script defer src="position-observations.js?v=8e23968f"></script><script defer src="account-live.js?v=2c703b60"></script>
   <script defer src="public-focus.js?v=29aabec1"></script>
   <script defer src="period-roi.js?v=2c2af217"></script>
@@ -27,7 +27,7 @@
   <script defer src="position-history-view.js?v=ef26e4c4"></script>
   <script defer src="strategy-analytics.js?v=b23abbcc"></script><script defer src="strategy-analysis-view.js?v=daf1a80e"></script>
   <script defer src="trade-analysis.js?v=a55574b2"></script>
-  <script defer src="plaza.js?v=15677b27"></script>
+  <script defer src="plaza.js?v=5adbb971"></script>
   <script defer src="refresh-health.js?v=a5cd9789"></script>
   <link rel="stylesheet" href="../books-ui.css?v=52cf1963"><link rel="stylesheet" href="../public-shell.css?v=6bcf60e1">
   <link rel="stylesheet" href="strategy-analysis.css?v=72e6e8d3">
@@ -37,7 +37,7 @@
   <script src="../books-shell.js?v=35acfa43"></script>
 <link rel="stylesheet" href="../desk-skin.css?v=de90c7f4">
 <link rel="stylesheet" href="compact-details.css?v=3ad56934"></head>
-<body class="books-shell trader-page">
+<body class="books-shell trader-page" data-public-list="true">
   <section class="index-ticker" id="index-ticker" aria-label="全球指数行情"><iframe src="../market-strip.html?v=a494c410" title="全球指数行情"></iframe></section>
   <a class="skip" href="#main">跳至内容</a>
   <aside class="books-sidebar" aria-label="研究导航">
@@ -55,14 +55,14 @@
   </aside>
   <main id="main">
     <header class="page-header">
-      <div><p class="eyebrow">PUBLIC PLAZA</p><h1>带单员广场</h1><p class="page-intro">公开浏览带单员、策略表现和可核验交易记录。</p><p class="ranking-boundary">浏览无需登录；跟单、账户连接和充值会在执行前要求登录并确认权限。</p></div><a class="books-account-link" href="../account.html">账户</a>
+      <h1>带单员广场</h1>
       <details class="record-tools"><summary>资料管理</summary><div class="actions page-actions">
         <button id="add-trader" type="button">添加带单员</button><span class="local-total">本机资料 <span id="local-count">0</span></span>
       </div></details>
     </header>
     <div class="public-disclaimer" role="note">公开历史快照，不构成跟单建议，不代表未来收益</div>
     <p id="local-feedback" class="local-feedback" role="status" aria-live="polite"></p>
-    <section class="summary-strip" aria-label="资料概览">
+    <section class="summary-strip" aria-label="资料概览" hidden>
       <div><span>收录账户</span><strong id="total-count">0</strong></div>
       <div><span id="current-count-label">有效持仓账户</span><strong id="current-count">0</strong></div>
       <div><span>有表现记录</span><strong id="coverage-count">0</strong></div>
@@ -73,8 +73,8 @@
     </section>
     <section class="plaza" aria-labelledby="plaza-title">
       <div class="heading">
-        <div><h2 id="plaza-title">研究名单</h2><p id="count" aria-live="polite">0 个研究账户</p></div>
-        <div class="actions"><button id="reset" type="button">重置筛选</button><button id="refresh" type="button">刷新</button></div>
+        <div><h2 id="plaza-title">公开名单</h2><p id="count" aria-live="polite"></p></div>
+        <div class="actions"><button id="reset" type="button" hidden>重置筛选</button><button id="refresh" type="button">刷新快照</button></div>
       </div>
       <nav class="platform-switch" aria-label="选择账户平台"><button type="button" id="platform-all" aria-pressed="true">全部平台</button><button type="button" id="platform-hl" aria-pressed="false">Hyperliquid</button><button type="button" id="platform-binance" aria-pressed="false">币安</button><button type="button" id="platform-okx" aria-pressed="false">OKX</button><button type="button" id="platform-bitget" aria-pressed="false">Bitget</button></nav>
       <div class="filters">
@@ -88,6 +88,7 @@
       <p id="sort-hint" class="hint">按永续持仓筛选 · 收益率沿用来源榜单</p>
       <p id="bitget-selection" class="hint" hidden></p>
       <p id="position-notice" class="position-notice" role="status" hidden></p>
+      <p id="public-list-status" class="position-notice" role="status">正在读取公开快照…</p>
       <div id="leaders" class="cards"></div>
       <div class="pagination"><button id="prev" type="button">上一页</button><span id="page" role="status">0 / 0</span><button id="next" type="button">下一页</button></div>
     </section>
@@ -95,7 +96,7 @@
       <div class="heading"><h2 id="public-focus-title">公开重点关注</h2><span class="hint">独立观察 · 不参与排行榜</span></div>
       <div id="public-focus-card"></div>
     </section>
-    <details class="method">
+    <details class="method" hidden>
       <summary>资料与统计说明</summary>
     <section id="source-summary" class="source-summary" aria-label="公开数据来源" hidden>
       <div class="source-heading"><strong id="source-name"></strong><span>核验候选 <span id="source-universe">—</span></span><a href="https://app.hyperliquid.xyz/leaderboard" target="_blank" rel="noopener noreferrer">来源榜单 ↗</a></div>
@@ -108,7 +109,6 @@
       <p>币安已收录四个带单员身份，其中三个接入本站公开样本；熬鹰资本单独读取官方公开资料、7D/30D/90D/180D/365D 表现与对应 PNL 曲线，并读取 detail 返回的最近公开交易时间。当前仓位由来源标记为不可见，不能把权限过滤后的空数组解释为空仓，也不展示缓存中的隐藏仓位。历史仓位与每个表现周期的采集时间分别展示，来源没有提供独立统计截止时间时保持未知。空仓账户仍保留。持仓须在 30 分钟有效期内；过期、读取失败、停止或不可见状态不计入当前持仓。订单和历史仓位是有限样本，不是完整交割单，不据此推算收益率、回撤或胜率。币安 7D、30D、90D、180D、365D 收益率、盈亏、回撤和胜率直接采用各自公开接口返回值，表现和曲线有效期独立为 60 分钟，不互相借用。曲线单位为 USDT，保留来源原始采样时间和值。公开操作记录由后台检查点提供，页面同时显示后台最近检查时间，不能把读取时间当成逐笔成交时间。</p>
       <p>我的资料仅保存在当前浏览器，不会自动同步到其他设备或发布给其他访客。表现按实际来源时间展示。</p>
     </details>
-    <footer>Books · 研究资料与本机模拟，不连接实盘交易。过往表现不代表未来收益。</footer>
   </main>
   <dialog id="detail" aria-labelledby="detail-title">
     <div class="dialog-head"><div id="detail-avatar" class="detail-avatar"></div><div class="detail-identity"><p class="eyebrow">带单分析</p><h2 id="detail-title"></h2></div><button id="close" type="button" class="icon-button" aria-label="关闭详情">✕</button></div>
