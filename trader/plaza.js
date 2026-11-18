@@ -1287,8 +1287,21 @@ function card(r,period) {
 function linkedExchange(params=new URL(location.href).searchParams){
   return params.get('detailExchange')||params.get('exchange')||'all';
 }
+function writeListQuery(url){
+  const query=$('search').value.trim();
+  if(query)url.searchParams.set('q',query);else url.searchParams.delete('q');
+  if(state.page>1)url.searchParams.set('page',state.page);else url.searchParams.delete('page');
+}
+function writePublicFilters(url){
+  for(const [id,defaultValue] of [['period','30D'],['exchange','all'],['sort','roi']]){
+    const value=$(id).value;
+    if(value===defaultValue)url.searchParams.delete(id);else url.searchParams.set(id,value);
+  }
+  writeListQuery(url);
+}
 function detailURL(row,period,view='analysis'){
   const url=new URL(location.href);
+  if(publicListPage)writePublicFilters(url);
   url.searchParams.set('account',row.accountId);
   url.searchParams.set('detailExchange',row.exchange);
   url.searchParams.set('detailPeriod',period);
@@ -1342,15 +1355,11 @@ function saveURL(replace=false,filterChanged=false) {
   const url=new URL(location.href);
   if(publicListPage){
     if(filterChanged){for(const key of ['account','view','detailExchange','detailPeriod'])url.searchParams.delete(key);linkedAccount=null;linkedStatus('');}
-    for(const [id,defaultValue] of [['period','30D'],['exchange','all'],['sort','roi']]){
-      const value=$(id).value;
-      if(value===defaultValue)url.searchParams.delete(id);else url.searchParams.set(id,value);
-    }
+    writePublicFilters(url);
   }else{
     for(const id of controls)url.searchParams.set(id,$(id).value);
+    writeListQuery(url);
   }
-  const q=$('search').value.trim();if(q)url.searchParams.set('q',q);else url.searchParams.delete('q');
-  if(state.page>1)url.searchParams.set('page',state.page);else url.searchParams.delete('page');
   if(url.href!==location.href)history[replace?'replaceState':'pushState'](replace?history.state:null,'',url.pathname+url.search+url.hash);
 }
 function choosePeriod() {
@@ -1833,14 +1842,19 @@ function renderLeadActivity(r,b,key,part=r.activity?.[key],freshPublic=false){
   });
   if(current&&publicListPage){
     const list=node('section',undefined,'public-position-list');
+    const precise=new Intl.NumberFormat('zh-CN',{maximumSignificantDigits:9});
+    const cash=new Intl.NumberFormat('zh-CN',{maximumFractionDigits:4});
     for(const row of part.rows){
       const item=node('article',undefined,'public-position-item'),fields=node('dl');
       item.append(node('h3',row.symbol+' · '+(liveSide(row.side)==='—'?'净持仓':liveSide(row.side))));
-      for(const [label,amount] of [['数量',monetary(row.quantity,row.unit)],['开仓均价',row.entryPrice],
-        ['标记价',row.markPrice],['浮动盈亏',monetary(row.unrealizedPnl,row.currency)],
-        ['杠杆',row.leverage==null?null:row.leverage+'×'],['开仓时间',when(row.openedAt)]]){
+      for(const [label,amount,formatter,unit] of [['数量',row.quantity,precise,row.unit],['开仓均价',row.entryPrice,precise],
+        ['标记价',row.markPrice,precise],['浮动盈亏',row.unrealizedPnl,cash,row.currency],
+        ['杠杆',row.leverage,precise,'×'],['开仓时间',when(row.openedAt)]]){
         if(amount==null)continue;
-        const field=node('div');field.append(node('dt',label),node('dd',String(amount)));fields.append(field);
+        const suffix=unit==='×'?'×':unit?' '+unit:'';
+        const value=node('dd',(formatter?formatter.format(amount):String(amount))+suffix);
+        if(formatter)value.title=String(amount)+suffix;
+        const field=node('div');field.append(node('dt',label),value);fields.append(field);
       }
       item.append(fields);list.append(item);
     }
