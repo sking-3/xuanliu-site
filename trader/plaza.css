@@ -124,13 +124,35 @@ th{color:#728098;font-weight:500;background:#fbfcfe}
 .source-summary{margin-top:20px;padding:16px 18px;border:1px solid #dfe8e6;border-radius:12px;background:#f7fbfa}
 .public-disclaimer{position:sticky;top:var(--books-ticker-height,45px);z-index:10;margin:14px 0;padding:12px 14px;border:1px solid #ead9b5;border-radius:9px;background:#fffaf0;color:#745a2b;font-size:14px;line-height:1.6}
 [data-public-list] :is(.featured-section,.public-focus-section,.record-tools,.platform-switch,.filters,#sort-hint,#bitget-selection){display:none!important}
-.public-trader-card{min-width:0;padding:18px;border:1px solid #dce4ef;border-radius:12px;background:#fff}
-.public-trader-card h3{margin:0;color:#23344b;font-size:16px;line-height:1.5;overflow-wrap:anywhere}
-.public-trader-source,.public-trader-status{margin:6px 0 0;color:#52637b;font-size:13px;line-height:1.6}
-.public-metrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:14px 0 0;padding:12px 0;border-top:1px solid #edf0f5}
+.books-shell.trader-page[data-public-list] #leaders{grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}
+.public-trader-card{display:flex;flex-direction:column;min-width:0;padding:20px;border:1px solid #dce4ef;border-radius:12px;background:#fff}
+.public-identity{display:flex;align-items:center;gap:11px;min-width:0}
+.public-identity>div:last-child{min-width:0}
+.public-identity .avatar{height:38px;width:38px;border-radius:50%}
+.public-trader-card h3{margin:0;color:#23344b;font-size:16px;font-weight:650;line-height:1.4;overflow-wrap:anywhere}
+.public-trader-source{margin:3px 0 0;color:#52637b;font-size:12px;line-height:1.5}
+.public-performance{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);align-items:center;gap:12px;margin:18px 0 14px}
+.public-return{display:flex;flex-direction:column;gap:6px;min-width:0}
+.public-return-label{color:#52637b;font-size:12px;line-height:1.4}
+.public-return-value{font-size:clamp(23px,2.1vw,30px);font-weight:650;line-height:1.15;font-variant-numeric:tabular-nums;letter-spacing:-.03em;overflow-wrap:anywhere}
+.public-return-value.public-missing{color:#65748b;font-size:18px;letter-spacing:0}
+.public-metrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 14px;margin:0;padding:0}
 .public-metrics>div:last-child{grid-column:1/-1}
-.public-metrics dt{color:#52637b;font-size:13px;line-height:1.45}
-.public-metrics dd{margin:3px 0 0;color:#23344b;font-size:14px;line-height:1.5;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
+.public-metrics dt{color:#52637b;font-size:12px;line-height:1.5}
+.public-metrics dd{margin:3px 0 0;color:#23344b;font-size:13px;line-height:1.5;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
+.public-sample-metrics{margin-top:12px;padding-top:12px;border-top:1px solid #edf0f5}
+.public-sample-metrics>div:last-child{grid-column:auto}
+.public-history{margin:0;min-width:0}
+.public-history figcaption,.public-history .curve-label{display:block;margin-bottom:6px;color:#52637b;font-size:12px;line-height:1.5}
+.public-history .chart,.public-history .chart svg{width:100%;height:76px;background:transparent}
+.public-history .public-curve-empty{display:flex;align-items:center;min-height:76px;margin:0;color:#65748b;font-size:12px}
+.public-sample-range,.public-sample-status,.public-trader-status{color:#52637b;font-size:11px;line-height:1.7;overflow-wrap:anywhere}
+.public-sample-range{margin:5px 0 0}
+.public-sample-status{margin:0 0 5px}
+.public-trader-status{margin:auto 0 0;padding-top:10px;border-top:1px solid #edf0f5}
+@media(min-width:1800px){.books-shell.trader-page[data-public-list] #leaders{grid-template-columns:repeat(4,minmax(0,1fr))}}
+@media(max-width:1100px){.books-shell.trader-page[data-public-list] #leaders{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:700px){.books-shell.trader-page[data-public-list] #leaders{grid-template-columns:minmax(0,1fr);gap:14px}.public-return-value{font-size:25px}.public-trader-card{padding:18px}}
 .source-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
 .source-heading strong{font-size:14px;color:#25574e}.source-heading a{font-size:12px;color:#347b6d}
 .source-summary p{font-size:11px;line-height:1.8;margin-top:3px;color:#6e827c}
