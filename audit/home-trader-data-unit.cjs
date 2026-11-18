@@ -97,7 +97,14 @@ test('OKX public futures returns use each chart window and case-sensitive offici
    const expected=raw.accounts.filter(a=>a.performance[period]).map(a=>{
      const response=JSON.parse(fs.readFileSync(path.join(root,a.performance[period].evidencePath),'utf8'));
      const last=response.data.reduce((x,y)=>Number(x.beginTs)>Number(y.beginTs)?x:y);
-     return {code:a.uniqueCode,roi:Number(last.pnlRatio)*100,pnl:Number(last.pnl)};
+     const evidence=a.performance[period].winRateEvidence;
+     let winRate=null;
+     if(evidence){
+       const receipt=fs.readFileSync(path.join(root,evidence.evidencePath));
+       assert.equal(require('node:crypto').createHash('sha256').update(receipt).digest('hex'),evidence.evidenceSha256);
+       winRate=Number(JSON.parse(receipt).data[0].winRatio)*100;
+     }
+     return {code:a.uniqueCode,roi:Number(last.pnlRatio)*100,pnl:Number(last.pnl),winRate};
    }).sort((a,b)=>b.roi-a.roi||a.code.localeCompare(b.code));
    const actual=API.rank(input,period,now,Infinity), compact=API.rank(input,period,now,3);
    assert.equal(actual.eligibleCount,expected.length);assert.equal(compact.rows.length,Math.min(3,expected.length));
@@ -107,7 +114,7 @@ test('OKX public futures returns use each chart window and case-sensitive offici
      const url=new URL(API.accountHref(row.accountId,period,row.exchange),'https://site.invalid');
      assert.equal(url.searchParams.get('account'),expected[i].code);assert.equal(url.searchParams.get('exchange'),'OKX');
      assert.equal(url.searchParams.get('period'),period);assert.equal(url.searchParams.get('currency'),'USDT');
-     assert.equal(row.mdd,null);assert.equal(row.winRate,null);
+     assert.equal(row.mdd,null);assert.equal(row.winRate,expected[i].winRate);
    }
  }
 });

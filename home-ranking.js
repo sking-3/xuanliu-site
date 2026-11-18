@@ -40,7 +40,7 @@ function renderRow(doc,row,index,period,Data){
   if(Number.isFinite(row.pnl))metrics.append(metric(doc,'同期盈亏 · '+currency,amount(row.pnl),decimal(row.pnl)+' '+currency+' · 采集 '+time(row.performanceFetchedAt,true),row.pnl<0?'home-rank-negative':'home-rank-positive'));
   if(sourcePeriod){
     if(Number.isFinite(row.mdd))metrics.append(metric(doc,'同期最大回撤',percent(row.mdd),platform+'在所选周期公布的最大回撤。'));
-    if(Number.isFinite(row.winRate))metrics.append(metric(doc,'同期胜率',percent(row.winRate),platform+'在所选周期公布的胜率。'));
+    if(Number.isFinite(row.winRate))metrics.append(metric(doc,platform==='OKX'?'盈利日比例':'同期胜率',percent(row.winRate),platform==='OKX'?'OKX 在所选周期公布的盈利日占非持平日的比例。':platform+'在所选周期公布的胜率。'));
   }else{
   if(Number.isFinite(row.mdd))metrics.append(metric(doc,'采样盈亏回撤',percent(row.mdd),'基于来源盈亏及权益采样，可能超过100%；不是资金流调整净值最大回撤。采样截至 '+time(row.mddAsOf,true)+'；采集 '+time(row.mddFetchedAt,true)+'。'+(row.mddStale?' 历史采样，等待更新。':'')));
   if(Number.isFinite(row.winRate))metrics.append(metric(doc,'近期片段胜率',percent(row.winRate),`${row.winCount}个近期永续平仓片段；样本 ${time(row.winStart,true)} 至 ${time(row.winEnd,true)}；采集 ${time(row.winFetchedAt,true)}。已扣平仓手续费，未计开仓手续费及资金费；独立于所选周期，不参与排行。${row.winStale?' 历史样本，等待更新。':''}`));
