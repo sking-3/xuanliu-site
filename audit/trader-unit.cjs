@@ -693,7 +693,7 @@ await test('Bitget and OKX details render controlled visible, protected and hidd
  const unknownDelay=structuredClone(visible);delete unknownDelay.activity.positions.publicDelayMinutes;
  assert.match(content(a.card(real(unknownDelay,bitget,unknownDelay.activity),'30D')),/来源延迟未标注/);
  const missingYear=structuredClone(visible);delete missingYear.performance['365D'];
- a.openDetail(real(missingYear,bitget,missingYear.activity),'365D');assert.equal(a.state.window,'90D');assert.match(content(ids['detail-body']),/365D 暂无可核实收益/);assert.match(content(ids['detail-body']),/Bitget 90D 收益率/);assert.match(content(ids['detail-body']),/官方每日收益率/);
+ a.openDetail(real(missingYear,bitget,missingYear.activity),'365D');assert.equal(a.state.window,'365D');assert.match(content(ids['detail-body']),/365D 暂无可核实/);assert.doesNotMatch(content(ids['detail-body']),/Bitget 90D 收益率/);
  a.openDetail(b,'30D');
  assert.match(content(ids['detail-body']),/已平仓样本分析/);assert.match(content(ids['detail-overview']),/Bitget.*持仓快照/);
  a.activateDetailTab('positions');assert.match(content(ids['detail-body']),new RegExp(visible.activity.history.rows[0].symbol));assert.match(content(ids['detail-body']),/已平仓仓位/);
@@ -747,7 +747,7 @@ await test('official OKX and Bitget ROI and PnL controls use their source series
      assert.equal(find(view,x=>x.className==='period-switch'),undefined);
      const periodGroup=find(ids['detail-body'],x=>x.className==='period-switch');assert.equal(periodGroup.attrs['aria-label'],'收益统计周期');
      if(exchange==='okx')for(let i=0;i<40&&!find(view,x=>x.textContent==='盈亏');i++)await new Promise(res=>setTimeout(res,2));
-     const pnl=find(view,x=>x.textContent==='盈亏');assert.ok(pnl);pnl.click();assert.match(content(view),/官方每日盈亏/);
+     const pnl=find(view,x=>x.textContent==='盈亏');assert.ok(pnl);pnl.click();assert.match(content(view),exchange==='okx'?/累计盈亏 · 日采样/:/来源盈亏曲线/);
      const svg=find(view,x=>x.attrs?.role==='img');assert.ok(svg.attrs['aria-label'].includes(r.currency));
      if(exchange==='bitget'){
        assert.match(content(ids['detail-body']),/组合资产与资金调拨/);assert.match(content(ids['detail-body']),/组合净值.*USD/);

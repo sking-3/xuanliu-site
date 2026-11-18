@@ -1,0 +1,10 @@
+[Unit]
+Description=Check GitHub for verified trader snapshots every five minutes
+
+[Timer]
+OnBootSec=45s
+OnUnitInactiveSec=5min
+AccuracySec=10s
+
+[Install]
+WantedBy=timers.target

@@ -19,7 +19,7 @@ function decodeChunks(chunks){
 }
 let linkedAccount=null;
 let periodReturns=null,periodReturnsFailed=false,okxReturns=null,okxReturnsFailed=false,bitgetReturns=null,bitgetReturnsFailed=false,okxTrades=null,okxTradesFailed=false;
-const publicFocus={record:typeof BooksPublicFocus==='undefined'?null:BooksPublicFocus.identity(),snapshot:null,fromLive:false,readFailed:false,renderKey:null};
+const publicFocus={record:typeof BooksPublicFocus==='undefined'?null:BooksPublicFocus.identity(),snapshot:null,fromLive:false,readFailed:false,unknownReason:null,renderKey:null};
 const mk4Address='0x77375a8c9d13bf79afb2a87f1b0ac1dfd5f5bf66';
 const mk4Research={id:'research-'+mk4Address,accountId:mk4Address,name:'mk4',exchange:'Hyperliquid',currency:'USD',
   sourceKind:'research_account',sourceUrl:'https://app.hyperliquid.xyz/explorer/address/'+mk4Address,
@@ -30,8 +30,8 @@ function focusStatus(now=Date.now()) {
   if(!s)return '尚无有效持仓快照 · 可打开实时交易读取官方数据';
   const maxAge=publicFocus.fromLive?120000:3600000;
   const stale=publicFocus.readFailed||now-Date.parse(s.fetchedAt)>maxAge||now-Date.parse(s.sourceTime)>maxAge;
-  return (publicFocus.readFailed?'快照读取失败 · ':stale?'快照已过期 · ':'')+
-    (stale?'上次快照':'最近快照')+(s.positions.length?'持仓 '+s.positions.length+' 项':'为空仓')+
+  return (publicFocus.readFailed?(publicFocus.unknownReason||'快照读取失败')+' · ':stale?'快照已过期 · ':'')+
+    '默认永续市场 · '+(stale?'上次快照':'最近快照')+(s.positions.length?'持仓 '+s.positions.length+' 项':'为空仓')+
     (stale?' · 当前仓位未知':'')+' · 来源 '+timeLabel(s.sourceTime)+' · 读取 '+timeLabel(s.fetchedAt);
 }
 function appendFocusSnapshot(target) {
@@ -62,7 +62,12 @@ function renderPublicFocus() {
 function syncPublicFocusLive(r,data,now=Date.now()) {
   if(!isPublicFocus(r)||data?.address!==r.accountId)return false;
   const part=data.positions;
-  if(part?.status==='error'&&publicFocus.fromLive){publicFocus.readFailed=true;renderPublicFocus();return false;}
+  if(part?.status==='error'||(data.defaultStream!==undefined&&(data.defaultStream!=='live'||data.connection?.status!=='live'))){
+    publicFocus.readFailed=true;publicFocus.unknownReason=part?.status==='error'?'快照读取失败':'默认市场实时连接未确认';renderPublicFocus();return false;
+  }
+  if(part?.status==='ready'&&part.sourceTime===null&&publicFocus.snapshot){
+    publicFocus.readFailed=true;publicFocus.unknownReason='实时推送未提供来源时间';renderPublicFocus();return false;
+  }
   if(part?.status!=='ready'||part.error||!Number.isSafeInteger(part.sourceTime)||!Number.isSafeInteger(part.fetchedAt)||now-part.sourceTime>120000||now-part.fetchedAt>120000)return false;
   try{
     // The live client reads the default perpetual DEX. Its normalized holdings
@@ -70,7 +75,7 @@ function syncPublicFocusLive(r,data,now=Date.now()) {
     const snapshot=BooksPublicFocus.validate({schemaVersion:1,address:r.accountId,scope:'default_perp_dex',sourceTime:new Date(part.sourceTime).toISOString(),fetchedAt:new Date(part.fetchedAt).toISOString(),accountValue:null,positions:part.rows},now),previous=publicFocus.snapshot;
     if(previous&&(part.fetchedAt<Date.parse(previous.fetchedAt)||part.sourceTime<Date.parse(previous.sourceTime)))return false;
     if(previous&&part.fetchedAt===Date.parse(previous.fetchedAt)&&part.sourceTime===Date.parse(previous.sourceTime))return false;
-    publicFocus.snapshot=snapshot;publicFocus.fromLive=true;publicFocus.readFailed=false;renderPublicFocus();return true;
+    publicFocus.snapshot=snapshot;publicFocus.fromLive=true;publicFocus.readFailed=false;publicFocus.unknownReason=null;renderPublicFocus();return true;
   }catch(_){return false;}
 }
 function refreshPublicFocus() {return sharedRequest('focusRequest',async()=>{
@@ -84,8 +89,8 @@ function refreshPublicFocus() {return sharedRequest('focusRequest',async()=>{
     const snapshot=BooksPublicFocus.validate(JSON.parse(decodeChunks(chunks))),previous=publicFocus.snapshot;
     if(publicFocus.fromLive&&previous&&(Date.parse(snapshot.fetchedAt)<=Date.parse(previous.fetchedAt)||Date.parse(snapshot.sourceTime)<=Date.parse(previous.sourceTime)))return;
     if(previous&&(Date.parse(snapshot.fetchedAt)<Date.parse(previous.fetchedAt)||Date.parse(snapshot.sourceTime)<Date.parse(previous.sourceTime)))throw Error('focus_older');
-    publicFocus.snapshot=snapshot;publicFocus.fromLive=false;publicFocus.readFailed=false;
-  }catch(_){if(!publicFocus.fromLive)publicFocus.readFailed=true;}
+    publicFocus.snapshot=snapshot;publicFocus.fromLive=false;publicFocus.readFailed=false;publicFocus.unknownReason=null;
+  }catch(_){if(!publicFocus.fromLive){publicFocus.readFailed=true;publicFocus.unknownReason='快照读取失败';}}
   finally{clearTimeout(timer);const changed=renderPublicFocus();if(changed&&isPublicFocus(state.detail)&&$('detail').open&&state.tab!=='live')renderDetail();}
 });}
 // Only validated same-origin public snapshots enter these keys. Original source
@@ -877,6 +882,8 @@ function mergeRows() {
   state.rows=[...retainedPublicRows().map(r=>({...r,_local:false})),...known.values(),...leads,...state.localRows.map(r=>({...r,_local:true}))];
 }
 async function fetchPeriodText(url){
+  // These two archives include per-account histories and can grow to 100 accounts.
+  const limit=(url==='bitget/period-returns.json'||url==='okx/trades.json'?32:1)*1048576;
   const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),10000);
   try{
     const response=await fetch(url,{cache:'no-cache',credentials:'omit',redirect:'error',signal:controller.signal});
@@ -885,16 +892,24 @@ async function fetchPeriodText(url){
       error.retryable=[404,408,425,429].includes(response.status)||response.status>=500;
       throw error;
     }
-    if(Number(response.headers.get('content-length'))>1048576)fail();
-    const body=await response.text();if(new Blob([body]).size>1048576)fail();
-    return body;
+    if(!response.body||Number(response.headers.get('content-length'))>limit)fail();
+    const reader=response.body.getReader(),chunks=[];
+    let size=0;
+    while(true){
+      const {done,value}=await reader.read();
+      if(done)break;
+      size+=value.byteLength;
+      if(size>limit){await reader.cancel();fail();}
+      chunks.push(value);
+    }
+    return decodeChunks(chunks);
   }finally{clearTimeout(timer);}
 }
 async function readPeriodFile(url,parse,old,exchange){
   let body;
   try{body=await fetchPeriodText(url);}catch(e){
     if(!exchange||!(e.retryable||e.name==='TypeError'||e.name==='AbortError'))throw e;
-    if(linkedAccount&&$('exchange').value===exchange)linkedStatus('正在重试读取'+exchange+'账户资料…');
+    if(linkedAccount&&linkedExchange()===exchange)linkedStatus('正在重试读取'+exchange+'账户资料…');
     await new Promise(resolve=>setTimeout(resolve,450));
     body=await fetchPeriodText(url);
   }
@@ -1457,6 +1472,30 @@ function publicAccountMatches(row,terms){
   const platform=(row.exchange==='Binance'?'binance 币安':row.exchange).toLowerCase();
   return terms.every(term=>name.includes(term)||id.toLowerCase().includes(term)||platform.includes(term));
 }
+function okxPeriodGap(row,period){
+  const days=globalThis.BooksOKXPeriodData?.days;
+  if(row.exchange!=='OKX'||!days)return null;
+  if(!Object.hasOwn(days,period))return {summary:'OKX 不提供此周期',curve:'来源无此周期曲线'};
+  const age=leadRecord(row)?.leadDays;
+  return Number.isSafeInteger(age)&&age<days[period]?
+    {summary:`采集时已带单 ${age} 天，未满 ${days[period]} 天`,curve:'未覆盖完整周期'}:null;
+}
+function binanceCollectionPaused(row){
+  return publicWorkflow?.platforms?.Binance?.outcome==='stopped'||
+    state.binanceCollection?.source?.refreshStopped===true||
+    row.binanceBatchSource?.refreshStopped===true;
+}
+function publicDetailLink(row,period,label,style){
+  const link=node('a',label,style);
+  link.href=detailURL(row,period).href;
+  link.addEventListener('click',event=>{
+    if(event.button!==0||event.metaKey||event.ctrlKey||event.shiftKey||event.altKey)return;
+    event.preventDefault();
+    globalThis.history.pushState({...globalThis.history.state,booksDetail:true},'',link.href);
+    openDetail(row,period);
+  });
+  return link;
+}
 function publicListCard(entry,period,failed){
   const {row,record,history,sample,sampleMdd,wins,currency}=entry;
   const lead=isPublicLead(row),binance=isBinanceTrader(row),publicAccount=isPublicAccount(row);
@@ -1465,17 +1504,7 @@ function publicListCard(entry,period,failed){
   card.setAttribute('data-public-card',row.id);
   const identity=node('div',undefined,'public-identity'),name=node('h3',row.name),heading=node('div');
   name.title=row.accountId||row.name;
-  if(row.accountId){
-    const trigger=node('a',row.name,'public-detail-trigger');
-    trigger.href=detailURL(row,period).href;
-    trigger.addEventListener('click',event=>{
-      if(event.button!==0||event.metaKey||event.ctrlKey||event.shiftKey||event.altKey)return;
-      event.preventDefault();
-      globalThis.history.pushState({...globalThis.history.state,booksDetail:true},'',trigger.href);
-      openDetail(row,period);
-    });
-    name.textContent='';name.append(trigger);
-  }
+  if(row.accountId){name.textContent='';name.append(publicDetailLink(row,period,row.name,'public-detail-trigger'));}
   heading.append(name,node('p',row.exchange,'public-trader-source'));
   identity.append(avatar(row),heading);card.append(identity);
   const performance=node('div',undefined,'public-performance'),result=node('div',undefined,'public-return');
@@ -1483,7 +1512,16 @@ function publicListCard(entry,period,failed){
   result.append(node('span',`${periodText} ${derived?'采样收益率':'来源收益率'}`,'public-return-label'),
     node('strong',roi,'public-return-value '+(roi==='—'?'public-missing':directionClass(record.roi))));
   if(record?.fullPeriod===false&&(roi!=='—'||Number.isFinite(record?.pnl)))result.append(node('small','周期覆盖不足或待核验','public-sample-range'));
-  if(roi==='—'&&!Number.isFinite(record?.pnl))result.append(node('small','该周期暂无业绩','public-sample-range'));
+  const okxGap=!record?okxPeriodGap(row,period):null;
+  if(roi==='—'&&!Number.isFinite(record?.pnl)){
+    result.append(node('small',failed?'业绩快照读取失败':okxGap?.summary||'该周期暂无业绩','public-sample-range'));
+    if(okxGap&&row.accountId&&!failed){
+      const requestedDays=period==='ALL'?Infinity:Number.parseInt(period,10);
+      const fallback=['365D','90D','30D','7D'].find(candidate=>
+        Number.parseInt(candidate,10)<requestedDays&&Number.isFinite(publicPerformance(row,candidate)?.roi));
+      if(fallback)result.append(publicDetailLink(row,fallback,'查看 '+fallback,'public-sample-range'));
+    }
+  }
   performance.append(result);card.append(performance);
 
   const explanations=node('details',undefined,'public-sample-status');
@@ -1511,7 +1549,7 @@ function publicListCard(entry,period,failed){
   if(metrics.children.length)card.append(metrics);
 
   const graph=node('figure',undefined,'public-history'),plot=node('div',undefined,'public-curve-plot');
-  let missingCurve=failed?'快照读取失败':'暂无该周期曲线';
+  let missingCurve=failed?'快照读取失败':okxGap?.curve||'暂无该周期曲线';
   if(sample?.points?.length>1){
     graph.append(node('figcaption','盈亏采样 · USD'),chart({curve:sample.points},'pnl'));
     explanations.append(node('p',`盈亏采样 ${timeLabel(sample.startAt)} 至 ${timeLabel(sample.endAt)} · ${sample.sampleCount} 点 · 末点 ${money(sample.points.at(-1).value,'USD')} USD。曲线以首个采样点为基准，和来源周期盈亏的统计范围、截止时间可能不同。`));
@@ -1524,7 +1562,8 @@ function publicListCard(entry,period,failed){
     explanations.append(node('p',`曲线采样 ${historyDate(record.curve[0].time)} 至 ${historyDate(record.curve.at(-1).time)}`));
   }else if(binance){
     const view=binanceChart(row,period);
-    if(view.periodSupported===false)missingCurve='该周期曲线未接入';
+    if(!failed&&view.periodSupported===false)missingCurve='该周期曲线未接入';
+    if(!failed&&binanceCollectionPaused(row))missingCurve='来源采集暂停，此周期曲线未取得';
     if(view.status==='restricted')missingCurve='曲线未公开';
     if(view.points?.length>1){
       graph.append(node('figcaption','盈亏采样 · USDT'),binanceChartArea(row,period));
@@ -1553,7 +1592,7 @@ function publicListCard(entry,period,failed){
   const sourceTime=record?.sourceAsOf||(record?.asOfType==='source'?record.asOf:null);
   const dated=sourceTime||collected;
   const stale=record?.status==='stale'||(publicAccount&&sourceIsStale());
-  const status=failed?'读取失败':stale?'历史快照':dated?'公开快照':'时间未提供';
+  const status=failed?'读取失败':stale?'历史快照':dated?'公开快照':okxGap?'所选周期无快照':'时间未提供';
   const times=[sourceTime&&`来源时间 ${timeLabel(sourceTime)}`,collected&&`采集时间 ${timeLabel(collected)}`].filter(Boolean);
   if(times.length)explanations.append(node('p',times.join(' · ')+'（北京时间）'));
   if(failed)explanations.append(node('p',dated?'本次快照读取失败，保留上次有效资料。':'本次快照读取失败，暂无已核验表现。'));
@@ -1714,15 +1753,21 @@ function liveSection(title,columns) {
   heading.append(node('h3',title),count);for(const label of columns){const th=node('th',label);th.setAttribute('scope','col');tr.append(th);}thead.append(tr);table.append(thead,tbody);wrap.append(table);section.append(heading,status,emptyMessage,wrap);return {section,status,count,wrap,tbody,emptyMessage};
 }
 function buildLivePanel(r,b) {
-  const root=node('div',undefined,'live-panel'),toolbar=node('div',undefined,'live-toolbar'),connection=node('p','正在连接…','live-connection'),retry=button('刷新连接',()=>state.liveClient?.refresh(),'live-refresh'),scope=node('p','持仓、成交与订单事件实时推送 · 持仓与挂单每 60 秒对齐 · 持仓范围：永续主市场','live-scope'),gap=node('p',undefined,'live-gap');
+  const focus=isPublicFocus(r);
+  const root=node('div',undefined,'live-panel'),toolbar=node('div',undefined,'live-toolbar'),connection=node('p','正在连接…','live-connection'),retry=button('刷新连接',()=>state.liveClient?.refresh(),'live-refresh'),scope=node('p',focus?'Hyperliquid 官方实时数据 · 默认永续市场和 xyz 市场分别读取 · 其他市场未覆盖':'持仓、成交与订单事件实时推送 · 持仓与挂单每 60 秒对齐 · 持仓范围：永续主市场','live-scope'),gap=node('p',undefined,'live-gap');
   connection.setAttribute('role','status');connection.setAttribute('aria-live','polite');toolbar.append(connection,retry);root.append(toolbar,scope,gap);
   const sections={
-    positions:liveSection('当前持仓',['品种','方向','数量','开仓均价（报价币）','仓位价值（报价币）','未实现盈亏（USDC）','杠杆']),
+    positions:liveSection(focus?'当前持仓 · 默认永续市场':'当前持仓',['品种','方向','数量','开仓均价（报价币）','仓位价值（报价币）','未实现盈亏（USDC）','杠杆']),
     orders:liveSection('当前挂单',['挂单时间','品种','买卖','限价','剩余数量','名义金额（报价币）','类型','只减仓']),
     fills:liveSection('最近成交',['成交时间','本页首次发现','品种','动作','买卖','成交价格','成交数量','成交额（报价币）','手续费','已实现盈亏（结算币）','订单 ID']),
     events:liveSection('订单事件',['事件时间','本页首次发现','品种','状态','买卖','限价','剩余数量','订单 ID'])
   };
-  root.append(sections.positions.section,sections.orders.section);
+  root.append(sections.positions.section);
+  if(focus){
+    sections.xyzPositions=liveSection('当前持仓 · xyz 市场',['品种','方向','数量','开仓均价（报价币）','仓位价值（报价币）','未实现盈亏（结算币）','杠杆']);
+    root.append(sections.xyzPositions.section);
+  }
+  root.append(sections.orders.section);
   const more=node('details',undefined,'public-detail-context');
   more.append(node('summary','实时成交与订单变化'),sections.fills.section,sections.events.section);
   root.append(more);
@@ -1744,19 +1789,23 @@ function renderLiveData() {
   view.connection.textContent=(labels[c.status]||'实时状态暂不可用')+(c.status==='blocked'?' · '+({snapshot_unverified:'等待同站停止记录核验',storage_unavailable:'无法保存停止记录'}[c.reason]||c.reason):'')+(c.lastMessageAt?' · 最近接收 '+liveTime(c.lastMessageAt):'');view.connection.setAttribute('data-state',c.status||'idle');
   view.retry.disabled=['connecting','reconnecting'].includes(c.status)||(c.status==='blocked'&&c.reason!=='snapshot_unverified');
   view.gap.textContent=c.gap?'重连或暂停期间可能有记录缺口；当前展示重新取得的近期记录，不代表完整历史。':'';view.gap.hidden=!c.gap;
-  const emptyMessages={positions:'当前没有持仓（永续主市场）。',orders:'当前没有未成交挂单。',fills:'来源未返回近期成交。',events:'连接期间尚未收到订单事件。'};
-  for(const key of ['positions','orders','fills','events']) {
+  const emptyMessages={positions:'当前没有持仓（永续主市场）。',xyzPositions:'当前没有持仓（xyz 市场）。',orders:'当前没有未成交挂单。',fills:'来源未返回近期成交。',events:'连接期间尚未收到订单事件。'};
+  for(const key of Object.keys(view.sections)) {
     const part=data[key]||{status:'idle',rows:[]},target=view.sections[key],rows=Array.isArray(part.rows)?part.rows:[];
-    const stamp=(part.sourceTime?' · 来源时间 '+liveTime(part.sourceTime):'')+(part.fetchedAt?' · 读取于 '+liveTime(part.fetchedAt):'');
+    const position=key==='positions'||key==='xyzPositions',market=key==='xyzPositions'?'xyz 市场':'默认永续市场';
+    const stamp=(part.sourceTime?' · 来源时间 '+liveTime(part.sourceTime):position&&part.status==='ready'&&part.fetchedAt?' · 来源时间未提供':'')+(part.fetchedAt?' · 读取于 '+liveTime(part.fetchedAt):'');
     target.status.textContent=part.status==='error'?'本项更新失败'+(rows.length?'，保留上次读取的记录。':'，尚未取得有效数据。')+stamp:part.status==='loading'?'正在读取'+(rows.length?'，暂显示上次记录。':'…'):part.status==='ready'?(key==='fills'?`最近 ${rows.length} 笔逐笔成交${part.receivedCount>rows.length?' · 来源本次返回 '+part.receivedCount+' 笔':''}`:key==='events'?`本次连接期间最近 ${rows.length} 条订单变化（最多保留 200 条）`:'已读取当前快照')+stamp:'等待来源数据…';
     const referenceTime=part.sourceTime??part.fetchedAt;
     const oldSource=referenceTime!=null&&Date.now()-referenceTime>positionSnapshotMaxAge;
+    const stream=key==='xyzPositions'?data.xyzStream:data.defaultStream;
+    const streamUncertain=position&&isPublicFocus(state.detail)&&(stream!=='live'||c.status!=='live');
     if(part.status==='ready'&&oldSource)target.status.textContent='来源快照较旧，暂保留已读取记录'+stamp;
-    target.status.setAttribute('data-state',part.status==='error'?'error':oldSource?'stale':part.status);
-    target.count.textContent=part.status==='ready'||rows.length?String(rows.length):'—';target.emptyMessage.hidden=rows.length>0;target.emptyMessage.textContent=part.status==='ready'&&oldSource&&key==='positions'?'历史快照为空，当前仓位未知。':part.status==='ready'&&oldSource&&key==='orders'?'历史挂单快照为空，当前挂单未知。':part.status==='ready'?emptyMessages[key]:part.status==='error'?'暂不可用':'正在读取…';target.wrap.hidden=!rows.length;target.tbody.replaceChildren();
+    if(streamUncertain)target.status.textContent=market+'实时连接未确认，当前仓位未知'+(rows.length?'，保留上次记录':'')+stamp;
+    target.status.setAttribute('data-state',part.status==='error'?'error':oldSource||streamUncertain?'stale':part.status);
+    target.count.textContent=part.status==='ready'||rows.length?String(rows.length):'—';target.emptyMessage.hidden=rows.length>0;target.emptyMessage.textContent=streamUncertain?'实时连接未确认，当前仓位未知。':part.status==='ready'&&oldSource&&position?'历史快照为空，当前仓位未知。':part.status==='ready'&&oldSource&&key==='orders'?'历史挂单快照为空，当前挂单未知。':part.status==='ready'?emptyMessages[key]:part.status==='error'?'暂不可用':'正在读取…';target.wrap.hidden=!rows.length;target.tbody.replaceChildren();
     for(const row of rows) {
       let cells;
-      if(key==='positions')cells=[liveCoin(row.coin,data),liveSide(row.side),value(row.quantity),value(row.entryPrice),value(row.positionValue),value(row.unrealizedPnl),row.leverage?`${value(row.leverage.value)}× ${row.leverage.type==='cross'?'全仓':row.leverage.type==='isolated'?'逐仓':row.leverage.type}`:'—'];
+      if(position)cells=[liveCoin(row.coin,data),liveSide(row.side),value(row.quantity),value(row.entryPrice),value(row.positionValue),value(row.unrealizedPnl),row.leverage?`${value(row.leverage.value)}× ${row.leverage.type==='cross'?'全仓':row.leverage.type==='isolated'?'逐仓':row.leverage.type}`:'—'];
       if(key==='orders')cells=[liveTime(row.time),liveCoin(row.coin,data),liveSide(row.side),liveAmount(row.price,row.coin,data),value(row.quantity),liveAmount(row.notional,row.coin,data),row.orderType||'—',row.reduceOnly==null?'—':row.reduceOnly?'是':'否'];
       if(key==='fills')cells=[liveTime(row.time),liveTime(row.firstSeenAt),liveCoin(row.coin,data),row.positionAction||liveDirection(row.direction),liveSide(row.side),liveAmount(row.price,row.coin,data),value(row.quantity),liveAmount(row.notional,row.coin,data),row.fee==null?'—':value(row.fee)+' '+(row.feeToken||''),livePnl(row.closedPnl,row.coin,data),row.orderId??'—'];
       if(key==='events')cells=[liveTime(row.statusTime),liveTime(row.firstSeenAt),liveCoin(row.coin,data),liveOrderStatus(row.status),liveSide(row.side),liveAmount(row.price,row.coin,data),value(row.quantity),row.orderId??'—'];
@@ -2054,7 +2103,10 @@ function renderLeadDetail(r,b){
   if(state.tab!=='analysis'){renderLeadActivity(r,b,activityKeys[state.tab]);return;}
   const candidates=provider?['7D','30D','90D','180D','365D']:['30D','90D','365D'];
   const available=candidates.filter(period=>Number.isFinite(detailPeriod(r,period)?.roi));
-  if(!available.includes(state.window))b.append(node('p',periodLabel(state.window)+' 暂无可核实的收益率，可切换已收录周期。','detail-method'));
+  if(!available.includes(state.window)){
+    const gap=okxPeriodGap(r,state.window);
+    b.append(node('p',gap?gap.summary+'，可切换已收录周期。':periodLabel(state.window)+' 暂无可核实的收益率，可切换已收录周期。','detail-method'));
+  }
   const buttons=node('div',undefined,'period-switch');buttons.setAttribute('role','group');buttons.setAttribute('aria-label','收益统计周期');
   for(const period of candidates){
     const has=available.includes(period);
@@ -2082,8 +2134,8 @@ function renderLeadDetail(r,b){
     for(const key of ['positions','history','orders']){
       const section=r.activity?.[key],label=leadActivityNote(r,key,section);
       if(label&&!Object.keys(tabs).some(tab=>activityKeys[tab]===key)){
-        const detail=node('p',label+(section.fetchedAt?' · '+timeLabel(section.fetchedAt):''),'binance-performance-note');
-        if(section.evidencePath)detail.append(evidenceLink(' 查看原始记录',section.evidencePath));
+        const detail=node('p',label+(section?.fetchedAt?' · '+timeLabel(section.fetchedAt):''),'binance-performance-note');
+        if(section?.evidencePath)detail.append(evidenceLink(' 查看原始记录',section.evidencePath));
         b.append(detail);
       }
     }

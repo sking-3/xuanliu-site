@@ -42,7 +42,7 @@ const location={href:'https://example.test/trader/index.html'};
 const history={replaceState(_state,_title,url){location.href=new URL(url,location.href).href;}};
 const context = {
   document, URL, location, history,
-  BooksOKXPeriodData: { performance: (row, period) => row.performance[period] },
+  BooksOKXPeriodData: { days:{'7D':7,'30D':30,'90D':90,'365D':365}, performance: (row, period) => row.performance[period] },
   BooksBitgetPeriodData: { performance: (row, period) => row.performance[period], avatarUrl: () => null },
   BinanceData: {
     recordedPeriod: (row, period) => row?.performance[period] || null,
@@ -61,7 +61,7 @@ const fields = (card) => Object.fromEntries(children(card).filter((item) => item
   .map((item) => [item.children[0].textContent, item.children[1].textContent]));
 const hl = { id:'hl', name: '示例公开钱包', accountId: '0x' + '1'.repeat(40), exchange: 'Hyperliquid', currency: 'USD', sourceKind: 'public_account',
   windows: { '30D': { roi: 0, pnl: 123.45, mdd: null, asOf: cut, asOfType: 'source', sourcePeriod: 'month', coverageDays: 21 } } };
-const okx = { id:'okx', name: '示例 OKX', exchange: 'OKX', sourceKind: 'okx_public_lead', okxRecord: { leadDays: 120,
+const okx = { id:'okx', accountId:'1234567890123456', name: '示例 OKX', exchange: 'OKX', sourceKind: 'okx_public_lead', okxRecord: { leadDays: 120,
   performance: { '30D': { roi: 2, mdd: null, beginTs: Date.parse('2026-10-17T12:00:00Z'), endTs: Date.parse(cut), lastSuccessAt: cut } } } };
 const bitget = { id:'bitget', name: '示例 Bitget', exchange: 'Bitget', sourceKind: 'bitget_public_lead', bitgetRecord: { leadDays: 180,
   performance: { '30D': { roi: 1, pnl: 0, mdd: 0, winRate: 0, currency: 'USD', lastSuccessAt: cut,
@@ -80,6 +80,12 @@ assert.match(content(hlCard), /数据说明.*来源最大回撤、带单天数�
 const okxCard=makeCard(okx);
 assert.equal(fields(okxCard)['来源回撤'], undefined);
 assert.match(content(okxCard), /带单 120 天.*来源业绩统计区间 2026.* 至 2026/);
+const noYear=makeCard(okx,false,'365D');
+assert.match(content(noYear),/采集时已带单 120 天，未满 365 天.*查看 30D.*未覆盖完整周期.*所选周期无快照/);
+const shorter=children(noYear).find(item=>item.tag==='a'&&item.textContent==='查看 30D');
+assert.equal(new URL(shorter.href).searchParams.get('detailPeriod'),'30D');
+assert.match(content(makeCard(okx,false,'180D')),/OKX 不提供此周期/);
+assert.match(content(makeCard(okx,true,'365D')),/业绩快照读取失败/);
 const bitgetCard = makeCard(bitget,true);
 assert.equal(fields(bitgetCard)['来源回撤'], '0.00%');
 assert.equal(fields(bitgetCard)['来源胜率'], '0.00%');

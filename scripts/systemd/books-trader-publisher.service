@@ -1,0 +1,18 @@
+[Unit]
+Description=Publish verified Books OKX and Bitget snapshots
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/flock -n /var/lib/books-trader-publish/publish.lock /usr/bin/node /opt/books/trader-publisher/publish-books-trader-snapshots.cjs
+Environment=BOOKS_TRADER_PUBLISH_STATE=/var/lib/books-trader-publish/state.json
+StateDirectory=books-trader-publish
+TimeoutStartSec=360
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ReadWritePaths=/opt/books/trader-publisher-stage /opt/books/site/trader/okx /opt/books/site/trader/bitget
+MemoryMax=256M
