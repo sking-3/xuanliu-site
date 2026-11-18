@@ -1793,8 +1793,8 @@ function evidenceLink(label,url){
 }
 function leadActivityNote(r,key,part){
   if(!part){
-    if(r.exchange==='OKX'&&state.okxArchiveRequest)return '正在读取本站公开仓位档案…';
     if(r.exchange==='OKX'&&okxTradesFailed)return '本站公开仓位档案读取失败';
+    if(r.exchange==='OKX'&&!okxTrades&&state.okxArchiveRequest)return '正在读取本站公开仓位档案…';
     return '本站尚未取得该账户的公开交易记录';
   }
   const title=key==='positions'?'持仓快照':key==='history'?'历史仓位':'成交流水';
@@ -1885,13 +1885,13 @@ async function okxEvidenceCurve(part){
 }
 function renderLeadCurve(r,b,part){
   if(!part||r.exchange!=='OKX'&&!part.curve?.length)return;
-  const section=node('section',undefined,'lead-curve'),plot=node('div'),controls=node('div',undefined,'lead-metric-switch'),heading=node('h4','官方每日收益率');
+  const section=node('section',undefined,'lead-curve'),plot=node('div'),controls=node('div',undefined,'lead-metric-switch'),heading=node('h4',r.exchange==='OKX'?'累计收益率 · 日采样':'来源收益率曲线');
   controls.setAttribute('role','group');controls.setAttribute('aria-label','官方日线指标');section.append(heading,controls,plot);b.append(section);
   const draw=curves=>{
     function select(metric){
       const data=curves[metric];if(!data||data.length<2)return;
       const isPnl=metric==='pnl',unit=isPnl?(part.currency||r.currency):'%',latest=data.at(-1);
-      heading.textContent=isPnl?'官方每日盈亏':'官方每日收益率';
+      heading.textContent=r.exchange==='OKX'?(isPnl?'累计盈亏 · 日采样':'累计收益率 · 日采样'):(isPnl?'来源盈亏曲线':'来源收益率曲线');
       const description=data[0].time.slice(0,10)+' 至 '+latest.time.slice(0,10)+' · '+data.length+' 个来源日点 · 单位 '+unit;
       plot.replaceChildren(chart({curve:data},isPnl?'pnl':'return',unit),node('small',description));
       if(part.curveEvidencePath||part.evidencePath)plot.append(evidenceLink('曲线凭证',part.curveEvidencePath||part.evidencePath));
@@ -2044,8 +2044,8 @@ function renderLeadDetail(r,b){
   const buttons=node('div',undefined,'period-switch');buttons.setAttribute('role','group');buttons.setAttribute('aria-label','收益统计周期');
   for(const period of candidates){
     const has=available.includes(period);
-    const control=button('近 '+parseInt(period,10)+' 天'+(has?'':' · 暂缺'),()=>{state.window=period;state.requestedDetailPeriod=period;saveDetailURL();renderDetail();},'detail-button');
-    control.disabled=!has;control.setAttribute('aria-pressed',String(has&&state.window===period));buttons.append(control);
+    const control=button(publicListPage?period:('近 '+parseInt(period,10)+' 天'+(has?'':' · 暂缺')),()=>{state.window=period;state.requestedDetailPeriod=period;saveDetailURL();renderDetail();},'detail-button');
+    control.disabled=!has;if(!has)control.title='此周期暂无可核实收益率';control.setAttribute('aria-pressed',String(has&&state.window===period));buttons.append(control);
   }
   b.append(buttons);
   if(provider)renderLeadPerformance(r,b,state.window);else renderBinancePerformance(r,b,state.window,true);
@@ -2073,7 +2073,7 @@ function renderLeadDetail(r,b){
         b.append(detail);
       }
     }
-  }else b.append(node('p',binanceStatus(binanceView(r),r),'detail-method'));
+  }else if(!provider)b.append(node('p',binanceStatus(binanceView(r),r),'detail-method'));
 }
 function activateDetailTab(tab) {
   if(!state.detail||!['analysis','live','positions','points','orders'].includes(tab)||tab===state.tab)return;
