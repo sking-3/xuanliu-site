@@ -122,37 +122,74 @@ th{color:#728098;font-weight:500;background:#fbfcfe}
 @media(max-width:420px){.record-tools .page-actions{right:auto;left:0}}
 
 .source-summary{margin-top:20px;padding:16px 18px;border:1px solid #dfe8e6;border-radius:12px;background:#f7fbfa}
-.public-disclaimer{position:sticky;top:var(--books-ticker-height,45px);z-index:10;margin:14px 0;padding:12px 14px;border:1px solid #ead9b5;border-radius:9px;background:#fffaf0;color:#745a2b;font-size:14px;line-height:1.6}
-[data-public-list] :is(.featured-section,.public-focus-section,.record-tools,.platform-switch,.filters,#sort-hint,#bitget-selection){display:none!important}
-.books-shell.trader-page[data-public-list] #leaders{grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}
-.public-trader-card{display:flex;flex-direction:column;min-width:0;padding:20px;border:1px solid #dce4ef;border-radius:12px;background:#fff}
-.public-identity{display:flex;align-items:center;gap:11px;min-width:0}
+.public-disclaimer{position:sticky;top:var(--books-ticker-height,45px);z-index:10;margin:10px 0;padding:8px 12px;border:1px solid #ead9b5;border-radius:8px;background:#fffaf0;color:#745a2b;font-size:12px;line-height:1.5}
+[data-public-list] :is(.featured-section,.public-focus-section,.record-tools,.platform-switch,.filters:not(#public-filters),#sort-hint,#bitget-selection){display:none!important}
+
+.books-shell.trader-page[data-public-list] .page-header{margin-bottom:6px}
+.books-shell.trader-page[data-public-list] .page-header h1{font-size:clamp(22px,2.1vw,28px);line-height:1.25}
+.books-shell.trader-page[data-public-list] .plaza{margin-top:16px}
+.books-shell.trader-page[data-public-list] .plaza>.heading{align-items:center}
+.books-shell.trader-page[data-public-list] .plaza>.heading h2{font-size:17px}
+.books-shell.trader-page[data-public-list] .plaza>.heading p{margin:2px 0 0;color:#52637b}
+#public-filters{display:grid;grid-template-columns:minmax(165px,2fr) repeat(3,minmax(100px,1fr)) auto;align-items:end;gap:10px;margin:0 0 8px;padding:0;border:0;background:transparent}
+#public-filters label{display:block;min-width:0;color:#52637b;font-size:12px;line-height:1.4;font-weight:500}
+#public-filters .search{grid-column:auto}
+#public-filters :is(input,select){min-height:40px;margin:4px 0 0;padding:7px 9px;background:#fff;font-size:14px}
+#public-filters select{padding-right:20px}
+#public-filters button{min-height:40px;padding:7px 11px;white-space:nowrap;font-size:12px}
+#public-filters input::placeholder{color:#607089}
+#public-sort-note{margin:0 0 5px;color:#52637b;font-size:12px}
+
+.books-shell.trader-page[data-public-list] #leaders{grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.public-trader-card{display:flex;flex-direction:column;min-width:0;padding:13px 15px 8px;border:1px solid #dce4ef;border-radius:12px;background:#fff}
+.public-identity{display:flex;align-items:center;gap:8px;min-width:0}
 .public-identity>div:last-child{min-width:0}
-.public-identity .avatar{height:38px;width:38px;border-radius:50%}
-.public-trader-card h3{margin:0;color:#23344b;font-size:16px;font-weight:650;line-height:1.4;overflow-wrap:anywhere}
-.public-trader-source{margin:3px 0 0;color:#52637b;font-size:12px;line-height:1.5}
-.public-performance{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);align-items:center;gap:12px;margin:18px 0 14px}
-.public-return{display:flex;flex-direction:column;gap:6px;min-width:0}
-.public-return-label{color:#52637b;font-size:12px;line-height:1.4}
-.public-return-value{font-size:clamp(23px,2.1vw,30px);font-weight:650;line-height:1.15;font-variant-numeric:tabular-nums;letter-spacing:-.03em;overflow-wrap:anywhere}
-.public-return-value.public-missing{color:#65748b;font-size:18px;letter-spacing:0}
-.public-metrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 14px;margin:0;padding:0}
-.public-metrics>div:last-child{grid-column:1/-1}
-.public-metrics dt{color:#52637b;font-size:12px;line-height:1.5}
-.public-metrics dd{margin:3px 0 0;color:#23344b;font-size:13px;line-height:1.5;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
-.public-sample-metrics{margin-top:12px;padding-top:12px;border-top:1px solid #edf0f5}
-.public-sample-metrics>div:last-child{grid-column:auto}
+.public-identity .avatar{height:28px;width:28px;border-radius:50%;font-size:10px;overflow:hidden}
+.public-identity .avatar img{width:100%;height:100%;object-fit:cover}
+.public-trader-card h3{margin:0;color:#23344b;font-size:14px;font-weight:650;line-height:1.3;overflow-wrap:anywhere}
+.public-trader-source{margin:1px 0 0;color:#52637b;font-size:11px;line-height:1.45}
+.public-performance{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);align-items:center;gap:8px;margin:8px 0 9px}
+.public-return:only-child{grid-column:1/-1}
+#public-pagination[hidden]{display:none}
+#plaza-title{scroll-margin-top:calc(var(--books-ticker-height,45px) + 115px)}
+.public-return{display:flex;flex-direction:column;gap:2px;min-width:0}
+.public-return-label{color:#52637b;font-size:11px;line-height:1.35}
+.public-return-value{font-size:clamp(20px,1.65vw,24px);font-weight:650;line-height:1.15;font-variant-numeric:tabular-nums;letter-spacing:-.025em;overflow-wrap:anywhere}
+.public-return-value.positive{color:#11745e}
+.public-return-value.negative{color:#ab4158}
+.public-return-value.public-missing{color:#52637b;font-size:15px;letter-spacing:0}
+.public-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(77px,1fr));gap:5px 10px;margin:0;padding:0}
+.public-metrics dt{color:#52637b;font-size:11px;line-height:1.35}
+.public-metrics dd{margin:2px 0 0;color:#23344b;font-size:13px;line-height:1.4;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
+.public-sample-metrics{margin-top:7px}
 .public-history{margin:0;min-width:0}
-.public-history figcaption,.public-history .curve-label{display:block;margin-bottom:6px;color:#52637b;font-size:12px;line-height:1.5}
-.public-history .chart,.public-history .chart svg{width:100%;height:76px;background:transparent}
-.public-history .public-curve-empty{display:flex;align-items:center;min-height:76px;margin:0;color:#65748b;font-size:12px}
-.public-sample-range,.public-sample-status,.public-trader-status{color:#52637b;font-size:11px;line-height:1.7;overflow-wrap:anywhere}
-.public-sample-range{margin:5px 0 0}
-.public-sample-status{margin:0 0 5px}
-.public-trader-status{margin:auto 0 0;padding-top:10px;border-top:1px solid #edf0f5}
+.public-history figcaption,.public-history .curve-label{display:block;margin:0 0 2px;color:#52637b;font-size:10px;line-height:1.3}
+.public-history .chart,.public-history .chart svg{width:100%;height:36px;background:transparent}
+.public-history .public-curve-empty{margin:0;color:#52637b;font-size:11px;line-height:1.45}
+.public-sample-range,.public-sample-status,.public-trader-status{color:#52637b;font-size:11px;line-height:1.55;overflow-wrap:anywhere}
+.public-sample-range{margin:3px 0 0}
+.public-sample-status{margin:0 0 4px}
+.public-trader-status{margin:8px 0 0;padding-top:6px;border-top:1px solid #edf0f5}
+.public-card-footer{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;column-gap:8px;margin-top:7px;border-top:1px solid #edf0f5}
+.public-card-footer .public-trader-status{margin:0;padding:0;border:0}
+.public-card-footer details[open]{grid-column:1/-1}
+details.public-sample-status{margin:0}
+details.public-sample-status>summary{width:fit-content;padding:5px 0;color:#445b76;cursor:pointer}
+details.public-sample-status p{margin:4px 0 6px;color:#52637b}
+details.public-sample-status a{display:inline-block;padding:4px 0}
+
 @media(min-width:1800px){.books-shell.trader-page[data-public-list] #leaders{grid-template-columns:repeat(4,minmax(0,1fr))}}
 @media(max-width:1100px){.books-shell.trader-page[data-public-list] #leaders{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media(max-width:700px){.books-shell.trader-page[data-public-list] #leaders{grid-template-columns:minmax(0,1fr);gap:14px}.public-return-value{font-size:25px}.public-trader-card{padding:18px}}
+@media(max-width:700px){
+  .books-shell.trader-page[data-public-list] #leaders{grid-template-columns:minmax(0,1fr);gap:8px}
+  .public-return-value{font-size:21px}
+  .public-trader-card{padding:11px 12px 1px}
+  #public-filters{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 8px}
+  #public-filters .search{grid-column:1/-1}
+  #public-filters :is(input,select){min-height:44px;font-size:16px}
+  #public-filters button{min-height:44px}
+  details.public-sample-status>summary{min-height:44px;padding:13px 0}
+}
 .source-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
 .source-heading strong{font-size:14px;color:#25574e}.source-heading a{font-size:12px;color:#347b6d}
 .source-summary p{font-size:11px;line-height:1.8;margin-top:3px;color:#6e827c}
@@ -340,6 +377,17 @@ th{color:#728098;font-weight:500;background:#fbfcfe}
 .snapshot-update-note{margin:5px 0 10px;color:#6b7787;font-size:11px;line-height:1.5}
 
 .books-shell.trader-page .position-notice{margin:12px 0 16px;padding:10px 14px;border:1px solid #e1e6ec;border-radius:8px;background:#f8fafb;color:#536779;font-size:12px;line-height:1.7}
+
+.books-shell.trader-page[data-public-list] :is(#public-refresh-result,details.position-notice){margin:3px 0;padding:4px 0;border:0;background:transparent}
+.books-shell.trader-page[data-public-list] details.position-notice{margin-bottom:8px}
+.books-shell.trader-page[data-public-list] details.position-notice>summary{width:fit-content;padding:2px 0;cursor:pointer}
+#public-platform-status{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 16px;margin:8px 0 0;padding:0;list-style:none}
+#public-platform-status li{overflow-wrap:anywhere}
+@media(max-width:700px){
+  #public-platform-status{grid-template-columns:minmax(0,1fr)}
+  .books-shell.trader-page[data-public-list] details.position-notice>summary{min-height:44px;padding:11px 0}
+}
+
 
 .ranking-boundary{margin:8px 0 0;color:#68788e;font-size:11px;line-height:1.7;max-width:760px}
 

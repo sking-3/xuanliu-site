@@ -1310,17 +1310,23 @@ function openLinkedAccount(finalRead=false) {
   if(['positions','points','orders','live'].includes(view))activateDetailTab(view);
   return true;
 }
-function saveURL(replace=false) {
+function saveURL(replace=false,filterChanged=false) {
   const url=new URL(location.href);
-  if(!publicListPage){
+  if(publicListPage){
+    if(filterChanged){url.searchParams.delete('account');url.searchParams.delete('view');linkedAccount=null;linkedStatus('');}
+    for(const [id,defaultValue] of [['period','30D'],['exchange','all'],['sort','roi']]){
+      const value=$(id).value;
+      if(value===defaultValue)url.searchParams.delete(id);else url.searchParams.set(id,value);
+    }
+  }else{
     for(const id of controls)url.searchParams.set(id,$(id).value);
-    const q=$('search').value.trim(); if(q)url.searchParams.set('q',q);else url.searchParams.delete('q');
   }
+  const q=$('search').value.trim();if(q)url.searchParams.set('q',q);else url.searchParams.delete('q');
   if(state.page>1)url.searchParams.set('page',state.page);else url.searchParams.delete('page');
   if(url.href!==location.href)history[replace?'replaceState':'pushState'](null,'',url.pathname+url.search+url.hash);
 }
 function choosePeriod() {
-  if(state.explicitPeriod)return;
+  if(publicListPage||state.explicitPeriod)return;
   const available=periods.filter(p=>state.rows.some(r=>hasMetrics(r.windows[p])));
   if(available.length && !available.includes($('period').value))$('period').value=available.includes('90D')?'90D':available[0];
 }
@@ -1354,8 +1360,7 @@ function renderPublicUpdate(rows,failures){
   const hl=state.source, binance=state.binanceCollection?.source;
   list.replaceChildren(...publicPlatforms.map(platform=>{
     const accounts=rows.filter(row=>row.exchange===platform);
-    const records=accounts.flatMap(row=>periods.map(period=>isPublicLead(row)?leadPeriod(row,period):
-      isBinanceTrader(row)?binancePerformance(row,period):row.windows[period]).filter(Boolean));
+    const records=platform==='Hyperliquid'?[]:accounts.flatMap(row=>periods.map(period=>publicPerformance(row,period)).filter(Boolean));
     const source=platform==='Hyperliquid'?hl?.snapshotAt:latestPublicDate(records.map(w=>w.sourceAsOf));
     const collected=platform==='Hyperliquid'?hl?.fetchedAt:latestPublicDate(records.map(w=>w.lastSuccessAt));
     const attempt=platform==='Hyperliquid'?hl?.lastAttemptAt:latestPublicDate(records.map(w=>w.lastAttemptAt));
@@ -1381,40 +1386,61 @@ function renderPublicUpdate(rows,failures){
   $('public-workflow-note').textContent=publicWorkflow?'后台状态记录生成于 '+timeLabel(publicWorkflow.recordedAt)+'（北京时间）。流程完成与资料更新分别记录。':
     '本站未取得后台采集任务记录。下列时间来自已发布快照，用于核对资料时效。';
 }
-function publicListCard(row,failed) {
-  const lead=isPublicLead(row),binance=isBinanceTrader(row);
-  const windows=['30D','90D','365D','7D','180D','ALL'].map(period=>({period,
-    record:lead?leadPeriod(row,period):binance?binancePerformance(row,period):row.windows[period]}));
-  const {period,record}=windows.find(({record})=>Number.isFinite(record?.roi))||
-    windows.find(({record})=>Number.isFinite(record?.mdd))||windows[0];
-  const periodText=record?periodLabel(period):'周期暂缺';
-  const days=lead?leadRecord(row)?.leadDays:binance?record?.accountAgeDays:null;
-  const range=Number.isFinite(record?.beginTs)&&Number.isFinite(record?.endTs)
-    ? `${timeLabel(record.beginTs)} 至 ${timeLabel(record.endTs)}` : notProvided;
-  const fields=[
-    ['来源周期盈亏',Number.isFinite(record?.pnl)?signedValue(record.pnl,money(record.pnl,record.currency||row.currency))+' '+(record.currency||row.currency):notProvided],
-    ['来源最大回撤',Number.isFinite(record?.mdd)?pct(record.mdd):notProvided],
-    ['带单天数',Number.isFinite(days)?`${days} 天`:notProvided]
-  ];
-  if(!isPublicAccount(row))fields.push(['来源胜率',Number.isFinite(record?.winRate)?pct(record.winRate):notProvided]);
-  fields.push(['来源业绩统计区间',range]);
-  const card=node('article',undefined,'public-trader-card'),metrics=node('dl',undefined,'public-metrics');
+function publicPerformance(row,period){
+  if(isPublicLead(row))return leadPeriod(row,period);
+  if(isBinanceTrader(row))return binancePerformance(row,period);
+  return performanceWindow(row,period);
+}
+function publicCardData(row,period){
+  const record=publicPerformance(row,period),history=portfolioSection(row,period);
+  const sample=history?.status==='ready'?history.windows[period]:null;
+  return {row,record,history,sample,sampleMdd:sampledDrawdown(sample,period),wins:cachedWin(row),
+    currency:record?.currency||row.currency};
+}
+function publicRankValue(entry,sort,platform){
+  const {record,sample,sampleMdd,wins}=entry;
+  if(sort==='winRate'&&platform==='Hyperliquid')return wins?.win?.value;
+  if(sort==='mdd'&&platform==='Hyperliquid')return sample?.coverageStatus==='insufficient_history'?null:sampleMdd;
+  if(!record||record.fullPeriod===false||(record.derived&&record.coverageStatus!=='full'))return null;
+  return record[sort];
+}
+function publicRank(entries,sort,platform){
+  if(sort==='directory')return entries;
+  const ranked=entries.map(entry=>({...entry,rank:publicRankValue(entry,sort,platform)}));
+  return ranked.sort((a,b)=>{
+    const validA=Number.isFinite(a.rank),validB=Number.isFinite(b.rank);
+    if(!validA||!validB)return Number(validB)-Number(validA);
+    if(sort==='pnl'&&a.currency!==b.currency)return a.currency.localeCompare(b.currency);
+    if(Boolean(a.record?.derived)!==Boolean(b.record?.derived))return Number(Boolean(a.record?.derived))-Number(Boolean(b.record?.derived));
+    return sort==='mdd'?a.rank-b.rank:b.rank-a.rank;
+  });
+}
+function publicAccountMatches(row,terms){
+  const id=row.accountId||'', name=(row.name||'').toLowerCase();
+  const platform=(row.exchange==='Binance'?'binance 币安':row.exchange).toLowerCase();
+  return terms.every(term=>name.includes(term)||id.toLowerCase().includes(term)||platform.includes(term));
+}
+function publicListCard(entry,period,failed){
+  const {row,record,history,sample,sampleMdd,wins,currency}=entry;
+  const lead=isPublicLead(row),binance=isBinanceTrader(row),publicAccount=isPublicAccount(row);
+  const periodText=periodLabel(period),sampleWin=wins?.win,derived=publicAccount&&derivedPeriods.includes(period);
+  const card=node('article',undefined,'public-trader-card');
+  card.setAttribute('data-public-card',row.id);
   const identity=node('div',undefined,'public-identity'),name=node('h3',row.name),heading=node('div');
   name.title=row.accountId||row.name;
-  heading.append(name,node('p',`${row.exchange} · ${record?.currency||row.currency||'公开资料'}`,'public-trader-source'));
+  heading.append(name,node('p',row.exchange,'public-trader-source'));
   identity.append(avatar(row),heading);card.append(identity);
   const performance=node('div',undefined,'public-performance'),result=node('div',undefined,'public-return');
-  result.append(node('span',`${periodText} 来源收益率${record?.fullPeriod===false?'（来源窗口，覆盖不足或待核验）':''}`,'public-return-label'),
-    node('strong',Number.isFinite(record?.roi)?signedValue(record.roi,pct(record.roi)):notProvided,
-      'public-return-value '+(Number.isFinite(record?.roi)?directionClass(record.roi):'public-missing')));
+  const roi=Number.isFinite(record?.roi)?signedValue(record.roi,pct(record.roi)):'—';
+  result.append(node('span',`${periodText} ${derived?'采样收益率':'来源收益率'}`,'public-return-label'),
+    node('strong',roi,'public-return-value '+(roi==='—'?'public-missing':directionClass(record.roi))));
+  if(record?.fullPeriod===false&&(roi!=='—'||Number.isFinite(record?.pnl)))result.append(node('small','周期覆盖不足或待核验','public-sample-range'));
+  if(roi==='—'&&!Number.isFinite(record?.pnl))result.append(node('small','该周期暂无业绩','public-sample-range'));
   performance.append(result);card.append(performance);
-  for(const [label,value] of fields){const item=node('div');item.append(node('dt',label),node('dd',value));metrics.append(item);}
-  card.append(metrics);
-  const history=portfolioSection(row,period),sample=history?.status==='ready'?history.windows[period]:null;
-  const wins=cachedWin(row),sampleWin=wins?.win;
+
   const explanations=node('details',undefined,'public-sample-status');
-  explanations.append(node('summary','指标口径与数据来源'));
-  explanations.append(node('p','收益率、周期盈亏与最大回撤采用平台公开字段。来源未给出收益率分母、期初权益或资金流调整时，本站无法独立复算。'));
+  explanations.append(node('summary','数据说明'));
+  explanations.append(node('p','来源收益率沿用平台公布的数值。原始快照缺少期初权益、收益率分母或资金流明细时，本站无法独立复算。'));
   const evidenceUrl=record?.sourceUrl||row.sourceUrl;
   if(evidenceUrl){
     try {
@@ -1424,65 +1450,104 @@ function publicListCard(row,failed) {
       }
     }catch{}
   }
-  if(isPublicAccount(row)){
-    const samples=node('dl',undefined,'public-metrics public-sample-metrics');
-    for(const [label,value,title] of [
-      ['采样盈亏回撤',Number.isFinite(sampledDrawdown(sample,period))?pct(sampledDrawdown(sample,period)):
-        state.portfolioCacheReadFailed?'曲线快照读取失败':state.portfolioCacheLoading?'正在读取采样…':'有效采样不足',drawdownDescription(sample,period)],
-      ['独立样本平仓片段胜率',Number.isFinite(sampleWin?.value)?pct(sampleWin.value):
-        state.winCacheReadFailed?'成交快照读取失败':state.winCacheLoading?'正在读取样本…':'有效样本不足',winCacheDescription(row)]
-    ]){const item=node('div');item.append(node('dt',label),node('dd',value));samples.append(item);explanations.append(node('p',title));}
-    card.append(samples);
-  }
+
+  const metrics=node('dl',undefined,'public-metrics');
+  const appendMetric=(label,value)=>{
+    const item=node('div');item.append(node('dt',label),node('dd',value));metrics.append(item);
+  };
+  if(Number.isFinite(record?.pnl))appendMetric(record.derived?'采样盈亏':'来源盈亏',signedValue(record.pnl,money(record.pnl,currency))+' '+currency);
+  if(Number.isFinite(record?.mdd)&&!record.derived)appendMetric('来源回撤',pct(record.mdd));
+  if(Number.isFinite(sampleMdd))appendMetric('采样回撤',pct(sampleMdd));
+  if(Number.isFinite(record?.winRate))appendMetric('来源胜率',pct(record.winRate));
+  if(Number.isFinite(sampleWin?.value))appendMetric('片段胜率',pct(sampleWin.value));
+  if(metrics.children.length)card.append(metrics);
+
   const graph=node('figure',undefined,'public-history'),plot=node('div');
   if(sample?.points?.length>1){
-    graph.append(node('figcaption',`${periodText} 永续盈亏采样 · USD`),chart({curve:sample.points},'pnl'));
-    graph.append(node('p',`${historyDate(sample.startAt)} 至 ${historyDate(sample.endAt)} · ${sample.sampleCount} 个采样点`,'public-sample-range'));
-    explanations.append(node('p',`曲线展示永续累计盈亏相对首个采样点的变化，截至 ${timeLabel(sample.endAt)}，末点 ${money(sample.points.at(-1).value,'USD')} USD。上方来源周期盈亏取自排行榜，统计范围和截止时间可能不同。`));
+    graph.append(node('figcaption','盈亏采样 · USD'),chart({curve:sample.points},'pnl'));
+    explanations.append(node('p',`盈亏采样 ${timeLabel(sample.startAt)} 至 ${timeLabel(sample.endAt)} · ${sample.sampleCount} 点 · 末点 ${money(sample.points.at(-1).value,'USD')} USD。曲线以首个采样点为基准，和来源周期盈亏的统计范围、截止时间可能不同。`));
+    explanations.append(node('p',`盈亏采集 ${timeLabel(history.fetchedAt)}${state.portfolioCacheReadFailed?' · 本次读取失败，保留上次有效值':history.stale?' · 历史采样，待更新':''}`));
+    if(sample.coverageStatus==='insufficient_history'||sample.coverageStatus==='sampled_boundary')explanations.append(node('p','采样未覆盖完整请求周期，详见实际起止时间。'));
   }else if(lead&&row.exchange==='OKX'&&record?.evidencePath){
-    graph.append(node('figcaption',`${periodText} 来源每日收益率`),plot);renderOKXCardCurve(plot,record);
+    graph.append(node('figcaption','来源日收益率'),plot);renderOKXCardCurve(plot,record);
   }else if(lead&&record?.curve?.length>1){
-    graph.append(node('figcaption',`${periodText} 来源每日收益率`),chart({curve:record.curve}));
-    graph.append(node('p',`曲线采样 ${historyDate(record.curve[0].time)} 至 ${historyDate(record.curve.at(-1).time)}`,'public-sample-range'));
-  }else if(binance&&binanceChart(row,period).points?.length>1){
-    graph.append(binanceChartArea(row,period));
-  }else{
-    graph.append(node('figcaption','曲线状态'),node('p',isPublicAccount(row)&&state.portfolioCacheReadFailed?'曲线快照读取失败，请刷新重试':isPublicAccount(row)&&state.portfolioCacheLoading?'正在读取已采集曲线…':'当前已采集资料未包含此周期曲线','public-curve-empty'));
+    graph.append(node('figcaption','来源日收益率'),chart({curve:record.curve}));
+    explanations.append(node('p',`曲线采样 ${historyDate(record.curve[0].time)} 至 ${historyDate(record.curve.at(-1).time)}`));
+  }else if(binance){
+    const view=binanceChart(row,period);
+    if(view.points?.length>1){
+      graph.append(node('figcaption','盈亏采样 · USDT'),binanceChartArea(row,period));
+      explanations.append(node('p',binanceChartCaption(view)));
+    }
   }
-  performance.append(graph);
-  if(isPublicAccount(row)&&sample?.sampleCount>1){
-    card.append(node('p',`盈亏采样采集于 ${timeLabel(history.fetchedAt)}${state.portfolioCacheReadFailed?' · 本次读取失败，保留上次有效值':history.stale?' · 历史采样，待更新':''}`,'public-sample-status'));
+  if(graph.children.length)performance.append(graph);
+  if(publicAccount){
+    const drawdownNote=sampleMdd===null&&state.portfolioCacheReadFailed?'曲线快照读取失败，采样回撤暂缺。':drawdownDescription(sample,period);
+    explanations.append(node('p',drawdownNote));
+    explanations.append(node('p',winCacheDescription(row)+(state.winCacheReadFailed?' · 本次成交快照读取失败':'')));
+    if(derived)explanations.append(node('p',periodROIDescription(record)));
   }
-  if(isPublicAccount(row)&&sampleWin){
-    card.append(node('p',`近期平仓片段 ${sampleWin.eligibleCount} 笔 · 独立成交样本${sampleWin.capped?' · 已达来源查询上限':''}${Number.isFinite(sampleWin.value)?` · ${historyDate(sampleWin.startAt)} 至 ${historyDate(sampleWin.endAt)}`:''} · 采集 ${timeLabel(wins.fetchedAt)}${state.winCacheReadFailed?' · 本次读取失败，保留上次有效值':winCacheIsStale(wins)?' · 历史样本，待更新':''}`,'public-sample-status'));
-  }
-  const collected=record?.lastSuccessAt||(record?.asOfType==='observed'?record.asOf:null)||(isPublicAccount(row)?state.source?.fetchedAt:null);
+  const days=lead?leadRecord(row)?.leadDays:binance?record?.accountAgeDays:null;
+  const range=Number.isFinite(record?.beginTs)&&Number.isFinite(record?.endTs)?`${timeLabel(record.beginTs)} 至 ${timeLabel(record.endTs)}`:null;
+  const missing=[!Number.isFinite(record?.mdd)&&'来源最大回撤',!publicAccount&&!Number.isFinite(record?.winRate)&&'来源胜率',!Number.isFinite(days)&&'带单天数',!range&&'来源业绩统计区间'].filter(Boolean);
+  if(Number.isFinite(days))explanations.append(node('p',`带单 ${days} 天`));
+  if(range)explanations.append(node('p','来源业绩统计区间 '+range));
+  if(missing.length)explanations.append(node('p',missing.join('、')+' · '+(record?notProvided:'该周期暂无资料')));
+  const collected=record?.lastSuccessAt||(record?.asOfType==='observed'?record.asOf:null)||(publicAccount?state.source?.fetchedAt:null);
   const sourceTime=record?.sourceAsOf||(record?.asOfType==='source'?record.asOf:null);
   const dated=sourceTime||collected;
-  const stale=record?.status==='stale'||(isPublicAccount(row)&&sourceIsStale());
-  const status=failed?(dated?'历史快照 · 本次读取失败，保留上次有效值':'本次读取失败，暂无已核验表现'):
-    stale?'历史快照，待更新':dated?'公开历史快照':'暂无已核验表现';
+  const stale=record?.status==='stale'||(publicAccount&&sourceIsStale());
+  const status=failed?'读取失败':stale?'历史快照':dated?'公开快照':'时间未提供';
   const times=[sourceTime&&`来源时间 ${timeLabel(sourceTime)}`,collected&&`采集时间 ${timeLabel(collected)}`].filter(Boolean);
-  card.append(node('p',[status,...(times.length?times:['表现时间：'+notProvided]),'北京时间'].join(' · '),'public-trader-status'));
-  card.append(explanations);
+  if(times.length)explanations.append(node('p',times.join(' · ')+'（北京时间）'));
+  if(failed)explanations.append(node('p',dated?'本次快照读取失败，保留上次有效资料。':'本次快照读取失败，暂无已核验表现。'));
+  const footer=node('footer',undefined,'public-card-footer');
+  footer.append(node('p',status+(dated?' · '+new Date(dated).toLocaleDateString('zh-CN',{timeZone:'Asia/Shanghai'}):''),'public-trader-status'),explanations);
+  card.append(footer);
   return card;
 }
-function renderPublicList() {
+function renderPublicList(){
   const failures=publicReadFailures();
-  const rows=state.rows.filter(row=>!row._local&&!row.paid&&publicPlatforms.includes(row.exchange));
+  const directory=state.rows.filter(row=>!row._local&&!row.paid&&publicPlatforms.includes(row.exchange));
+  const platform=$('exchange').value,period=$('period').value,sort=$('sort').value;
+  const terms=$('search').value.toLowerCase().trim().split(/\s+/).filter(Boolean);
+  const matches=directory.filter(row=>(platform==='all'||row.exchange===platform)&&publicAccountMatches(row,terms));
+  const rows=publicRank(matches.map(row=>publicCardData(row,period)),sort,platform);
   const pages=Math.max(1,Math.ceil(rows.length/12));
   if(!state.loading)state.page=Math.max(1,Math.min(state.page,pages));
   const visible=rows.slice((state.page-1)*12,state.page*12);
-  $('leaders').replaceChildren(...visible.map(row=>publicListCard(row,failures[row.exchange])));
-  const failed=publicPlatforms.filter(platform=>failures[platform]);
+  const leaders=$('leaders'),expanded=new Set(),active=document.activeElement;
+  let focusedCard=null,focusTarget=null;
+  for(const details of leaders.querySelectorAll('.public-sample-status')){
+    const id=details.closest('[data-public-card]').getAttribute('data-public-card');
+    if(details.open)expanded.add(id);
+    if(details.contains(active)){focusedCard=id;focusTarget=active.tagName.toLowerCase();}
+  }
+  leaders.replaceChildren(...visible.map(entry=>publicListCard(entry,period,failures[entry.row.exchange])));
+  for(const details of leaders.querySelectorAll('.public-sample-status')){
+    const id=details.closest('[data-public-card]').getAttribute('data-public-card');
+    details.open=expanded.has(id);
+    if(id===focusedCard)(details.querySelector(focusTarget)||details.querySelector('summary')).focus({preventScroll:true});
+  }
+  const sampledRisk=platform==='Hyperliquid';
+  for(const option of $('sort').options){
+    if(option.value==='mdd')option.textContent=sampledRisk?'采样回撤 ↑':'来源回撤 ↑';
+    if(option.value==='winRate')option.textContent=sampledRisk?'片段胜率 ↓':'来源胜率 ↓';
+  }
+  const note=sort==='pnl'&&platform==='all'?'盈亏按币种分别排序。':sort==='winRate'&&sampledRisk?'片段胜率按独立成交样本排序。':'';
+  $('public-sort-note').textContent=note;$('public-sort-note').hidden=!note;
+  const failed=publicPlatforms.filter(key=>failures[key]);
   if(state.portfolioCacheReadFailed)failed.push('Hyperliquid 曲线');
   if(state.winCacheReadFailed)failed.push('Hyperliquid 成交样本');
-  $('public-list-status').textContent=failed.length?`${failed.join('、')} 的公开快照读取失败。${rows.length?'列表保留已读取的公开资料。':'暂无可用快照。'}`:
-    !rows.length&&!state.loading?'此次快照没有可展示的公开账户。':'正在读取公开快照…';
-  $('public-list-status').hidden=!failed.length&&rows.length>0;
-  renderPublicUpdate(rows,failures);
-  $('count').textContent=`${rows.length} 个公开账户`;
+  const listStatus=$('public-list-status');
+  const message=failed.length?`${failed.join('、')}快照读取失败。${directory.length?'显示已读资料。':'暂无可用快照。'}`:
+    !directory.length?(state.loading?'正在读取公开快照…':'暂无公开快照。'):'';
+  listStatus.textContent=message;listStatus.hidden=!message;
+  if(directory.length&&!rows.length&&!state.loading)empty(leaders,'没有匹配的账户','试试其他昵称、账户 ID 或平台。');
+  renderPublicUpdate(directory,failures);
+  $('count').textContent=terms.length||platform!=='all'?`${rows.length} / ${directory.length} 个账户`:`${rows.length} 个公开账户`;
   $('page').textContent=rows.length?`${state.page} / ${pages}`:'0 / 0';
+  $('public-pagination').hidden=pages===1;
   $('prev').disabled=state.loading||state.page<=1;
   $('next').disabled=state.loading||state.page>=pages;
 }
@@ -1530,7 +1595,8 @@ function render() {
   $('local-count').textContent=state.localRows.length;
   for(const [id,exchange,label]of [['platform-all','all','全部平台'],['platform-hl','Hyperliquid','Hyperliquid'],['platform-binance','Binance','币安'],['platform-okx','OKX','OKX'],['platform-bitget','Bitget','Bitget']]){if(!$(id))continue;const n=state.rows.filter(r=>!r._local&&(exchange==='all'||r.exchange===exchange)).length;$(id).textContent=label+' '+n;$(id).setAttribute('aria-pressed',String($('exchange').value===exchange));}
   $('count').textContent=`${rows.length} 个研究账户${available.length!==rows.length?' · 共 '+available.length+' 个':''}${grouped?' · 按币种分组':''}`;
-  $('page').textContent=rows.length?`${state.page} / ${pages}`:'0 / 0';$('prev').disabled=state.loading||!rows.length||state.page===1;$('next').disabled=state.loading||!rows.length||state.page>=pages;
+  $('page').textContent=rows.length?`${state.page} / ${pages}`:'0 / 0';
+  $('public-pagination').hidden=pages===1;$('prev').disabled=state.loading||!rows.length||state.page===1;$('next').disabled=state.loading||!rows.length||state.page>=pages;
   // Retaining unranked accounts must not start new foreground source requests.
   const analyticsRows=sort==='roi'&&source!=='local'&&!q&&platform!=='Binance'?visibleRows.filter(r=>Number.isFinite(sortValue(r,p,'roi'))):visibleRows;
   startVisibleAnalytics(analyticsRows);
@@ -2035,7 +2101,7 @@ async function revalidate(background=false) {
     if(state.detail&&!state.detail._local) {const latest=rows.find(r=>r.id===state.detail.id);if(latest)state.detail={...latest,_local:false};}
   } catch(e) {globalThis.BooksSourcePolicy?.inspect('feed',null);state.status='error';state.lastReadFailed=true;savePublicSnapshot('feed',undefined,true);}
   finally {
-    clearTimeout(timeout);state.loading=false;if(!publicListPage){$('refresh').disabled=false;$('leaders').setAttribute('aria-busy','false');}
+    clearTimeout(timeout);if(!publicListPage){state.loading=false;$('refresh').disabled=false;$('leaders').setAttribute('aria-busy','false');}
     if(!background&&!publicListPage)updateView();else {if(changed){mergeRows();choosePeriod();}reevaluatePositions();}
     if(changed&&state.detail&&!state.detail._local&&$('detail').open)renderDetail();
     saveURL(true);openLinkedAccount();if(restoreFocus&&document.activeElement===document.body)$('refresh').focus();
@@ -2048,7 +2114,7 @@ async function revalidate(background=false) {
     publicRefreshMessage=failed?(updated?'部分资料已读取，另有快照读取失败。':'有快照读取失败，详见下方状态。'):
       !state.publicRows.length&&!state.binanceRows.length&&!periodReturns?.accounts?.length&&!okxReturns?.accounts?.length&&!bitgetReturns?.accounts?.length?'已检查，暂无可用快照。':
       updated?'已读取本站发布的快照。':'检查完成，本站暂无新版快照。';
-    $('refresh').disabled=false;
+    state.loading=false;$('refresh').disabled=false;
     $('leaders').setAttribute('aria-busy','false');
     if(restoreFocus&&document.activeElement===document.body)$('refresh').focus();
   }
@@ -2056,13 +2122,18 @@ async function revalidate(background=false) {
     mergeRows();choosePeriod();renderPreservingCardFocus();renderSource();
     if((isBinanceTrader(state.detail)||isPublicLead(state.detail))&&$('detail').open){const row=state.rows.find(r=>r.id===state.detail.id);if(row){state.detail=row;renderDetail();}}
   }
+  if(publicListPage)saveURL(true);
   openLinkedAccount(true);
 }
-for(const id of controls)$(id).addEventListener('change',()=>{if(id==='period')state.explicitPeriod=true;state.page=1;render();if(id==='exchange'||id==='source')renderSource();saveURL();});
+for(const id of controls)$(id).addEventListener('change',()=>{if(id==='period')state.explicitPeriod=true;state.page=1;render();if(id==='exchange'||id==='source')renderSource();saveURL(false,true);});
 for(const [id,exchange]of [['platform-all','all'],['platform-hl','Hyperliquid'],['platform-binance','Binance'],['platform-okx','OKX'],['platform-bitget','Bitget']])if($(id))$(id).onclick=()=>selectPlatform(exchange);
-$('search').addEventListener('input',()=>{state.page=1;render();saveURL(true);});
-$('reset').onclick=()=>{$('search').value='';$('period').value='30D';$('exchange').value='all';$('source').value='all';$('sort').value='roi';$('currency').value='all';state.explicitPeriod=false;state.page=1;choosePeriod();render();renderSource();saveURL();};
-$('prev').onclick=()=>{state.page--;render();saveURL();};$('next').onclick=()=>{state.page++;render();saveURL();};$('refresh').onclick=()=>refresh();
+$('search').addEventListener('input',()=>{state.page=1;render();saveURL(true,true);});
+$('reset').onclick=()=>{$('search').value='';$('period').value='30D';$('exchange').value='all';$('source').value='all';$('sort').value='roi';$('currency').value='all';state.explicitPeriod=false;state.page=1;choosePeriod();render();renderSource();saveURL(false,true);};
+function turnListPage(step){
+  state.page+=step;render();saveURL();
+  if(publicListPage)$('plaza-title').focus();
+}
+$('prev').onclick=()=>turnListPage(-1);$('next').onclick=()=>turnListPage(1);$('refresh').onclick=()=>refresh();
 $('add-trader').onclick=()=>openEditor();
 $('record-form').addEventListener('invalid',e=>{const details=e.target.closest('details');if(details)details.open=true;},true);
 $('record-form').addEventListener('submit',saveRecord);$('record-period').addEventListener('change',changeEditorPeriod);
