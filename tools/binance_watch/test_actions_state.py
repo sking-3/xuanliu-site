@@ -504,8 +504,10 @@ class CommandTests(unittest.TestCase):
     def test_old_collector_shares_lock_and_skips_binance_if_peer_not_allowed(self):
         workflow = Path(__file__).resolve().parents[2] / ".github/workflows/refresh-traders.yml"
         text = workflow.read_text()
-        self.assertIn("|| 'binance-public-source'", text)
-        self.assertIn("format('binance-ui-only-{0}-{1}'", text)
+        self.assertIn("group: binance-public-source\n", text)
+        self.assertNotIn("\n  push:", text)
+        policy = text.split("- name: Check durable Binance source permissions", 1)[1].split("\n      - ", 1)[0]
+        self.assertIn("p?.binancePublicCollector === 'approved' && p?.githubRunInventory === 'approved'", policy)
         for step_name in ("Select the latest Python Binance source checkpoint", "Restore the exact Python Binance source checkpoint",
                           "Validate the Python Binance global source-stop state", "Collect the public Binance lead sample"):
             section = text.split(f"- name: {step_name}", 1)[1].split("\n      - ", 1)[0]

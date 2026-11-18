@@ -62,6 +62,65 @@ class PublicOrderTests(unittest.TestCase):
         self.assertEqual(len(rows),1);self.assertEqual(len(source.calls),2)
         self.assertFalse(coverage['fullWindowRead']);self.assertTrue(coverage['terminalBoundaryObserved'])
         self.assertEqual(coverage['coverageWarning'],'source_total_mismatch_at_terminal_cursor')
+    def test_archived_empty_cursor_echo_ends_scan_without_repeating_that_cursor(self):
+        # Final source response of run 44155863687, matched to its sealed SHA-256.
+        body = (b'{"code":"000000","message":null,"messageDetail":null,"data":'
+                b'{"indexValue":"1794382082050","total":45,"list":[]},"success":true}')
+        self.assertEqual(p.hashlib.sha256(body).hexdigest(),
+                         '3e0d0e69a722389eba2ff37c3fcf14647b7c3b0d699ccd4f9c1ad0464dfea484')
+        tail = json.loads(body)['data']
+        cutoff = int(tail['indexValue'])
+        records = [raw(orderTime=t, orderUpdateTime=t) for t in range(cutoff + 43, cutoff - 1, -1)]
+        pages = [{'list': batch, 'total': 45, 'indexValue': str(batch[-1]['orderUpdateTime'])}
+                 for batch in (records[:20], records[19:39], records[38:])]
+        c = Clock()
+        source = Source(c, [*pages, tail])
+        rows, coverage = p.collect(source, p.initial_state(), p.monitor.iso(c.wall()))
+        self.assertEqual(len(rows), 44)
+        self.assertEqual([call['cursor'] for call in source.calls], [None, *(page['indexValue'] for page in pages)])
+        self.assertEqual(coverage['sourceTotal'], 45)
+        self.assertFalse(coverage['fullWindowRead'])
+    def test_terminal_empty_page_with_reset_total_preserves_partial_rows(self):
+        c=Clock();r=raw();cursor=str(r['orderUpdateTime'])
+        source=Source(c,[{'list':[r],'total':3,'indexValue':cursor}, {'list':[],'total':0,'indexValue':None}])
+        rows,coverage=p.collect(source,p.initial_state(),p.monitor.iso(c.wall()))
+        self.assertEqual(len(rows),1)
+        self.assertEqual([call['cursor'] for call in source.calls],[None,cursor])
+        self.assertFalse(coverage['fullWindowRead']);self.assertTrue(coverage['terminalBoundaryObserved'])
+        self.assertEqual(coverage['sourceTotal'],3)
+        self.assertEqual({k: source.calls[-1][k] for k in ('pageRows','sourceTotal','returnedCursorStatus','newUniqueRows')},
+                         {'pageRows':0,'sourceTotal':0,'returnedCursorStatus':'absent','newUniqueRows':0})
+    def test_multiple_exact_rows_at_one_boundary_can_end_the_scan(self):
+        c=Clock();boundary=[raw(1),raw(1,executedQty=2)]
+        cursor=str(boundary[0]['orderUpdateTime'])
+        source=Source(c,[{'list':[raw(),*boundary],'total':4,'indexValue':cursor},
+                         {'list':list(reversed(boundary)),'total':4,'indexValue':cursor}])
+        rows,coverage=p.collect(source,p.initial_state(),p.monitor.iso(c.wall()))
+        self.assertEqual(len(rows),3);self.assertEqual(len(source.calls),2)
+        self.assertFalse(coverage['fullWindowRead']);self.assertTrue(coverage['terminalBoundaryObserved'])
+    def test_short_final_page_can_add_verified_rows_without_a_cursor(self):
+        c=Clock();r=raw();cursor=str(r['orderUpdateTime'])
+        source=Source(c,[{'list':[r],'total':3,'indexValue':cursor}, {'list':[r,raw(1)],'total':3,'indexValue':''}])
+        rows,coverage=p.collect(source,p.initial_state(),p.monitor.iso(c.wall()))
+        self.assertEqual(len(rows),2);self.assertEqual(len(source.calls),2)
+        self.assertFalse(coverage['fullWindowRead'])
+        self.assertEqual(coverage['coverageWarning'],'source_total_mismatch_at_terminal_cursor')
+    def test_ambiguous_page_keeps_evidence_and_never_replays_cursor(self):
+        r=raw(1);cursor=str(r['orderUpdateTime'])
+        for page in ({'list':[raw(),r],'total':4,'indexValue':cursor},
+                     {'list':[],'total':4,'indexValue':'1794389348000'},
+                     {'list':[r],'total':4,'indexValue':True}):
+            with self.subTest(page=page):
+                c=Clock();source=Source(c,[{'list':[raw(),r],'total':4,'indexValue':cursor},page])
+                result,store,_=self.run_watch(source=source)
+                self.assertEqual([call['cursor'] for call in source.calls],[None,cursor])
+                self.assertEqual(result['errorCode'],'pagination_not_advancing')
+                self.assertTrue(store.state['stopped'])
+                self.assertEqual(result['sourceCalls'][-1]['pageRows'],len(page['list']))
+                self.assertEqual(result['sourceCalls'][-1]['newUniqueRows'],0)
+                if page['indexValue'] is True:
+                    self.assertEqual(result['sourceCalls'][-1]['returnedCursorStatus'],'invalid')
+                    self.assertIsNone(result['sourceCalls'][-1]['returnedCursor'])
     def test_incomplete_boundary_scan_does_not_repeat_all_pages_on_every_tick(self):
         c=Clock();r=raw();cursor=str(r['orderUpdateTime']);s=p.initial_state()
         source=Source(c,[{'list':[r],'total':2,'indexValue':cursor},{'list':[r],'total':2,'indexValue':cursor}])

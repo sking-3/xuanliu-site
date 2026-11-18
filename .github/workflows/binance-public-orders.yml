@@ -24,6 +24,11 @@ on:
         type: string
         required: false
         default: ''
+      reviewed_checkpoint_sha:
+        description: 'Reviewed stopped checkpoint blob SHA for a single 65-second pagination recovery'
+        type: string
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -58,7 +63,9 @@ jobs:
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
+        id: watch-checkout
         with:
+          # A queued run must honor the latest committed source-stop policy.
           ref: main
           persist-credentials: false
       - uses: actions/setup-python@v5
@@ -69,8 +76,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           BINANCE_LOCK_PROTOCOL: public-records-v3
+          BINANCE_CHECKED_OUT_SHA: ${{ steps.watch-checkout.outputs.commit }}
           BINANCE_CONTINUATION_TICKET: ${{ github.event.inputs.continuation_ticket || '' }}
-          WATCH_SECONDS: ${{ github.event_name == 'push' && '65' || '840' }}
+          BINANCE_REVIEWED_CHECKPOINT_SHA: ${{ inputs.reviewed_checkpoint_sha || '' }}
+          WATCH_SECONDS: ${{ inputs.reviewed_checkpoint_sha != '' && '65' || '840' }}
         run: >-
           python -B tools/binance_watch/public_orders.py
           --github --duration-seconds "$WATCH_SECONDS"

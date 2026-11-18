@@ -17,9 +17,39 @@ def require(value, reason):
         raise monitor.Stop(reason)
 
 
-def admit(state, event, run_id, ticket, commit_sha=None):
+def admit(state, event, run_id, ticket, commit_sha=None, *,
+          reviewed_checkpoint=None, checkpoint_sha=None):
     require(isinstance(run_id, str) and re.fullmatch('[A-Za-z0-9_-]{1,80}', run_id), 'invalid_chain_run')
     chain = state.get('continuation')
+    if reviewed_checkpoint:
+        previous = state.get('lastRun')
+        calls = previous.get('sourceCalls') if isinstance(previous, dict) else None
+        require(event == 'workflow_dispatch' and not ticket and
+                isinstance(reviewed_checkpoint, str) and re.fullmatch('[a-f0-9]{40}', reviewed_checkpoint) and
+                reviewed_checkpoint == checkpoint_sha and
+                isinstance(commit_sha, str) and re.fullmatch('[a-f0-9]{40}', commit_sha) and
+                state.get('stopped') is True and state.get('errorCode') == 'pagination_not_advancing' and
+                state.get('activeRun') is None and state.get('scope') == 'public_execution_records_only' and
+                state.get('hiddenPositionsRequested') is False and
+                isinstance(chain, dict) and chain.get('stopped') is False and
+                chain.get('ticket') is None and chain.get('phase') is None and
+                isinstance(previous, dict) and isinstance(previous.get('runId'), str) and
+                previous['runId'] == chain.get('ownerRunId') and previous['runId'] != run_id and
+                previous.get('errorCode') == 'pagination_not_advancing' and
+                previous.get('checkpointSealed') is True and previous.get('positionsRequested') is False and
+                isinstance(calls, list) and len(calls) > 0 and previous.get('sourceRequests') == len(calls) and
+                all(isinstance(call, dict) and call.get('httpStatus') == 200 for call in calls),
+                'invalid_reviewed_checkpoint_resume')
+        resumed_at = monitor.iso(time.time())
+        chain.update(ownerRunId=run_id, parentRunId=previous['runId'], consumedAt=resumed_at)
+        state.update(stopped=False, errorCode=None, manualPublicResume={
+            'checkpointSha': checkpoint_sha, 'codeCommit': commit_sha,
+            'failedRunId': previous['runId'], 'originalError': previous['errorCode'],
+            'consumedBy': run_id, 'consumedAt': resumed_at,
+        })
+        # The observer's compare-and-set claim consumes the reviewed checkpoint
+        # before any Binance request. The previously sealed run remains in Git.
+        return
     if chain is None:
         require(event in ('push', 'workflow_dispatch') and not ticket, 'invalid_chain_bootstrap')
         state['continuation'] = {'rootRunId': run_id, 'ownerRunId': run_id,

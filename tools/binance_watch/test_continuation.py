@@ -1,11 +1,13 @@
 """Synthetic state/transport fixtures only; no network requests."""
 import copy
 import json
+import os
 from pathlib import Path
 import unittest
 import urllib.error
 from unittest.mock import Mock, patch
 import continuation as c
+import public_orders as observer
 
 
 class Store:
@@ -96,6 +98,93 @@ class ContinuationTests(unittest.TestCase):
                 with self.assertRaises(c.monitor.Stop):c.admit(s,'push','101','','a'*40)
                 self.assertEqual(s,before)
 
+    def manual_review(self):
+        s=self.reviewed_public_resume()
+        s.update(stopped=True,errorCode='pagination_not_advancing')
+        s['reviewedPublicResume']['consumedBy']='historical-review'
+        return s
+
+    def manual_admit(self,state,event='workflow_dispatch',run_id='101',ticket='',code_sha='a'*40,
+                     reviewed='b'*40,current='b'*40):
+        return c.admit(state,event,run_id,ticket,code_sha,reviewed_checkpoint=reviewed,checkpoint_sha=current)
+
+    def test_manual_review_requires_exact_current_failed_checkpoint_and_only_consumes_once(self):
+        state=self.manual_review()
+        previous=copy.deepcopy(state)
+        self.manual_admit(state)
+        self.assertFalse(state['stopped'])
+        self.assertIsNone(state['errorCode'])
+        self.assertEqual(state['continuation']['parentRunId'],'100')
+        self.assertEqual(state['continuation']['ownerRunId'],'101')
+        self.assertEqual(state['manualPublicResume']['checkpointSha'],'b'*40)
+        self.assertEqual(state['manualPublicResume']['codeCommit'],'a'*40)
+        self.assertEqual(state['manualPublicResume']['failedRunId'],'100')
+        self.assertEqual(state['records'],previous['records'])
+        self.assertEqual(state['lastRun'],previous['lastRun'])
+        self.assertEqual(state['reviewedPublicResume'],previous['reviewedPublicResume'])
+        with self.assertRaisesRegex(c.monitor.Stop,'invalid_reviewed_checkpoint_resume'):
+            self.manual_admit(state,run_id='102',current='d'*40)
+
+    def test_manual_review_rejects_wrong_event_ticket_code_revision_or_checkpoint(self):
+        for inputs in ({'event':'push'},{'run_id':'100'},{'ticket':'c'*32},{'code_sha':None},
+                       {'reviewed':'bad'},{'current':'d'*40}):
+            with self.subTest(inputs=inputs):
+                state=self.manual_review()
+                original=copy.deepcopy(state)
+                with self.assertRaisesRegex(c.monitor.Stop,'invalid_reviewed_checkpoint_resume'):
+                    self.manual_admit(state,**inputs)
+                self.assertEqual(state,original)
+
+    def test_manual_review_preserves_source_denials_and_incomplete_checkpoints(self):
+        mutations=[
+            lambda s:s.update(errorCode='http_403'),lambda s:s.update(activeRun={'id':'100'}),
+            lambda s:s.update(continuation=None),lambda s:s.update(hiddenPositionsRequested=True),
+            lambda s:s['continuation'].update(stopped=True,errorCode='dispatch_http_403'),
+            lambda s:s['continuation'].update(ticket='c'*32,phase='attempt_reserved'),
+            lambda s:s['lastRun'].update(errorCode='http_429'),
+            lambda s:s['lastRun']['sourceCalls'][-1].update(httpStatus=429),
+            lambda s:s['lastRun'].update(checkpointSealed=False),
+            lambda s:s['lastRun'].update(runId='wrong-owner'),
+        ]
+        for mutation in mutations:
+            state=self.manual_review()
+            mutation(state)
+            original=copy.deepcopy(state)
+            with self.assertRaisesRegex(c.monitor.Stop,'invalid_reviewed_checkpoint_resume'):
+                self.manual_admit(state)
+            self.assertEqual(state,original)
+
+    def test_manual_observer_reports_one_shot_without_a_successor_and_requires_a_completed_cycle(self):
+        env={'GITHUB_EVENT_NAME':'workflow_dispatch','GITHUB_RUN_ID':'101','BINANCE_CHECKED_OUT_SHA':'a'*40,
+             'BINANCE_REVIEWED_CHECKPOINT_SHA':'b'*40}
+        for cycles,expected in ((0,2),(1,0)):
+            with self.subTest(cycles=cycles):
+                result={'checkpointSealed':True,'errorCode':None,'cycles':cycles,'sourceRequests':1}
+                store=Mock(state=self.manual_review(),sha='b'*40)
+                run=Mock(return_value=result)
+                with patch.dict(os.environ,env,clear=True), patch.multiple(
+                    observer,policy=Mock(),GitHubStore=Mock(return_value=store),PublicSource=Mock(),run=run,
+                ), patch.object(observer.signal,'signal'), patch.object(c,'dispatch_next') as successor, patch.object(c.monitor,'emit') as emit:
+                    self.assertEqual(observer.main(['--github','--duration-seconds','65']),expected)
+                self.assertEqual(run.call_args.args[2:5],(65,'101','workflow_dispatch'))
+                self.assertEqual(store.state['manualPublicResume']['consumedBy'],'101')
+                self.assertEqual(emit.call_args.kwargs['continuation']['status'],
+                                 'one_shot_complete' if cycles else 'one_shot_incomplete')
+                successor.assert_not_called()
+
+    def test_manual_observer_cannot_open_transport_with_missing_review_or_excess_duration(self):
+        cases=[({},'65','checkpoint_requires_review'),
+               ({'BINANCE_REVIEWED_CHECKPOINT_SHA':'d'*40},'65','invalid_reviewed_checkpoint_resume'),
+               ({'BINANCE_REVIEWED_CHECKPOINT_SHA':'b'*40},'66','invalid_reviewed_resume_scope')]
+        for setting,duration,reason in cases:
+            env={'GITHUB_EVENT_NAME':'workflow_dispatch','GITHUB_RUN_ID':'101','BINANCE_CHECKED_OUT_SHA':'a'*40,**setting}
+            with patch.dict(os.environ,env,clear=True), patch.multiple(
+                observer,policy=Mock(),GitHubStore=Mock(return_value=Mock(state=self.manual_review(),sha='b'*40)),
+            ), patch.object(observer,'PublicSource') as source, patch.object(c.monitor,'emit') as emit:
+                self.assertEqual(observer.main(['--github','--duration-seconds',duration]),2)
+            self.assertEqual(emit.call_args.kwargs['reason'],reason)
+            source.assert_not_called()
+
     def test_bootstrap_does_not_overwrite_history_or_create_a_second_chain(self):
         s={'records':{'history':'retained'}};c.admit(s,'push','100','')
         self.assertEqual(s['records'],{'history':'retained'})
@@ -169,4 +258,8 @@ class ContinuationTests(unittest.TestCase):
         root=Path(__file__).resolve().parents[2];workflow=(root/'.github/workflows/binance-public-orders.yml').read_text()
         self.assertNotIn('\n  schedule:',workflow);self.assertIn('actions: write',workflow)
         self.assertIn('BINANCE_CONTINUATION_TICKET:',workflow);self.assertIn('public-records-v3',workflow)
+        self.assertIn('reviewed_checkpoint_sha:',workflow)
+        self.assertIn('BINANCE_REVIEWED_CHECKPOINT_SHA: ${{ inputs.reviewed_checkpoint_sha',workflow)
+        self.assertIn('ref: main',workflow)
+        self.assertIn('BINANCE_CHECKED_OUT_SHA: ${{ steps.watch-checkout.outputs.commit }}',workflow)
         self.assertNotIn('secrets.',workflow);self.assertNotIn('/actions/runs',Path(c.__file__).read_text())

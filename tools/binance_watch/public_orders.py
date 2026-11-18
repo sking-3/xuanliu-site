@@ -29,6 +29,8 @@ MAX_BYTES = 900000
 MAX_RECORDS = 500
 MAX_EVENTS = 200
 MAX_PAGES = 10
+PAGE_SIZE = 20
+CURSOR = re.compile(r'[0-9]{1,20}')
 INTERVAL = 5
 BACKFILL_SECONDS = 300
 ROOT = Path(__file__).resolve().parents[2]
@@ -119,9 +121,9 @@ class PublicSource:
             raise BudgetEnd()
         self.sleep(wait)
         policy()
-        payload = {'portfolioId': PORTFOLIO, 'startTime': start, 'endTime': end, 'pageSize': 20}
+        payload = {'portfolioId': PORTFOLIO, 'startTime': start, 'endTime': end, 'pageSize': PAGE_SIZE}
         if cursor is not None:
-            require(isinstance(cursor, str) and re.fullmatch('[0-9]{1,20}', cursor), 'invalid_cursor')
+            require(isinstance(cursor, str) and CURSOR.fullmatch(cursor), 'invalid_cursor')
             payload['indexValue'] = cursor
         request = urllib.request.Request(ENDPOINT, data=json.dumps(payload).encode(), headers={
             'Content-Type': 'application/json', 'Accept': 'application/json', 'User-Agent': 'BooksReadOnlyMonitor/1.0'})
@@ -153,7 +155,7 @@ class PublicSource:
             self.calls.append(info)
         require(isinstance(envelope, dict) and envelope.get('success') is True and envelope.get('code') == '000000', 'source_business_refusal')
         page = envelope.get('data')
-        require(isinstance(page, dict) and isinstance(page.get('list'), list) and len(page['list']) <= 20 and
+        require(isinstance(page, dict) and isinstance(page.get('list'), list) and len(page['list']) <= PAGE_SIZE and
                 type(page.get('total')) is int and page['total'] >= len(page['list']), 'invalid_public_page')
         return page
 
@@ -198,19 +200,30 @@ def collect(source, state, observed_at):
     last_scan = state.get('lastWindowScanAt') or state.get('lastFullScanAt')
     due = last_scan is None or stamp(observed_at) - stamp(last_scan) >= BACKFILL_SECONDS
     backfill = not state['initialized'] or gap or due
-    rows, cursors, cursor, complete, total = {}, set(), None, False, None
+    rows, cursors, cursor, complete, total = {}, set(), None, False, 0
     terminal_boundary = False
-    previous_boundary = None
+    previous_boundary = set()
     for page_number in range(MAX_PAGES):
         page = source.page(start, end, cursor)
-        total = page['total']
+        # A terminal reply may report zero or a smaller total. Keep the
+        # largest count reported in this scan when judging its coverage.
+        total = max(total, page['total'])
+        next_cursor = page.get('indexValue')
+        valid_cursor = isinstance(next_cursor, str) and CURSOR.fullmatch(next_cursor) is not None
+        missing_cursor = next_cursor is None or next_cursor == ''
+        call = source.calls[-1]
+        call.update(pageRows=len(page['list']), sourceTotal=page['total'],
+                    returnedCursor=next_cursor if valid_cursor else None,
+                    returnedCursorStatus='valid' if valid_cursor else 'absent' if missing_cursor else 'invalid')
         overlap = False
         before = len(rows)
+        page_records = {}
         for raw in page['list']:
-            page_at = source.calls[-1].get('receivedAt', observed_at)
-            r = record(raw, page_at)
+            r = record(raw, call.get('receivedAt', observed_at))
+            page_records[r['fingerprint']] = r
             rows.setdefault(r['fingerprint'], r)
             overlap |= r['fingerprint'] in state['records']
+        call['newUniqueRows'] = len(rows) - before
         if len(rows) >= total:
             complete = True
             break
@@ -218,18 +231,16 @@ def collect(source, state, observed_at):
         # rescan must continue beyond known overlap to find delayed older rows.
         if not backfill and overlap:
             break
-        next_cursor = page.get('indexValue')
-        # The inclusive terminal cursor can return only the exact last boundary
-        # record while the platform's total is inconsistent. End this bounded
-        # scan with explicit incomplete coverage; never invent the missing row.
-        if (cursor is not None and next_cursor == cursor and len(rows) == before and
-                len(page['list']) == 1 and previous_boundary is not None and
-                r['fingerprint'] == previous_boundary and str(r['orderUpdateTime']) == cursor):
+        # Accept an exhausted cursor or an exact echo of the prior boundary.
+        # Keep incomplete coverage when the verified count is below the total.
+        boundary_echo = len(rows) == before and page_records.keys() <= previous_boundary
+        short_final_page = missing_cursor and len(rows) > before and len(page['list']) < PAGE_SIZE
+        if cursor is not None and ((boundary_echo and (missing_cursor or next_cursor == cursor)) or short_final_page):
             terminal_boundary = True
             break
-        require(len(rows) > before and isinstance(next_cursor, str) and re.fullmatch('[0-9]{1,20}', next_cursor) and
+        require(len(rows) > before and valid_cursor and
                 next_cursor not in cursors, 'pagination_not_advancing')
-        previous_boundary = r['fingerprint'] if page['list'] else None
+        previous_boundary = {key for key, r in page_records.items() if str(r['orderUpdateTime']) == next_cursor}
         cursors.add(next_cursor)
         cursor = next_cursor
     require(rows or total == 0, 'public_history_disappeared')
@@ -449,26 +460,38 @@ def main(argv=None):
     require(args.github != (args.state is not None), 'choose_exactly_one_state_store')
     store = None
     try:
+        reviewed_checkpoint = os.environ.get('BINANCE_REVIEWED_CHECKPOINT_SHA', '')
+        require(not reviewed_checkpoint or args.github and args.duration_seconds <= 65, 'invalid_reviewed_resume_scope')
         policy()
         store = GitHubStore() if args.github else LocalStore(args.state)
-        # No transport is created for a stopped or incomplete checkpoint.
-        require(not store.state['stopped'] and store.state['activeRun'] is None, 'checkpoint_requires_review')
+        if not reviewed_checkpoint:
+            require(not store.state['stopped'] and store.state['activeRun'] is None, 'checkpoint_requires_review')
         run_id = os.environ.get('GITHUB_RUN_ID', 'local-' + str(int(time.time())))
         trigger = os.environ.get('GITHUB_EVENT_NAME', 'local_bounded_verification')
         if args.github:
-            continuation.admit(store.state, trigger, run_id, os.environ.get('BINANCE_CONTINUATION_TICKET', ''), os.environ.get('GITHUB_SHA'))
+            code_commit = os.environ.get('BINANCE_CHECKED_OUT_SHA' if reviewed_checkpoint else 'GITHUB_SHA')
+            continuation.admit(store.state, trigger, run_id, os.environ.get('BINANCE_CONTINUATION_TICKET', ''),
+                               code_commit, reviewed_checkpoint=reviewed_checkpoint,
+                               checkpoint_sha=store.sha if reviewed_checkpoint else None)
+        # No source transport is created until any reviewed recovery is admitted.
+        require(not store.state['stopped'] and store.state['activeRun'] is None, 'checkpoint_requires_review')
         signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))
         source = PublicSource()
         result = run(store, source, args.duration_seconds, run_id, trigger)
         if args.github and result['errorCode'] is None and result['checkpointSealed']:
-            result['continuation'] = continuation.dispatch_next(store, result, store.token)
+            if reviewed_checkpoint:
+                status = 'one_shot_complete' if result['cycles'] > 0 else 'one_shot_incomplete'
+                result['continuation'] = {'status': status}
+            else:
+                result['continuation'] = continuation.dispatch_next(store, result, store.token)
         if args.report:
             args.report.write_text(json.dumps(result, indent=2) + '\n')
         monitor.emit('public_order_watch_result', **{k: v for k, v in result.items() if k != 'sourceCalls'})
         if path := os.environ.get('GITHUB_STEP_SUMMARY'):
             with Path(path).open('a') as out:
                 out.write('## Public execution-record watch\n\n' + json.dumps({k: v for k, v in result.items() if k != 'sourceCalls'}, indent=2) + '\n\nSource records have no order IDs. Direction does not distinguish opening from adding. Hidden positions and pending orders are not requested.\n')
-        return 2 if result['errorCode'] or args.github and result.get('continuation', {}).get('status') != 'accepted' else 0
+        valid_continuation = 'one_shot_complete' if reviewed_checkpoint else 'accepted'
+        return 2 if result['errorCode'] or args.github and result.get('continuation', {}).get('status') != valid_continuation else 0
     except (Halt, monitor.Stop, OSError, ValueError) as error:
         code = str(error) if isinstance(error, (Halt, monitor.Stop)) else type(error).__name__
         monitor.emit('public_order_watch_not_started', reason=code)
