@@ -71,6 +71,8 @@ const binance = { id:'binance', name: '示例 Binance', exchange: 'Binance', sou
 
 const hlCard = makeCard(hl);
 assert.match(content(hlCard), /30D 来源收益率.*0\.00%/);
+const detailLink = children(hlCard).find(item=>item.className==='public-detail-trigger');
+assert.match(detailLink.href,/account=0x1+&detailExchange=Hyperliquid&detailPeriod=30D/);
 assert.equal(children(hlCard).find((item) => item.className === 'public-return-label').textContent, '30D 来源收益率');
 assert.equal(fields(hlCard)['来源盈亏'], '+123.45 USD');
 assert.equal(fields(hlCard)['来源回撤'], undefined);
@@ -142,7 +144,7 @@ assert.match(script, /const winRequest=refreshWinCache\(\),portfolioRequest=refr
 state.rows = [hl, okx, bitget, binance, { ...hl, _local: true }, { ...hl, paid: true }];
 render();
 const list = elements.get('leaders');
-assert.deepEqual(Array.from(list.children, (card) => children(card).find((item) => item.tag === 'h3').textContent),
+assert.deepEqual(Array.from(list.children, (card) => content(children(card).find((item) => item.tag === 'h3')).trim()),
   [okx.name, bitget.name, hl.name, binance.name]);
 assert.equal(children(list).some((item) => ['button', 'dialog', 'select'].includes(item.tag)), false);
 state.lastReadFailed = true;
@@ -153,7 +155,7 @@ assert.match(content(elements.get('public-platform-status')), /Hyperliquid · �
 assert.match(elements.get('public-workflow-note').textContent, /未取得后台采集任务记录/);
 assert.match(content(restoredCard), /数据说明.*末点 50 USD.*峰值时的永续账户权益.*仅扣平仓成交手续费/);
 assert.ok(children(restoredCard).some(item => item.tag === 'summary'));
-const names=()=>Array.from(list.children,card=>children(card).find(item=>item.tag==='h3')?.textContent);
+const names=()=>Array.from(list.children,card=>children(card).find(item=>item.tag==='h3')&&content(children(card).find(item=>item.tag==='h3')).trim());
 const control=id=>elements.get(id);
 control('exchange').value='Hyperliquid';
 control('search').value=hl.accountId.toUpperCase();

@@ -101,13 +101,13 @@ function draw(c){
  const link=el('a','打开官方来源 ↗');link.href=r.sourceUrl||r.url||(isHL(r)?'https://app.hyperliquid.xyz/explorer/address/'+r.accountId:'https://www.binance.com/zh-CN/copy-trading/lead-details/'+r.accountId);link.target='_blank';link.rel='noopener noreferrer';details.append(link);c.root.append(details);
 }
 function analysis(c){
- const live=isHL(c.context.r)&&env.BooksFloatingPnl;
- if(isHL(c.context.r))realized(c);
+ const live=!c.context.compact&&isHL(c.context.r)&&env.BooksFloatingPnl;
+ if(live)realized(c);
  if(live){if(!c.floatingHost){c.floatingHost=el('section');c.floating=env.BooksFloatingPnl.mount(c.floatingHost,c.context.r,{onPositions:s=>{c.context.onPositions?.(s);const signature=JSON.stringify(s.rows.map(x=>[x.coin,x.signedSize]));if(signature!==c.positionSignature){const previous=c.positionSignature;c.positionSignature=signature;if((previous!==undefined||s.rows.length===0)&&Date.now()-(c.lastFillRefreshAt||0)>=30000){c.lastFillRefreshAt=Date.now();load(c,true);}}},data:D});}c.root.append(c.floatingHost);}
  const historical=el('details',undefined,'ta-historical'),summary=el('summary','历史周期统计与已平仓分析');historical.append(summary);c.root.append(historical);
  const statsRoot=live?historical:c.root;if(!live)historical.remove();
  const period=el('div',undefined,'ta-period-bar');period.append(el('strong','分析周期'));const switches=el('div',undefined,'ta-period-switch');
- for(const p of ['7D','30D','90D','180D','365D']){const b=btn(p,()=>c.context.setPeriod(p),'ta-period');b.setAttribute('aria-pressed',String(c.context.period===p));switches.append(b);}period.append(switches);statsRoot.append(period);
+ for(const p of ['7D','30D','90D','180D','365D','ALL']){const b=btn(p==='ALL'?'累计':p,()=>c.context.setPeriod(p),'ta-period');b.setAttribute('aria-pressed',String(c.context.period===p));switches.append(b);}period.append(switches);statsRoot.append(period);
  const profile=c.context.profile;
  if(profile){const top=el('div',undefined,'ta-account-facts');for(const [label,value]of [['带单保证金余额 · USDT',fmt(profile.marginBalance,2)],['资产管理规模 AUM · USDT',fmt(profile.aumAmount,2)],['跟单用户数',fmt(profile.currentCopyCount,0)+' / '+fmt(profile.maxCopyCount,0)],[c.context.positionLabel?'最后观测持仓':'当前持仓',c.context.positionLabel||(profile.positionShow?'以有效公开快照为准':'币安未公开')],['最近公开交易',profile.lastTradeAt?date(profile.lastTradeAt):'来源未提供']]){const item=el('div');item.append(el('small',label),el('strong',value));top.append(item);}statsRoot.append(top,note('组合资料读取 '+date(profile.fetchedAt)+(profile.status==='stale'?' · 历史快照':'')));}
  const w=c.context.metrics||{},grid=el('div',undefined,'ta-metrics');
