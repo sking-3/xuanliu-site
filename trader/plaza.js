@@ -658,13 +658,13 @@ function renderLeadPerformance(r,parent,period,compact=false){
 }
 const cardCurveRequests=new Map();
 function renderOKXCardCurve(plot,part){
-  plot.textContent='读取来源日线…';
+  plot.textContent='读取日线…';
   let pending=cardCurveRequests.get(part.evidencePath);
   if(!pending){
     pending=okxEvidenceCurve(part).finally(()=>cardCurveRequests.delete(part.evidencePath));
     cardCurveRequests.set(part.evidencePath,pending);
   }
-  pending.then(curves=>plot.replaceChildren(chart({curve:curves.roi})),()=>{plot.textContent='日线暂不可读';});
+  pending.then(curves=>plot.replaceChildren(chart({curve:curves.roi})),()=>{plot.textContent='日线读取失败';});
 }
 function renderBinancePerformance(r,parent,period,compact=false) {
   const value=binancePerformance(r,period),context=node('div',undefined,'card-context');context.append(node('span',periodLabel(period)),node('span','币安来源 · USDT'));if(!compact)parent.append(context);
@@ -1462,25 +1462,33 @@ function publicListCard(entry,period,failed){
   if(Number.isFinite(sampleWin?.value))appendMetric('片段胜率',pct(sampleWin.value));
   if(metrics.children.length)card.append(metrics);
 
-  const graph=node('figure',undefined,'public-history'),plot=node('div');
+  const graph=node('figure',undefined,'public-history'),plot=node('div',undefined,'public-curve-plot');
+  let missingCurve=failed?'快照读取失败':'暂无该周期曲线';
   if(sample?.points?.length>1){
     graph.append(node('figcaption','盈亏采样 · USD'),chart({curve:sample.points},'pnl'));
     explanations.append(node('p',`盈亏采样 ${timeLabel(sample.startAt)} 至 ${timeLabel(sample.endAt)} · ${sample.sampleCount} 点 · 末点 ${money(sample.points.at(-1).value,'USD')} USD。曲线以首个采样点为基准，和来源周期盈亏的统计范围、截止时间可能不同。`));
     explanations.append(node('p',`盈亏采集 ${timeLabel(history.fetchedAt)}${state.portfolioCacheReadFailed?' · 本次读取失败，保留上次有效值':history.stale?' · 历史采样，待更新':''}`));
     if(sample.coverageStatus==='insufficient_history'||sample.coverageStatus==='sampled_boundary')explanations.append(node('p','采样未覆盖完整请求周期，详见实际起止时间。'));
   }else if(lead&&row.exchange==='OKX'&&record?.evidencePath){
-    graph.append(node('figcaption','来源日收益率'),plot);renderOKXCardCurve(plot,record);
+    graph.append(node('figcaption','累计收益率 · 日采样'),plot);renderOKXCardCurve(plot,record);
   }else if(lead&&record?.curve?.length>1){
     graph.append(node('figcaption','来源日收益率'),chart({curve:record.curve}));
     explanations.append(node('p',`曲线采样 ${historyDate(record.curve[0].time)} 至 ${historyDate(record.curve.at(-1).time)}`));
   }else if(binance){
     const view=binanceChart(row,period);
+    if(view.periodSupported===false)missingCurve='该周期曲线未接入';
+    if(view.status==='restricted')missingCurve='曲线未公开';
     if(view.points?.length>1){
       graph.append(node('figcaption','盈亏采样 · USDT'),binanceChartArea(row,period));
       explanations.append(node('p',binanceChartCaption(view)));
     }
   }
-  if(graph.children.length)performance.append(graph);
+  if(!graph.children.length){
+    if(publicAccount&&state.portfolioCacheLoading)missingCurve='读取曲线…';
+    if(publicAccount&&state.portfolioCacheReadFailed)missingCurve='曲线快照读取失败';
+    graph.append(node('figcaption','业绩曲线'),node('p',missingCurve,'public-curve-empty'));
+  }
+  performance.append(graph);
   if(publicAccount){
     const drawdownNote=sampleMdd===null&&state.portfolioCacheReadFailed?'曲线快照读取失败，采样回撤暂缺。':drawdownDescription(sample,period);
     explanations.append(node('p',drawdownNote));
@@ -1784,9 +1792,13 @@ function renderLeadActivity(r,b,key){
 const leadCurveCache=new Map();
 async function okxEvidenceCurve(part){
   if(leadCurveCache.has(part.evidencePath))return leadCurveCache.get(part.evidencePath);
-  const response=await fetch(part.evidencePath,{credentials:'omit',redirect:'error'});
-  if(!response.ok||Number(response.headers.get('content-length'))>524288)throw Error('curve_unavailable');
-  const raw=await response.arrayBuffer();
+  const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),8000);
+  let raw;
+  try {
+    const response=await fetch(part.evidencePath,{credentials:'omit',redirect:'error',signal:controller.signal});
+    if(!response.ok||Number(response.headers.get('content-length'))>524288)throw Error('curve_unavailable');
+    raw=await response.arrayBuffer();
+  }finally{clearTimeout(timeout);}
   if(raw.byteLength>524288)throw Error('curve_size');
   const digest=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',raw)),byte=>byte.toString(16).padStart(2,'0')).join('');
   if(digest!==part.evidenceSha256)throw Error('curve_evidence');

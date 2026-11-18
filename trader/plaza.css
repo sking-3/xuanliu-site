@@ -149,7 +149,6 @@ th{color:#728098;font-weight:500;background:#fbfcfe}
 .public-trader-card h3{margin:0;color:#23344b;font-size:14px;font-weight:650;line-height:1.3;overflow-wrap:anywhere}
 .public-trader-source{margin:1px 0 0;color:#52637b;font-size:11px;line-height:1.45}
 .public-performance{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);align-items:center;gap:8px;margin:8px 0 9px}
-.public-return:only-child{grid-column:1/-1}
 #public-pagination[hidden]{display:none}
 #plaza-title{scroll-margin-top:calc(var(--books-ticker-height,45px) + 115px)}
 .public-return{display:flex;flex-direction:column;gap:2px;min-width:0}
@@ -158,19 +157,21 @@ th{color:#728098;font-weight:500;background:#fbfcfe}
 .public-return-value.positive{color:#11745e}
 .public-return-value.negative{color:#ab4158}
 .public-return-value.public-missing{color:#52637b;font-size:15px;letter-spacing:0}
-.public-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(77px,1fr));gap:5px 10px;margin:0;padding:0}
+.public-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(77px,1fr));gap:5px 10px;margin:0 0 7px;padding:0}
 .public-metrics dt{color:#52637b;font-size:11px;line-height:1.35}
 .public-metrics dd{margin:2px 0 0;color:#23344b;font-size:13px;line-height:1.4;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
 .public-sample-metrics{margin-top:7px}
-.public-history{margin:0;min-width:0}
+.public-history{margin:0;min-width:0;min-height:51px;align-self:start}
 .public-history figcaption,.public-history .curve-label{display:block;margin:0 0 2px;color:#52637b;font-size:10px;line-height:1.3}
 .public-history .chart,.public-history .chart svg{width:100%;height:36px;background:transparent}
-.public-history .public-curve-empty{margin:0;color:#52637b;font-size:11px;line-height:1.45}
+.public-history :is(.public-curve-empty,.public-curve-plot){margin:0;color:#52637b;font-size:11px;line-height:1.45}
+.public-history .public-curve-empty,.public-curve-plot:not(:has(.chart)){display:flex;align-items:center;min-height:36px}
+.public-history .performance-chart .curve-label{display:none}
 .public-sample-range,.public-sample-status,.public-trader-status{color:#52637b;font-size:11px;line-height:1.55;overflow-wrap:anywhere}
 .public-sample-range{margin:3px 0 0}
 .public-sample-status{margin:0 0 4px}
 .public-trader-status{margin:8px 0 0;padding-top:6px;border-top:1px solid #edf0f5}
-.public-card-footer{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;column-gap:8px;margin-top:7px;border-top:1px solid #edf0f5}
+.public-card-footer{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;column-gap:8px;margin-top:auto;border-top:1px solid #edf0f5}
 .public-card-footer .public-trader-status{margin:0;padding:0;border:0}
 .public-card-footer details[open]{grid-column:1/-1}
 details.public-sample-status{margin:0}

@@ -47,7 +47,7 @@ const context = {
   BinanceData: {
     recordedPeriod: (row, period) => row?.performance[period] || null,
     performance: () => null,
-    chart: () => ({ pointCount: 0 }),
+    chart: () => ({ pointCount: 0, periodSupported:false }),
   },
 };
 vm.runInNewContext(script.split('for(const id of controls)$(id).addEventListener')[0] +
@@ -89,7 +89,7 @@ assert.equal(children(binanceCard).find((item) => item.className === 'public-ret
 assert.equal(fields(binanceCard)['来源回撤'], '3.00%');
 assert.equal(fields(binanceCard)['来源盈亏'], '+55 USDT');
 assert.equal(fields(binanceCard)['来源胜率'], '62.50%');
-assert.match(content(binanceCard), /历史快照/);
+assert.match(content(binanceCard), /业绩曲线.*该周期曲线未接入.*历史快照/);
 assert.match(content(makeCard(binance)), /30D 来源收益率.*该周期暂无业绩/);
 
 // The leaderboard return and the independently sampled PnL must keep their own
