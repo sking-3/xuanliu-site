@@ -1019,59 +1019,11 @@ function detailPositionSnapshot(r){
   }
   return null;
 }
-let alphaPositionArchive=null,alphaPositionsPending=null,alphaPositionsAttempt=0,alphaPositionsFailed=false;
-function hasAlphaPositionArchive(r){return r?.referenceOnly&&r.accountId==='5075281354358777856'&&!!globalThis.BooksAoyingPublicArchive;}
-function lastAlphaPosition(r){
-  if(!hasAlphaPositionArchive(r))return null;
-  return (alphaPositionArchive?.positionSnapshots||[]).findLast(x=>x.rows?.length)||null;
-}
-function alphaPositionLabel(held){
-  const row=held.rows[0],side=({long:'多仓',short:'空仓'})[row.side]||'';
-  return row.symbol+' '+side+' · '+value(row.quantity)+(row.baseAsset?' '+row.baseAsset:'')+(held.rows.length>1?' 等 '+held.rows.length+' 笔':'');
-}
-function appendAlphaPositions(r,root){
-  if(!hasAlphaPositionArchive(r))return;
-  const path='binance/aoying-public-archive.json',held=lastAlphaPosition(r),latest=alphaPositionArchive?.positionSnapshots?.at(-1);
-  if(held){
-    const section=node('details',undefined,'reference-positions');section.setAttribute('data-source','alphafox');section.open=state.tab==='live';
-    section.append(node('summary','查看仓位明细与来源'));
-    const unit=held.quote,at=held.sourceTime||held.polledAt;
-    binanceTable(section,'AlphaFox 最后观测到的仓位',['合约','方向','数量','来源开仓时间（北京）','开仓均价','标记价','名义金额 '+unit,'浮动盈亏 '+unit,'仓位杠杆'],
-      held.rows.map(p=>[p.symbol,p.side==='long'?'多':p.side==='short'?'空':'—',value(p.quantity)+(p.baseAsset?' '+p.baseAsset:''),p.sourceOpenedAt?timeLabel(p.sourceOpenedAt):null,value(p.entryPrice),value(p.markPrice),value(p.notional),value(p.unrealizedPnl),p.leverage==null?null:value(p.leverage)+'×']),
-      '第三方公开档案 · 来源观察 '+timeLabel(at)+'（北京） · 档案采集 '+timeLabel(held.fetchedAt)+'（北京）。币安当前仓位仍未公开。');
-    const totals=held.totals||{},metrics=node('div',undefined,'lead-detail-metrics');
-    for(const [field,label,multiplier] of [['marginBalance','快照保证金余额',false],['notional','快照名义敞口',false],['unrealizedPnl','快照浮动盈亏',false],['effectiveLeverage','快照实际杠杆',true]]){
-      if(!Number.isFinite(totals[field]))continue;
-      const item=node('div');item.append(node('small',label),node('strong',value(Math.round(totals[field]*100)/100)+(multiplier?'×':' '+unit)));metrics.append(item);
-    }
-    if(metrics.children.length)section.append(metrics);
-    if(latest!==held)section.append(node('p','此后一次第三方查询于 '+timeLabel(latest.sourceTime||latest.polledAt)+'，'+({reported_empty:'当次未列仓位',hidden:'返回仓位不可见',unavailable:'未取得仓位'}[latest.status]||'当前仓位待核')+'。','detail-method'));
-    const links=node('div',undefined,'lead-source-links');links.append(evidenceLink('AlphaFox 归档',path),evidenceLink('第三方公开来源 ↗',held.sourceUrl));
-    section.append(links);root.append(section);
-  }else if(alphaPositionsFailed)root.append(node('p','本次未能读取 AlphaFox 历史仓位档案。','detail-method'));
-  if(alphaPositionsPending||Date.now()-alphaPositionsAttempt<60000)return;
-  alphaPositionsAttempt=Date.now();
-  alphaPositionsPending=(async()=>{
-    const response=await fetch(path,{credentials:'omit',redirect:'error',cache:'no-cache'});
-    const limit=8*1024*1024;if(!response.ok||Number(response.headers.get('content-length'))>limit)throw Error('reference_positions');
-    const raw=await response.text();if(raw.length>limit)throw Error('reference_size');
-    alphaPositionArchive=BooksAoyingPublicArchive.parse(JSON.parse(raw));alphaPositionsFailed=false;
-  })().catch(()=>{alphaPositionsFailed=true;}).finally(()=>{
-    alphaPositionsPending=null;if(state.detail?.accountId===r.accountId&&$('detail').open)renderDetail();
-  });
-}
 function renderDetailOverview(r){
   const root=$('detail-overview');if(!root)return;
   const snap=detailPositionSnapshot(r);root.replaceChildren();root.hidden=!snap;if(!snap)return;
-  const held=lastAlphaPosition(r);
-  if(held&&!binanceView(r).observedAt){
-    const title=node('div',undefined,'overview-heading');
-    title.append(node('strong','最后观测持仓'),node('span','AlphaFox 第三方快照 · '+timeLabel(held.sourceTime||held.polledAt)+'（北京）','meta'));
-    root.append(title,node('p',alphaPositionLabel(held),'overview-position-state'));appendAlphaPositions(r,root);return;
-  }
   const title=node('div',undefined,'overview-heading');title.append(node('strong','持仓概览'),node('span',snap.source+(snap.at?' · '+timeLabel(snap.at):''),'meta'));root.append(title);
   root.append(node('p',snap.label,'overview-position-state'));
-  appendAlphaPositions(r,root);
   if(!snap.rows?.length)return;
   const dirs=snap.rows.map(p=>String(p.side).toLowerCase()),summary=node('div',undefined,'overview-figures');
   function fact(label,amount){const cell=node('div');cell.append(node('small',label),node('strong',amount));summary.append(cell);}
@@ -1734,7 +1686,6 @@ function renderDetailStatus() {
     $('detail-data-status').textContent=message;$('detail-data-status').hidden=false;return;
   }
   if(isPublicLead(r)){$('detail-data-status').hidden=true;return;}
-  if(isBinanceTrader(r)&&lastAlphaPosition(r)&&!binanceView(r).observedAt){$('detail-data-status').hidden=true;return;}
   if(isBinanceTrader(r)){const view=binanceView(r);message=binanceStatus(view,r)+' · '+binanceTiming(view,r);$('detail-data-status').textContent=message;$('detail-data-status').hidden=false;return;}
   if(r&&isPublicAccount(r)) {
     if((state.positionExclusions[r.accountId]??-Infinity)>=Date.parse(r.positionCheck?.checkedAt||'1970-01-01T00:00:00Z'))message=Date.now()-state.positionExclusions[r.accountId]>3600000?'上次空仓核验已过期，当前仓位未知；保留历史资料，等待新一轮核验。':'最近读取确认空仓；保留历史资料。';
@@ -1838,7 +1789,7 @@ function detailTabs(r){
   if(isPublicLead(r))return leadTabs(r);
   if(r.periodOnly)return {analysis:researchTabNames.analysis};
   const active={analysis:researchTabNames.analysis};
-  if(canReadLive(r)||isBinanceTrader(r)&&(binanceView(r).observedAt||hasAlphaPositionArchive(r)))active.live=researchTabNames.live;
+  if(canReadLive(r)||isBinanceTrader(r)&&binanceView(r).observedAt)active.live=researchTabNames.live;
   if(!canReadLive(r)||globalThis.BooksTradeAnalysis){
     for(const key of ['positions','points','orders'])active[key]=researchTabNames[key];
   }
@@ -2306,8 +2257,7 @@ function renderDetail() {
       publicExecutionReader ||= BooksBinancePublicRecords.reader(globalThis);
       const w=isBinanceTrader(r)?binancePerformance(r,state.window):performanceWindow(r,state.window),cached=cachedWin(r),portfolio=isPublicAccount(r)?portfolioSection(r,state.window):null,history=portfolio?.status==='ready'?portfolio.windows[state.window]:null;
       const curve=isBinanceTrader(r)?binanceChart(r,state.window):history?{points:history.points,lastSuccessAt:portfolio.fetchedAt,status:portfolio.stale?'stale':'ready',currency:history.curveUnit,basis:history.curveBasis}:null;
-      const held=lastAlphaPosition(r),positionLabel=held?alphaPositionLabel(held)+' · AlphaFox '+timeLabel(held.sourceTime||held.polledAt):null;
-      BooksTradeAnalysis.render(b,{r,tab:state.tab,period:state.window,periodLabel:periodName(state.window,w),compact:publicListPage,positionLabel,metrics:w?{...w,mdd:isPublicAccount(r)?sampledDrawdown(history,state.window):w.mdd,winRate:isPublicAccount(r)?cached?.win?.value??null:w.winRate}:null,curve,profile:r.referenceOnly?globalThis.BooksReferenceData?.profile(globalThis.BooksAoyingHistory,r.accountId):null,binanceView:isBinanceTrader(r)?binanceView(r):null,publicReader:publicExecutionReader,onPositions:p=>{if(state.detail?.accountId===r.accountId&&state.tab==='analysis'&&isPublicFocus(r))syncPublicFocusLive(r,{address:r.accountId,positions:p});acceptDetailPositions(r,p,globalThis.BooksFloatingPnl?.FRESH);},activate:activateDetailTab,setPeriod:p=>{if(periods.includes(p)){state.window=p;saveDetailURL();renderDetail();}},metricNote:r.exchange==='Hyperliquid'?'收益率与盈亏沿用已核验周期数据；长期区间对账未通过时收益率留空。采样盈亏回撤不是标准净值最大回撤。'+winCacheDescription(r):'收益率、回撤、胜率沿用币安来源字段与周期；不以操作样本推算账户表现。',winNote:r.exchange==='Binance'?'币安所选周期平台统计':cached?.win?.eligibleCount?'近期 '+cached.win.eligibleCount+' 个片段 · 独立于所选周期':'缺少有效成交样本'});
+      BooksTradeAnalysis.render(b,{r,tab:state.tab,period:state.window,periodLabel:periodName(state.window,w),compact:publicListPage,metrics:w?{...w,mdd:isPublicAccount(r)?sampledDrawdown(history,state.window):w.mdd,winRate:isPublicAccount(r)?cached?.win?.value??null:w.winRate}:null,curve,profile:r.referenceOnly?globalThis.BooksReferenceData?.profile(globalThis.BooksAoyingHistory,r.accountId):null,binanceView:isBinanceTrader(r)?binanceView(r):null,publicReader:publicExecutionReader,onPositions:p=>{if(state.detail?.accountId===r.accountId&&state.tab==='analysis'&&isPublicFocus(r))syncPublicFocusLive(r,{address:r.accountId,positions:p});acceptDetailPositions(r,p,globalThis.BooksFloatingPnl?.FRESH);},activate:activateDetailTab,setPeriod:p=>{if(periods.includes(p)){state.window=p;saveDetailURL();renderDetail();}},metricNote:r.exchange==='Hyperliquid'?'收益率与盈亏沿用已核验周期数据；长期区间对账未通过时收益率留空。采样盈亏回撤不是标准净值最大回撤。'+winCacheDescription(r):'收益率、回撤、胜率沿用币安来源字段与周期；不以操作样本推算账户表现。',winNote:r.exchange==='Binance'?'币安所选周期平台统计':cached?.win?.eligibleCount?'近期 '+cached.win.eligibleCount+' 个片段 · 独立于所选周期':'缺少有效成交样本'});
       return;
     }
     BooksTradeAnalysis.pause();
@@ -2315,14 +2265,7 @@ function renderDetail() {
   }
   if(state.tab==='live'&&isBinanceTrader(r)){
     const view=binanceView(r);b.replaceChildren();
-    if(!view.observedAt&&!hasAlphaPositionArchive(r)){
-      empty(b,'当前持仓未知',r.periodRecord?.positionShow===false?'带单员未公开当前持仓。':'本站尚未取得有效的 Binance 当前持仓快照。');return;
-    }
-    if(!view.observedAt&&hasAlphaPositionArchive(r)){
-      if(!lastAlphaPosition(r)&&alphaPositionsPending)b.append(node('p','正在读取历史持仓快照…','detail-method'));
-      else empty(b,'币安当前仓位未知',lastAlphaPosition(r)?'上方提供最后一次第三方观测记录。':'币安未公开当前仓位。');
-      return;
-    }
+    if(!view.observedAt){empty(b,'当前持仓未知',detailPositionSnapshot(r)?.label||'未取得币安公开持仓快照。');return;}
     binanceTable(b,'持仓快照',['合约','方向','数量','开仓均价','标记价','杠杆','未实现盈亏'],view.positions.map(p=>[p.symbol,p.side==='LONG'?'多':'空',p.quantity,p.entryPrice,p.markPrice,p.leverage+'×',p.unrealizedPnl+' '+p.collateral]),binanceStatus(view,r)+' · '+binanceTiming(view,r));return;
   }
   if(isBinanceTrader(r)){state.analyticsViews=state.analyticsViews.filter(v=>v.kind!=='detail');renderBinanceDetail(r,b);return;}

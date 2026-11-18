@@ -25,9 +25,9 @@ module.exports=async function checkPublicTraderDetails(page,base){
     assert.ok(s.includes(marker),rel);
     return JSON.parse(s.split(marker)[1].trim().replace(/;$/,''));
   }
-  const [bitget,okx,records,reference,official,historical]=await Promise.all([
+  const [bitget,okx,records,official,historical]=await Promise.all([
     json('bitget/period-returns.json'),json('okx/period-returns.json'),json('okx/trades.json'),
-    json('binance/aoying-public-archive.json'),seed('replay-seed.js','BooksPublicRecordSeed'),seed('aoying-history.js','BooksAoyingHistory')]);
+    seed('replay-seed.js','BooksPublicRecordSeed'),seed('aoying-history.js','BooksAoyingHistory')]);
   const sample=await sampleDetails(page,base);
   const dialog=page.locator('#detail[open]'),body=dialog.locator('#detail-body');
   async function open(exchange,id,period){
@@ -147,10 +147,11 @@ module.exports=async function checkPublicTraderDetails(page,base){
     const target=dialog.locator('[data-tab="'+selectedTab+'"]');assert.ok(await target.isEnabled());await target.click();assert.equal(await target.getAttribute('aria-pressed'),'true');
   }
   const minOfficial=Object.keys(official.records).length;
+  const thirdPartyRequests=[];
+  const watchThirdParty=request=>{if(/alphafox|aoying-public-archive/i.test(request.url()))thirdPartyRequests.push(request.url());};
+  page.on('request',watchThirdParty);
   await open('Binance',official.portfolioId,'90D');
-  await body.locator('.ta-archive-switch button[aria-pressed="true"]').filter({hasText:'本站官方归档'}).waitFor();
-  await dialog.locator('#detail-overview .overview-position-state').filter({hasText:'NVDAUSDT'}).waitFor();
-  await body.locator('.ta-account-facts').filter({hasText:'AlphaFox'}).waitFor();
+  await body.locator('.ta-account-facts').filter({hasText:'币安未公开'}).waitFor();
   const layout=await dialog.evaluate(root=>{
     const bounds=root.getBoundingClientRect();
     return {viewport:innerWidth,left:bounds.left,right:bounds.right,inside:root.scrollWidth-root.clientWidth,
@@ -160,6 +161,9 @@ module.exports=async function checkPublicTraderDetails(page,base){
   assert.equal(layout.tabs,5);
   if(layout.viewport<=640)assert.ok(layout.left>=-1&&layout.right<=layout.viewport+1&&layout.inside<=1,'mobile detail overflow '+JSON.stringify(layout));
   else assert.ok(layout.title<=20&&layout.metric<=24,'desktop detail type sizes '+JSON.stringify(layout));
+  await dialog.locator('[data-tab="live"]').click();
+  await body.getByText('当前持仓未知',{exact:true}).waitFor();
+  await dialog.locator('#detail-overview').getByText('币安未公开当前仓位',{exact:true}).waitFor();
   await dialog.locator('[data-tab="orders"]').click();
   const status=body.locator('.ta-status'),all=body.locator('.ta-table tbody tr');
   const officialCounts=async()=>{
@@ -170,13 +174,10 @@ module.exports=async function checkPublicTraderDetails(page,base){
     assert.equal(await body.getByRole('columnheader',{name:'归档记录标识'}).count(),0);
     return officialCount;
   };
-  const before=await officialCounts();
-  await body.locator('.ta-archive-switch button').filter({hasText:'AlphaFox 公开归档'}).click();
-  await status.filter({hasText:reference.latestOrders.length+' 条流水 · '+reference.closedPositions.length+' 条已平仓记录'}).waitFor({timeout:30000});
-  const ids=await all.evaluateAll(nodes=>nodes.map(tr=>tr.cells[tr.cells.length-1].textContent));
-  assert.deepEqual(ids.sort(),reference.latestOrders.map(r=>'af:'+r.fingerprint).sort(),'third-party view contains exactly its own records');
-  await body.locator('.ta-archive-switch button').filter({hasText:'本站官方归档'}).click();
-  const back=await officialCounts();
-  assert.ok(back>=before&&back<before+reference.latestOrders.length,'third-party records must not be added on switching back');
-  return {totals,accounts:details,sample,eagle:{officialOrders:back,officialHistory:historical.rows.length,alphaFoxOrders:ids.length,alphaFoxHistory:reference.closedPositions.length}};
+  const officialOrders=await officialCounts();
+  assert.equal(await body.locator('.ta-archive-switch').count(),0);
+  assert.doesNotMatch(await dialog.innerText(),/AlphaFox/i);
+  assert.deepEqual(thirdPartyRequests,[]);
+  page.off('request',watchThirdParty);
+  return {totals,accounts:details,sample,eagle:{officialOrders,officialHistory:historical.rows.length}};
 };

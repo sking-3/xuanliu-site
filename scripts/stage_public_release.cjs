@@ -10,6 +10,10 @@ function stage(target,expected){
   fs.mkdirSync(target); // A reused/nonempty staging directory is rejected.
   execFileSync('tar',['-x','-C',target],{input:execFileSync('git',['archive','--format=tar',revision],{cwd:root,maxBuffer:100*1024*1024})});
   for(const p of ['copy-config','tools/copy_plan','private-follow','audit','.github'])fs.rmSync(path.join(target,p),{recursive:true,force:true});
+  // Keep historical source records in the repository and outside the public artifact.
+  for(const p of ['trader/binance/aoying-public-archive.json','trader/aoying-public-archive.js','scripts/collect_aoying_public_archive.cjs','trader/COPY-RESEARCH.md']){
+    fs.rmSync(path.join(target,p),{force:true});
+  }
   for(const file of fs.readdirSync(path.join(target,'trader')))if(/^paper-.*\.js$/.test(file)||file==='paper-copy.css')fs.rmSync(path.join(target,'trader',file));
   const assets={};
   function walk(dir){for(const entry of fs.readdirSync(dir,{withFileTypes:true})){

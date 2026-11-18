@@ -53,7 +53,13 @@ test('peer checkpoint failures skip Binance without rewriting existing source st
  assert.match(report,/BINANCE_PEER_ALLOWED:.*steps.binance-peer-validate.outputs.allowed/);
  assert.doesNotMatch(report,/GITHUB_ENV|collect_binance|BINANCE_PREVIOUS_RUN_UNVERIFIED/);
  const nonblocking=workflow.split(/^      - name: /m).slice(1).filter(block=>/^        continue-on-error: true$/m.test(block)).map(block=>block.split('\n')[0]);
- assert.deepEqual(nonblocking.sort(),[...names,'Restore exchange checkpoint from this run','Verify the preceding Binance run was safely committed','Refresh verified public 90-day and 365-day returns','Refresh verified OKX public trader returns','Archive Aoying public execution history','Refresh verified OKX public position history','Refresh verified Bitget public trader records','Refresh Aoying public reference archive'].sort());
+ assert.deepEqual(nonblocking.sort(),[...names,'Restore exchange checkpoint from this run','Verify the preceding Binance run was safely committed','Refresh verified public 90-day and 365-day returns','Refresh verified OKX public trader returns','Archive Aoying public execution history','Refresh verified OKX public position history','Refresh verified Bitget public trader records'].sort());
+});
+test('the trader refresh retains Binance execution history without collecting or staging the retired third-party archive',()=>{
+ const archive=step('Archive Aoying public execution history');
+ assert.match(archive,/binance-public-orders-state\/monitor-state\/5075281354358777856\.json/);
+ assert.match(archive,/node scripts\/archive_aoying_records\.cjs/);
+ assert.doesNotMatch(workflow,/collect_aoying_public_archive\.cjs|trader\/binance\/aoying-public-archive\.json/);
 });
 test('exchange checkpoint verifies formal publication after a failed batch',()=>{
  const checkpoint=step('Checkpoint exchange snapshots before Hyperliquid');

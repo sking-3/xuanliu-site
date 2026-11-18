@@ -756,22 +756,22 @@ await test('official OKX and Bitget ROI and PnL controls use their source series
    }
  }finally{context.fetch=saved;delete context.BooksBitgetPeriodData;delete context.BooksOKXPeriodData;}
 });
-await test('Aoying displays the dated independent NVDA observation alongside a hidden official position',async()=>{
- const raw=fs.readFileSync(path.join(__dirname,'../trader/binance/aoying-public-archive.json'),'utf8'),receipt=JSON.parse(raw);
- const adapter=require('../trader/aoying-public-archive.js'),before=context.fetch;
+await test('Aoying distinguishes hidden official holdings and never reads third-party archives',()=>{
+ const before=context.fetch,requests=[];
  try{
-   context.BooksAoyingPublicArchive=adapter;context.BooksReferenceData=require('../trader/reference-data.js');
+   context.BooksReferenceData=require('../trader/reference-data.js');
    vm.runInContext(fs.readFileSync(path.join(__dirname,'../trader/aoying-history.js'),'utf8'),context);
-   context.fetch=async(name)=>{assert.equal(name,'binance/aoying-public-archive.json');return {ok:true,headers:{get:()=>String(raw.length)},text:async()=>raw};};
+   context.BooksAoyingPublicArchive={parse(){throw Error('old archive adapter must not be used');}};
+   context.fetch=(url,...options)=>{requests.push(url);return before(url,...options);};
    const r=a.state.binanceRows.find(r=>r.accountId==='5075281354358777856');a.openDetail(r,'30D');
-   await new Promise(resolve=>setImmediate(resolve));
    assert.equal(a.binanceView(r).currentPositionCount,null);
-   const reference=receipt.positionSnapshots.filter(p=>p.rows.length).at(-1),position=reference.rows[0];
-   const text=content(ids['detail-overview']);
-   assert.match(text,/最后观测持仓.*AlphaFox 第三方快照/);assert.match(text,/币安当前仓位仍未公开/);
-   const disclosure=ids['detail-overview'].children.find(n=>n.className==='reference-positions');assert.equal(disclosure.open,false);a.activateDetailTab('live');assert.equal(a.state.tab,'live');assert.equal(ids['detail-overview'].children.find(n=>n.className==='reference-positions').open,true);
-   assert.ok(text.includes(position.symbol)&&text.includes(a.value(position.quantity))&&text.includes(a.value(position.entryPrice)));
-   assert.ok(text.includes('第三方公开档案'));assert.match(text,/快照实际杠杆/);
+   assert.match(content(ids['detail-overview']),/持仓概览.*币安未公开当前仓位/);
+   assert.doesNotMatch(content(ids['detail-overview']),/AlphaFox|第三方公开档案|最后观测持仓/);
+   a.activateDetailTab('live');assert.equal(a.state.tab,'analysis');
+   assert.deepEqual(requests,[]);
+   for(const name of ['index.html','trade-analysis.js','plaza.js']){
+     assert.doesNotMatch(fs.readFileSync(path.join(__dirname,'../trader',name),'utf8'),/AlphaFox|BooksAoyingPublicArchive|aoying-public-archive/i);
+   }
  }finally{context.fetch=before;delete context.BooksAoyingPublicArchive;delete context.BooksReferenceData;}
 });
 await test('mk4 opens via its verified research address without joining the ranked or live portfolio set',()=>{
