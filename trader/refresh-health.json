@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "recordedAt": "2026-11-18T19:29:32.769Z",
-  "mode": "positions",
+  "recordedAt": "2026-11-18T20:31:46.919Z",
+  "mode": "full",
   "platforms": {
     "Binance": {
       "outcome": "stopped",
@@ -11,21 +11,21 @@
       "dataAt": "2026-11-16T10:05:57.421Z"
     },
     "OKX": {
-      "outcome": "skipped",
+      "outcome": "success",
       "stopReason": null,
       "stopAt": null,
-      "lastCompletedAt": "2026-11-17T07:54:15.532Z",
-      "dataAt": "2026-11-18T19:20:52.050Z"
+      "lastCompletedAt": "2026-11-18T20:31:46.919Z",
+      "dataAt": "2026-11-18T20:25:08.647Z"
     },
     "Bitget": {
-      "outcome": "skipped",
+      "outcome": "success",
       "stopReason": null,
       "stopAt": null,
-      "lastCompletedAt": "2026-11-17T21:18:44.994Z",
-      "dataAt": "2026-11-17T20:48:36.775Z"
+      "lastCompletedAt": "2026-11-18T20:31:46.919Z",
+      "dataAt": "2026-11-18T20:26:13.567Z"
     },
     "Hyperliquid": {
-      "outcome": "success",
+      "outcome": "unknown",
       "stopReason": null,
       "stopAt": null,
       "lastCompletedAt": "2026-11-18T19:29:32.769Z",
