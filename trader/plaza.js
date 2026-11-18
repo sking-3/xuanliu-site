@@ -1984,6 +1984,7 @@ function renderDetailPerformancePanels(r,parent,period,part){
     globalThis.BooksDetailRadar?.mount(radar,{
       roi:part?.roi,mdd:part?.mdd,mddLabel:r.exchange+' 来源回撤',winRate:part?.winRate,
       winLabel:r.exchange==='OKX'?'OKX 盈利日比例':r.exchange==='Binance'?'币安已平仓仓位胜率':'Bitget 来源胜率',
+      winAxisLabel:r.exchange==='OKX'?'盈利日比例':undefined,
       leverage:leverages.length?leverages.reduce((sum,n)=>sum+n,0)/leverages.length:null,
       leverageCount:leverages.length,leverageAt:history?.section.fetchedAt,points,curveLabel:r.exchange==='OKX'?'OKX 累计收益率日点':'币安原始盈亏采样',
       metricsAt:part?.lastSuccessAt,winAt:part?.winRateEvidence?.lastSuccessAt||part?.lastSuccessAt,
