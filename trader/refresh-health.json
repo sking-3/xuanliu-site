@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "recordedAt": "2026-11-18T01:47:29.721Z",
+  "recordedAt": "2026-11-18T19:12:24.768Z",
   "mode": "positions",
   "platforms": {
     "Binance": {
@@ -28,8 +28,8 @@
       "outcome": "success",
       "stopReason": null,
       "stopAt": null,
-      "lastCompletedAt": "2026-11-18T01:47:29.721Z",
-      "dataAt": "2026-11-18T01:45:47.446Z"
+      "lastCompletedAt": "2026-11-18T19:12:24.768Z",
+      "dataAt": "2026-11-18T19:10:42.725Z"
     }
   }
 }
