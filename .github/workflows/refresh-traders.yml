@@ -45,7 +45,9 @@ jobs:
         run: |
           node --check trader/period-metrics.js
           node --check scripts/collect_period_samples.cjs
+          node --check scripts/collect_hyperliquid_fills.cjs
           node --test audit/period-metrics-unit.cjs audit/period-samples-collector-unit.cjs
+          node --test audit/hyperliquid-fills-unit.cjs
           node audit/hyperliquid-run-guard-unit.cjs
           python3 audit/hyperliquid-collector-test.py
 
@@ -62,6 +64,8 @@ jobs:
             printf 'BOOKS_PERIOD_STOP_PERSISTED=true\n' >> "$GITHUB_ENV"
           fi
           gate=$(node scripts/hyperliquid_run_guard.cjs)
+          fills_gate=$(node scripts/collect_hyperliquid_fills.cjs --gate)
+          if [[ "$fills_gate" != allowed=true ]]; then gate=allowed=false; fi
           if [[ -f trader/period-samples-stop.json ]]; then gate=allowed=false; fi
           case "$gate" in allowed=true|allowed=false) ;; *) exit 1 ;; esac
           printf '%s\n' "$gate" >> "$GITHUB_OUTPUT"
@@ -107,7 +111,7 @@ jobs:
             printf 'sha=%s\nupdated=false\n' "$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          git add -- trader/feed.json trader/period-samples.json trader/position-history
+          git add -- trader/feed.json trader/period-samples.json trader/hyperliquid-fills.json trader/position-history
           changed=false
           if ! git diff --cached --quiet; then
             git fetch --no-tags --depth=1 origin main
@@ -120,13 +124,30 @@ jobs:
           fi
           printf 'sha=%s\nupdated=%s\n' "$(git rev-parse HEAD)" "$changed" >> "$GITHUB_OUTPUT"
 
-      - name: Keep source evidence for this real run
+      - name: Record bounded source receipts without recurring artifact storage
         if: always()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          root=Path(os.environ['RUNNER_TEMP'])/'period-evidence'
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as out:
+              out.write('\n### Public source receipts\n\n')
+              for file in sorted(root.glob('**/*-receipt.json'))[:400]:
+                  row=json.loads(file.read_text())
+                  out.write(json.dumps({key:row.get(key) for key in ['request','httpStatus','receivedAt','sha256','bytes']})+'\n\n')
+          PY
+
+      - name: Keep one manually verified raw evidence batch
+        if: always() && github.event_name == 'workflow_dispatch'
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: hyperliquid-period-evidence-${{ github.run_id }}
           path: ${{ runner.temp }}/period-evidence/
-          retention-days: 3
+          retention-days: 1
+          compression-level: 9
           if-no-files-found: ignore
 
   verify-production:

@@ -8,6 +8,7 @@ const crypto=require('node:crypto');
 const {setTimeout:pause}=require('node:timers/promises');
 const analytics=require('../trader/account-analytics.js');
 const policy=require('../trader/source-policy.js');
+const fillsArchive=require('./collect_hyperliquid_fills.cjs');
 const DAY=86400000,PERIODS=['7D','30D','90D','180D','365D','ALL'];
 const NATIVE={'7D':'week','30D':'month',ALL:'allTime'};
 const BLOCKS=new Set([401,403,418,429,451]);
@@ -27,6 +28,33 @@ async function atomicWrite(file,data,io=fs,mode=0o600){
   const temp=file+'.'+crypto.randomUUID()+'.tmp';
   try{await io.writeFile(temp,JSON.stringify(data)+'\n',{mode,flag:'wx'});await io.rename(temp,file);}
   finally{await io.rm(temp,{force:true});}
+}
+// Both validated documents are staged before either output changes. A local
+// installation failure restores the original bytes; GitHub commits the pair once.
+async function atomicBundle(entries,io=fs){
+  if(new Set(entries.map(row=>row.file)).size!==entries.length)fail('duplicate_bundle_output');
+  const staged=[],installed=[];
+  try{
+    for(const {file,data}of entries){
+      await io.mkdir(path.dirname(file),{recursive:true});
+      let before=null;
+      try{before=await io.readFile(file);}catch(error){if(error.code!=='ENOENT')throw error;}
+      const temporary=file+'.'+crypto.randomUUID()+'.tmp';
+      staged.push({file,temporary,before});
+      await io.writeFile(temporary,JSON.stringify(data)+'\n',{mode:0o644,flag:'wx'});
+    }
+    for(const row of staged){await io.rename(row.temporary,row.file);installed.push(row);}
+  }catch(error){
+    for(const row of installed.reverse()){
+      if(row.before===null)await io.rm(row.file,{force:true});
+      else{
+        const restore=row.file+'.'+crypto.randomUUID()+'.restore';
+        try{await io.writeFile(restore,row.before,{mode:0o644,flag:'wx'});await io.rename(restore,row.file);}
+        finally{await io.rm(restore,{force:true});}
+      }
+    }
+    throw error;
+  }finally{for(const row of staged)await io.rm(row.temporary,{force:true});}
 }
 async function boundedBody(response){
   if(Number(response.headers.get('content-length'))>LIMITS.maxBytes)fail('response_too_large');
@@ -157,19 +185,24 @@ async function collect({feed,analyticsState,portfolioState,previous=null,previou
     weightPerMinute:LIMITS.weightPerMinute,sourceLimitPerMinute:1200};
   parseSamples(output,now());return output;
 }
-async function readJson(file,optional=false){
-  try{const stat=await fs.stat(file);if(!stat.isFile()||stat.size>12*1024*1024)fail('invalid_file');return JSON.parse(await fs.readFile(file,'utf8'));}
+async function readJson(file,optional=false,maxBytes=12*1024*1024){
+  try{const stat=await fs.stat(file);if(!stat.isFile()||stat.size>maxBytes)fail('invalid_file');return JSON.parse(await fs.readFile(file,'utf8'));}
   catch(error){if(optional&&error.code==='ENOENT')return null;throw error;}
 }
 async function main(args=process.argv.slice(2),dependencies={}){
   const repository=path.resolve(__dirname,'..');
   let feedFile=path.join(repository,'trader/feed.json'),out=path.join(repository,'trader/period-samples.json');
+  let fillsOut,seedFile=path.join(repository,'scripts/hyperliquid-fills-roster.json');
   let evidence=process.env.RUNNER_TEMP||os.tmpdir();
   for(let i=0;i<args.length;i++){
     if(args[i]==='--feed'&&args[i+1])feedFile=path.resolve(args[++i]);
     else if(args[i]==='--out'&&args[i+1])out=path.resolve(args[++i]);
+    else if(args[i]==='--fills-out'&&args[i+1])fillsOut=path.resolve(args[++i]);
+    else if(args[i]==='--fills-seed'&&args[i+1])seedFile=path.resolve(args[++i]);
     else if(args[i]==='--evidence'&&args[i+1])evidence=path.resolve(args[++i]);else fail('invalid_arguments');
   }
+  fillsOut ||= path.join(path.dirname(out),'hyperliquid-fills.json');
+  if(fillsOut===out)fail('duplicate_bundle_output');
   const stopFile=dependencies.stopFile||process.env.BOOKS_PERIOD_SOURCE_STOP_FILE||path.join(path.dirname(out),'period-samples-stop.json');
   const previousStop=await readJson(stopFile,true);
   if(previousStop!==null)fail('source_stop_persisted');
@@ -178,6 +211,11 @@ async function main(args=process.argv.slice(2),dependencies={}){
   const feed=JSON.parse(feedBytes),dir=path.dirname(feedFile);
   const analyticsState=await readJson(path.join(dir,'analytics.json')),portfolioState=await readJson(path.join(dir,'portfolios.json'));
   const previous=await readJson(out,true),feedSha256=hash(feedBytes);
+  const previousFills=await readJson(fillsOut,true,fillsArchive.FILE_BYTES),seed=await readJson(seedFile,true,20*1024);
+  if(previousFills){
+    fillsArchive.validateState(previousFills,(dependencies.now||Date.now)());
+    if(previousFills.source.stopCode)fail(previousFills.source.stopCode);
+  }
   await fs.mkdir(evidence,{recursive:true,mode:0o700});
   const runDir=await fs.mkdtemp(path.join(evidence,'period-samples-'));await fs.chmod(runDir,0o700);
   const result=await collect({feed,analyticsState,portfolioState,previous,previousStop,feedSha256,...dependencies,
@@ -187,10 +225,18 @@ async function main(args=process.argv.slice(2),dependencies={}){
       await fs.writeFile(file+'.json',bytes,{mode:0o600,flag:'wx'});
       await fs.writeFile(file+'-receipt.json',JSON.stringify(receipt)+'\n',{mode:0o600,flag:'wx'});
     }});
-  await atomicWrite(out,result,fs,0o644);
+  const evidenceRows=[];
+  for(const address of Object.keys(result.accounts)){
+    const file=path.join(runDir,address+'-userFills');
+    evidenceRows.push({bytes:await fs.readFile(file+'.json'),receipt:await readJson(file+'-receipt.json')});
+  }
+  const fills=fillsArchive.fromEvidence({feed,previous:previousFills,seed:seed||undefined,
+    evidence:evidenceRows,runId:result.runId,now:(dependencies.now||Date.now)()});
+  await atomicBundle([{file:out,data:result},{file:fillsOut,data:fills}],dependencies.outputIO||fs);
   (dependencies.log||console.log)(JSON.stringify({runId:result.runId,accounts:Object.keys(result.accounts).length,
-    generatedAt:result.generatedAt,requests:result.sourcePolicy.requestCount,evidence:runDir}));
+    generatedAt:result.generatedAt,requests:result.sourcePolicy.requestCount,evidence:runDir,
+    fills:{accounts:Object.keys(fills.accounts).length,checkedAt:fills.source.checkedAt,status:fills.source.status}}));
   return result;
 }
-module.exports={collect,main,buildWindows,PublicSource,retryTime,LIMITS};
+module.exports={collect,main,buildWindows,PublicSource,retryTime,atomicBundle,LIMITS};
 if(require.main===module)main().catch(error=>{console.error('period_samples:'+error.message);process.exitCode=1;});

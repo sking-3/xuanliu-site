@@ -28,6 +28,8 @@ async function setup(t){
   const feed={schemaVersion:1,status:'ready',source:{id:'hyperliquid',url:'https://app.hyperliquid.xyz/leaderboard',
     status:'ok',selectedAccounts:0,positionVerification:{scope:'default_perp_dex',stopCode:null}},traders:[]};
   await write('trader/feed.json',feed);await write('trader/period-samples.json',{old:true});
+  await write('trader/hyperliquid-fills.json',{old:true});
+  await write('scripts/collect_hyperliquid_fills.cjs','if(process.argv[2]!=="--gate")process.exit(2);process.stdout.write("allowed=true\\n");');
   await write('trader/position-history/README.md','existing observations');
   await write('trader/source-policy.js',await fs.readFile(path.join(repository,'trader/source-policy.js'),'utf8'));
   for(const [file,method]of [['analytics','closing-fill-v1'],['portfolios','portfolio-periods-v2']])
@@ -71,8 +73,9 @@ test('a failed batch persists its source stop without the partial feed or sample
 test('a successful batch commits the feed, sample bundle and observation archive together',async t=>{
   const f=await setup(t);await f.write('trader/feed.json',{...f.feed,changed:true});
   await f.write('trader/period-samples.json',{complete:true});await f.write('trader/position-history/README.md','new observation');
+  await f.write('trader/hyperliquid-fills.json',{fresh:true});
   f.run('success');assert.deepEqual(f.git('diff-tree','--no-commit-id','--name-only','-r','HEAD').split('\n'),[
-    'trader/feed.json','trader/period-samples.json','trader/position-history/README.md']);
+    'trader/feed.json','trader/hyperliquid-fills.json','trader/period-samples.json','trader/position-history/README.md']);
   assert.match(await fs.readFile(f.output,'utf8'),/updated=true/);
 });
 async function concurrentMain(f){

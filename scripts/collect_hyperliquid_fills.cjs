@@ -4,6 +4,7 @@
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { performance } = require('node:perf_hooks');
+const { createHash } = require('node:crypto');
 const { readBoundedJson, checkCommitted } = require('./hyperliquid_run_guard.cjs');
 const { readJsonResponse } = require('./collect_trader_analytics.cjs');
 
@@ -253,6 +254,77 @@ async function collect({feed, previous = null, seed, fetch: fetcher = globalThis
   return validateState(result, now());
 }
 
+// Convert the already captured userFills replies without making a second request.
+// A successful HTTP reply proves a read time, not uninterrupted history past its cap.
+function fromEvidence({feed, previous = null, seed, evidence, runId, now = Date.now()} = {}) {
+  if (previous) validateState(previous, now);
+  if (previous?.source.stopCode) fail(previous.source.stopCode);
+  const current = selectAccounts(feed, now);
+  const targets = new Set([...(seed ? validateSeed(seed, now) : []), ...current]);
+  if (targets.size > LIMITS.accounts) fail('fills_archive_limit');
+  const records = new Map();
+  if (!Array.isArray(evidence) || evidence.length > LIMITS.accounts) fail('invalid_fills_evidence');
+  for (const item of evidence) {
+    const receipt = item?.receipt, request = receipt?.request;
+    const address = request?.user, started = timestamp(receipt?.startedAt), received = timestamp(receipt?.receivedAt);
+    const bytes = Buffer.isBuffer(item?.bytes) ? item.bytes : null;
+    if (!targets.has(address) || records.has(address) || request?.type !== 'userFills' ||
+        request.aggregateByTime !== false || receipt.httpStatus !== 200 ||
+        !epoch(started) || !epoch(received) || started > received || received > now + 5000 ||
+        runId !== undefined && receipt.runId !== runId || !bytes || bytes.length > 2 * 1024 * 1024 ||
+        receipt.bytes !== bytes.length || createHash('sha256').update(bytes).digest('hex') !== receipt.sha256) fail('invalid_fills_evidence');
+    let raw;
+    try { raw = JSON.parse(bytes.toString('utf8')); } catch (_) { fail('invalid_fills_evidence'); }
+    if (!Array.isArray(raw) || raw.length > LIMITS.responseLimit) fail('invalid_fills_evidence');
+    const normalized = raw.map(row => fill(row, 0, received));
+    const prior = previous?.accounts[address] || empty();
+    if (prior.checkedAt && received < timestamp(prior.checkedAt) ||
+        prior.coveredThrough !== null && started < prior.coveredThrough) fail('fills_time_regression');
+    const expected = Math.max(0, prior.coveredThrough === null
+      ? started - LIMITS.initialWindow : prior.coveredThrough - LIMITS.overlap);
+    const firstReturned = normalized.length ? Math.min(...normalized.map(row => row.time)) : Infinity;
+    let gap = prior.gap;
+    // Clear an earlier hole only when this reply actually reaches its beginning.
+    if (gap && firstReturned <= gap.from && started >= gap.to) gap = null;
+    if (raw.length === LIMITS.responseLimit && firstReturned > expected) {
+      const cap = {from: expected, to: Math.min(started, firstReturned - 1), reason: 'response_cap'};
+      if (cap.from <= cap.to) gap = gap ? {from: Math.min(gap.from, cap.from), to: Math.max(gap.to, cap.to),
+        reason: gap.reason === 'lookback_limit' ? gap.reason : cap.reason} : cap;
+    }
+    records.set(address, {started, received, record: {
+      checkedAt: receipt.receivedAt, lastSuccessAt: receipt.receivedAt,
+      coveredThrough: started, gap, errorCode: null,
+      rows: mergeRows(prior.rows, normalized.filter(row => row.time <= started)),
+    }});
+  }
+  for (const address of current) if (!records.has(address)) fail('missing_fills_evidence');
+  if (!records.size) {
+    if (previous) return previous;
+    fail('missing_fills_evidence');
+  }
+  const accounts = {};
+  for (const address of targets) accounts[address] = previous?.accounts[address] || empty();
+  for (const [address, item] of records) accounts[address] = item.record;
+  // Current and pinned accounts own their slots. Keep the freshest historical
+  // caches in the remaining capacity; old file versions remain in Git history.
+  const past = Object.entries(previous?.accounts || {})
+    .filter(([address, record]) => !targets.has(address) && record.lastSuccessAt)
+    .sort((a, b) => timestamp(b[1].lastSuccessAt) - timestamp(a[1].lastSuccessAt));
+  for (const [address, record] of past.slice(0, LIMITS.accounts - targets.size)) accounts[address] = record;
+  const started = Math.min(...[...records.values()].map(row => row.started));
+  const checked = Math.max(timestamp(previous?.source.checkedAt) || 0,
+    ...[...records.values()].map(row => row.received));
+  const verification = feed.source.positionVerification;
+  const complete = !verification.failedAccounts && !verification.unattemptedAccounts &&
+    [...targets].every(address => records.has(address) && !accounts[address].gap);
+  const result = validateState({schemaVersion: 1, source: {
+    id: 'hyperliquid', endpoint: INFO, startedAt: iso(started), checkedAt: iso(checked),
+    status: complete ? 'ready' : 'partial', stopCode: null, intervalMinutes: 30,
+  }, accounts}, now);
+  if (Buffer.byteLength(JSON.stringify(result) + '\n') > FILE_BYTES) fail('checkpoint_too_large');
+  return result;
+}
+
 async function main(args = process.argv.slice(2)) {
   if (args.length > 1 || args.length && args[0] !== '--gate') fail('invalid_arguments');
   const output = path.resolve(__dirname, '../trader/hyperliquid-fills.json');
@@ -284,7 +356,7 @@ async function main(args = process.argv.slice(2)) {
   console.log(JSON.stringify({...result.source, accounts: Object.keys(result.accounts).length}));
 }
 
-module.exports = {collect, validateState, LIMITS, FILE_BYTES};
+module.exports = {collect, fromEvidence, validateState, LIMITS, FILE_BYTES};
 if (require.main === module) main().catch(error => {
   // Only fixed codes and known upstream HTTP status values are public.
   const code = error?.message || '';
