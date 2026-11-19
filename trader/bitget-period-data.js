@@ -158,7 +158,8 @@
     // prove the account had reached that age when the older return was fetched.
     const captureAge=part.accountAgeDaysAtCapture!==undefined ? part.accountAgeDaysAtCapture :
       Date.parse(row.profileEvidence?.fetchedAt)<=Date.parse(part.fetchedAt) ? row.leadDays : null;
-    return {...part, status: now-Date.parse(part.lastSuccessAt)>day?'stale':'ready',
+    return {...part, curveBasis:'account_cumulative',trendBasis:'cumulative_daily_direction',
+      status: now-Date.parse(part.lastSuccessAt)>day?'stale':'ready',
       accountAgeDays:captureAge,fullPeriod:period!=='365D' && captureAge!==null && captureAge>=days[period],
       ...(period==='365D'?{coverageReason:'source_period_unverified'}:{}),periodSupported:true};
   }

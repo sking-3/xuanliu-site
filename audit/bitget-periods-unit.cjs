@@ -33,6 +33,12 @@ for (const row of snapshot.accounts) {
     for(const r of row.transfers.rows)assert.ok(matches.some(m=>JSON.stringify(r)===JSON.stringify(m)));
   }
   for (const [period,part] of Object.entries(row.performance)) {
+    const presentation=model.performance(row,period,asOf);
+    assert.equal(presentation.curveBasis,'account_cumulative');
+    assert.equal(presentation.trendBasis,'cumulative_daily_direction');
+    assert.equal(presentation.roi,part.roi);assert.equal(presentation.pnl,part.pnl);
+    assert.deepEqual(presentation.curve,part.curve);
+    assert.deepEqual(presentation.pnlCurve,part.pnlCurve);
     const raw=evidence(part);
     assert.equal(part.roi,Number(raw.roi));
     assert.equal(part.pnl,Number(raw.profit));
