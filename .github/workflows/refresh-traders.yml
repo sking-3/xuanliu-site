@@ -47,6 +47,7 @@ jobs:
           node --check scripts/collect_period_samples.cjs
           node --check scripts/collect_hyperliquid_fills.cjs
           node --test audit/period-metrics-unit.cjs audit/period-samples-collector-unit.cjs
+          node --test audit/period-refresh-ui-unit.cjs
           node --test audit/hyperliquid-fills-unit.cjs
           node audit/hyperliquid-run-guard-unit.cjs
           python3 audit/hyperliquid-collector-test.py
