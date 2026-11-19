@@ -81,7 +81,7 @@ jobs:
           const fs = require('node:fs');
           const path = require('node:path');
           const filename = path.join(process.env.RUNNER_TEMP, 'binance-browser-result/result.json');
-          let text = 'Probe did not reach the source: inspect the setup/test step. No Binance data was published.\n';
+          let text = 'Probe produced no observation file: inspect the failed step. Source access is unproven. No Binance data was published.\n';
           if (fs.existsSync(filename)) {
             const r = JSON.parse(fs.readFileSync(filename));
             const status = ['success', 'success_observed_changed', 'partial_observed', 'blocked', 'not_proven'].includes(r.status) ? r.status : 'not_proven';
