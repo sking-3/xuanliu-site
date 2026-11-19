@@ -2,6 +2,14 @@ name: Probe Binance 365D in normal Chromium
 
 on:
   workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Bootstrap never contacts Binance; source probe needs an explicit one-shot authorization.'
+        type: choice
+        default: bootstrap-only
+        options:
+          - bootstrap-only
+          - source-probe
 
 permissions:
   contents: read
@@ -35,7 +43,24 @@ jobs:
           npm install --prefix "$RUNNER_TEMP/probe-cli" --ignore-scripts --no-audit --no-fund --save-exact @playwright/cli@0.1.25
           "$RUNNER_TEMP/probe-cli/node_modules/.bin/playwright-cli" --version
           "$RUNNER_TEMP/probe-cli/node_modules/.bin/playwright-cli" install-browser chromium --with-deps --no-shell
+      - name: Check blank browser bootstrap without contacting Binance
+        if: inputs.mode == 'bootstrap-only'
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/probe-browsers
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir "$RUNNER_TEMP/blank-browser-check"
+          cd "$RUNNER_TEMP/blank-browser-check"
+          node -e 'require("node:fs").writeFileSync("launch.json", JSON.stringify({browser:{browserName:"chromium",isolated:true,launchOptions:{headless:false}}}))'
+          export PROBE_CLI="$RUNNER_TEMP/probe-cli/node_modules/.bin/playwright-cli"
+          xvfb-run -a bash -c '
+            trap '\''"$PROBE_CLI" -s=bootstrap close >/dev/null 2>&1 || true'\'' EXIT
+            "$PROBE_CLI" -s=bootstrap --json open about:blank --headed --config="$PWD/launch.json" || exit $?
+            "$PROBE_CLI" -s=bootstrap --raw run-code "async page => { const url = page.url(); await page.context().close(); return {blankUrl:url, closed:true}; }"
+          '
       - name: Observe Btc Star once with a fresh headed browser
+        if: inputs.mode == 'source-probe'
         env:
           PLAYWRIGHT_CLI_BIN: ${{ runner.temp }}/probe-cli/node_modules/.bin/playwright-cli
           PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/probe-browsers
@@ -44,7 +69,7 @@ jobs:
           set -euo pipefail
           xvfb-run -a node scripts/probe_binance_playwright.cjs --output-dir "$RUNNER_TEMP/binance-browser-result"
       - name: Record actual outcome
-        if: always()
+        if: always() && inputs.mode == 'source-probe'
         shell: bash
         run: |
           node <<'NODE'
@@ -61,7 +86,7 @@ jobs:
           fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, text);
           NODE
       - name: Retain allowlisted observation only
-        if: always()
+        if: always() && inputs.mode == 'source-probe'
         uses: actions/upload-artifact@v4
         with:
           name: btc365-browser-result
