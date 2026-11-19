@@ -4,9 +4,10 @@
 const el=(tag,text,cls)=>{const x=document.createElement(tag);if(text!==undefined)x.textContent=text;if(cls)x.className=cls;return x;};
 const fmt=(v,d=8)=>v===null||v===undefined||!Number.isFinite(Number(v))?'—':Number(v).toLocaleString('zh-CN',{maximumFractionDigits:d});
 const stamp=t=>new Date(t).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',hour12:false});
+const orderStamp=t=>stamp(t)+'.'+String(t%1000).padStart(3,'0');
 const short=t=>new Date(t).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false});
 function mount(container,playback,options){
- const {bars,events,seconds,cycle,name,onOutside}=options,lib=env.LightweightCharts,M=env.BooksTradeReplayModel;
+ const {events,seconds,cycle,name,onOutside}=options,lib=env.LightweightCharts,M=env.BooksTradeReplayModel;let bars=options.bars;
  const legend=el('div',undefined,'ta-chart-legend');container.before(legend);
  const chart=lib.createChart(container,{autoSize:true,layout:{background:{type:'solid',color:'#ffffff'},textColor:'#738195',attributionLogo:true,fontFamily:'system-ui, sans-serif',fontSize:11},grid:{vertLines:{color:'#eef1f5'},horzLines:{color:'#eef1f5'}},rightPriceScale:{borderColor:'#dfe5eb',scaleMargins:{top:.16,bottom:.23}},timeScale:{borderColor:'#dfe5eb',timeVisible:true,tickMarkFormatter:(t,type)=>new Date(Number(t)*1000).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',...(type===0?{year:'numeric'}:type===1?{month:'short'}:type===2?{month:'2-digit',day:'2-digit'}:{hour:'2-digit',minute:'2-digit',hour12:false})})},localization:{locale:'zh-CN',timeFormatter:t=>stamp(Number(t)*1000)},handleScroll:{vertTouchDrag:false,horzTouchDrag:true},handleScale:{mouseWheel:true,pinch:true}});
  const series=chart.addSeries(lib.CandlestickSeries,{upColor:'#16a085',downColor:'#e25371',borderVisible:false,wickUpColor:'#16a085',wickDownColor:'#e25371'}),markers=lib.createSeriesMarkers(series,[]);
@@ -35,6 +36,7 @@ function mount(container,playback,options){
    const x=scale.timeToCoordinate(marker.time),halfWidth=(marker.text.length*11+12)/2;
    const readable=x!==null&&x-halfWidth>=0&&x+halfWidth<=container.clientWidth&&x-halfWidth>=occupied[marker.position]+10;
    if(readable)occupied[marker.position]=x+halfWidth;
+   if(options.exactPrices&&events.length===1)return {...marker,price:Number(events[0].price),position:marker.position==='belowBar'?'atPriceBottom':'atPriceTop',text:readable?marker.text:''};
    return {...marker,text:readable?marker.text:''};
   }));
   const visible=scale.getVisibleLogicalRange(),span=visible?visible.to-visible.from:cursor;
@@ -61,7 +63,10 @@ function mount(container,playback,options){
    for(const e of list){const row=el('div',undefined,'ta-tooltip-record'),head=el('strong',e.action+' · '+(({long:'多仓',short:'空仓'})[e.positionSide]||'开平未知')+(options.aggregate?'':' · '+(e.side==='buy'?'买入':'卖出')),e.side==='buy'?'ta-tooltip-buy':'ta-tooltip-sell');
     row.append(head);
     if(options.aggregate)row.append(el('p','来源均价 '+fmt(e.price)+' '+e.quote),el('small','来源仓位时间 '+stamp(e.time)+' 北京时间'));
-    else row.append(el('p',fmt(e.quantity)+' @ '+fmt(e.price)+' '+e.quote),el('p','名义金额 '+fmt(Number(e.quantity)*Number(e.price),2)+' '+e.quote),el('small','来源时间 '+stamp(e.time)+' 北京时间'),el('small','首次发现 '+(e.firstSeenAt?stamp(e.firstSeenAt):'未记录')));
+    else{
+     const orderTimes=options.orderTimes!==false,priceLabel=orderTimes?'归档成交均价':'归档成交价',timeLabel=orderTimes?'订单更新时间':'成交时间';
+     row.append(el('p',options.exactPrices?priceLabel+' '+fmt(e.price)+' '+e.quote+' · 数量 '+fmt(e.quantity):fmt(e.quantity)+' @ '+fmt(e.price)+' '+e.quote),el('p','名义金额 '+fmt(Number(e.quantity)*Number(e.price),2)+' '+e.quote),el('small',(options.exactPrices?timeLabel+' '+orderStamp(e.time):'来源时间 '+stamp(e.time))+' 北京时间'),el('small','首次发现 '+(e.firstSeenAt?stamp(e.firstSeenAt):options.exactPrices?'—':'未记录')));
+    }
     if(e.startPosition!==undefined)row.append(el('small','成交前 / 后仓位 '+e.startPosition+' / '+e.endPosition));
     if(e.ambiguous)row.append(el('small','记录版本存在歧义，不叠加推算仓位。'));tooltip.append(row);
    }
@@ -77,7 +82,7 @@ function mount(container,playback,options){
  chart.subscribeCrosshairMove(move);chart.subscribeClick(click);container.addEventListener('pointerleave',()=>{if(!pinned)hide();});
  scale.subscribeVisibleLogicalRangeChange(refreshMarkers);scale.subscribeSizeChange(refreshMarkers);
  paint();scale.fitContent();
- return {chart,focusEvent(e){stop();const time=Math.floor(e.time/1000/seconds)*seconds,i=bars.findIndex(b=>b.time===time);if(i<0){onOutside?.();return;}cursor=i+1;paint();scale.setVisibleLogicalRange({from:Math.max(0,i-16),to:i+6});show({list:[e],key:e.id,time},{x:20,y:20},true);container.scrollIntoView({block:'center',behavior:'auto'});},destroy(){stop();scale.unsubscribeVisibleLogicalRangeChange(refreshMarkers);scale.unsubscribeSizeChange(refreshMarkers);chart.unsubscribeCrosshairMove(move);chart.unsubscribeClick(click);chart.remove();legend.remove();tooltip.remove();zoomTools.remove();}};
+ return {chart,updateMarket(next){const visible=scale.getVisibleRange(),scroll=scale.scrollPosition(),last=bars.at(-1).time;bars=next;cursor=bars.length;range.max=String(cursor);paint();if(visible&&scroll<0&&visible.to<=last)scale.setVisibleRange(visible);else scale.scrollToRealTime();},focusEvent(e){stop();const time=Math.floor(e.time/1000/seconds)*seconds,i=bars.findIndex(b=>b.time===time);if(i<0){onOutside?.();return;}cursor=i+1;paint();scale.setVisibleLogicalRange({from:Math.max(0,i-16),to:i+6});show({list:[e],key:e.id,time},{x:20,y:20},true);container.scrollIntoView({block:'center',behavior:'auto'});},destroy(){stop();scale.unsubscribeVisibleLogicalRangeChange(refreshMarkers);scale.unsubscribeSizeChange(refreshMarkers);chart.unsubscribeCrosshairMove(move);chart.unsubscribeClick(click);chart.remove();legend.remove();tooltip.remove();zoomTools.remove();}};
 }
 env.BooksTradeChart={mount};
 })(globalThis);
