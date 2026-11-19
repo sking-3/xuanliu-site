@@ -17,7 +17,6 @@ jobs:
     env:
       CI: 'true'
       NO_UPDATE_NOTIFIER: '1'
-      PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/probe-browsers
     steps:
       - uses: actions/checkout@v4
         with:
@@ -28,6 +27,8 @@ jobs:
       - name: Validate probe offline
         run: node --test audit/binance-playwright-probe-unit.cjs
       - name: Install pinned Microsoft Playwright CLI and Chromium
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/probe-browsers
         shell: bash
         run: |
           set -euo pipefail
@@ -37,6 +38,7 @@ jobs:
       - name: Observe Btc Star once with a fresh headed browser
         env:
           PLAYWRIGHT_CLI_BIN: ${{ runner.temp }}/probe-cli/node_modules/.bin/playwright-cli
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/probe-browsers
         shell: bash
         run: |
           set -euo pipefail
