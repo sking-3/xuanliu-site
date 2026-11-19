@@ -4,11 +4,13 @@ This is one manually authorized observation of Btc星辰, portfolio `47518383020
 
 https://www.binance.com/zh-TC/copy-trading/lead-details/4751838302089254401
 
-The Microsoft Playwright skill is vendored under `.agents/skills/playwright-cli`, pinned at commit `c872a33cec77fa03c28fa7c6d1ad99d15d04ce42`. The runtime is `@playwright/cli@0.1.25`. No paid service is used.
+The Microsoft Playwright skill is vendored under `.agents/skills/playwright-cli`, pinned at commit `c872a33cec77fa03c28fa7c6d1ad99d15d04ce42`. GitHub installs `@playwright/cli@0.1.25` and its exact Playwright dependency `1.66.0-alpha-2026-11-18`. No paid service is used.
+
+The actual dedicated collector drives standard Playwright directly. The initial CLI wrapper lost results because closing its context also terminated its daemon. Direct driving preserves the denial receipt when a context closes and avoids the CLI's automatic AutomationControlled launch flag. No stealth flags are added.
 
 ## Run
 
-Run the GitHub Actions workflow **Probe Binance 365D in normal Chromium** once with `workflow_dispatch`. It installs the pinned CLI and matching Chromium, runs offline tests, then opens a fresh headed browser under Xvfb. There is no scheduled trigger or persistent polling.
+Run the GitHub Actions workflow **Probe Binance 365D in normal Chromium** once with `workflow_dispatch`. Its default `bootstrap-only` mode never contacts Binance. Explicit `source-probe` mode installs the pinned CLI and matching Chromium, runs offline tests and a source-free browser lifecycle check, then opens a fresh headed browser under Xvfb. There is no scheduled trigger or persistent polling.
 
 For offline validation only:
 
@@ -19,7 +21,7 @@ node --test audit/binance-playwright-probe-unit.cjs
 For the explicit manual Linux browser observation, after installing the pinned CLI and browser:
 
 ```sh
-CI=true NO_UPDATE_NOTIFIER=1 PLAYWRIGHT_CLI_BIN=/absolute/path/to/playwright-cli \
+CI=true NO_UPDATE_NOTIFIER=1 PLAYWRIGHT_PACKAGE_DIR=/absolute/path/to/node_modules/playwright \
   xvfb-run -a node scripts/probe_binance_playwright.cjs --output-dir /empty/output/directory
 ```
 

@@ -44,25 +44,30 @@ jobs:
           "$RUNNER_TEMP/probe-cli/node_modules/.bin/playwright-cli" --version
           "$RUNNER_TEMP/probe-cli/node_modules/.bin/playwright-cli" install-browser chromium --with-deps --no-shell
       - name: Check blank browser bootstrap without contacting Binance
-        if: inputs.mode == 'bootstrap-only'
         env:
+          PLAYWRIGHT_PACKAGE_DIR: ${{ runner.temp }}/probe-cli/node_modules/playwright
           PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/probe-browsers
         shell: bash
         run: |
           set -euo pipefail
-          mkdir "$RUNNER_TEMP/blank-browser-check"
-          cd "$RUNNER_TEMP/blank-browser-check"
-          node -e 'require("node:fs").writeFileSync("launch.json", JSON.stringify({browser:{browserName:"chromium",isolated:true,launchOptions:{headless:false}}}))'
-          export PROBE_CLI="$RUNNER_TEMP/probe-cli/node_modules/.bin/playwright-cli"
-          xvfb-run -a bash -c '
-            trap '\''"$PROBE_CLI" -s=bootstrap close >/dev/null 2>&1 || true'\'' EXIT
-            "$PROBE_CLI" -s=bootstrap --json open about:blank --headed --config="$PWD/launch.json" || exit $?
-            "$PROBE_CLI" -s=bootstrap --raw run-code "async page => { const url = page.url(); await page.context().close(); return {blankUrl:url, closed:true}; }"
-          '
+          xvfb-run -a node <<'NODE'
+          const {chromium} = require(process.env.PLAYWRIGHT_PACKAGE_DIR);
+          (async () => {
+            const browser = await chromium.launch({headless:false});
+            try {
+              const context = await browser.newContext();
+              const page = await context.newPage();
+              const blankUrl = page.url();
+              if (blankUrl !== 'about:blank') throw Error('bootstrap_not_blank');
+              await context.close();
+              console.log(JSON.stringify({blankUrl, closed:true, sourceRequests:0}));
+            } finally { await browser.close(); }
+          })().catch(() => {console.error('standard_browser_bootstrap_failed'); process.exitCode=1;});
+          NODE
       - name: Observe Btc Star once with a fresh headed browser
         if: inputs.mode == 'source-probe'
         env:
-          PLAYWRIGHT_CLI_BIN: ${{ runner.temp }}/probe-cli/node_modules/.bin/playwright-cli
+          PLAYWRIGHT_PACKAGE_DIR: ${{ runner.temp }}/probe-cli/node_modules/playwright
           PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/probe-browsers
         shell: bash
         run: |

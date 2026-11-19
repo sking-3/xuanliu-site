@@ -6,7 +6,7 @@ const os=require('node:os');
 const path=require('node:path');
 const {EventEmitter}=require('node:events');
 const {webcrypto}=require('node:crypto');
-const {TARGET,CLI_VERSION,archivedBaseline,resolveCli,parseCliResult,browserProbe,makeBrowserCode,assess,main}=require('../scripts/probe_binance_playwright.cjs');
+const {TARGET,PLAYWRIGHT_VERSION,DRIVER,archivedBaseline,loadPlaywright,browserProbe,assess,main}=require('../scripts/probe_binance_playwright.cjs');
 if(!globalThis.crypto)globalThis.crypto=webcrypto;
 const previous='2024-02-18T10:00:00.000Z',fresh='2024-02-19T10:00:00.000Z',now=Date.parse('2024-02-20T10:00:00.000Z');
 const baseline={roi:803.81948672,compareAt:previous,sourceAt:null,receiptAt:previous};
@@ -137,13 +137,8 @@ test('source time must be newer than archive independently of local receipt time
   ]) {const o=structuredClone(good);change(o);const result=assess(o,baseline,now);assert.equal(result.reason,reason);assert.equal(result.canPublish,false);}
 });
 
-test('raw CLI parser handles raw JSON and documented result headings without evaluating text',()=>{
-  const observation=completeObservation(),json=JSON.stringify(observation,null,2);
-  assert.deepEqual(parseCliResult(json),observation);
-  assert.deepEqual(parseCliResult('### Result\n'+json+'\n### Snapshot\n[Snapshot](local.yml)'),observation);
-  assert.throws(()=>parseCliResult('throw process.exit(0)'),/not_json/);
-  const code=makeBrowserCode({target:TARGET,budgetMs:1000,screenshotPath:'/private/tmp/review.png'});
-  assert.doesNotThrow(()=>new Function('return ('+code+')'));
+test('the specialized observer initiates one navigation without direct API calls or bypass actions',()=>{
+  const code=browserProbe.toString();
   assert.equal((code.match(/page\.goto\(/g)||[]).length,1);
   assert.ok(!/\b(?:fetch|request\.get|request\.post|storageState|addCookies|setExtraHTTPHeaders|route\.fulfill)\s*\(/.test(code));
 });
@@ -154,49 +149,53 @@ test('response summaries redact unknown query parameters and never persist full 
   assert.ok(!serialized.includes('authorization'));assert.ok(!serialized.includes('set-cookie'));assert.ok(!serialized.includes('bodyBase64'));
 });
 
-test('pinned CLI package metadata is verified before use',()=>{
-  const temp=fs.mkdtempSync(path.join(os.tmpdir(),'probe-cli-test-'));
+test('the standard Playwright package version is verified before loading',()=>{
+  const temp=fs.mkdtempSync(path.join(os.tmpdir(),'probe-package-test-'));
   try {
-    const cli=path.join(temp,'cli.js');fs.writeFileSync(cli,'');
-    fs.writeFileSync(path.join(temp,'package.json'),JSON.stringify({name:'@playwright/cli',version:CLI_VERSION}));
-    assert.equal(resolveCli({PLAYWRIGHT_CLI_BIN:cli}),fs.realpathSync(cli));
-    fs.writeFileSync(path.join(temp,'package.json'),JSON.stringify({name:'@playwright/cli',version:'99.0.0'}));
-    assert.throws(()=>resolveCli({PLAYWRIGHT_CLI_BIN:cli}),/version_mismatch/);
+    const runtime={chromium:{launch:async()=>{}}};let loaded=null;
+    fs.writeFileSync(path.join(temp,'package.json'),JSON.stringify({name:'playwright',version:PLAYWRIGHT_VERSION}));
+    assert.equal(loadPlaywright({PLAYWRIGHT_PACKAGE_DIR:temp},directory=>{loaded=directory;return runtime;}),runtime);
+    assert.equal(loaded,fs.realpathSync(temp));
+    fs.writeFileSync(path.join(temp,'package.json'),JSON.stringify({name:'playwright',version:'99.0.0'}));
+    assert.throws(()=>loadPlaywright({PLAYWRIGHT_PACKAGE_DIR:temp},()=>{throw Error('must_not_load');}),/version_mismatch/);
+    assert.throws(()=>loadPlaywright({PLAYWRIGHT_PACKAGE_DIR:'relative'}),/directory_required/);
   }finally{fs.rmSync(temp,{recursive:true,force:true});}
 });
 
-test('orchestrator runs only blank open, one run-code, close and never changes legacy files on failure',async()=>{
+test('standard browser lifecycle preserves denial results after immediate context closure',async()=>{
   const temp=fs.mkdtempSync(path.join(os.tmpdir(),'probe-main-test-')),output=path.join(temp,'artifacts'),calls=[];
   const root=path.join(__dirname,'..'),files=['trader/binance/period-returns.json','scripts/source-holds.json'];
   const before=files.map(file=>fs.readFileSync(path.join(root,file)));
-  const observation=completeObservation();observation.stop={kind:'blocked',code:'http_403'};
+  const {page,state}=fakePage({initial:[mockResponse('detail',{status:403})]});
+  const context=page.context();context.newPage=async()=>{calls.push('newPage');return page;};
+  const browser={newContext:async options=>{
+    assert.deepEqual(options,{viewport:{width:1440,height:1000},serviceWorkers:'block'});
+    calls.push('newContext');return context;
+  },close:async()=>{calls.push('browser.close');}};
+  const playwright={chromium:{launch:async options=>{
+    assert.deepEqual(options,{headless:false});calls.push('launch');return browser;
+  }}};
   try {
-    const result=await main(['--output-dir',output],{cli:'mock-cli',root,runCommand:async(cli,args,options)=>{
-      calls.push(args);assert.equal(cli,'mock-cli');assert.ok(options.timeoutMs>0 && options.timeoutMs<=90000);
-      if(args.includes('open')) {
-        assert.deepEqual(args.slice(1,4),['open','about:blank','--headed']);
-        const config=JSON.parse(fs.readFileSync(args.find(a=>a.startsWith('--config=')).slice(9),'utf8'));
-        assert.deepEqual(config,{browser:{browserName:'chromium',isolated:true,launchOptions:{headless:false}}});
-      }
-      if(args.includes('run-code')) {
-        const source=fs.readFileSync(args.find(a=>a.startsWith('--filename=')).slice(11),'utf8');
-        assert.ok(source.includes(TARGET.url));return JSON.stringify(observation);
-      }
-      return '';
-    }});
-    assert.equal(result.status,'blocked');assert.equal(result.canPublish,false);assert.equal(calls.length,3);
-    assert.equal(fs.existsSync(path.join(output,'result.json')),true);
+    const result=await main(['--output-dir',output],{playwright,root});
+    assert.equal(result.status,'blocked');assert.equal(result.reason,'http_403');assert.equal(result.stage,'navigate');
+    assert.equal(result.driver,DRIVER);assert.equal(result.kind,'manual_standard_playwright_probe');assert.equal(result.canPublish,false);
+    assert.equal(state.closed,1);assert.equal(state.navigations,1);assert.equal(state.clicks,0);
+    assert.deepEqual(calls,['launch','newContext','newPage','browser.close']);
+    const persisted=JSON.parse(fs.readFileSync(path.join(output,'result.json'),'utf8'));
+    assert.equal(persisted.status,'blocked');assert.equal(persisted.receipts[0].status,403);
+    assert.equal(persisted.receipts[0].url,publicUrl('detail'));
     assert.deepEqual(fs.readdirSync(output),['result.json']);
     for(let i=0;i<files.length;i++)assert.deepEqual(fs.readFileSync(path.join(root,files[i])),before[i]);
-    await assert.rejects(main(['--output-dir',output],{cli:'unused'}),/must_be_empty/);
+    await assert.rejects(main(['--output-dir',output],{playwright}),/must_be_empty/);
     assert.equal(archivedBaseline(root).sourceAt,null);
   }finally{fs.rmSync(temp,{recursive:true,force:true});}
 });
 
-test('CLI failure performs cleanup but does not retry open or navigate',async()=>{
-  const temp=fs.mkdtempSync(path.join(os.tmpdir(),'probe-cli-failure-')),calls=[];
+test('driver setup failures report the actual failing stage and do not retry launch',async()=>{
+  const temp=fs.mkdtempSync(path.join(os.tmpdir(),'probe-driver-failure-'));let launches=0;
   try {
-    const result=await main(['--output-dir',path.join(temp,'artifacts')],{cli:'mock-cli',runCommand:async(_,args)=>{calls.push(args);if(args.includes('open'))throw Error('cli_command_failed');return '';}});
-    assert.equal(result.reason,'cli_command_failed');assert.equal(calls.length,2);assert.ok(calls[1].includes('close'));
+    const playwright={chromium:{launch:async()=>{launches++;throw Error('missing_display');}}};
+    const result=await main(['--output-dir',path.join(temp,'artifacts')],{playwright});
+    assert.equal(result.reason,'missing_display');assert.equal(result.stage,'setup_browser');assert.equal(launches,1);
   }finally{fs.rmSync(temp,{recursive:true,force:true});}
 });
