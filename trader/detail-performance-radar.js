@@ -73,6 +73,7 @@
     const okx = exchange === 'OKX';
     const time = window.lastSuccessAt || window.fetchedAt || performanceAt ||
       (window.asOfType === 'observed' ? window.asOf : null);
+    const metricTimes=window.metricTimes||{};
     const sourceAt = window.sourceAsOf || (window.asOfType === 'observed' ? null : window.asOf);
     const shortHistory = window.fullPeriod === false && Number.isFinite(window.accountAgeDays);
     const partialSample = window.derived && ['sampled_boundary', 'insufficient_history'].includes(window.coverageStatus);
@@ -85,7 +86,12 @@
     const usableAum = aum !== null && aum >= 0 && moneyUnits.has(currency);
     const usableLeverage = averageLeverage !== null && averageLeverage > 0 &&
       Number.isInteger(leverage?.count) && leverage.count > 0;
-    const points = curve?.points, trend = trendScore(points);
+    const points = curve?.points;
+    const cumulative = (curve?.basis||window.curveBasis)==='account_cumulative';
+    const dailyDirection = cumulative&&(curve?.trendBasis||window.trendBasis)==='cumulative_daily_direction';
+    const contiguous = !dailyDirection||!points?.some((point,index)=>index>0&&
+      savedTime(point.time)-savedTime(points[index-1].time)!==86400000);
+    const trend = contiguous?trendScore(points):null;
     const pct = value => numberFormat.format(value) + '%';
     const row = (label, points, raw, time, method, source, evidence = {}) => {
       const blocked = Boolean(evidence.periodBound && (shortHistory || partialSample));
@@ -96,26 +102,29 @@
     };
 
     return [
-      row('收益率', roi === null ? null : clampScore(50 + roi / 2), roi === null ? null : pct(roi), time,
-        '所选区间收益率每增加 2 个百分点加 1 分。0% 为 50 分，100% 起计 100 分。',
+      row('收益率', roi === null ? null : clampScore(50 + roi / 2), roi === null ? null : pct(roi), metricTimes.roi?.observedAt||time,
+        '50 加收益率百分点的一半，四舍五入后限制为 0–100 分。',
         window.coverageLabel || (window.derived ? 'Hyperliquid 已对账区间收益率' : '来源所选周期收益率'),
-        { periodBound: true, sourceAt, limit: roi > 100 ? '封顶' : roi < -100 ? '触底' : '' }),
+        { periodBound: true, sourceAt:metricTimes.roi?.sourceAt||sourceAt, limit: roi > 100 ? '封顶' : roi < -100 ? '触底' : '' }),
       row(sampled ? '采样回撤' : '回撤控制', usableDrawdown ? clampScore(100 - drawdown) : null,
-        usableDrawdown ? pct(drawdown) : null, sampled ? curve?.lastSuccessAt : time,
+        usableDrawdown ? pct(drawdown) : null, metricTimes.mdd?.observedAt||(sampled ? curve?.lastSuccessAt : time),
         '100 减所列来源回撤百分点。', sampled ? '永续采样盈亏回撤' : '来源回撤',
-        { periodBound: true, sourceAt: sampled ? points?.at(-1)?.time : sourceAt }),
+        { periodBound: true, sourceAt:metricTimes.mdd?.sourceAt||(sampled ? points?.at(-1)?.time : sourceAt),
+          sampleRange: metricTimes.mdd?.kind==='sample'&&metricTimes.mdd?.startAt&&metricTimes.mdd?.endAt ? [savedTime(metricTimes.mdd.startAt),savedTime(metricTimes.mdd.endAt)] : sampled && points?.length ? [savedTime(points[0].time),savedTime(points.at(-1).time)] : [] }),
       row(sampled ? '片段胜率' : okx ? '盈利日比例' : '胜率', usableWin ? clampScore(win) : null,
-        usableWin ? pct(win) : null, winSample ? winSample.fetchedAt : window.winRateEvidence?.lastSuccessAt || time,
+        usableWin ? pct(win) : null, metricTimes.winRate?.observedAt||(winSample ? winSample.fetchedAt : window.winRateEvidence?.lastSuccessAt || time),
         '按来源比例，每 1 个百分点计 1 分。',
         winSample?.label || (okx ? 'OKX 盈利日比例' : exchange === 'Binance' ? '币安已平仓仓位胜率' : '来源胜率'),
-        { periodBound: !sampled, sourceAt: sampled || okx ? null : sourceAt }),
+        { periodBound: !sampled, sourceAt: metricTimes.winRate?.sourceAt||(sampled || okx ? null : sourceAt),
+          sampleRange:metricTimes.winRate?.kind==='sample'?[savedTime(metricTimes.winRate.startAt),savedTime(metricTimes.winRate.endAt)]:[] }),
       row('资金规模', usableAum ? clampScore(20 * (Math.log10(Math.max(1, aum)) - 3)) : null,
         usableAum ? numberFormat.format(aum) + ' ' + currency : null, capital?.fetchedAt,
         '管理规模达到 1 千为 0 分，此后每增 10 倍加 20 分，1 亿为 100 分。',
         usableAum ? '公开组合资料 · 管理规模 AUM' : undefined),
-      row('上行一致性', trend, trend === null ? null : points.length + ' 个采样点', curve?.lastSuccessAt,
-        '正向净变化除以相邻采样绝对变化总和，再乘 100。至少 7 点，最大间隔不得超过中位间隔的 3 倍。',
-        points?.length ? curveLabels[exchange] || '来源盈亏采样' : undefined,
+      row('上行一致性', trend, trend === null ? null : points.length + (dailyDirection?' 个日点 · 累计日点方向':' 个采样点'), curve?.lastSuccessAt,
+        (dailyDirection?'仅衡量所选窗口内累计日点方向，终值不代表同期收益；不填补缺失日点。':'')+
+        '正向净变化除以相邻采样绝对变化总和，再乘 100。至少 7 点，'+(dailyDirection?'日点须连续。':'最大间隔不得超过中位间隔的 3 倍。'),
+        points?.length ? (dailyDirection?'来源累计收益率（日点） · 累计日点方向':curveLabels[exchange] || '来源盈亏采样') : undefined,
         { periodBound: true, sampleRange: trend === null ? [] : [savedTime(points[0].time), savedTime(points.at(-1).time)] }),
       row('杠杆控制', usableLeverage ? clampScore(100 - 5 * (averageLeverage - 1)) : null,
         usableLeverage ? numberFormat.format(averageLeverage) + '× · ' + leverage.count + ' 笔' : null, leverage?.fetchedAt,
@@ -202,6 +211,11 @@
         const points = element('strong', String(axis.score) + ' 分');
         const raw = element('small', [axis.raw, axis.limit].filter(Boolean).join(' · '), 'bdr-raw');
         reading.append(points, raw);
+        const dates=axis.sampleRange.length?timeRange(axis.sampleRange,timeFormat):
+          axis.sourceAt!==null?timeFormat.format(axis.sourceAt):
+          axis.time!==null?'核对 '+timeFormat.format(axis.time):'';
+        if(dates)reading.append(element('small',dates+'（北京）','bdr-raw'));
+
       }
       row.append(element('dt', axis.label), reading);
       legend.append(row);
