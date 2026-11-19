@@ -422,13 +422,7 @@ jobs:
       - name: Verify the exact snapshots on the formal site
         env:
           REFRESH_MODE: ${{ needs.collect-build.outputs.refresh_mode }}
-        shell: bash
-        run: |
-          if [ "$REFRESH_MODE" = positions ]; then
-            bash scripts/verify-trader-vps-publication.sh --hyperliquid-positions
-          else
-            bash scripts/verify-trader-vps-publication.sh
-          fi
+        run: bash scripts/verify-trader-vps-publication.sh
 
   recover-exchange:
     # The formal-site timer can still consume the verified early exchange checkpoint.

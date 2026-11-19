@@ -6,7 +6,11 @@ exchange_files=(
   trader/okx/period-returns.json
   trader/bitget/period-returns.json
 )
-case "${1-}" in
+scope=${1-}
+if (( $# == 0 )) && [[ ${REFRESH_MODE-} == positions ]]; then
+  scope=--hyperliquid-positions
+fi
+case "$scope" in
   '') files=(trader/feed.json trader/analytics.json trader/portfolios.json "${exchange_files[@]}") ;;
   --exchange-only) files=("${exchange_files[@]}") ;;
   --hyperliquid-positions) files=(trader/feed.json) ;;
@@ -22,7 +26,7 @@ revision=$(git -C "$root" rev-parse --verify HEAD)
 origin=https://45-77-39-98.sslip.io
 fills=trader/hyperliquid-fills.json
 archive_origin=https://raw.githubusercontent.com/sking-3/xuanliu-site/main
-if [[ ${1-} == --hyperliquid-positions ]] && git -C "$root" cat-file -e "$revision:$fills"; then
+if [[ $scope == --hyperliquid-positions ]] && git -C "$root" cat-file -e "$revision:$fills"; then
   files+=("$fills")
 fi
 expected=()
