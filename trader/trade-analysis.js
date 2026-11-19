@@ -93,17 +93,19 @@ function analysis(c){
  const visuals=el('div',undefined,'ta-analysis-visuals detail-performance-visuals');
  const radar=el('section',undefined,'ta-analysis-section detail-performance-panel'),profit=el('section',undefined,'ta-analysis-section detail-performance-panel');
  const binance=c.context.r.exchange==='Binance'&&!c.context.r._local,hl=isHL(c.context.r),curve=c.context.curve;
- const metricsAt=w.lastSuccessAt||w.fetchedAt||c.context.performanceAt||w.asOf;
+ const metricsAt=w.lastSuccessAt||w.fetchedAt||c.context.performanceAt,metricsAsOf=w.sourceAsOf||w.asOf;
  env.BooksDetailRadar?.mount(radar,{
   roi:w.roi,roiLabel:w.coverageLabel||(w.derived?'Hyperliquid 已对账区间收益率':binance?'币安所选周期':'来源所选周期'),
   mdd:w.mdd,mddLabel:binance?'币安来源回撤':hl?'永续采样盈亏回撤':'来源回撤',drawdownAxisLabel:hl?'采样回撤':undefined,
-  drawdownAt:hl?curve?.lastSuccessAt:metricsAt,
+  drawdownAt:hl?curve?.lastSuccessAt:metricsAt,drawdownAsOf:hl?curve?.points?.at(-1)?.time:metricsAsOf,
   winRate:w.winRate,winLabel:binance?'币安已平仓仓位胜率':hl?c.context.winNote:'来源胜率',winAxisLabel:hl?'片段胜率':undefined,
   aum:profile?.aumAmount,aumLabel:binance?'币安公开组合资料':undefined,currency:profile?.currency||w.currency||c.context.r.currency,
   leverage:stats.averageLeverage,leverageCount:stats.leverageCount,leverageLabel:'已归档平仓样本',
-  points:curve?.points,curveLabel:binance?'币安原始盈亏采样':'永续盈亏采样',metricsAt,winAt:hl?c.context.winAt:metricsAt,aumAt:profile?.fetchedAt,
+  points:curve?.points,curveLabel:binance?'币安原始盈亏采样':hl?'Hyperliquid 永续盈亏采样':'来源盈亏采样',
+  metricsAt,metricsAsOf,winAt:hl?c.context.winAt:metricsAt,winAsOf:hl?undefined:metricsAsOf,winIndependent:hl,aumAt:profile?.fetchedAt,
   leverageAt:c.officialHistory?.fetchedAt||c.context.binanceView?.closedPositions?.fetchedAt,curveAt:curve?.lastSuccessAt,
-  periodLabel:c.context.periodLabel||c.context.period
+  periodLabel:c.context.periodLabel||c.context.period,
+  periodQualified:!(w.fullPeriod===false&&Number.isFinite(w.accountAgeDays)||w.derived&&['sampled_boundary','insufficient_history'].includes(w.coverageStatus))
  });
  profit.append(el('h3','来源盈亏曲线'));profitCurve(profit,curve,c.context.r.exchange);
  visuals.append(radar,profit);statsRoot.append(visuals);

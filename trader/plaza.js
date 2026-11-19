@@ -2021,14 +2021,17 @@ function renderDetailPerformancePanels(r,parent,period,part){
   const paintRadar=points=>{
     radar.replaceChildren();
     globalThis.BooksDetailRadar?.mount(radar,{
-      roi:part?.roi,mdd:part?.mdd,mddLabel:r.exchange+' 来源回撤',winRate:part?.winRate,
+      roi:part?.roi,roiLabel:r.exchange+' 周期收益率',mdd:part?.mdd,mddLabel:r.exchange+' 来源回撤',winRate:part?.winRate,
       winLabel:r.exchange==='OKX'?'OKX 盈利日比例':r.exchange==='Binance'?'币安已平仓仓位胜率':'Bitget 来源胜率',
       winAxisLabel:r.exchange==='OKX'?'盈利日比例':undefined,
       leverage:leverages.length?leverages.reduce((sum,n)=>sum+n,0)/leverages.length:null,
-      leverageCount:leverages.length,leverageAt:history?.section.fetchedAt,points,curveLabel:r.exchange==='OKX'?'OKX 累计收益率日点':'币安原始盈亏采样',
+      leverageCount:leverages.length,leverageAt:history?.section.fetchedAt,leverageLabel:history?r.exchange+' 已归档平仓样本':undefined,
+      points,curveLabel:points?.length?(r.exchange==='OKX'?'OKX 累计收益率日点':'币安原始盈亏采样'):undefined,
       metricsAt:part?.lastSuccessAt,winAt:part?.winRateEvidence?.lastSuccessAt||part?.lastSuccessAt,
+      metricsAsOf:part?.sourceAsOf,drawdownAsOf:part?.sourceAsOf,winAsOf:r.exchange==='OKX'?undefined:part?.sourceAsOf,
       curveAt:provider?(part?.curveFetchedAt||part?.lastSuccessAt):curve?.lastSuccessAt,
-      currency:part?.currency||r.currency,periodLabel:periodLabel(period)
+      currency:part?.currency||r.currency,periodLabel:periodLabel(period),
+      periodQualified:!(part?.fullPeriod===false&&Number.isFinite(part.accountAgeDays))
     });
   };
   paintRadar(curve?.points);
