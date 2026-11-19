@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "recordedAt": "2026-11-18T20:56:15.528Z",
-  "mode": "full",
+  "recordedAt": "2026-11-19T14:04:13.150Z",
+  "mode": "positions",
   "platforms": {
     "Binance": {
       "outcome": "stopped",
@@ -11,14 +11,14 @@
       "dataAt": "2026-11-16T10:05:57.421Z"
     },
     "OKX": {
-      "outcome": "success",
+      "outcome": "skipped",
       "stopReason": null,
       "stopAt": null,
       "lastCompletedAt": "2026-11-18T20:56:15.528Z",
       "dataAt": "2026-11-18T20:25:08.647Z"
     },
     "Bitget": {
-      "outcome": "success",
+      "outcome": "skipped",
       "stopReason": null,
       "stopAt": null,
       "lastCompletedAt": "2026-11-18T20:56:15.528Z",
@@ -28,8 +28,8 @@
       "outcome": "success",
       "stopReason": null,
       "stopAt": null,
-      "lastCompletedAt": "2026-11-18T20:56:15.528Z",
-      "dataAt": "2026-11-18T20:54:33.476Z"
+      "lastCompletedAt": "2026-11-19T14:04:13.150Z",
+      "dataAt": "2026-11-19T14:02:30.998Z"
     }
   }
 }
