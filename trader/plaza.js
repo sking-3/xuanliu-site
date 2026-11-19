@@ -2012,40 +2012,44 @@ function leadHistoryWindow(r,period){
   return {section,end,start,rows:section.rows.filter(p=>{const at=Date.parse(p.closedAt);return at>=start&&at<=end;})};
 }
 function renderDetailPerformancePanels(r,parent,period,part){
-  const provider=isPublicLead(r),curve=provider?null:binanceChart(r,period);
-  const visuals=node('div',undefined,'ta-analysis-visuals detail-performance-visuals');
-  const radar=node('section',undefined,'ta-analysis-section detail-performance-panel'),profit=node('section',undefined,'ta-analysis-section detail-performance-panel');
-  visuals.append(radar,profit);parent.append(visuals);
-  const history=provider?leadHistoryWindow(r,period):null;
-  const leverages=(history?.rows||[]).map(p=>p.leverage).filter(n=>Number.isFinite(n)&&n>0);
-  const paintRadar=points=>{
-    radar.replaceChildren();
-    globalThis.BooksDetailRadar?.mount(radar,{
-      roi:part?.roi,roiLabel:r.exchange+' 周期收益率',mdd:part?.mdd,mddLabel:r.exchange+' 来源回撤',winRate:part?.winRate,
-      winLabel:r.exchange==='OKX'?'OKX 盈利日比例':r.exchange==='Binance'?'币安已平仓仓位胜率':'Bitget 来源胜率',
-      winAxisLabel:r.exchange==='OKX'?'盈利日比例':undefined,
-      leverage:leverages.length?leverages.reduce((sum,n)=>sum+n,0)/leverages.length:null,
-      leverageCount:leverages.length,leverageAt:history?.section.fetchedAt,leverageLabel:history?r.exchange+' 已归档平仓样本':undefined,
-      points,curveLabel:points?.length?(r.exchange==='OKX'?'OKX 累计收益率日点':'币安原始盈亏采样'):undefined,
-      metricsAt:part?.lastSuccessAt,winAt:part?.winRateEvidence?.lastSuccessAt||part?.lastSuccessAt,
-      metricsAsOf:part?.sourceAsOf,drawdownAsOf:part?.sourceAsOf,winAsOf:r.exchange==='OKX'?undefined:part?.sourceAsOf,
-      curveAt:provider?(part?.curveFetchedAt||part?.lastSuccessAt):curve?.lastSuccessAt,
-      currency:part?.currency||r.currency,periodLabel:periodLabel(period),
-      periodQualified:!(part?.fullPeriod===false&&Number.isFinite(part.accountAgeDays))
-    });
+  const provider = isPublicLead(r);
+  const curve = provider ? null : binanceChart(r,period);
+  const history = provider ? leadHistoryWindow(r,period) : null;
+  const leverages = (history?.rows || []).map(p=>p.leverage).filter(n=>Number.isFinite(n)&&n>0);
+  const drawCurve = (profit,updateRadar) => {
+    if(provider){
+      renderLeadCurve(r,profit,part,curves=>{
+        if(curves.roi?.length)updateRadar?.({
+          points:curves.roi,lastSuccessAt:part.curveFetchedAt||part.lastSuccessAt
+        });
+      });
+      return;
+    }
+    profit.append(node('h3','来源盈亏曲线'));
+    const points=curve.points;
+    const drawn=globalThis.BooksDetailPerformanceCurve?.mount(profit,points,{unit:curve.currency||'USDT',label:'来源盈亏曲线'});
+    if(!drawn){
+      const reason=curve.status==='restricted'?'来源未公开此周期曲线。':points.length===1?
+        timeLabel(points[0].time)+' · '+value(points[0].value)+' USDT · 仅 1 个来源采样点':
+        !curve.periodSupported&&hasDetailPerformance(r,period)?'本站已归档此周期收益指标，尚无币安逐点盈亏曲线。':'暂无此周期的已核验曲线。';
+      profit.append(node('p',reason,'detail-performance-note'));
+    }
+    if(curve.lastSuccessAt)profit.append(node('p','币安原始盈亏 · '+points.length+' 点 · 采集 '+timeLabel(curve.lastSuccessAt)+'（北京）'+(curve.status==='stale'?' · 历史快照':''),'detail-performance-note'));
   };
-  paintRadar(curve?.points);
-  if(provider){renderLeadCurve(r,profit,part,curves=>{if(r.exchange==='OKX')paintRadar(curves.roi);});return;}
-  profit.append(node('h3','来源盈亏曲线'));
-  const points=curve.points;
-  const drawn=globalThis.BooksDetailPerformanceCurve?.mount(profit,points,{unit:curve.currency||'USDT',label:'来源盈亏曲线'});
-  if(!drawn){
-    const reason=curve.status==='restricted'?'来源未公开此周期曲线。':points.length===1?
-      timeLabel(points[0].time)+' · '+value(points[0].value)+' USDT · 仅 1 个来源采样点':
-      !curve.periodSupported&&hasDetailPerformance(r,period)?'本站已归档此周期收益指标，尚无币安逐点盈亏曲线。':'暂无此周期的已核验曲线。';
-    profit.append(node('p',reason,'detail-performance-note'));
+  const radar = globalThis.BooksDetailRadar;
+  if (!radar) {
+    const profit = node('section',undefined,'ta-analysis-section detail-performance-panel');
+    parent.append(profit);
+    drawCurve(profit);
+    return;
   }
-  if(curve.lastSuccessAt)profit.append(node('p','币安原始盈亏 · '+points.length+' 点 · 采集 '+timeLabel(curve.lastSuccessAt)+'（北京）'+(curve.status==='stale'?' · 历史快照':''),'detail-performance-note'));
+  radar.mountPerformance(parent,{
+    exchange:r.exchange,periodLabel:periodLabel(period),metrics:part,curve,
+    leverage:leverages.length ? {
+      average:leverages.reduce((sum,n)=>sum+n,0)/leverages.length,
+      count:leverages.length,fetchedAt:history.section.fetchedAt
+    } : null
+  },drawCurve);
 }
 function renderLeadCapital(r,b,period){
   const record=leadRecord(r),balance=record.balance,transfers=record.transfers;
@@ -2275,7 +2279,11 @@ function renderLeadDetail(r,b){
   b.replaceChildren();
   if(state.tab==='live'&&r.exchange==='OKX'){renderOKXCurrent(r,b);return;}
   if(state.tab!=='analysis'){renderLeadActivity(r,b,activityKeys[state.tab]);return;}
-  if(r.identityOnly){b.append(node('p','已收录组合身份，暂无可核实的收益或交易记录。','detail-method'),sourceLink(r));return;}
+  if(r.identityOnly){
+    b.append(node('p','已收录组合身份，暂无可核实的收益或交易记录。','detail-method'));
+    globalThis.BooksDetailRadar?.mountPerformance(b,{exchange:r.exchange,periodLabel:periodLabel(state.window)});
+    b.append(sourceLink(r));return;
+  }
   const candidates=detailAnalysisPeriods(r);
   const available=candidates.filter(period=>hasDetailPerformance(r,period));
   if(!available.includes(state.window)){
@@ -2372,7 +2380,7 @@ function renderDetail() {
       publicExecutionReader ||= BooksBinancePublicRecords.reader(globalThis);
       const w=isBinanceTrader(r)?binancePerformance(r,state.window):performanceWindow(r,state.window),cached=cachedWin(r),portfolio=isPublicAccount(r)?portfolioSection(r,state.window):null,history=portfolio?.status==='ready'?portfolio.windows[state.window]:null;
       const curve=isBinanceTrader(r)?binanceChart(r,state.window):history?{points:history.points,lastSuccessAt:portfolio.fetchedAt,status:portfolio.stale?'stale':'ready',currency:history.curveUnit,basis:history.curveBasis}:null;
-      BooksTradeAnalysis.render(b,{r,tab:state.tab,period:state.window,analysisPeriods:detailAnalysisPeriods(r),periodLabel:periodName(state.window,w),compact:publicListPage,metrics:w?{...w,mdd:isPublicAccount(r)?sampledDrawdown(history,state.window):w.mdd,winRate:isPublicAccount(r)?cached?.win?.value??null:w.winRate}:null,curve,winAt:cached?.fetchedAt,performanceAt:w?.derived?portfolio?.fetchedAt:null,profile:r.referenceOnly?globalThis.BooksReferenceData?.profile(globalThis.BooksAoyingHistory,r.accountId):null,binanceView:isBinanceTrader(r)?binanceView(r):null,publicReader:publicExecutionReader,onPositions:p=>{if(state.detail?.accountId===r.accountId&&state.tab==='analysis'&&isPublicFocus(r))syncPublicFocusLive(r,{address:r.accountId,positions:p});acceptDetailPositions(r,p,globalThis.BooksFloatingPnl?.FRESH);},activate:activateDetailTab,setPeriod:setDetailPeriod,metricNote:r.exchange==='Hyperliquid'?'收益率与盈亏沿用已核验周期数据；长期区间对账未通过时收益率留空。采样盈亏回撤不是标准净值最大回撤。'+winCacheDescription(r):'收益率、回撤、胜率沿用币安来源字段与周期；不以操作样本推算账户表现。',winNote:r.exchange==='Binance'?'币安所选周期平台统计':cached?.win?.eligibleCount?'近期 '+cached.win.eligibleCount+' 个片段 · 独立于所选周期':'缺少有效成交样本'});
+      BooksTradeAnalysis.render(b,{r,tab:state.tab,period:state.window,analysisPeriods:detailAnalysisPeriods(r),periodLabel:periodName(state.window,w),compact:publicListPage,metrics:w?{...w,mdd:isPublicAccount(r)?sampledDrawdown(history,state.window):w.mdd,winRate:isPublicAccount(r)?cached?.win?.value??null:w.winRate}:null,curve,winAt:cached?.fetchedAt,performanceAt:w?.derived?portfolio?.fetchedAt:collected,profile:r.referenceOnly?globalThis.BooksReferenceData?.profile(globalThis.BooksAoyingHistory,r.accountId):null,binanceView:isBinanceTrader(r)?binanceView(r):null,publicReader:publicExecutionReader,onPositions:p=>{if(state.detail?.accountId===r.accountId&&state.tab==='analysis'&&isPublicFocus(r))syncPublicFocusLive(r,{address:r.accountId,positions:p});acceptDetailPositions(r,p,globalThis.BooksFloatingPnl?.FRESH);},activate:activateDetailTab,setPeriod:setDetailPeriod,metricNote:r.exchange==='Hyperliquid'?'收益率与盈亏沿用已核验周期数据；长期区间对账未通过时收益率留空。采样盈亏回撤不是标准净值最大回撤。'+winCacheDescription(r):'收益率、回撤、胜率沿用币安来源字段与周期；不以操作样本推算账户表现。',winNote:r.exchange==='Binance'?'币安所选周期平台统计':cached?.win?.eligibleCount?'近期 '+cached.win.eligibleCount+' 个片段 · 独立于所选周期':'缺少有效成交样本'});
       return;
     }
     BooksTradeAnalysis.pause();

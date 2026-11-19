@@ -90,25 +90,25 @@ function analysis(c){
  [c.context.r.exchange==='Binance'?'已平仓仓位胜率':'近期平仓片段胜率',percentage(w.winRate),null,c.context.winNote||'资料不足时留空']];
  for(const [label,value,n,caption]of data){const item=el('div',undefined,'ta-metric');item.append(el('span',label),tone(el('strong',value),n),el('small',caption));grid.append(item);}statsRoot.append(grid);
  const end=new Date(c.officialHistory?.fetchedAt||c.context.binanceView?.closedPositions?.fetchedAt||c.history?.fetchedAt||Date.now()).getTime(),days=Number.parseInt(c.context.period,10)||Math.max(1,Math.ceil((end-Math.min(end,...c.cycles.map(x=>x.closed||end)))/86400000)+1),stats=M.summary(c.cycles,days,end);
- const visuals=el('div',undefined,'ta-analysis-visuals detail-performance-visuals');
- const radar=el('section',undefined,'ta-analysis-section detail-performance-panel'),profit=el('section',undefined,'ta-analysis-section detail-performance-panel');
- const binance=c.context.r.exchange==='Binance'&&!c.context.r._local,hl=isHL(c.context.r),curve=c.context.curve;
- const metricsAt=w.lastSuccessAt||w.fetchedAt||c.context.performanceAt,metricsAsOf=w.sourceAsOf||w.asOf;
- env.BooksDetailRadar?.mount(radar,{
-  roi:w.roi,roiLabel:w.coverageLabel||(w.derived?'Hyperliquid 已对账区间收益率':binance?'币安所选周期':'来源所选周期'),
-  mdd:w.mdd,mddLabel:binance?'币安来源回撤':hl?'永续采样盈亏回撤':'来源回撤',drawdownAxisLabel:hl?'采样回撤':undefined,
-  drawdownAt:hl?curve?.lastSuccessAt:metricsAt,drawdownAsOf:hl?curve?.points?.at(-1)?.time:metricsAsOf,
-  winRate:w.winRate,winLabel:binance?'币安已平仓仓位胜率':hl?c.context.winNote:'来源胜率',winAxisLabel:hl?'片段胜率':undefined,
-  aum:profile?.aumAmount,aumLabel:binance?'币安公开组合资料':undefined,currency:profile?.currency||w.currency||c.context.r.currency,
-  leverage:stats.averageLeverage,leverageCount:stats.leverageCount,leverageLabel:'已归档平仓样本',
-  points:curve?.points,curveLabel:binance?'币安原始盈亏采样':hl?'Hyperliquid 永续盈亏采样':'来源盈亏采样',
-  metricsAt,metricsAsOf,winAt:hl?c.context.winAt:metricsAt,winAsOf:hl?undefined:metricsAsOf,winIndependent:hl,aumAt:profile?.fetchedAt,
-  leverageAt:c.officialHistory?.fetchedAt||c.context.binanceView?.closedPositions?.fetchedAt,curveAt:curve?.lastSuccessAt,
-  periodLabel:c.context.periodLabel||c.context.period,
-  periodQualified:!(w.fullPeriod===false&&Number.isFinite(w.accountAgeDays)||w.derived&&['sampled_boundary','insufficient_history'].includes(w.coverageStatus))
- });
- profit.append(el('h3','来源盈亏曲线'));profitCurve(profit,curve,c.context.r.exchange);
- visuals.append(radar,profit);statsRoot.append(visuals);
+ const {r,curve,performanceAt,winAt,winNote,periodLabel,period:window}=c.context;
+ const hl=isHL(r),exchange=r._local?undefined:r.exchange;
+ const drawCurve = profit => {
+  profit.append(el('h3','来源盈亏曲线'));
+  profitCurve(profit,curve,r.exchange);
+ };
+ if (!env.BooksDetailRadar) {
+  const profit=el('section',undefined,'ta-analysis-section detail-performance-panel');
+  statsRoot.append(profit);
+  drawCurve(profit);
+ } else env.BooksDetailRadar.mountPerformance(statsRoot,{
+  exchange,periodLabel:periodLabel||window,metrics:w,performanceAt,capital:profile,
+  curve,
+  winSample:hl?{value:w.winRate,fetchedAt:winAt,label:winNote}:null,
+  leverage:stats.leverageCount?{
+   average:stats.averageLeverage,count:stats.leverageCount,
+   fetchedAt:c.officialHistory?.fetchedAt||c.context.binanceView?.closedPositions?.fetchedAt
+  }:null
+ },drawCurve);
  const sampleDetail=el('details',undefined,'ta-sample-detail');
  sampleDetail.append(el('summary','已平仓样本分析'));statsRoot.append(sampleDetail);
  const samples=el('div',undefined,'ta-sample-metrics');

@@ -60,50 +60,67 @@
     return clampScore(100 * Math.max(0, previousValue - savedNumber(points[0].value)) / distance);
   }
 
-  function score(input = {}) {
-    const roi = savedNumber(input.roi);
-    const drawdown = savedNumber(input.mdd);
-    const win = savedNumber(input.winRate);
-    const aum = savedNumber(input.aum);
-    const leverage = savedNumber(input.leverage);
+  const curveLabels = {
+    Binance: '币安原始盈亏采样',
+    OKX: 'OKX 来源收益率日采样',
+    Bitget: 'Bitget 来源收益率日采样',
+    Hyperliquid: 'Hyperliquid 永续盈亏采样',
+  };
+
+  function score({ exchange, metrics, performanceAt, curve, capital, leverage, winSample } = {}) {
+    const window = metrics || {};
+    const sampled = exchange === 'Hyperliquid';
+    const okx = exchange === 'OKX';
+    const time = window.lastSuccessAt || window.fetchedAt || performanceAt ||
+      (window.asOfType === 'observed' ? window.asOf : null);
+    const sourceAt = window.sourceAsOf || (window.asOfType === 'observed' ? null : window.asOf);
+    const shortHistory = window.fullPeriod === false && Number.isFinite(window.accountAgeDays);
+    const partialSample = window.derived && ['sampled_boundary', 'insufficient_history'].includes(window.coverageStatus);
+    const roi = savedNumber(window.roi), drawdown = savedNumber(window.mdd);
+    const win = savedNumber(winSample ? winSample.value : window.winRate);
+    const aum = savedNumber(capital?.aumAmount), averageLeverage = savedNumber(leverage?.average);
+    const currency = capital?.currency || window.currency;
     const usableDrawdown = drawdown !== null && drawdown >= 0;
     const usableWin = win !== null && win >= 0 && win <= 100;
-    const usableAum = aum !== null && aum >= 0 && moneyUnits.has(input.currency);
-    const usableLeverage = leverage !== null && leverage > 0 &&
-      Number.isInteger(input.leverageCount) && input.leverageCount > 0;
-    const trend = trendScore(input.points);
-    const metricTime = savedTime(input.metricsAt);
+    const usableAum = aum !== null && aum >= 0 && moneyUnits.has(currency);
+    const usableLeverage = averageLeverage !== null && averageLeverage > 0 &&
+      Number.isInteger(leverage?.count) && leverage.count > 0;
+    const points = curve?.points, trend = trendScore(points);
     const pct = value => numberFormat.format(value) + '%';
     const row = (label, points, raw, time, method, source, evidence = {}) => {
-      const excluded = evidence.periodBound && input.periodQualified === false;
+      const blocked = Boolean(evidence.periodBound && (shortHistory || partialSample));
       return {
-        label, score: excluded ? null : points, raw, time: savedTime(time), method, source: source || '',
-        blocked: Boolean(excluded), limit: evidence.limit, sourceAt: savedTime(evidence.sourceAt),
-        sampleRange: evidence.sampleRange || [],
+        label, score: blocked ? null : points, raw, time: savedTime(time), method, source: source || '',
+        blocked, limit: evidence.limit, sourceAt: savedTime(evidence.sourceAt), sampleRange: evidence.sampleRange || [],
       };
     };
 
     return [
-      row('收益率', roi === null ? null : clampScore(50 + roi / 2), roi === null ? null : pct(roi), metricTime,
-        '所选区间收益率每增加 2 个百分点加 1 分。0% 为 50 分，100% 起计 100 分。', input.roiLabel,
-        { periodBound: true, sourceAt: input.metricsAsOf, limit: roi > 100 ? '封顶' : roi < -100 ? '触底' : '' }),
-      row(input.drawdownAxisLabel || '回撤控制', usableDrawdown ? clampScore(100 - drawdown) : null, usableDrawdown ? pct(drawdown) : null,
-        Object.hasOwn(input, 'drawdownAt') ? input.drawdownAt : metricTime,
-        '100 减所列来源回撤百分点。', input.mddLabel,
-        { periodBound: true, sourceAt: input.drawdownAsOf }),
-      row(input.winAxisLabel || '胜率', usableWin ? clampScore(win) : null, usableWin ? pct(win) : null,
-        Object.hasOwn(input, 'winAt') ? input.winAt : metricTime,
-        '按来源比例，每 1 个百分点计 1 分。', input.winLabel,
-        { periodBound: !input.winIndependent, sourceAt: input.winAsOf }),
+      row('收益率', roi === null ? null : clampScore(50 + roi / 2), roi === null ? null : pct(roi), time,
+        '所选区间收益率每增加 2 个百分点加 1 分。0% 为 50 分，100% 起计 100 分。',
+        window.coverageLabel || (window.derived ? 'Hyperliquid 已对账区间收益率' : '来源所选周期收益率'),
+        { periodBound: true, sourceAt, limit: roi > 100 ? '封顶' : roi < -100 ? '触底' : '' }),
+      row(sampled ? '采样回撤' : '回撤控制', usableDrawdown ? clampScore(100 - drawdown) : null,
+        usableDrawdown ? pct(drawdown) : null, sampled ? curve?.lastSuccessAt : time,
+        '100 减所列来源回撤百分点。', sampled ? '永续采样盈亏回撤' : '来源回撤',
+        { periodBound: true, sourceAt: sampled ? points?.at(-1)?.time : sourceAt }),
+      row(sampled ? '片段胜率' : okx ? '盈利日比例' : '胜率', usableWin ? clampScore(win) : null,
+        usableWin ? pct(win) : null, winSample ? winSample.fetchedAt : window.winRateEvidence?.lastSuccessAt || time,
+        '按来源比例，每 1 个百分点计 1 分。',
+        winSample?.label || (okx ? 'OKX 盈利日比例' : exchange === 'Binance' ? '币安已平仓仓位胜率' : '来源胜率'),
+        { periodBound: !sampled, sourceAt: sampled || okx ? null : sourceAt }),
       row('资金规模', usableAum ? clampScore(20 * (Math.log10(Math.max(1, aum)) - 3)) : null,
-        usableAum ? numberFormat.format(aum) + ' ' + input.currency : null, input.aumAt,
-        '管理规模达到 1 千为 0 分，此后每增 10 倍加 20 分，1 亿为 100 分。', input.aumLabel),
-      row('上行一致性', trend, trend === null ? null : input.points.length + ' 个采样点', input.curveAt,
-        '正向净变化除以相邻采样绝对变化总和，再乘 100。至少 7 点，最大间隔不得超过中位间隔的 3 倍。', input.curveLabel,
-        { periodBound: true, sampleRange: trend === null ? [] : [savedTime(input.points[0].time), savedTime(input.points.at(-1).time)] }),
-      row('杠杆控制', usableLeverage ? clampScore(100 - 5 * (leverage - 1)) : null,
-        usableLeverage ? numberFormat.format(leverage) + '× · ' + input.leverageCount + ' 笔' : null, input.leverageAt,
-        '历史有杠杆字段的平仓样本取等权均值。1× 为 100 分，每增加 1× 扣 5 分。', input.leverageLabel),
+        usableAum ? numberFormat.format(aum) + ' ' + currency : null, capital?.fetchedAt,
+        '管理规模达到 1 千为 0 分，此后每增 10 倍加 20 分，1 亿为 100 分。',
+        usableAum ? '公开组合资料 · 管理规模 AUM' : undefined),
+      row('上行一致性', trend, trend === null ? null : points.length + ' 个采样点', curve?.lastSuccessAt,
+        '正向净变化除以相邻采样绝对变化总和，再乘 100。至少 7 点，最大间隔不得超过中位间隔的 3 倍。',
+        points?.length ? curveLabels[exchange] || '来源盈亏采样' : undefined,
+        { periodBound: true, sampleRange: trend === null ? [] : [savedTime(points[0].time), savedTime(points.at(-1).time)] }),
+      row('杠杆控制', usableLeverage ? clampScore(100 - 5 * (averageLeverage - 1)) : null,
+        usableLeverage ? numberFormat.format(averageLeverage) + '× · ' + leverage.count + ' 笔' : null, leverage?.fetchedAt,
+        '历史有杠杆字段的平仓样本取等权均值。1× 为 100 分，每增加 1× 扣 5 分。',
+        usableLeverage ? '已归档平仓样本' : undefined),
     ];
   }
 
@@ -210,5 +227,32 @@
     return axes;
   }
 
-  return { score, mount };
+
+  function mountPerformance(target, data, renderCurve) {
+    const document = target.ownerDocument;
+    const radar = document.createElement('section');
+    radar.className = 'ta-analysis-section detail-performance-panel';
+    const updateRadar = curve => {
+      radar.replaceChildren();
+      mount(radar, { ...data, curve });
+    };
+    updateRadar(data.curve);
+    const panels = document.createElement('div');
+    panels.className = 'ta-analysis-visuals detail-performance-visuals';
+    const profit = document.createElement('section');
+    profit.className = radar.className;
+    panels.append(radar, profit);
+    target.append(panels);
+    if (renderCurve) renderCurve(profit, updateRadar);
+    else {
+      const title = document.createElement('h3');
+      title.textContent = '来源盈亏曲线';
+      const message = document.createElement('p');
+      message.className = 'detail-performance-note';
+      message.textContent = '暂无此周期的已核验曲线。';
+      profit.append(title, message);
+    }
+  }
+
+  return { score, mount, mountPerformance };
 });

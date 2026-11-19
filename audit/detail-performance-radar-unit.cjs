@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { score, mount } = require('../trader/detail-performance-radar.js');
+const { score, mount, mountPerformance } = require('../trader/detail-performance-radar.js');
 
 const time = Date.parse('2026-11-16T07:36:39Z');
 const day = 86_400_000;
@@ -8,8 +8,9 @@ const series = values => values.map((value, index) => ({ time: time + index * da
 
 test('scores finite values on fixed scales and preserves missing provenance and values', () => {
   const axes = score({
-    roi: '0', mdd: 160, winRate: 0, winAxisLabel: '盈利日比例', winLabel: '7 个有记录交易日',
-    aum: 1_000_000, currency: 'USDT', leverage: 4, leverageCount: 7, metricsAt: time, winAt: null,
+    exchange: 'OKX', metrics: {roi: '0', mdd: 160, lastSuccessAt: time},
+    winSample: {value: 0, label: '7 个有记录交易日'},
+    capital: {aumAmount: 1_000_000, currency: 'USDT'}, leverage: {average: 4, count: 7},
   });
   assert.deepEqual(axes.map(axis => axis.score), [50, 0, 0, 60, null, 85]);
   assert.equal(axes[1].time, time);
@@ -18,20 +19,20 @@ test('scores finite values on fixed scales and preserves missing provenance and 
   assert.equal(axes[2].source, '7 个有记录交易日');
   assert.equal(axes[3].time, null);
   assert.equal(axes[5].raw, '4× · 7 笔');
-  assert.deepEqual(score({ roi: '', winRate: -1, mdd: -1, aum: 250000, currency: 'BTC', leverage: 4 })
+  assert.deepEqual(score({ metrics: {roi: '', winRate: -1, mdd: -1}, capital: {aumAmount: 250000, currency: 'BTC'}, leverage: {average: 4} })
     .map(axis => axis.score), [null, null, null, null, null, null]);
 });
 
 test('requires a contiguous observed series for the trend score', () => {
-  assert.equal(score({ points: series([0, 2, 1, 2, 2, 3, 4]) })[4].score, 67);
-  assert.equal(score({ points: series([6, 5, 4, 3, 2, 1, 0]) })[4].score, 0);
-  assert.equal(score({ points: series([0, 0, 0, 0, 0, 0, 0]) })[4].score, null);
-  assert.equal(score({ points: series([0, 2, 1, 2, 2, 3]) })[4].score, null);
+  assert.equal(score({ curve: {points: series([0, 2, 1, 2, 2, 3, 4])} })[4].score, 67);
+  assert.equal(score({ curve: {points: series([6, 5, 4, 3, 2, 1, 0])} })[4].score, 0);
+  assert.equal(score({ curve: {points: series([0, 0, 0, 0, 0, 0, 0])} })[4].score, null);
+  assert.equal(score({ curve: {points: series([0, 2, 1, 2, 2, 3])} })[4].score, null);
   const gapped = series([0, 2, 1, 2, 2, 3, 4]);
   gapped.at(-1).time += 4 * day;
-  assert.equal(score({ points: gapped })[4].score, null);
+  assert.equal(score({ curve: {points: gapped} })[4].score, null);
   gapped.at(-1).time = gapped.at(-2).time;
-  assert.equal(score({ points: gapped })[4].score, null);
+  assert.equal(score({ curve: {points: gapped} })[4].score, null);
 });
 
 class TestElement {
@@ -42,6 +43,7 @@ class TestElement {
     this.attributes = new Map();
   }
   append(...children) { this.children.push(...children); }
+  replaceChildren(...children) { this.children = children; }
   setAttribute(key, value) { this.attributes.set(key, value); }
   get text() { return (this.textContent || '') + this.children.map(child => child.text).join(' '); }
   find(className) {
@@ -58,7 +60,7 @@ const document = {
 
 test('shows measured scores without drawing across missing radar axes', () => {
   const panel = document.createElement('section');
-  mount(panel, { roi: 10, winRate: 0, winAt: time, winLabel: '来源样本', periodLabel: '30D' });
+  mount(panel, { metrics: {roi: 10}, winSample: {value: 0, fetchedAt: time, label: '来源样本'}, periodLabel: '30D' });
   assert.equal(panel.find('bdr-point').length, 2);
   assert.equal(panel.find('bdr-area').length, 0);
   assert.equal(panel.find('bdr-edge').length, 0);
@@ -70,7 +72,7 @@ test('shows measured scores without drawing across missing radar axes', () => {
 
 test('partial adjacent metrics use separate stems and distinguish real zero from missing data', () => {
   const panel = document.createElement('section');
-  mount(panel, { roi: 246.11494238, mdd: 55.076538, winRate: 75, leverage: 24, leverageCount: 1 });
+  mount(panel, { metrics: {roi: 246.11494238, mdd: 55.076538, winRate: 75}, leverage: {average: 24, count: 1} });
   assert.equal(panel.find('bdr-point').length, 4);
   assert.equal(panel.find('bdr-stem').length, 3);
   assert.equal(panel.find('bdr-axis-missing').length, 2);
@@ -88,8 +90,8 @@ test('collapses a repeated displayed minute and keeps source and sample timestam
   const points = series([1, 2, 3, 4, 5, 6, 7]);
   const captured = points.at(-1).time + day;
   mount(panel, {
-    roi: 10, metricsAt: captured, metricsAsOf: captured - 180000,
-    points, curveAt: captured + 12000, curveLabel: '币安原始盈亏采样'
+    exchange: 'Binance', metrics: {roi: 10, lastSuccessAt: captured, sourceAsOf: captured - 180000},
+    curve: {points, lastSuccessAt: captured + 12000}
   });
   const headline = panel.find('bdr-meta')[0].text;
   assert.match(headline, /快照 2026\/11\/23 15:36（北京）/);
@@ -104,28 +106,28 @@ test('collapses a repeated displayed minute and keeps source and sample timestam
 
 test('a different displayed minute shows both snapshot boundaries', () => {
   const panel = document.createElement('section');
-  mount(panel, { roi: 10, metricsAt: time, winRate: 75, winAt: time + 90000 });
+  mount(panel, { metrics: {roi: 10, lastSuccessAt: time}, winSample: {value: 75, fetchedAt: time + 90000} });
   assert.match(panel.find('bdr-meta')[0].text, /快照 2026\/11\/16 15:36 至 2026\/11\/16 15:38（北京）/);
 });
 
 test('withholds short-window scores while independent assessment inputs and old unknown coverage remain usable', () => {
   const unqualified = {
-    periodQualified: false, roi: 120, mdd: 25, winRate: 75, winIndependent: true,
-    points: series([1, 2, 3, 4, 5, 6, 7]), leverage: 4, leverageCount: 3,
+    exchange: 'Hyperliquid', metrics: {roi: 120, mdd: 25, winRate: 75, fullPeriod: false, accountAgeDays: 10},
+    curve: {points: series([1, 2, 3, 4, 5, 6, 7])}, leverage: {average: 4, count: 3},
   };
   const short = score(unqualified);
   assert.deepEqual(short.map(axis => axis.score), [null, null, 75, null, null, 85]);
   assert.deepEqual(short.map(axis => axis.blocked), [true, true, false, false, true, false]);
   assert.equal(short[0].raw, '120%');
-  assert.equal(score({ ...unqualified, winIndependent: false })[2].score, null);
-  assert.equal(score({ ...unqualified, periodQualified: undefined })[0].score, 100);
+  assert.equal(score({ ...unqualified, exchange: 'Binance' })[2].score, null);
+  assert.equal(score({ ...unqualified, metrics: {...unqualified.metrics, accountAgeDays: null} })[0].score, 100);
 });
 
 test('uses a closed area only with six known axes and omits the chart when all axes are unknown', () => {
   const panel = document.createElement('section');
   mount(panel, {
-    roi: 10, mdd: 40, winRate: 10, aum: 0, currency: 'USDT', leverage: 1, leverageCount: 3,
-    points: series([1, 2, 3, 4, 5, 6, 7]),
+    metrics: {roi: 10, mdd: 40, winRate: 10}, capital: {aumAmount: 0, currency: 'USDT'},
+    leverage: {average: 1, count: 3}, curve: {points: series([1, 2, 3, 4, 5, 6, 7])},
   });
   assert.equal(panel.find('bdr-area').length, 1);
   assert.equal(panel.find('bdr-point').length, 6);
@@ -134,4 +136,62 @@ test('uses a closed area only with six known axes and omits the chart when all a
   mount(empty);
   assert.equal(empty.find('bdr-chart').length, 0);
   assert.match(empty.text, /暂无可用于评分的资料/);
+});
+
+
+test('a complete performance snapshot renders the same shared card and curve panels', () => {
+  const root = document.createElement('section');
+  mountPerformance(root, {
+    exchange: 'Binance', periodLabel: '30D',
+    metrics: {roi: 98.94, mdd: 48.83, winRate: 81.82, lastSuccessAt: time},
+    curve: {points: series([0, 2, 1, 2, 2, 3, 4]), lastSuccessAt: time},
+    capital: {aumAmount: '8192415.25', fetchedAt: time, currency: 'USDT'},
+    leverage: {average: 8, count: 15, fetchedAt: time}
+  }, profit => profit.append(document.createElement('canvas')));
+  assert.equal(root.find('bdr-radar').length, 1);
+  assert.equal(root.find('bdr-area').length, 1);
+  assert.match(root.text, /6\/6 项已评分/);
+  assert.match(root.find('bdr-score')[0].text, /99 分.*98.94%/);
+  assert.equal(root.children[0].children[1].children[0].tag, 'canvas');
+});
+
+test('providers update one shared card with their verified curves, preserving source-specific windows', () => {
+  for (const exchange of ['OKX', 'Bitget']) {
+    const root = document.createElement('section');
+    let update;
+    mountPerformance(root, {
+      exchange, periodLabel: '30D',
+      metrics: {roi: 10, winRate: 55, lastSuccessAt: time, winRateEvidence: {lastSuccessAt: time + day}},
+      capital: {balance: 12345, currency: 'USDT'}
+    }, (_profit, reset) => { update = reset; });
+    assert.match(root.text, /2\/6 项已评分/);
+    assert.match(root.find('bdr-score')[3].text, /暂无评分/);
+    update({points: series([0, 2, 1, 2, 2, 3, 4]), lastSuccessAt: time + day});
+    assert.equal(root.find('bdr-radar').length, 1);
+    assert.match(root.text, /3\/6 项已评分/);
+    assert.match(root.find('bdr-score')[4].text, /67 分/);
+    assert.match(root.text, new RegExp(exchange + ' 来源收益率日采样'));
+    if (exchange === 'OKX') assert.match(root.find('bdr-score')[2].text, /盈利日比例/);
+  }
+});
+
+test('the shared empty card matches the common layout without creating a synthetic score', () => {
+  const root = document.createElement('section');
+  mountPerformance(root, {exchange: 'Binance', periodLabel: '30D'});
+  assert.equal(root.find('bdr-radar').length, 1);
+  assert.equal(root.find('bdr-chart').length, 0);
+  assert.equal(root.find('bdr-score').length, 6);
+  assert.match(root.text, /0\/6 项已评分/);
+});
+
+test('Hyperliquid shows a separately collected win sample even when the period is short', () => {
+  const root = document.createElement('section');
+  mountPerformance(root, {
+    exchange: 'Hyperliquid', periodLabel: '365D',
+    metrics: {roi: 12, mdd: 10, derived: true, coverageStatus: 'insufficient_history'},
+    winSample: {value: 55, fetchedAt: time, label: '近期闭合样本'}
+  });
+  assert.match(root.text, /1\/6 项已评分/);
+  assert.match(root.find('bdr-score')[0].text, /覆盖不足/);
+  assert.match(root.find('bdr-score')[2].text, /片段胜率 55 分/);
 });
