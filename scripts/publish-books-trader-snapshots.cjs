@@ -347,4 +347,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { sync };
+module.exports = { sync, mainRevision, githubFile };

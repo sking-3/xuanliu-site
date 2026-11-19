@@ -18,6 +18,7 @@ function decodeChunks(chunks){
   return new TextDecoder('utf-8',{fatal:true}).decode(bytes);
 }
 let linkedAccount=null;
+let aoyingReferenceReadFailed=false,aoyingReferenceReadStopped=false;
 let periodReturns=null,periodReturnsFailed=false,okxReturns=null,okxReturnsFailed=false,bitgetReturns=null,bitgetReturnsFailed=false,okxTrades=null,okxTradesFailed=false;
 const publicFocus={record:typeof BooksPublicFocus==='undefined'?null:BooksPublicFocus.identity(),snapshot:null,fromLive:false,readFailed:false,unknownReason:null,renderKey:null};
 const mk4Address='0x77375a8c9d13bf79afb2a87f1b0ac1dfd5f5bf66';
@@ -585,7 +586,7 @@ function binanceStatus(view,r) {
   if(r?.periodOnly)return '仅收录周期绩效 · 当前仓位未知';
   if(r?.referenceOnly){
     const profile=globalThis.BooksReferenceData?.profile(globalThis.BooksAoyingHistory,r.accountId);
-    const latest=profile?.lastTradeAt?`最近公开交易 ${timeLabel(profile.lastTradeAt)}`:'最近公开交易时间未取得';
+    const latest=profile?.lastTradeAt?`组合资料最近交易 ${timeLabel(profile.lastTradeAt)}`:'组合资料最近交易时间未取得';
     return `官方当前仓位未公开 · ${latest}`;
   }
   if(view.status==='restricted')return '资料不可见 · 当前仓位未知';
@@ -599,7 +600,7 @@ function binanceTiming(view,r) {
   if(r?.periodOnly)return '仓位与订单未采集';
   if(r?.referenceOnly){
     const profile=globalThis.BooksReferenceData?.profile(globalThis.BooksAoyingHistory,r.accountId);
-    return profile?.fetchedAt?`资料读取 ${timeLabel(profile.fetchedAt)} · ${profile.lastTradeAt?'最近公开交易 '+timeLabel(profile.lastTradeAt):'最近公开交易时间未取得'}`:'资料读取时间未取得';
+    return profile?.fetchedAt?`资料读取 ${timeLabel(profile.fetchedAt)} · ${profile.lastTradeAt?'组合资料最近交易 '+timeLabel(profile.lastTradeAt):'组合资料最近交易时间未取得'}`:'资料读取时间未取得';
   }
   return view.observedAt?'仓位采集 '+timeLabel(view.observedAt):'尚无成功仓位采集';
 }
@@ -889,6 +890,7 @@ async function fetchPeriodText(url){
     const response=await fetch(url,{cache:'no-cache',credentials:'omit',redirect:'error',signal:controller.signal});
     if(!response.ok){
       const error=Error('HTTP '+response.status);
+      error.status=response.status;
       error.retryable=[404,408,425,429].includes(response.status)||response.status>=500;
       throw error;
     }
@@ -942,8 +944,20 @@ function refreshOKXArchive(){
     }
   });
 }
+async function refreshAoyingReference(){
+  if(aoyingReferenceReadStopped||!globalThis.BooksReferenceData?.acceptSnapshot)return;
+  try{
+    const previous=globalThis.BooksAoyingHistory;
+    const incoming=JSON.parse(await fetchPeriodText('binance/aoying-reference.json'));
+    globalThis.BooksAoyingHistory=BooksReferenceData.acceptSnapshot(incoming,previous);
+    aoyingReferenceReadFailed=false;
+  }catch(error){
+    aoyingReferenceReadFailed=true;
+    aoyingReferenceReadStopped=[401,403,418,429,451].includes(error.status);
+  }
+}
 async function refreshPeriodReturns(){
-  const jobs=[];
+  const jobs=[refreshAoyingReference()];
   if(globalThis.BinanceData?.parsePeriodReturns)jobs.push(
     readPeriodFile('binance/period-returns.json',BinanceData.parsePeriodReturns,periodReturns,'Binance')
       .then(data=>{periodReturns=data;periodReturnsFailed=false;tryCatalogLink();},()=>{periodReturnsFailed=true;}));
@@ -1340,7 +1354,7 @@ const publicPlatforms=['Hyperliquid','Binance','OKX','Bitget'];
 const notProvided='该来源未提供';
 let publicReadAt=null,publicRefreshMessage='正在读取本站已发布快照…',publicWorkflow=null;
 function publicReadFailures(){
-  return {Hyperliquid:state.lastReadFailed,Binance:state.binanceReadFailed||periodReturnsFailed,OKX:okxReturnsFailed,Bitget:bitgetReturnsFailed};
+  return {Hyperliquid:state.lastReadFailed,Binance:state.binanceReadFailed||periodReturnsFailed||aoyingReferenceReadFailed,OKX:okxReturnsFailed,Bitget:bitgetReturnsFailed};
 }
 function latestPublicDate(values){
   const latest=Math.max(0,...values.map(value=>Date.parse(value)||0));
@@ -1348,7 +1362,7 @@ function latestPublicDate(values){
 }
 function publicSnapshotVersion(){
   return JSON.stringify([state.feedText,state.binanceCollection?.generatedAt,periodReturns?.generatedAt,
-    okxReturns?.generatedAt,bitgetReturns?.generatedAt,state.portfolioCacheGeneratedAt,state.winCacheGeneratedAt]);
+    okxReturns?.generatedAt,bitgetReturns?.generatedAt,state.portfolioCacheGeneratedAt,state.winCacheGeneratedAt,globalThis.BooksAoyingHistory?.latestPublicFetchAt]);
 }
 async function readPublicWorkflow(){
   const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),5000);
@@ -1997,7 +2011,12 @@ function renderDetailPerformancePanels(r,parent,period,part){
   profit.append(node('h3','来源盈亏曲线'));
   const points=curve.points;
   const drawn=globalThis.BooksDetailPerformanceCurve?.mount(profit,points,{unit:curve.currency||'USDT',label:'来源盈亏曲线'});
-  if(!drawn)profit.append(node('p',points.length===1?timeLabel(points[0].time)+' · '+value(points[0].value)+' USDT · 仅 1 个来源采样点':curve.status==='restricted'?'来源未公开此周期曲线。':'暂无此周期的已核验曲线。','detail-performance-note'));
+  if(!drawn){
+    const reason=curve.status==='restricted'?'来源未公开此周期曲线。':points.length===1?
+      timeLabel(points[0].time)+' · '+value(points[0].value)+' USDT · 仅 1 个来源采样点':
+      !curve.periodSupported&&hasDetailPerformance(r,period)?'本站已归档此周期收益指标，尚无币安逐点盈亏曲线。':'暂无此周期的已核验曲线。';
+    profit.append(node('p',reason,'detail-performance-note'));
+  }
   if(curve.lastSuccessAt)profit.append(node('p','币安原始盈亏 · '+points.length+' 点 · 采集 '+timeLabel(curve.lastSuccessAt)+'（北京）'+(curve.status==='stale'?' · 历史快照':''),'detail-performance-note'));
 }
 function renderLeadCapital(r,b,period){

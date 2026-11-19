@@ -1,0 +1,9 @@
+[Unit]
+Description=Check GitHub for a verified Aoying reference snapshot every minute
+
+[Timer]
+OnCalendar=*-*-* *:*:00
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

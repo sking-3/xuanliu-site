@@ -1,0 +1,17 @@
+[Unit]
+Description=Publish verified archived Aoying reference snapshots
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/node /opt/books/trader-publisher/publish-books-aoying-reference.cjs
+StateDirectory=books-aoying-reference
+TimeoutStartSec=55
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ReadWritePaths=/opt/books/site/trader
+MemoryMax=128M

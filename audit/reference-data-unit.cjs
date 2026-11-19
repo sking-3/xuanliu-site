@@ -13,3 +13,38 @@ test('crowded candles keep overflow events accessible and unknown Binance opens 
 test('source-confirmed closed PnL stays valid when its associated execution versions are ambiguous',()=>{const es=M.binanceEvents([{id:'a',identity:'same',symbol:'ETHUSDT',positionSide:'SHORT',side:'SELL',executedQty:'1',avgPrice:'2000',totalPnl:'0',orderTime:Date.now()-5000,orderUpdateTime:Date.now()-5000},{id:'b',identity:'same',symbol:'ETHUSDT',positionSide:'SHORT',side:'SELL',executedQty:'2',avgPrice:'2000',totalPnl:'0',orderTime:Date.now()-4000,orderUpdateTime:Date.now()-4000}]);const end=Date.now(),cs=M.cycles(es,[{symbol:'ETHUSDT',side:'Short',opened:end-10000,closed:end-1000,avgCost:'2000',avgClosePrice:'1900',closedVolume:'3',closingPnl:'300',status:'All Closed'}]);assert.equal(cs[0].ambiguous,true);assert.equal(cs[0].observedChange,null);assert.equal(M.summary(cs,7,end).pnl,300);});
 
 test('published Aoying fields are bound to preserved official response hashes',()=>{const crypto=require('node:crypto');for(const key of ['profile','curve','performance']){const x=data[key],bytes=fs.readFileSync('trader/'+x.evidencePath),raw=JSON.parse(bytes);assert.equal(crypto.createHash('sha256').update(bytes).digest('hex'),x.evidenceSha256);assert.equal(raw.code,'000000');assert.equal(raw.success,true);if(key==='performance')for(const k of ['roi','pnl','mdd','winRate'])assert.equal(Number(raw.data[k]),x[k]);if(key==='profile'){assert.equal(raw.data.positionShow,false);assert.equal(raw.data.marginBalance,x.marginBalance);assert.equal(raw.data.aumAmount,x.aumAmount);}if(key==='curve')assert.equal(raw.data.length,x.points.length);}});
+
+test('same-origin Aoying reference accepts immutable receipts and retains independent history',()=>{
+ const next=structuredClone(data),stamp=new Date(now).toISOString();
+ next.latestPublicFetchAt=stamp;
+ function advance(part,name){
+  part.fetchedAt=stamp;
+  part.evidencePath='binance/evidence/aoying-reference-v1/'+name+'-'+part.evidenceSha256+'.json';
+ }
+ advance(next.profile,'profile');
+ for(const period of R.PERIODS){
+  advance(next.performanceByPeriod[period],'performance-'+period);
+  advance(next.curveByPeriod[period],'curve-'+period);
+ }
+ next.performance=next.performanceByPeriod['30D'];
+ next.curve=next.curveByPeriod['30D'];
+ assert.equal(R.acceptSnapshot(next,data,{now}),next);
+ assert.equal(R.performance(next,ID,'365D',{now}).evidencePath,next.performanceByPeriod['365D'].evidencePath);
+ assert.equal(next.fetchedAt,data.fetchedAt);
+ assert.equal(R.profile(next,ID,{now}).lastTradeAt,R.profile(data,ID,{now}).lastTradeAt);
+ assert.throws(()=>R.acceptSnapshot(data,next,{now}),/AOYING_REFERENCE_SCHEMA/);
+});
+test('same-origin Aoying reference rejects rewritten or incomplete periods, unrelated accounts and hidden holdings',()=>{
+ for(const change of [
+  x=>{x.curve.points[0].value++;x.curveByPeriod['30D'].points[0].value++;},
+  x=>{x.curveByPeriod['365D'].points.reverse();},
+  x=>{delete x.performanceByPeriod['365D'];},
+  x=>{x.profile.evidencePath='binance/evidence/aoying-reference-v1/profile-'+'0'.repeat(64)+'.json';},
+  x=>{x.portfolioId='9999999999999999999';},
+  x=>{x.positionRows=[{}];},
+  x=>{x.rows.pop();}
+ ]){
+  const incoming=structuredClone(data);change(incoming);
+  assert.throws(()=>R.acceptSnapshot(incoming,data,{now}),/AOYING_REFERENCE_SCHEMA/);
+ }
+});

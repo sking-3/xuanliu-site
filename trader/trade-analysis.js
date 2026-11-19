@@ -30,9 +30,12 @@ function rebuild(c){
  if(!c.cycles.some(x=>x.id===c.selected))c.selected=c.cycles[0]?.id||null;
 }
 function status(c){
- const at=c.records?.checkedAt||c.history?.fetchedAt||c.officialHistory?.fetchedAt||c.context.binanceView?.orders?.fetchedAt;
+ const aoying=isAoying(c.context.r);
+ const at=aoying?c.records?.checkedAt:c.history?.fetchedAt||c.context.binanceView?.orders?.fetchedAt;
  const old=at&&Date.now()-new Date(at).getTime()>120000;
- return [c.loading?'正在更新公开记录':c.error?'本次更新未成功，保留历史':old?'历史记录 · 待更新':'已保存的公开记录',`${c.events.length} 条操作 · ${c.cycles.filter(x=>x.official).length} 条官方历史仓位`,at?'最近读取 '+date(at):'尚未取得逐条记录'].join(' · ');
+ const stopped=c.records?.stopped?'成交采集已暂停'+(c.records.stopReason==='http_403'?'（403）':c.records.stopReason==='http_429'?'（429）':''):null;
+ return [stopped|| (c.loading?'正在读取公开记录':c.error?'本次读取未成功，保留历史':old?'历史记录 · 待更新':'已保存的公开记录'),
+  `${c.events.length} 条操作 · ${c.cycles.filter(x=>x.official).length} 条官方历史仓位`,at?(aoying?'成交采集 ':'最近读取 ')+date(at):'尚未取得逐条记录'].join(' · ');
 }
 function teardown(c){c.focusEvent=null;if(c.playTimer)clearInterval(c.playTimer);c.playTimer=null;if(c.chartView)c.chartView.destroy();else c.chart?.remove();c.chartView=null;c.chart=null;c.chartVersion=(c.chartVersion||0)+1;}
 function stopFloating(c){c.floating?.destroy();c.floating=null;c.floatingHost=null;}
@@ -51,7 +54,9 @@ function draw(c){
  details.append(note('观测数量净变化 = 已见开 / 加方向数量 − 已见减 / 平方向数量。期初仓位未知或记录版本存在歧义时，不据此断言当前持仓。官方仓位的开平均价只是汇总，不伪造成图上的逐笔买卖点。'));
  if(c.context.metricNote)details.append(note(c.context.metricNote));
  const periodMetric=c.context.metrics;
- if(r.exchange==='Binance'&&!r._local&&/^binance\/evidence\/[a-zA-Z0-9/.-]+\.json$/.test(periodMetric?.evidencePath||'')&&!periodMetric.evidencePath.includes('..')){const proof=el('a','收益凭证');proof.href=periodMetric.evidencePath;proof.target='_blank';proof.rel='noopener';details.append(proof);}
+ const receipt=periodMetric?.evidencePath||'';
+ const officialPath=/^binance\/evidence\/(?:aoying-analysis-(?:current|[0-9]{8})\/performance-(?:7D|30D|90D|180D|365D)|aoying-reference-v1\/performance-(?:7D|30D|90D|180D|365D)-[a-f0-9]{64}|performance-v1\/\d{19}\/(?:30D|90D|365D)-[a-f0-9]{64})\.json$/;
+ if(r.exchange==='Binance'&&!r._local&&officialPath.test(receipt)){const proof=el('a','收益凭证');proof.href=receipt;proof.target='_blank';proof.rel='noopener';details.append(proof);}
  if(Number.isFinite(periodMetric?.accountAgeDays))details.append(note('采集时已带单 '+periodMetric.accountAgeDays+' 天'+(periodMetric.fullPeriod===false?'，未满所选周期，平台窗口值只涵盖已带单时段。':'。')));
 
  if(c.error)details.append(note('更新状态：'+c.error+'。403 / 429 会停止相应来源请求，不切换接口绕过。'));
@@ -69,7 +74,15 @@ function analysis(c){
  const period=el('div',undefined,'ta-period-bar');period.append(el('strong','分析周期'));const switches=el('div',undefined,'ta-period-switch');
  for(const p of c.context.analysisPeriods||['7D','30D','90D','180D','365D']){const b=btn(p==='ALL'?'累计':p,()=>c.context.setPeriod(p),'ta-period');b.setAttribute('aria-pressed',String(c.context.period===p));switches.append(b);}period.append(switches);statsRoot.append(period);
  const profile=c.context.profile;
- if(profile){const top=el('div',undefined,'ta-account-facts');for(const [label,value]of [['带单保证金余额 · USDT',fmt(profile.marginBalance,2)],['资产管理规模 AUM · USDT',fmt(profile.aumAmount,2)],['跟单用户数',fmt(profile.currentCopyCount,0)+' / '+fmt(profile.maxCopyCount,0)],['当前持仓',profile.positionShow?'以有效公开快照为准':'币安未公开'],['最近公开交易',profile.lastTradeAt?date(profile.lastTradeAt):'来源未提供']]){const item=el('div');item.append(el('small',label),el('strong',value));top.append(item);}statsRoot.append(top,note('组合资料读取 '+date(profile.fetchedAt)+(profile.status==='stale'?' · 历史快照':'')));}
+ if(profile){
+  const top=el('div',undefined,'ta-account-facts');
+  const recent=c.records?.allRows?.[0]?.updatedAt;
+  const facts=[['带单保证金余额 · USDT',fmt(profile.marginBalance,2)],['资产管理规模 AUM · USDT',fmt(profile.aumAmount,2)],
+   ['跟单用户数',fmt(profile.currentCopyCount,0)+' / '+fmt(profile.maxCopyCount,0)],['当前持仓',profile.positionShow?'以有效公开快照为准':'币安未公开'],
+   ['组合资料最近交易',profile.lastTradeAt?date(profile.lastTradeAt):'来源未提供'],['最新归档成交更新',recent?date(recent):'尚无归档']];
+  for(const [label,value]of facts){const item=el('div');item.append(el('small',label),el('strong',value));top.append(item);}
+  statsRoot.append(top,note('组合资料读取 '+date(profile.fetchedAt)+(profile.status==='stale'?' · 历史快照':'')));
+ }
  const w=c.context.metrics||{},grid=el('div',undefined,'ta-metrics');
  const data=[['所选周期收益率',w.roi===null||w.roi===undefined?'—':(w.roi>0?'+':'')+percentage(w.roi),w.roi,w.coverageLabel||c.context.periodLabel||c.context.period],
  ['来源盈亏 · '+(w.currency||c.context.r.currency||'USD'),signed(w.pnl),w.pnl,w.asOf||w.sourceAsOf?'数据截至 '+date(w.asOf||w.sourceAsOf):w.fetchedAt||w.lastSuccessAt?'读取 '+date(w.fetchedAt||w.lastSuccessAt):'缺少有效周期数据'],
@@ -214,7 +227,15 @@ function render(root,context){
   if(isAoying(context.r)&&env.BooksAoyingHistory)current.officialHistory=env.BooksAoyingHistory;
   rebuild(current);draw(current);load(current);const owner=current;current.refreshTimer=setInterval(()=>{if(current===owner&&!owner.paused&&document.visibilityState!=='hidden'&&root.closest('dialog').open&&owner.context.tab!=='live')load(owner);},60000);return;
  }
- const changed=current.context.tab!==context.tab||current.context.period!==context.period,updated=context.tab==='analysis'&&(JSON.stringify(current.context.metrics)!==JSON.stringify(context.metrics)||JSON.stringify(current.context.curve)!==JSON.stringify(context.curve)||JSON.stringify(current.context.profile)!==JSON.stringify(context.profile)||String(current.context.analysisPeriods)!==String(context.analysisPeriods)||current.context.winAt!==context.winAt);if(context.tab!=='analysis')stopFloating(current);current.context=context;current.root=root;current.paused=false;rebuild(current);if(changed||updated||current.needsDraw||!root.firstChild){const scroller=root.closest('dialog'),offset=scroller.scrollTop;current.needsDraw=false;draw(current);scroller.scrollTop=changed?0:offset;}
+ const changed=current.context.tab!==context.tab||current.context.period!==context.period;
+ const reference=isAoying(context.r)?env.BooksAoyingHistory:null;
+ const historyChanged=reference?.fetchedAt!==current.officialHistory?.fetchedAt;
+ const updated=context.tab==='analysis'&&(JSON.stringify(current.context.metrics)!==JSON.stringify(context.metrics)||
+  JSON.stringify(current.context.curve)!==JSON.stringify(context.curve)||JSON.stringify(current.context.profile)!==JSON.stringify(context.profile)||
+  String(current.context.analysisPeriods)!==String(context.analysisPeriods)||current.context.winAt!==context.winAt);
+ if(context.tab!=='analysis')stopFloating(current);
+ current.context=context;current.officialHistory=reference;current.root=root;current.paused=false;rebuild(current);
+ if(changed||updated||historyChanged||current.needsDraw||!root.firstChild){const scroller=root.closest('dialog'),offset=scroller.scrollTop;current.needsDraw=false;draw(current);scroller.scrollTop=changed?0:offset;}
 }
 function dispose(){if(current){current.root.closest('dialog')?.classList.remove('ta-detail');stopFloating(current);teardown(current);clearInterval(current.refreshTimer);}current=null;}
 env.BooksTradeAnalysis={render,dispose,pause(){if(current){stopFloating(current);teardown(current);current.needsDraw=true;current.paused=true;current.root.classList.remove('trade-analysis');}}};

@@ -22,7 +22,7 @@ for(const [id,values]of Object.entries({period:['7D','30D','90D','180D','365D','
 let remoteBinance,binanceFetches=0,binanceFetchError=false;let remoteFeed,remoteAnalytics={schemaVersion:1,methodVersion:'closing-fill-v1',generatedAt:new Date().toISOString(),accounts:{}},fetches=0,analyticsFetches=0,analyticsFetchError=false,feedGate=null,analyticsGate=null,remotePortfolios={schemaVersion:1,methodVersion:'portfolio-periods-v2',generatedAt:new Date().toISOString(),accounts:{}},portfolioFetches=0,portfolioFetchError=false,portfolioGate=null,storageError=false;const saved=new Map(),localStorage={getItem:key=>saved.get(key)||null,setItem(key,value){if(storageError)throw Error('QUOTA');saved.set(key,value);}};
 const location={href:'https://example.com/trader/?page=2&q=SYNTHETIC#main'},history={pushState(_,__,url){location.href=new URL(url,location.href).href;},replaceState(_,__,url){location.href=new URL(url,location.href).href;}};
 const context={document,location,history,URL,Date,Blob,TextDecoder,AbortController,crypto:require('node:crypto').webcrypto,localStorage,confirm:()=>true,setTimeout,clearTimeout,fetch:async url=>{if(url==='binance/portfolios.json'){binanceFetches++;if(binanceFetchError)throw Error('binance unavailable');return new Response(JSON.stringify(remoteBinance));}if(url==='portfolios.json'){portfolioFetches++;if(portfolioGate)await portfolioGate;await new Promise(r=>setTimeout(r,5));if(portfolioFetchError)throw Error('unavailable');return new Response(JSON.stringify(remotePortfolios),{headers:{'Content-Type':'application/json'}});}if(url==='analytics.json'){analyticsFetches++;if(analyticsGate)await analyticsGate;await new Promise(r=>setTimeout(r,5));if(analyticsFetchError)throw Error('unavailable');return new Response(JSON.stringify(remoteAnalytics),{headers:{'Content-Type':'application/json'}});}fetches++;if(feedGate)await feedGate;await new Promise(r=>setTimeout(r,5));return new Response(JSON.stringify(remoteFeed));}};
-const source=fs.readFileSync(path.join(__dirname,'../trader/plaza.js'),'utf8').split("for(const id of controls)$(id).addEventListener")[0]+"globalThis.api={validate,date,win,value,readURL,saveURL,render,refresh,state,openDetail,acceptDetailPositions,openEditor,saveRecord,captureWindow,changeEditorPeriod,commitLocal,loadLocal,mergeRows,choosePeriod,updateView,stampLabel,hasMetrics,removeRecord,validateSource,sourceIsStale,positionSummary,positionStatus,statusText,renderSource,displayPeriod,isPublicAccount,canReadLive,activateDetailTab,stopLive,renderDetail,liveDirection,liveSide,renderLiveData,qualifiedPosition,eligiblePublicRows,reevaluatePositions,observeEmptyPositions,compactMoney,metrics,card,privateCardActions,privateLeaderRoutingReady,refreshAnalyticsViews,startVisibleAnalytics,validateWinCache,cachedWin,winCacheIsStale,winCacheDescription,refreshWinCache,validatePortfolioCache,refreshPortfolioCache,portfolioSection,performanceWindow,performanceRange,sortValue,binancePerformance,binanceChart,binanceChartArea,hasBinancePerformance,retainedPublicRows,isBinanceTrader,binanceView,currentHolding,selectPlatform,mixPlatforms,installBinance,refreshBinance,savePublicSnapshot,publicCacheKeys,publicSnapshots,hydratePublicSnapshots,rejectOlderFeed,safeAvatarUrl,sourceIdentity,avatar,openLinkedAccount,setPeriodReturns:records=>{periodReturns=records;}};})();";
+const source=fs.readFileSync(path.join(__dirname,'../trader/plaza.js'),'utf8').split("for(const id of controls)$(id).addEventListener")[0]+"globalThis.api={validate,date,win,value,readURL,saveURL,render,refresh,refreshAoyingReference,state,openDetail,acceptDetailPositions,openEditor,saveRecord,captureWindow,changeEditorPeriod,commitLocal,loadLocal,mergeRows,choosePeriod,updateView,stampLabel,hasMetrics,removeRecord,validateSource,sourceIsStale,positionSummary,positionStatus,statusText,renderSource,displayPeriod,isPublicAccount,canReadLive,activateDetailTab,stopLive,renderDetail,liveDirection,liveSide,renderLiveData,qualifiedPosition,eligiblePublicRows,reevaluatePositions,observeEmptyPositions,compactMoney,metrics,card,privateCardActions,privateLeaderRoutingReady,refreshAnalyticsViews,startVisibleAnalytics,validateWinCache,cachedWin,winCacheIsStale,winCacheDescription,refreshWinCache,validatePortfolioCache,refreshPortfolioCache,portfolioSection,performanceWindow,performanceRange,sortValue,binancePerformance,binanceChart,binanceChartArea,hasBinancePerformance,retainedPublicRows,isBinanceTrader,binanceView,currentHolding,selectPlatform,mixPlatforms,installBinance,refreshBinance,savePublicSnapshot,publicCacheKeys,publicSnapshots,hydratePublicSnapshots,rejectOlderFeed,safeAvatarUrl,sourceIdentity,avatar,openLinkedAccount,setPeriodReturns:records=>{periodReturns=records;}};})();";
 vm.createContext(context);vm.runInContext(fs.readFileSync(path.join(__dirname,'../trader/period-roi.js'),'utf8'),context);vm.runInContext(source,context);const a=context.api;
 const stamp='2026-01-15T12:00:00Z';
 const row=i=>({id:`synthetic-${i}`,name:`SYNTHETIC ${i}`,exchange:'Binance',currency:'USDT',featured:false,paid:false,observedAt:stamp,sourceUrl:'https://example.com/synthetic',windows:{'30D':{asOf:stamp,roi:i,pnl:i,mdd:i,wins:i,closedTrades:20,curve:[{time:'2026-01-14T12:00:00Z',value:0},{time:stamp,value:i}]}},positions:[],points:[],orders:[]});
@@ -856,6 +856,27 @@ await test('mk4 opens via its verified research address without joining the rank
  a.openDetail(a.state.detail,'ALL');assert.equal(a.state.window,'30D');
  assert.match(ids['public-detail-context'].textContent,/来源未提供累计业绩/);
  assert.doesNotMatch(ids['public-detail-context'].textContent,/已切换至/);
+});
+await test('Aoying same-origin polling accepts an updated archive, rejects corrupt data and stops on refusal',async()=>{
+ const oldFetch=context.fetch,refs=require('../trader/reference-data.js'),box={};
+ vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../trader/aoying-history.js'),'utf8'),box);
+ const known=box.BooksAoyingHistory;
+ context.BooksReferenceData=refs;context.BooksAoyingHistory=known;
+ let reads=0;
+ const reply=(body,status=200)=>{context.fetch=async (url,options)=>{
+  assert.equal(url,'binance/aoying-reference.json');assert.equal(options.credentials,'omit');assert.equal(options.cache,'no-cache');
+  reads++;return new Response(JSON.stringify(body),{status});
+ };};
+ try{
+  const next=structuredClone(known);
+  next.profile.fetchedAt=next.latestPublicFetchAt=new Date(Date.parse(known.latestPublicFetchAt)+1000).toISOString();
+  reply(next);await a.refreshAoyingReference();
+  assert.equal(context.BooksAoyingHistory.latestPublicFetchAt,next.latestPublicFetchAt);
+  const accepted=context.BooksAoyingHistory;
+  reply({...next,portfolioId:'wrong'});await a.refreshAoyingReference();assert.equal(context.BooksAoyingHistory,accepted);
+  reply({},429);await a.refreshAoyingReference();await a.refreshAoyingReference();
+  assert.equal(context.BooksAoyingHistory,accepted);assert.equal(reads,3);
+ }finally{context.fetch=oldFetch;delete context.BooksReferenceData;delete context.BooksAoyingHistory;}
 });
 console.log(`${passed} logic and DOM-model tests passed. Synthetic fixtures stay local; the published feed is checked separately.`);
 })().catch(e=>{console.error(e);process.exitCode=1;});
