@@ -10,9 +10,11 @@ const script = read('plaza.js');
 assert.match(html, /data-public-list="true"/);
 assert.match(html, /公开历史快照，不构成跟单建议，不代表未来收益/);
 assert.match(read('plaza.css'), /\.public-disclaimer\{position:sticky/);
-for (const asset of ['plaza.js', 'plaza.css']) {
-  assert.ok(html.includes(asset + '?v=' + createHash('sha256').update(read(asset)).digest('hex').slice(0, 8)));
+for (const asset of ['period-metrics.js', 'plaza.js', 'plaza.css']) {
+  const fingerprint=createHash('sha256').update(read(asset)).digest('hex').slice(0, 8);
+  assert.ok(html.includes(asset + '?v=' + fingerprint),'index.html must load the current '+asset+'?v='+fingerprint);
 }
+assert.ok(html.indexOf('src="period-metrics.js?') < html.indexOf('src="plaza.js?'));
 
 const element = (tag) => ({
   tag, children: [], textContent: '', attrs: {}, namespaceURI: 'http://www.w3.org/2000/svg',
@@ -42,6 +44,7 @@ const location={href:'https://example.test/trader/index.html'};
 const history={replaceState(_state,_title,url){location.href=new URL(url,location.href).href;}};
 const context = {
   document, URL, location, history,
+  BooksPeriodMetrics: require('../trader/period-metrics.js'),
   BooksOKXPeriodData: { days:{'7D':7,'30D':30,'90D':90,'365D':365}, performance: (row, period) => row.performance[period] },
   BooksBitgetPeriodData: { performance: (row, period) => row.performance[period], avatarUrl: () => null },
   BinanceData: {
@@ -51,14 +54,15 @@ const context = {
   },
 };
 vm.runInNewContext(script.split('for(const id of controls)$(id).addEventListener')[0] +
-  'globalThis.sample={publicListCard,publicCardData,publicRank,render,readURL,saveURL,state,validatePortfolioCache,validateWinCache};})();', context);
-const { publicListCard, publicCardData, publicRank, render, readURL, saveURL, state, validatePortfolioCache, validateWinCache } = context.sample;
+  'globalThis.sample={publicListCard,publicCardData,publicRank,publicPerformance,resolveDetailPeriod,detailAnalysisPeriods,render,readURL,saveURL,state,validatePortfolioCache,validateWinCache};})();', context);
+const { publicListCard, publicCardData, publicRank, publicPerformance, resolveDetailPeriod, detailAnalysisPeriods, render, readURL, saveURL, state, validatePortfolioCache, validateWinCache } = context.sample;
 const makeCard=(row,failed=false,period='30D')=>publicListCard(publicCardData(row,period),period,failed);
 const cut = '2026-11-16T12:00:00Z';
 const children = (node) => [node, ...node.children.flatMap(children)];
 const content = (node) => children(node).map((item) => item.textContent).join(' ');
 const fields = (card) => Object.fromEntries(children(card).filter((item) => item.children[0]?.tag === 'dt')
   .map((item) => [item.children[0].textContent, item.children[1].textContent]));
+const fixedFields = card => assert.deepEqual(Object.keys(fields(card)), ['来源盈亏','采样回撤','片段胜率']);
 const hl = { id:'hl', name: '示例公开钱包', accountId: '0x' + '1'.repeat(40), exchange: 'Hyperliquid', currency: 'USD', sourceKind: 'public_account',
   windows: { '30D': { roi: 0, pnl: 123.45, mdd: null, asOf: cut, asOfType: 'source', sourcePeriod: 'month', coverageDays: 21 } } };
 const okx = { id:'okx', accountId:'1234567890123456', name: '示例 OKX', exchange: 'OKX', sourceKind: 'okx_public_lead', okxRecord: { leadDays: 120,
@@ -70,15 +74,22 @@ const binance = { id:'binance', name: '示例 Binance', exchange: 'Binance', sou
   performance: { '90D': { roi: 5, pnl: 55, mdd: 3, winRate: 62.5, currency: 'USDT', status: 'stale', lastSuccessAt: cut, accountAgeDays: 120 } } } };
 
 const hlCard = makeCard(hl);
+fixedFields(hlCard);
 assert.match(content(hlCard), /30D 来源收益率.*0\.00%/);
 const detailLink = children(hlCard).find(item=>item.className==='public-detail-trigger');
 assert.match(detailLink.href,/account=0x1+&detailExchange=Hyperliquid&detailPeriod=30D/);
 assert.equal(children(hlCard).find((item) => item.className === 'public-return-label').textContent, '30D 来源收益率');
 assert.equal(fields(hlCard)['来源盈亏'], '+123.45 USD');
 assert.equal(fields(hlCard)['来源回撤'], undefined);
+assert.equal(fields(hlCard)['采样回撤'], '—');
+assert.equal(fields(hlCard)['片段胜率'], '—');
 assert.match(content(hlCard), /数据说明.*来源最大回撤、带单天数、来源业绩统计区间 · 该来源未提供.*来源时间/);
 const okxCard=makeCard(okx);
+fixedFields(okxCard);
 assert.equal(fields(okxCard)['来源回撤'], undefined);
+assert.equal(fields(okxCard)['来源盈亏'], '—');
+assert.equal(fields(okxCard)['采样回撤'], '—');
+assert.equal(fields(okxCard)['片段胜率'], '—');
 assert.match(content(okxCard), /带单 120 天.*来源业绩统计区间 2026.* 至 2026/);
 const noYear=makeCard(okx,false,'365D');
 assert.match(content(noYear),/采集时已带单 120 天，未满 365 天.*查看 30D.*未覆盖完整周期.*所选周期无快照/);
@@ -87,16 +98,25 @@ assert.equal(new URL(shorter.href).searchParams.get('detailPeriod'),'30D');
 assert.match(content(makeCard(okx,false,'180D')),/OKX 不提供此周期/);
 assert.match(content(makeCard(okx,true,'365D')),/业绩快照读取失败/);
 const bitgetCard = makeCard(bitget,true);
-assert.equal(fields(bitgetCard)['来源回撤'], '0.00%');
-assert.equal(fields(bitgetCard)['来源胜率'], '0.00%');
+fixedFields(bitgetCard);
+assert.equal(fields(bitgetCard)['采样回撤'], '—');
+assert.equal(fields(bitgetCard)['片段胜率'], '—');
 assert.equal(fields(bitgetCard)['来源盈亏'], '0 USD');
+assert.match(content(bitgetCard), /平台来源回撤 0\.00%.*平台来源胜率 0\.00%/);
+assert.equal(publicPerformance(bitget,'30D').mdd,0);
+assert.equal(publicPerformance(bitget,'30D').winRate,0);
 assert.match(content(bitgetCard), /带单 180 天.*采集时间.*读取失败，保留上次有效资料/);
-assert.equal(children(bitgetCard).filter((item) => item.tag === 'svg').length, 1);
+assert.equal(children(bitgetCard).filter((item) => item.tag === 'svg').length, 0);
+assert.deepEqual(Array.from(publicCardData(bitget,'30D').record.curve,p=>p.time),[cut]);
 const binanceCard = makeCard(binance,false,'90D');
 assert.equal(children(binanceCard).find((item) => item.className === 'public-return-label').textContent, '90D 来源收益率');
-assert.equal(fields(binanceCard)['来源回撤'], '3.00%');
+fixedFields(binanceCard);
+assert.equal(fields(binanceCard)['采样回撤'], '—');
 assert.equal(fields(binanceCard)['来源盈亏'], '+55 USDT');
-assert.equal(fields(binanceCard)['来源胜率'], '62.50%');
+assert.equal(fields(binanceCard)['片段胜率'], '—');
+assert.match(content(binanceCard), /平台来源回撤 3\.00%.*平台来源胜率 62\.50%/);
+assert.equal(publicPerformance(binance,'90D').mdd,3);
+assert.equal(publicPerformance(binance,'90D').winRate,62.5);
 assert.match(content(binanceCard), /业绩曲线.*该周期曲线未接入.*历史快照/);
 const lacking30D = makeCard(binance);
 assert.match(content(lacking30D), /30D 来源收益率.*该周期业绩未归档.*已存历史周期.*90D/);
@@ -151,6 +171,47 @@ assert.match(content(failedSamples), /盈亏采集 .*本次读取失败，保留
 assert.match(content(failedSamples), /本次成交快照读取失败/);
 assert.match(script, /const winRequest=refreshWinCache\(\),portfolioRequest=refreshPortfolioCache\(\)/);
 
+// Real zero sample values remain zero; official percentages never acquire
+// a sample label merely because their numerical value is also zero.
+const savedPortfolio=state.portfolioCache[hl.accountId],savedWin=state.winCache[hl.accountId];
+state.portfolioCache[hl.accountId]={...savedPortfolio,portfolio:{windows:{'30D':{...window,mdd:0}}}};
+state.winCache[hl.accountId]={...savedWin,win:{...savedWin.win,winning:0,losing:3,value:0}};
+const zeroSamples=makeCard(hl);
+fixedFields(zeroSamples);
+assert.equal(fields(zeroSamples)['采样回撤'],'0.00%');
+assert.equal(fields(zeroSamples)['片段胜率'],'0.00%');
+assert.equal(fields(zeroSamples)['来源盈亏'],'+123.45 USD');
+state.portfolioCache[hl.accountId]=savedPortfolio;
+
+// An older fill sample may remain archived, but cannot fill the selected 30D
+// percentage or be silently presented as a 0% result in that period.
+state.winCache[hl.accountId]={...savedWin,win:{...savedWin.win,startAt:'2026-08-01T00:00:00Z',
+  endAt:'2026-08-02T00:00:00Z',sourceSampleStartAt:'2026-08-01T00:00:00Z',sourceSampleEndAt:'2026-08-02T00:00:00Z'}};
+assert.equal(fields(makeCard(hl))['片段胜率'],'—');
+assert.equal(publicPerformance(hl,'30D').winRate,null);
+state.winCache[hl.accountId]=savedWin;
+const oldStart='2026-08-17T12:00:00Z',oldEnd='2026-09-16T12:00:00Z';
+state.portfolioCache[hl.accountId]={...savedPortfolio,portfolio:{windows:{'30D':{...window,
+  startAt:oldStart,endAt:oldEnd,sourceHistoryStartAt:oldStart,sourceHistoryEndAt:oldEnd,
+  points:[{time:oldStart,value:0},{time:'2026-09-01T12:00:00Z',value:-25},{time:oldEnd,value:50}]}}}};
+const oldRiskCard=makeCard(hl);
+assert.equal(fields(oldRiskCard)['采样回撤'],'—');
+assert.equal(publicPerformance(hl,'30D').mdd,null);
+assert.equal(children(oldRiskCard).filter(item=>item.tag==='svg').length,0);
+state.portfolioCache[hl.accountId]=savedPortfolio;
+
+const shortYear={...bitget,bitgetRecord:{...bitget.bitgetRecord,performance:{...bitget.bitgetRecord.performance,
+  '365D':{...bitget.bitgetRecord.performance['30D'],fullPeriod:false,accountAgeDays:180}}}};
+const shortYearCard=makeCard(shortYear,false,'365D');
+fixedFields(shortYearCard);
+assert.equal(children(shortYearCard).find(item=>item.className?.includes('public-return-value')).textContent,'—');
+assert.deepEqual(Object.values(fields(shortYearCard)),['—','—','—']);
+assert.match(content(shortYearCard),/未覆盖完整所选周期/);
+assert.equal(publicPerformance(shortYear,'365D').periodInvalid,true);
+assert.equal(resolveDetailPeriod(binance,'ALL'),'ALL');
+assert.equal(Array.from(detailAnalysisPeriods(binance)).includes('ALL'),true);
+assert.deepEqual(Object.values(fields(makeCard(binance,false,'ALL'))),['—','—','—']);
+
 state.rows = [hl, okx, bitget, binance, { ...hl, _local: true }, { ...hl, paid: true }];
 render();
 const list = elements.get('leaders');
@@ -163,7 +224,7 @@ assert.match(elements.get('public-list-status').textContent, /Hyperliquid.*读�
 assert.equal(list.children.length, 4);
 assert.match(content(elements.get('public-platform-status')), /Hyperliquid · 读取失败，保留历史资料/);
 assert.match(elements.get('public-workflow-note').textContent, /未取得后台采集任务记录/);
-assert.match(content(restoredCard), /数据说明.*末点 50 USD.*峰值时的永续账户权益.*仅扣平仓成交手续费/);
+assert.match(content(restoredCard), /数据说明.*末点 50 USD.*按盈亏峰值时权益计算.*仅扣平仓成交手续费/);
 assert.ok(children(restoredCard).some(item => item.tag === 'summary'));
 const names=()=>Array.from(list.children,card=>children(card).find(item=>item.tag==='h3')&&content(children(card).find(item=>item.tag==='h3')).trim());
 const control=id=>elements.get(id);

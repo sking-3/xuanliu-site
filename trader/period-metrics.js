@@ -78,22 +78,23 @@
     let curve=null;
     if(hl){
       fields.mdd=field(null);fields.winRate=field(null);
+      // An aligned current reply is authoritative, including its explicit nulls.
       const aligned=supplement&&time(supplement.anchorAt)===end?supplement:null;
       const risk=aligned?.mdd;
       if(risk&&contains(range,risk.startAt,risk.endAt))fields.mdd=field(risk.value,{...risk,sourceAt:risk.endAt,kind:'sample'});
-      else if(sample?.mddUnavailableReason===null&&number(sample.mdd)&&sample.sampleCount>=2&&
+      else if(!aligned&&sample?.mddUnavailableReason===null&&number(sample.mdd)&&sample.sampleCount>=2&&
         sample.mddPairedSampleCount===sample.sampleCount&&contains(range,sample.startAt,sample.endAt))
         fields.mdd=field(sample.mdd,{...at,startAt:sample.startAt,endAt:sample.endAt,sourceAt:sample.endAt,
           observedAt:sampleObservedAt??null,kind:'sample',count:sample.sampleCount});
       const win=aligned?.win;
       if(win&&contains(range,win.startAt,win.endAt))fields.winRate=field(win.value,{...win,sourceAt:win.endAt,kind:'sample'});
-      else if(winEntry?.win?.eligibleCount&&contains(range,winEntry.win.startAt,winEntry.win.endAt))
+      else if(!aligned&&winEntry?.win?.eligibleCount&&contains(range,winEntry.win.startAt,winEntry.win.endAt))
         fields.winRate=field(winEntry.win.value,{...at,...winEntry.win,sourceAt:winEntry.win.endAt,
           observedAt:winEntry.fetchedAt,kind:'sample',count:winEntry.win.eligibleCount,complete:false});
       if(aligned?.curve?.length>1)curve={points:aligned.curve,
         startAt:aligned.curve[0].time,endAt:aligned.curve.at(-1).time,
         observedAt:aligned.observedAt??risk?.observedAt??win?.observedAt??null,count:aligned.curve.length};
-      else if(sample?.points?.length>1&&contains(range,sample.startAt,sample.endAt))
+      else if(!aligned&&sample?.points?.length>1&&contains(range,sample.startAt,sample.endAt))
         curve={points:sample.points,startAt:sample.startAt,endAt:sample.endAt,observedAt:sampleObservedAt??null,count:sample.sampleCount};
     }
     return {...base,roi:fields.roi.value,pnl:fields.pnl.value,mdd:fields.mdd.value,

@@ -46,3 +46,25 @@ console.log('period metrics checks passed: exact window, zero values, field date
 
 const newer=resolve({exchange:'Hyperliquid',period:'30D',performance:{...base,asOf:'2026-11-19T15:57:40Z',roi:400},supplement:{...row,native:{roi:305.39,pnl:690650.66,sourceAt:end,observedAt,sourcePeriod:'month',sha256}}});
 assert.equal(newer.roi,400);assert.equal(newer.mdd,null);
+
+const legacyStart='2026-11-18T13:57:28.000Z',legacyEnd='2026-11-19T12:57:28.000Z';
+const legacySample={mdd:12,mddUnavailableReason:null,sampleCount:2,mddPairedSampleCount:2,
+ startAt:legacyStart,endAt:legacyEnd,points:[{time:legacyStart,value:0},{time:legacyEnd,value:100}]};
+const legacyWin={fetchedAt:'2026-11-19T13:00:00.000Z',
+ win:{value:75,startAt:legacyStart,endAt:legacyEnd,eligibleCount:4}};
+const legacyArgs={exchange:'Hyperliquid',period:'30D',performance:base,sample:legacySample,
+ sampleObservedAt:'2026-11-19T13:00:00.000Z',winEntry:legacyWin};
+// A successful current response may honestly have no history or closing fills.
+// Its aligned nulls are authoritative, even when older samples fit the date range.
+const alignedEmpty=resolve({...legacyArgs,supplement:{anchorAt:end,observedAt,mdd:null,win:null,curve:[]}});
+assert.equal(alignedEmpty.mdd,null);assert.equal(alignedEmpty.winRate,null);assert.equal(alignedEmpty.alignedCurve,null);
+assert.equal(alignedEmpty.roi,base.roi);assert.equal(alignedEmpty.pnl,base.pnl);
+const alignedPartial=resolve({...legacyArgs,supplement:{anchorAt:end,observedAt,mdd:null,win:null,curve:row.curve}});
+assert.equal(alignedPartial.mdd,null);assert.equal(alignedPartial.winRate,null);
+assert.deepEqual(alignedPartial.alignedCurve.points,row.curve);
+const legacyOnly=resolve(legacyArgs);
+assert.equal(legacyOnly.mdd,12);assert.equal(legacyOnly.winRate,75);
+assert.deepEqual(legacyOnly.alignedCurve.points,legacySample.points);
+const nonAligned=resolve({...legacyArgs,supplement:{anchorAt:'2026-11-19T12:57:28.000Z',observedAt,mdd:null,win:null,curve:[]}});
+assert.equal(nonAligned.mdd,12);assert.equal(nonAligned.winRate,75);
+console.log('aligned current empty samples never borrow legacy values; legacy-only fallback remains available');
