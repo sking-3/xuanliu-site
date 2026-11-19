@@ -131,7 +131,7 @@ th{color:#728098;font-weight:500;background:#fbfcfe}
 .books-shell.trader-page[data-public-list] .plaza>.heading{align-items:center}
 .books-shell.trader-page[data-public-list] .plaza>.heading h2{font-size:17px}
 .books-shell.trader-page[data-public-list] .plaza>.heading p{margin:2px 0 0;color:#52637b}
-#public-filters{display:grid;grid-template-columns:minmax(165px,2fr) repeat(3,minmax(100px,1fr)) auto;align-items:end;gap:10px;margin:0 0 8px;padding:0;border:0;background:transparent}
+#public-filters{display:grid;grid-template-columns:minmax(150px,2fr) repeat(4,minmax(90px,1fr)) auto;align-items:end;gap:10px;margin:0 0 8px;padding:0;border:0;background:transparent}
 #public-filters label{display:block;min-width:0;color:#52637b;font-size:12px;line-height:1.4;font-weight:500}
 #public-filters .search{grid-column:auto}
 #public-filters :is(input,select){min-height:40px;margin:4px 0 0;padding:7px 9px;background:#fff;font-size:14px}
@@ -181,6 +181,7 @@ details.public-sample-status a{display:inline-block;padding:4px 0}
 
 @media(min-width:1800px){.books-shell.trader-page[data-public-list] #leaders{grid-template-columns:repeat(4,minmax(0,1fr))}}
 @media(max-width:1100px){.books-shell.trader-page[data-public-list] #leaders{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:900px){#public-filters{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:700px){
   .books-shell.trader-page[data-public-list] #leaders{grid-template-columns:minmax(0,1fr);gap:8px}
   .public-return-value{font-size:21px}

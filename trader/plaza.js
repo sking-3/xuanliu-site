@@ -6,6 +6,21 @@ const periods = ['7D','30D','90D','180D','365D','ALL'], derivedPeriods=['90D','1
 const exchanges = ['Binance','OKX','Hyperliquid','Gate','Bitget','Bybit','Polymarket'];
 const currencies = ['USDT','USD','USDC','BTC','ETH'];
 const controls = ['period','exchange','source','sort','currency'];
+if(publicListPage&&$('roster')?.options)controls.push('roster');
+const curatedBinance = new Map([
+  ['5075281354358777856','熬鹰资本'],
+  ['5271501457743196416','发烧好了呢'],
+  ['5126298543040831233','Bran Brandon'],
+  ['5285947977434857729','金木爱交易'],
+  ['4751838302089254401','Btc星辰'],
+  ['5262418889410482944','好运来777'],
+  ['4753185532199309057','用数学赚钱就是稳-广西数学哥']
+]);
+const curatedRoster = {
+  Binance:curatedBinance,
+  OKX:new Set(['7E27C9B14BB5D378','CB312175A85C9B68','811846999954962957','807517291536749293']),
+  Bitget:new Set(['1471101878518808576','1455003034485477376','1415546799798591488'])
+};
 const storageKey = 'books.trader.records.v1', maxBytes = 2097152;
 const publicCacheKeys={feed:'books.trader.public.feed.v1',win:'books.trader.public.analytics.v1',binance:'books.trader.public.binance.v1'},publicSnapshots={feed:null,win:null,binance:null};
 const state = {status:'unavailable', publicRows:[], binanceRows:[], binanceCollection:null, binanceReadFailed:false, binanceCheckedAt:null, binanceText:null, localRows:[], rows:[], page:1, detail:null, window:'30D', tab:'analysis', loading:false, explicitPeriod:false, editor:null, storageReadError:false, revealId:null, source:null, lastReadFailed:false, feedText:null, liveClient:null, liveUser:null, liveData:null, liveView:null, liveVersion:0, positionExclusions:Object.create(null), analytics:Object.create(null), analyticsClient:null, analyticsViews:[], cardControls:[], analyticsTargets:[], winCache:Object.create(null), winCacheLoading:false, winCacheReadFailed:false, winCacheGeneratedAt:null, portfolioCache:Object.create(null), portfolioCacheLoading:false, portfolioCacheAttempted:false, portfolioCacheReadFailed:false, portfolioCacheGeneratedAt:null, performanceOrderPending:false, chartSeq:0};
@@ -871,6 +886,13 @@ function mergeRows() {
     const row=known.get(record.portfolioId);
     known.set(record.portfolioId,row?{...row,avatarUrl:row.avatarUrl || record.avatarUrl,periodRecord:record}:BinanceData.periodTrader(record));
   }
+  if(publicListPage&&typeof globalThis.BinanceData?.periodTrader==='function'){
+    for(const [portfolioId,name] of curatedBinance){
+      if(known.has(portfolioId))continue;
+      const record={portfolioId,name,performance:{byPeriod:{}}};
+      known.set(portfolioId,{...BinanceData.periodTrader(record),identityOnly:true});
+    }
+  }
   const okxActivity=new Map((okxTrades?.accounts||[]).map(row=>[row.uniqueCode,row.activity]));
   const leads=[];
   for(const [catalog,adapter] of [[okxReturns,globalThis.BooksOKXPeriodData],[bitgetReturns,globalThis.BooksBitgetPeriodData]]){
@@ -1276,8 +1298,8 @@ function writeListQuery(url){
   if(state.page>1)url.searchParams.set('page',state.page);else url.searchParams.delete('page');
 }
 function writePublicFilters(url){
-  for(const [id,defaultValue] of [['period','30D'],['exchange','all'],['sort','roi']]){
-    const value=$(id).value;
+  for(const [id,defaultValue] of [['period','30D'],['exchange','all'],['sort','roi'],['roster','all']]){
+    const value=$(id)?.value||defaultValue;
     if(value===defaultValue)url.searchParams.delete(id);else url.searchParams.set(id,value);
   }
   writeListQuery(url);
@@ -1297,7 +1319,7 @@ function saveDetailURL(){
   history.replaceState(history.state,'',detailURL(state.detail,state.window,state.tab));
 }
 function readURL() {
-  const p=new URL(location.href).searchParams, defaults={period:'30D',exchange:'all',source:'all',sort:'roi',currency:'all'};
+  const p=new URL(location.href).searchParams, defaults={period:'30D',exchange:'all',source:'all',sort:'roi',currency:'all',roster:'all'};
   const rawAccount=p.get('account')||'',account=linkedExchange(p)==='OKX'?rawAccount:rawAccount.toLowerCase();
   const okxCode=linkedExchange(p)==='OKX'&&/^(?:[A-Za-z0-9]{16}|[A-Za-z0-9]{18})$/.test(account);
   linkedAccount=/^(?:0x[0-9a-f]{40}|\d{19})$/.test(account)||okxCode?account:null;
@@ -1501,7 +1523,8 @@ function publicListCard(entry,period,failed){
   if(record?.fullPeriod===false&&(roi!=='—'||Number.isFinite(record?.pnl)))result.append(node('small','周期覆盖不足或待核验','public-sample-range'));
   const okxGap=!record?okxPeriodGap(row,period):null;
   if(roi==='—'&&!Number.isFinite(record?.pnl)){
-    result.append(node('small',failed?'业绩快照读取失败':okxGap?.summary||'该周期暂无业绩','public-sample-range'));
+    const missing=row.identityOnly?'已收录身份，暂无已核验业绩':failed?'业绩快照读取失败':okxGap?.summary||'该周期暂无业绩';
+    result.append(node('small',missing,'public-sample-range'));
     if(okxGap&&row.accountId&&!failed){
       const requestedDays=period==='ALL'?Infinity:Number.parseInt(period,10);
       const fallback=['365D','90D','30D','7D'].find(candidate=>
@@ -1583,7 +1606,7 @@ function publicListCard(entry,period,failed){
   const sourceTime=record?.sourceAsOf||(record?.asOfType==='source'?record.asOf:null);
   const dated=sourceTime||collected;
   const stale=record?.status==='stale'||(publicAccount&&sourceIsStale());
-  const status=failed?'读取失败':stale?'历史快照':dated?'公开快照':okxGap?'所选周期无快照':'时间未提供';
+  const status=row.identityOnly?'身份已收录':failed?'读取失败':stale?'历史快照':dated?'公开快照':okxGap?'所选周期无快照':'时间未提供';
   const times=[sourceTime&&`来源时间 ${timeLabel(sourceTime)}`,collected&&`采集时间 ${timeLabel(collected)}`].filter(Boolean);
   if(times.length)explanations.append(node('p',times.join(' · ')+'（北京时间）'));
   if(failed)explanations.append(node('p',dated?'本次快照读取失败，保留上次有效资料。':'本次快照读取失败，暂无已核验表现。'));
@@ -1596,8 +1619,10 @@ function renderPublicList(){
   const failures=publicReadFailures();
   const directory=state.rows.filter(row=>!row._local&&!row.paid&&publicPlatforms.includes(row.exchange));
   const platform=$('exchange').value,period=$('period').value,sort=$('sort').value;
+  const curated=$('roster')?.value==='curated';
   const terms=$('search').value.toLowerCase().trim().split(/\s+/).filter(Boolean);
-  const matches=directory.filter(row=>(platform==='all'||row.exchange===platform)&&publicAccountMatches(row,terms));
+  const matches=directory.filter(row=>(platform==='all'||row.exchange===platform)&&
+    (!curated||curatedRoster[row.exchange]?.has(row.accountId))&&publicAccountMatches(row,terms));
   const rows=publicRank(matches.map(row=>publicCardData(row,period)),sort,platform);
   const pages=Math.max(1,Math.ceil(rows.length/12));
   if(!state.loading)state.page=Math.max(1,Math.min(state.page,pages));
@@ -1629,9 +1654,9 @@ function renderPublicList(){
   const message=failed.length?`${failed.join('、')}快照读取失败。${directory.length?'显示已读资料。':'暂无可用快照。'}`:
     !directory.length?(state.loading?'正在读取公开快照…':'暂无公开快照。'):'';
   listStatus.textContent=message;listStatus.hidden=!message;
-  if(directory.length&&!rows.length&&!state.loading)empty(leaders,'没有匹配的账户','试试其他昵称、账户 ID 或平台。');
+  if(directory.length&&!rows.length&&!state.loading)empty(leaders,'没有匹配的账户',curated?'可切换到全部名单，或调整筛选条件。':'试试其他昵称、账户 ID 或平台。');
   renderPublicUpdate(directory,failures);
-  $('count').textContent=terms.length||platform!=='all'?`${rows.length} / ${directory.length} 个账户`:`${rows.length} 个公开账户`;
+  $('count').textContent=terms.length||platform!=='all'||curated?`${rows.length} / ${directory.length} 个账户`:`${rows.length} 个公开账户`;
   $('page').textContent=rows.length?`${state.page} / ${pages}`:'0 / 0';
   $('public-pagination').hidden=pages===1;
   $('prev').disabled=state.loading||state.page<=1;
@@ -2247,6 +2272,7 @@ function renderLeadDetail(r,b){
   b.replaceChildren();
   if(state.tab==='live'&&r.exchange==='OKX'){renderOKXCurrent(r,b);return;}
   if(state.tab!=='analysis'){renderLeadActivity(r,b,activityKeys[state.tab]);return;}
+  if(r.identityOnly){b.append(node('p','已收录组合身份，暂无可核实的收益或交易记录。','detail-method'),sourceLink(r));return;}
   const candidates=detailAnalysisPeriods(r);
   const available=candidates.filter(period=>hasDetailPerformance(r,period));
   if(!available.includes(state.window)){
@@ -2518,7 +2544,7 @@ if(typeof document==='undefined'&&typeof module==='object'&&module.exports){
 for(const id of controls)$(id).addEventListener('change',()=>{if(id==='period')state.explicitPeriod=true;state.page=1;render();if(id==='exchange'||id==='source')renderSource();saveURL(false,true);});
 for(const [id,exchange]of [['platform-all','all'],['platform-hl','Hyperliquid'],['platform-binance','Binance'],['platform-okx','OKX'],['platform-bitget','Bitget']])if($(id))$(id).onclick=()=>selectPlatform(exchange);
 $('search').addEventListener('input',()=>{state.page=1;render();saveURL(true,true);});
-$('reset').onclick=()=>{$('search').value='';$('period').value='30D';$('exchange').value='all';$('source').value='all';$('sort').value='roi';$('currency').value='all';state.explicitPeriod=false;state.page=1;choosePeriod();render();renderSource();saveURL(false,true);};
+$('reset').onclick=()=>{$('search').value='';$('period').value='30D';$('exchange').value='all';$('source').value='all';$('sort').value='roi';$('currency').value='all';if($('roster'))$('roster').value='all';state.explicitPeriod=false;state.page=1;choosePeriod();render();renderSource();saveURL(false,true);};
 function turnListPage(step){
   state.page+=step;render();saveURL();
   if(publicListPage)$('plaza-title').focus();
