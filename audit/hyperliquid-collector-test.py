@@ -279,7 +279,7 @@ class CollectorTests(unittest.TestCase):
         self.assertLessEqual(clock.now,240)
 
     def test_403_429_stop_without_retries_or_further_starts(self):
-        for error in ('http_403','http_429'):
+        for error in ('http_401','http_403','http_418','http_429','http_451'):
             clock=FakeClock();rows=c.normalize(payload(account(1),account(2),account(3)),NOW)['traders']
             tasks=FakeTasks(clock,delay=0.1,errors={rows[0]['accountId']:error})
             results,stop=c.collect_position_checks(rows,tasks,clock.clock,clock.sleep)

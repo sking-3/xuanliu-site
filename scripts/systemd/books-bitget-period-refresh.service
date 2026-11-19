@@ -1,0 +1,18 @@
+[Unit]
+Description=Refresh all retained public Bitget trader period records
+Wants=network-online.target
+After=network-online.target
+ConditionPathExists=!/opt/books/site/trader/bitget/source-stop.json
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/books/bitget-period-refresh
+ExecStart=/usr/bin/node scripts/collect_bitget_periods.cjs --out /opt/books/site/trader/bitget
+TimeoutStartSec=15min
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ReadWritePaths=/opt/books/site/trader/bitget
+MemoryMax=256M

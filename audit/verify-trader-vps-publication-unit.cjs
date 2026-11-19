@@ -16,6 +16,7 @@ const catalogues = [
   'trader/okx/period-returns.json',
   'trader/bitget/period-returns.json',
 ];
+const periodFile='trader/period-samples.json';
 
 function fixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'trader-vps-test-'));
@@ -25,7 +26,7 @@ function fixture(t) {
     assert.equal(result.status, 0, result.stderr);
   };
   git('init', '--quiet');
-  for (const file of catalogues) {
+  for (const file of [...catalogues,periodFile]) {
     const fullPath = path.join(root, file);
     fs.mkdirSync(path.dirname(fullPath), {recursive: true});
     fs.writeFileSync(fullPath, JSON.stringify({file, sample: 'x'.repeat(65535)}) + '\n');
@@ -94,6 +95,12 @@ test('exchange recovery verifies only the three exchange catalogues', t => {
   const result = fixture(t).run(['--exchange-only']);
   assert.equal(result.status, 0, result.stderr + result.stdout);
   assert.deepEqual(result.requested, catalogues.slice(3));
+});
+
+test('period-bundle verification binds the current directory and its period samples only', t => {
+  const result=fixture(t).run(['--period-bundle']);
+  assert.equal(result.status,0,result.stderr+result.stdout);
+  assert.deepEqual(result.requested,['trader/feed.json',periodFile]);
 });
 
 test('mismatches, redirects and interrupted body transfers never pass the release gate', t => {

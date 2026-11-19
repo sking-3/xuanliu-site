@@ -133,7 +133,8 @@ test('refresh retains departed traders and previously verified windows with thei
     assert.deepEqual(archived.performance,old.bundle.accounts[0].performance);
     assert.equal(archived.selection.rankEvidenceSha256,old.bundle.rankEvidenceSha256);
     assert.equal(archived.selection.rankFetchedAt,old.bundle.rankFetchedAt);
-    assert.equal(m.performance(archived,'30D',end+day).status,'stale');
+    assert.equal(m.performance(archived,'30D',end+day).status,'ready');
+    assert.equal(m.performance(archived,'30D',Date.parse(received)+day+1).status,'stale');
     const later=structuredClone(old.bundle);delete later.accounts[0].performance['365D'];
     later.rankFetchedAt=new Date(Date.parse(later.rankFetchedAt)+day).toISOString();
     later.generatedAt=new Date(Date.parse(later.generatedAt)+day).toISOString();
@@ -198,4 +199,99 @@ test('directory photos map each portfolio to its head image in the hash-verified
   assert.equal(m.trader(good.bundle.accounts[0]).avatarUrl,url);
   for(const bad of [undefined,'https://static.okx.com.other.com/cdn/okex/users/headimages/1','https://static.okx.com/cdn/unrelated'])
     assert.equal(m.trader({...good.bundle.accounts[0],avatarUrl:bad}).avatarUrl,null);
+});
+
+test('all saved OKX IDs refresh after leaving the positive ranking, with zero followers',async()=>{
+  const old=await collect(fixture());
+  const other={...leader,uniqueCode:'5B123E456F789A22',nickName:'New leader'};
+  const read=fixture({},other),calls=[];
+  const refreshed=await collect(async(name,url)=>{
+    calls.push(name);
+    if(name.startsWith(id+'-')){
+      if(name.includes('-stats-'))throw Object.assign(Error('optional stats absent'),{code:'ENOENT'});
+      const period=Object.entries(m.ranges).find(([,code])=>name===id+'-'+code)[0];
+      const data=series(period,'-0.15'),bytes=Buffer.from(JSON.stringify(data));
+      return receipt(name,url,bytes,{name,sourceUrl:url,httpStatus:200,code:'0',receivedAt:received,bytes:bytes.length});
+    }
+    return read(name,url);
+  },undefined,old.bundle);
+  const archived=refreshed.bundle.accounts.find(row=>row.uniqueCode===id);
+  assert.ok(calls.includes(id+'-2'));
+  assert.equal(archived.performance['90D'].roi,-15);
+  assert.equal(archived.performance['30D'].roi,-15);
+  assert.equal(archived.selection.status,'historical');
+  assert.equal(m.performance(archived,'30D',Date.parse(received)+1000).status,'ready');
+  archived.copyTraderNum=0;
+  m.parse(refreshed.bundle);
+});
+
+test('OKX retains per-period timestamps and rejects an older returned window',async()=>{
+  const current=await collect(fixture());
+  const prior=structuredClone(current.bundle),period=prior.accounts[0].performance['30D'];
+  period.endTs+=day;period.beginTs+=day;
+  period.lastSuccessAt=new Date(Date.parse(received)+day).toISOString();
+  prior.generatedAt=period.lastSuccessAt;
+  const later=new Date(Date.parse(received)+2*day).toISOString();
+  const result=mergeDirectory(prior,{...current.bundle,rankFetchedAt:later,generatedAt:later});
+  assert.equal(result.accounts[0].performance['30D'].endTs,period.endTs);
+  assert.equal(result.accounts[0].performance['30D'].lastSuccessAt,period.lastSuccessAt);
+});
+
+test('saved Bitget IDs refresh negative returns and zero followers even without closed history',async()=>{
+  const BG=require('../trader/bitget-period-data.js'),C=require('../scripts/collect_bitget_periods.cjs');
+  const root=path.join(__dirname,'../trader');
+  const previous=JSON.parse(await fs.readFile(path.join(root,'bitget/period-returns.json'),'utf8'));
+  const byId=new Map(previous.accounts.map(row=>[row.portfolioId,row]));
+  const at=new Date(Date.parse(previous.generatedAt)+60000).toISOString(),calls=[];
+  const original=async ref=>JSON.parse(await fs.readFile(path.join(root,ref.evidencePath),'utf8'));
+  const result=await C.collect(async(name,route,body)=>{
+    calls.push({name,route,id:body.portfolioId});
+    let raw;
+    if(route==='traderView')raw={code:'200',data:{rows:[],nextFlag:false}};
+    else{
+      const row=byId.get(body.portfolioId);
+      if(route==='details'){
+        raw=await original(row.profileEvidence);
+        raw.data.publicDetail.curFollowCount=0;raw.data.publicDetail.aum=0;
+        raw.data.publicDetail.showBalance=false;
+      }else if(route==='historyPosition')raw={code:'200',data:{rows:[],nextFlag:false}};
+      else if(route==='currentPosition')raw={code:'200',data:{rows:[],strategySafe:false}};
+      else if(route==='performance'){
+        raw=await original(row.performance[body.cycleTime+'D']);
+        raw.data.roi=-15;raw.data.profit=-100;
+      }else if(route==='cycleChartData')raw=await original({evidencePath:row.performance[body.cycleTime+'D'].curveEvidencePath});
+      else throw Error('unexpected request '+route);
+    }
+    const bytes=Buffer.from(JSON.stringify(raw)),url='https://www.bitget.com/v1/trigger/public/uta/'+route;
+    return C.receipt(name,route,body,bytes,{method:'POST',url,body,fetchedAt:at,sha256:require('node:crypto').createHash('sha256').update(bytes).digest('hex')});
+  },undefined,previous);
+  assert.equal(result.bundle.accounts.length,previous.accounts.length);
+  assert.deepEqual(new Set(calls.filter(c=>c.route==='details').map(c=>c.id)),new Set(byId.keys()));
+  for(const row of result.bundle.accounts){
+    assert.equal(row.performance['90D'].roi,-15);
+    assert.equal(row.performance['30D'].roi,-15);
+    assert.equal(row.performance['30D'].lastSuccessAt,at);
+    assert.equal(row.copyTraderNum,0);
+    assert.equal(row.activity.history.status,'empty');
+    assert.equal(row.catalogStatus,'retained');
+    assert.equal(BG.performance(row,'30D',Date.parse(at)).status,'ready');
+    assert.equal(BG.performance(row,'365D',Date.parse(at)).fullPeriod,false);
+  }
+  assert.ok(!calls.some(call=>call.name.endsWith('365')));
+  BG.parse(result.bundle,Date.parse(at));
+});
+
+test('a Bitget source rejection halts the entire saved-account sweep',async()=>{
+  const C=require('../scripts/collect_bitget_periods.cjs');
+  const previous=JSON.parse(await fs.readFile(path.join(__dirname,'../trader/bitget/period-returns.json'),'utf8'));
+  const at=previous.generatedAt,calls=[];
+  await assert.rejects(()=>C.collect(async(name,route,body)=>{
+    calls.push(name);
+    if(route==='traderView'){
+      const raw={code:'200',data:{rows:[],nextFlag:false}},bytes=Buffer.from(JSON.stringify(raw));
+      return C.receipt(name,route,body,bytes,{method:'POST',url:'https://www.bitget.com/v1/trigger/public/uta/'+route,body,fetchedAt:at,sha256:require('node:crypto').createHash('sha256').update(bytes).digest('hex')});
+    }
+    throw Object.assign(Error('source refused'),{stopReason:'http_429'});
+  },undefined,previous),/source refused/);
+  assert.equal(calls.length,2);
 });

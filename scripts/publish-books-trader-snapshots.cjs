@@ -11,11 +11,15 @@ const repository = 'sking-3/xuanliu-site';
 const sha40 = /^[0-9a-f]{40}$/;
 const sha256 = value => createHash('sha256').update(value).digest('hex');
 const MiB = 1024 * 1024;
+const okxPeriodsFile = 'okx/period-returns.json';
 const files = [
   ['okx/trades.json', 'okx-trades.js', 32 * MiB],
-  ['okx/period-returns.json', 'okx-period-data.js', MiB],
+  [okxPeriodsFile, 'okx-period-data.js', MiB],
   ['bitget/period-returns.json', 'bitget-period-data.js', 32 * MiB],
 ];
+const periodSamplesFile = 'period-samples.json';
+const periodSamplesLimit = 8 * MiB;
+const periods = ['7D', '30D', '90D', '180D', '365D', 'ALL'];
 const hyperliquidFiles = [
   ['analytics', 2 * MiB, 'win'],
   ['portfolios', 12 * MiB, 'portfolio'],
@@ -77,9 +81,11 @@ function retainPublished(previous, next, file) {
     const account = byAccount.get(id(old));
     if (!account) throw Error(file + ' would remove account ' + id(old));
     for (const [period, part] of Object.entries(old.performance || {})) {
-      if (part.lastSuccessAt && !(Date.parse(account.performance?.[period]?.lastSuccessAt) >= Date.parse(part.lastSuccessAt))) {
-        throw Error(file + ' would regress ' + id(old) + ' ' + period);
-      }
+      const nextPart = account.performance?.[period];
+      for (const key of ['lastSuccessAt', 'curveFetchedAt'])
+        compareTime(part[key], nextPart?.[key], file + ' ' + id(old) + ' ' + period + ' ' + key);
+      compareTime(part.winRateEvidence?.lastSuccessAt, nextPart?.winRateEvidence?.lastSuccessAt,
+        file + ' ' + id(old) + ' ' + period + ' win-rate observation');
     }
     // Positions may become hidden or flat. Keep the check's order, not the old open rows.
     for (const [key, part] of Object.entries(old.activity || {})) {
@@ -183,150 +189,220 @@ function validateHyperliquidTransition(before, after) {
   return { accounts: rows.size, added, removed, coverage };
 }
 
+function validatePeriodBundle(before, after) {
+  const rows = addressIndex(after.feed), samples = after.samples;
+  const addresses = Object.keys(samples.accounts).sort();
+  if (addresses.length !== rows.size || addresses.some(address => !rows.has(address))) {
+    throw Error('Hyperliquid feed and period samples must have identical accounts');
+  }
+  compareTime(before.samples?.generatedAt, samples.generatedAt, 'Hyperliquid period samples snapshot');
+  for (const [address, row] of rows) {
+    const windows = samples.accounts[address], previous = before.samples?.accounts[address];
+    for (const period of periods) {
+      const next = windows[period], old = previous?.[period];
+      if (!next || !Number.isFinite(Date.parse(next.observedAt)) ||
+          Date.parse(next.observedAt) > Date.parse(samples.generatedAt) + 5000) {
+        throw Error('Hyperliquid missing current period observation for ' + address + ' ' + period);
+      }
+      compareTime(old?.anchorAt, next.anchorAt, 'Hyperliquid ' + address + ' ' + period + ' cutoff');
+      compareTime(old?.observedAt, next.observedAt, 'Hyperliquid ' + address + ' ' + period + ' observation');
+      for (const key of ['mdd', 'win', 'native']) {
+        if (!next[key]) continue;
+        compareTime(old?.[key]?.observedAt, next[key].observedAt,
+          'Hyperliquid ' + address + ' ' + period + ' ' + key + ' observation');
+        if (Date.parse(next[key].observedAt) > Date.parse(samples.generatedAt) + 5000) {
+          throw Error('Hyperliquid period metric observation is newer than its snapshot');
+        }
+      }
+      if (['7D', '30D', 'ALL'].includes(period)) {
+        const native = next.native, metric = row.windows[period];
+        if (!native || !metric || Date.parse(native.sourceAt) !== Date.parse(metric.asOf) ||
+            Date.parse(next.anchorAt) !== Date.parse(metric.asOf) ||
+            native.roi !== metric.roi || native.pnl !== metric.pnl) {
+          throw Error('Hyperliquid native metric and sample cutoff differ for ' + address + ' ' + period);
+        }
+        compareTime(before.feed?.traders.find(prior => prior.accountId === address)?.windows[period]?.asOf,
+          metric.asOf, 'Hyperliquid ' + address + ' ' + period + ' source time');
+        compareTime(old?.native?.sourceAt, native.sourceAt, 'Hyperliquid ' + address + ' ' + period + ' native source time');
+      }
+    }
+  }
+}
+
 async function stageHyperliquid(root, revision, loadFile) {
   const validators = require(path.join(root, 'plaza.js'));
   const policy = require(path.join(root, 'source-policy.js'));
-  const snapshots = [];
-  const before = {};
-  const after = {};
-  for (const [kind, limit, field] of hyperliquidFiles) {
-    const file = kind + '.json';
-    const bytes = await loadFile(revision, file, limit);
-    if (bytes.length > limit) throw Error(file + ' exceeds the download limit');
-    const parse = value => {
-      const data = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(value));
-      if (kind === 'feed') {
-        validators.validateSource(data, validators.validate(data));
-        // The list parser checks representation, but automatic publication also
-        // needs to reject a corrupt timestamp that could lock subsequent updates.
-        if (Date.parse(data.source?.lastAttemptAt) > Date.now() + 5000) {
-          throw Error('Hyperliquid feed observation is in the future');
+  const periodMetrics = require(path.join(root, 'period-metrics.js'));
+  const snapshots = [], before = {}, after = {}, legacyRetained = {};
+  const parse = (kind, bytes, field) => {
+    const data = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+    if (kind === 'feed') {
+      validators.validateSource(data, validators.validate(data));
+      if (Date.parse(data.source?.lastAttemptAt) > Date.now() + 5000) throw Error('Future feed observation');
+    } else if (kind === 'samples') periodMetrics.parseSamples(data);
+    else {
+      if (kind === 'analytics') validators.validateWinCache(data);
+      else validators.validatePortfolioCache(data);
+      validateAggregateSource(data, field);
+    }
+    return data;
+  };
+  // Legacy analytics can remain at their previous capture times. The newly
+  // collected feed and six-window samples are the indivisible current bundle.
+  for (const [kind, limit, field] of [...hyperliquidFiles, ['samples', periodSamplesLimit]]) {
+    const file = kind === 'samples' ? periodSamplesFile : kind + '.json';
+    const last = await readLocal(path.join(root, file), limit);
+    before[kind] = last && parse(kind, last, field);
+    let bytes, incoming;
+    try {
+      bytes = await loadFile(revision, file, limit);
+      if (bytes.length > limit) throw Error(file + ' exceeds the download limit');
+      incoming = parse(kind, bytes, field);
+      if (field) {
+        compareTime(before[kind]?.generatedAt, incoming.generatedAt, 'Hyperliquid ' + kind + ' snapshot');
+        for (const [address, prior] of Object.entries(before[kind]?.accounts || {})) {
+          const next = incoming.accounts[address];
+          if (!next) continue;
+          compareTime(prior.lastAttemptAt, next.lastAttemptAt, 'Hyperliquid ' + kind + ' attempt for ' + address);
+          compareTime(prior.fetchedAt, next.fetchedAt, 'Hyperliquid ' + kind + ' observation for ' + address);
+          if (prior[field] && !next[field]) throw Error(kind + ' would erase a verified legacy sample');
         }
       }
-      else {
-        if (kind === 'analytics') validators.validateWinCache(data);
-        else validators.validatePortfolioCache(data);
-        validateAggregateSource(data, field);
-      }
-      return data;
-    };
-    let incoming;
-    let last;
-    try {
-      incoming = parse(bytes);
-      last = await readLocal(path.join(root, file), limit);
-      before[kind] = last && parse(last);
     } catch (error) {
-      throw Error(file + ' failed its deployed Hyperliquid schema validator', { cause: error });
+      if (!field || !before[kind]) throw Error(file + ' failed its deployed Hyperliquid schema validator', { cause: error });
+      bytes = last; incoming = before[kind]; legacyRetained[kind] = error.message;
     }
     after[kind] = incoming;
-    snapshots.push({
-      file, bytes, last, changed: !last || !bytes.equals(last),
-      count: field ? Object.keys(incoming.accounts).length : incoming.traders.length,
-      generatedAt: field ? incoming.generatedAt : incoming.source.lastAttemptAt,
-    });
+    snapshots.push({ file, bytes, last, changed: !last || !bytes.equals(last),
+      count: field || kind === 'samples' ? Object.keys(incoming.accounts).length : incoming.traders.length,
+      generatedAt: kind === 'feed' ? incoming.source.lastAttemptAt : incoming.generatedAt });
   }
   const decision = policy.decision(after);
+  if (!decision.allowed) throw Error('Hyperliquid source policy: ' + decision.reason);
   const summary = validateHyperliquidTransition(before, after);
-  return { snapshots, summary: { status: 'verified', ...summary, sourceStop: decision.allowed ? null : decision } };
+  validatePeriodBundle(before, after);
+  // Serve samples before the directory that advertises their matching cutoff.
+  snapshots.sort((a, b) => Number(a.file === 'feed.json') - Number(b.file === 'feed.json'));
+  return { snapshots, summary: { status: 'verified', ...summary, sourceStop: null, legacyRetained } };
 }
 
 async function sync({
-  root, staging, stateFile, check = false, getRevision = mainRevision, loadFile = githubFile,
+  root, staging, stateFile, check = false, localOkxPeriods = false, localBitgetPeriods = false, getRevision = mainRevision, loadFile = githubFile,
 }) {
   const revision = await getRevision();
   if (!sha40.test(revision)) throw Error('Invalid GitHub revision');
-  const snapshots = [];
-  const evidence = new Map();
-  for (const [file, model, limit] of files) {
-    const parser = require(path.join(root, model));
-    const bytes = await loadFile(revision, file, limit);
-    if (bytes.length > limit) throw Error(file + ' exceeds the download limit');
-    const incoming = parseCatalog(bytes, parser, file);
-    const last = await readLocal(path.join(root, file), limit);
-    retainPublished(last && parseCatalog(last, parser, file), incoming, file);
-    collectEvidence(incoming, file.split('/')[0], evidence);
-    snapshots.push({ file, bytes, last, changed: !last || !bytes.equals(last), count: incoming.accounts.length, generatedAt: incoming.generatedAt });
-  }
-  // Hyperliquid and copy-platform catalogs may be published by separate jobs.
-  // A rejected Hyperliquid batch keeps all three of its previous production files.
-  let hyperliquid;
-  try {
-    const batch = await stageHyperliquid(root, revision, loadFile);
-    snapshots.push(...batch.snapshots);
-    hyperliquid = batch.summary;
-  } catch (error) {
-    hyperliquid = { status: 'retained', reason: error.message };
-  }
-
   await fs.mkdir(staging, { recursive: true, mode: 0o700 });
   const staged = await fs.mkdtemp(path.join(staging, 'sync-'));
-  try {
+  const groups = [], platforms = {};
+  let hyperliquid;
+  const prepareEvidence = async evidence => {
     const replace = [];
     for (const [file, digest] of evidence) {
-      const destination = path.join(root, file);
-      const present = await readLocal(destination, 3 * MiB);
+      const present = await readLocal(path.join(root, file), 3 * MiB);
       if (present) {
         if (sha256(present) !== digest) throw Error(file + ' existing evidence hash mismatch');
         continue;
       }
       const bytes = await loadFile(revision, file, 3 * MiB);
       if (bytes.length > 3 * MiB || sha256(bytes) !== digest) throw Error(file + ' downloaded evidence hash mismatch');
-      const stagedFile = path.join(staged, file);
-      await fs.mkdir(path.dirname(stagedFile), { recursive: true });
-      await fs.writeFile(stagedFile, bytes, { mode: 0o644 });
-      replace.push(file);
-    }
-
-    const changed = snapshots.filter(snapshot => snapshot.changed);
-    const actions = { revision, check, evidence: replace.length, hyperliquid, catalogs: Object.fromEntries(snapshots.map(({file, count, generatedAt}) => [file, { count, generatedAt }])), updated: changed.map(({file}) => file) };
-    if (check) return actions;
-
-    // Install immutable evidence before changing the pointers that refer to it.
-    for (const file of replace) {
-      await fs.mkdir(path.dirname(path.join(root, file)), { recursive: true });
-      try { await fs.link(path.join(staged, file), path.join(root, file)); }
-      catch (error) {
-        if (error.code !== 'EEXIST') throw error;
-        if (sha256(await readLocal(path.join(root, file), 3 * MiB)) !== evidence.get(file)) {
-          throw Error(file + ' changed during publication');
-        }
-      }
-    }
-
-    for (const { file, bytes, last } of changed) {
       const target = path.join(staged, file);
       await fs.mkdir(path.dirname(target), { recursive: true });
       await fs.writeFile(target, bytes, { mode: 0o644 });
-      const before = await readLocal(path.join(root, file), 32 * MiB);
-      if (last ? !before?.equals(last) : before) throw Error(file + ' changed while validating');
+      replace.push(file);
     }
-    const installed = [];
-    try {
-      // Install account detail data before the list that advertises an account.
-      for (const snapshot of changed) {
-        await fs.rename(path.join(staged, snapshot.file), path.join(root, snapshot.file));
-        installed.push(snapshot);
-      }
-    } catch (error) {
-      for (const { file, last } of installed.reverse()) {
-        if (!last) await fs.unlink(path.join(root, file));
-        else {
-          await fs.writeFile(path.join(staged, file), last, { mode: 0o644 });
-          await fs.rename(path.join(staged, file), path.join(root, file));
+    return replace;
+  };
+  try {
+    // One platform's unavailable/older catalog or evidence must not suppress
+    // independently verified data from the other public sources.
+    for (const [name, exchange] of [['OKX', 'okx'], ['Bitget', 'bitget']]) {
+      try {
+        const snapshots = [], evidence = new Map();
+        for (const [file, model, limit] of files.filter(entry => entry[0].startsWith(exchange + '/'))) {
+          const parser = require(path.join(root, model));
+          if (localOkxPeriods && file === okxPeriodsFile || localBitgetPeriods && file === 'bitget/period-returns.json') {
+            const bytes = await readLocal(path.join(root, file), limit);
+            if (!bytes) throw Error(file + ' is missing from the local collector');
+            const local = parseCatalog(bytes, parser, file);
+            snapshots.push({ file, count: local.accounts.length, generatedAt: local.generatedAt, source: 'local', changed: false });
+            continue;
+          }
+          const bytes = await loadFile(revision, file, limit);
+          if (bytes.length > limit) throw Error(file + ' exceeds the download limit');
+          const incoming = parseCatalog(bytes, parser, file);
+          const last = await readLocal(path.join(root, file), limit);
+          retainPublished(last && parseCatalog(last, parser, file), incoming, file);
+          collectEvidence(incoming, exchange, evidence);
+          snapshots.push({ file, bytes, last, changed: !last || !bytes.equals(last), count: incoming.accounts.length, generatedAt: incoming.generatedAt });
         }
-      }
-      throw error;
+        groups.push({ name, snapshots, evidence, replace: await prepareEvidence(evidence) });
+        platforms[name] = { status: 'verified' };
+      } catch (error) { platforms[name] = { status: 'retained', reason: error.message }; }
     }
-    if (stateFile) {
+    try {
+      const batch = await stageHyperliquid(root, revision, loadFile);
+      groups.push({ name: 'Hyperliquid', snapshots: batch.snapshots, evidence: new Map(), replace: [] });
+      hyperliquid = batch.summary;
+    } catch (error) { hyperliquid = { status: 'retained', reason: error.message }; }
+
+    const updated = [], catalogs = {};
+    let evidenceCount = 0;
+    for (const group of groups) {
+      const changed = group.snapshots.filter(snapshot => snapshot.changed);
+      try {
+        for (const snapshot of changed) {
+          const target = path.join(staged, snapshot.file);
+          await fs.mkdir(path.dirname(target), { recursive: true });
+          await fs.writeFile(target, snapshot.bytes, { mode: 0o644 });
+          const before = await readLocal(path.join(root, snapshot.file), 32 * MiB);
+          if (snapshot.last ? !before?.equals(snapshot.last) : before) throw Error(snapshot.file + ' changed while validating');
+        }
+        if (!check) {
+          for (const file of group.replace) {
+            await fs.mkdir(path.dirname(path.join(root, file)), { recursive: true });
+            try { await fs.link(path.join(staged, file), path.join(root, file)); }
+            catch (error) {
+              if (error.code !== 'EEXIST') throw error;
+              if (sha256(await readLocal(path.join(root, file), 3 * MiB)) !== group.evidence.get(file)) {
+                throw Error(file + ' changed during publication');
+              }
+            }
+          }
+          const installed = [];
+          try {
+            for (const snapshot of changed) {
+              await fs.rename(path.join(staged, snapshot.file), path.join(root, snapshot.file));
+              installed.push(snapshot);
+            }
+          } catch (error) {
+            for (const { file, last } of installed.reverse()) {
+              if (!last) await fs.unlink(path.join(root, file));
+              else {
+                await fs.writeFile(path.join(staged, file), last, { mode: 0o644 });
+                await fs.rename(path.join(staged, file), path.join(root, file));
+              }
+            }
+            throw error;
+          }
+        }
+        updated.push(...changed.map(snapshot => snapshot.file)); evidenceCount += group.replace.length;
+        for (const { file, count, generatedAt, source } of group.snapshots) {
+          catalogs[file] = { count, generatedAt, ...(source ? { source } : {}) };
+        }
+      } catch (error) {
+        const retained = { status: 'retained', reason: error.message };
+        if (group.name === 'Hyperliquid') hyperliquid = retained;
+        else platforms[group.name] = retained;
+      }
+    }
+    const actions = { revision, check, evidence: evidenceCount, hyperliquid, platforms, catalogs, updated };
+    if (!check && stateFile) {
       const temporary = stateFile + '.' + process.pid + '.tmp';
       await fs.writeFile(temporary, JSON.stringify({ ...actions, checkedAt: new Date().toISOString() }) + '\n', { mode: 0o644 });
       await fs.rename(temporary, stateFile);
     }
     return actions;
-  } finally {
-    await fs.rm(staged, { recursive: true, force: true });
-  }
+  } finally { await fs.rm(staged, { recursive: true, force: true }); }
 }
 
 if (require.main === module) {
@@ -340,6 +416,8 @@ if (require.main === module) {
       staging: path.resolve(process.env.BOOKS_TRADER_PUBLISH_STAGE || '/opt/books/trader-publisher-stage'),
       stateFile: process.env.BOOKS_TRADER_PUBLISH_STATE,
       check: args.includes('--check'),
+      localOkxPeriods: process.env.BOOKS_OKX_PERIODS_SOURCE === 'local',
+      localBitgetPeriods: process.env.BOOKS_BITGET_PERIODS_SOURCE === 'local',
     }).then(result => console.log(JSON.stringify(result)), error => {
       console.error(error.message);
       process.exitCode = 1;
@@ -347,4 +425,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { sync, mainRevision, githubFile };
+module.exports = { sync, mainRevision, githubFile, validatePeriodBundle };

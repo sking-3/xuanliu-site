@@ -14,10 +14,11 @@ case "$scope" in
   '') files=(trader/feed.json trader/analytics.json trader/portfolios.json "${exchange_files[@]}") ;;
   --exchange-only) files=("${exchange_files[@]}") ;;
   --hyperliquid-positions) files=(trader/feed.json) ;;
-  *) echo 'Usage: verify-trader-vps-publication.sh [--exchange-only|--hyperliquid-positions]' >&2; exit 2 ;;
+  --period-bundle) files=(trader/feed.json trader/period-samples.json) ;;
+  *) echo 'Usage: verify-trader-vps-publication.sh [--exchange-only|--hyperliquid-positions|--period-bundle]' >&2; exit 2 ;;
 esac
 if (( $# > 1 )); then
-  echo 'Usage: verify-trader-vps-publication.sh [--exchange-only|--hyperliquid-positions]' >&2
+  echo 'Usage: verify-trader-vps-publication.sh [--exchange-only|--hyperliquid-positions|--period-bundle]' >&2
   exit 2
 fi
 

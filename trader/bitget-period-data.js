@@ -24,7 +24,7 @@
   }
   function checkHistory(part,id,now) {
     const url=profileUrl(id)+'/current';
-    check(part.status==='ready' && part.sourceUrl===url && Array.isArray(part.rows));
+    check(part.sourceUrl===url && Array.isArray(part.rows) && part.status===(part.rows.length?'ready':'empty'));
     if (!part.pages) {check(part.rows.length<=10);return;} // Earlier published snapshots contain one page.
     check(Array.isArray(part.pages) && part.pages.length>=1 && part.pages.length<=20 && part.pagesFetched===part.pages.length
       && part.pages[0].evidencePath===part.evidencePath && part.truncated===part.hasMore
@@ -77,7 +77,7 @@
       check(validId(id) && !seen.has(id) && typeof row.name === 'string' && row.name.trim() && row.name.length <= 150);
       seen.add(id);
       check(row.sourceUrl === profileUrl(id) && whole(row.leadDays) && row.leadDays >= 90
-        && whole(row.copyTraderNum) && row.copyTraderNum > 0 && row.performance?.['90D']?.roi > 0);
+        && whole(row.copyTraderNum) && number(row.performance?.['90D']?.roi));
       check(row.catalogStatus===undefined || ['selected','retained'].includes(row.catalogStatus));
       evidence(row.profileEvidence,id+'-profile',end);
       if(row.balance) {
@@ -159,7 +159,8 @@
     const captureAge=part.accountAgeDaysAtCapture!==undefined ? part.accountAgeDaysAtCapture :
       Date.parse(row.profileEvidence?.fetchedAt)<=Date.parse(part.fetchedAt) ? row.leadDays : null;
     return {...part, status: now-Date.parse(part.lastSuccessAt)>day?'stale':'ready',
-      accountAgeDays:captureAge,fullPeriod:captureAge!==null && captureAge>=days[period],periodSupported:true};
+      accountAgeDays:captureAge,fullPeriod:period!=='365D' && captureAge!==null && captureAge>=days[period],
+      ...(period==='365D'?{coverageReason:'source_period_unverified'}:{}),periodSupported:true};
   }
   function trader(row) {
     return {id:'bitget-'+row.portfolioId,accountId:row.portfolioId,name:row.name,sourceKind:source,exchange:'Bitget',

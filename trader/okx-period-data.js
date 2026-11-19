@@ -52,10 +52,11 @@
           Date.parse(selection.rankFetchedAt)<=Date.parse(raw.rankFetchedAt) && /^\d{14}$/.test(selection.rankVersion));
       }else currentCount++;
       const selectedAt=selection?.rankFetchedAt||raw.rankFetchedAt;
-      check(row.sourceUrl===accountSourceUrl(id) && whole(row.leadDays) && row.leadDays>=90 && whole(row.copyTraderNum) && row.copyTraderNum>=1);
-      check(row.performance && row.performance['90D']?.roi>0);
+      check(row.sourceUrl===accountSourceUrl(id) && whole(row.leadDays) && row.leadDays>=90 && whole(row.copyTraderNum));
+      check(row.performance && num(row.performance['90D']?.roi));
       for(const [p,part] of Object.entries(row.performance)){
-        check(Object.hasOwn(days,p) && days[p]<=row.leadDays && part.sourcePeriod===p && part.sourceUrl===curveUrl(id,p));
+        check(Object.hasOwn(days,p) && days[p]<=(part.accountAgeDaysAtCapture??row.leadDays) && part.sourcePeriod===p && part.sourceUrl===curveUrl(id,p));
+        if(part.accountAgeDaysAtCapture!==undefined)check(whole(part.accountAgeDaysAtCapture));
         check(stamp(part.lastSuccessAt,now) && Date.parse(part.lastSuccessAt)<=Date.parse(raw.generatedAt) && part.sourceAsOf===null);
         check(num(part.roi) && num(part.pnl) && part.mdd===null && part.winRate===null);
         check(hashOk(part.evidenceSha256) && part.evidencePath===evidencePath(id+'-'+ranges[p],part.evidenceSha256));
@@ -68,7 +69,7 @@
         check((part.pointCount===days[p] || part.pointCount===days[p]+1) && whole(part.beginTs) && whole(part.endTs) &&
           part.endTs-part.beginTs===days[p]*day);
         // Older windows can remain when a later collection omits a period.
-        check((part.endTs===row.performance['90D'].endTs || Date.parse(part.lastSuccessAt)<Date.parse(selectedAt)) && part.endTs<=Date.parse(part.lastSuccessAt));
+        check(part.endTs<=Date.parse(part.lastSuccessAt));
       }
     }
     check(currentCount<=limit);
@@ -78,8 +79,8 @@
     const part=row?.performance?.[period];
     if(!part)return null;
     return {...part,winRate:part.winRateEvidence?.percent??null,
-      status:row.selection?.status==='historical'||now-Date.parse(part.lastSuccessAt)>day?'stale':'ready',sourceAsOf:null,
-      accountAgeDays:row.leadDays,fullPeriod:row.leadDays>=days[period],periodSupported:true,currency:'USDT'};
+      status:now-Date.parse(part.lastSuccessAt)>day?'stale':'ready',sourceAsOf:null,
+      accountAgeDays:part.accountAgeDaysAtCapture??row.leadDays,fullPeriod:(part.accountAgeDaysAtCapture??row.leadDays)>=days[period],periodSupported:true,currency:'USDT'};
   }
   function trader(row){
     return {id:'okx-'+row.uniqueCode,accountId:row.uniqueCode,name:row.name,sourceKind:'okx_public_lead',exchange:'OKX',

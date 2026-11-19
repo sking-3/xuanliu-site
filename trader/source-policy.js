@@ -5,7 +5,7 @@
   else root.BooksSourcePolicy = api.browser(root);
 })(globalThis, function () {
 'use strict';
-const BLOCKS = new Set(['http_403', 'http_429']);
+const BLOCKS = new Set(['http_401', 'http_403', 'http_418', 'http_429', 'http_451']);
 const ADDRESS=/^0x[0-9a-f]{40}$/;
 const plain=x=>x!==null&&typeof x==='object'&&!Array.isArray(x);
 const code=x=>x===null||(typeof x==='string'&&/^[a-z][a-z0-9_]{0,79}$/.test(x));

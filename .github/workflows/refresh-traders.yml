@@ -1,467 +1,143 @@
-name: Refresh trader data and verify production
+name: Refresh Hyperliquid period data and verify production
 
 on:
   workflow_dispatch:
     inputs:
       refresh_scope:
-        description: 'Refresh all analytics, or only reverify positions for a fast recovery'
+        description: 'Refresh the complete current public account and period bundle'
         type: choice
         required: true
         default: full
         options: [full, positions]
   schedule:
-    # Position checks are frequent; long analytics batches are scheduled separately.
-    # GitHub may delay scheduled runs. These schedules do not guarantee delivery.
     - cron: '27,57 * * * *'
-    - cron: '12 */6 * * *'
 
 permissions:
   contents: read
 
-# Serialize collection and formal-site snapshot verification.
+# One bounded public batch. Binance and VPS copy-platform collectors run separately.
 concurrency:
-  group: trader-production
-  queue: max
+  group: hyperliquid-period-bundle
   cancel-in-progress: false
 
 jobs:
-  collect-build:
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+  collect:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
-    # Preserve serialization around the existing Binance source gates.
-    concurrency:
-      group: binance-public-source
-      queue: max
-      cancel-in-progress: false
     permissions:
       contents: write
-      actions: read
     outputs:
-      published_sha: ${{ steps.snapshot.outputs.sha }}
-      refresh_mode: ${{ steps.refresh-mode.outputs.mode }}
-    steps:
-      - name: Check out the latest main branch
-        id: checkout
-        uses: actions/checkout@v6
-        with:
-          # Retain the latest committed source-stop state after a queued run.
-          ref: main
-          fetch-depth: 1
-
-      - name: Resolve Hyperliquid refresh scope
-        id: refresh-mode
-        env:
-          BOOKS_CHECKOUT_SHA: ${{ steps.checkout.outputs.commit }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          mode=$(node scripts/resolve_trader_refresh_mode.cjs)
-          printf 'mode=%s\n' "$mode" >> "$GITHUB_OUTPUT"
-          printf 'Hyperliquid refresh scope: %s\n' "$mode" >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Test navigation and account page logic
-        run: |
-          node --check trader/period-roi.js
-          node audit/period-roi-unit.cjs
-          node --check home-trader-data.js
-          node --check home-ranking.js
-          node audit/home-trader-data-unit.cjs
-          node audit/home-ranking-ui-unit.cjs
-          node audit/binance-period-returns-unit.cjs
-          node --test audit/okx-periods-unit.cjs audit/bitget-periods-unit.cjs audit/position-lifecycle-unit.cjs
-          node --test audit/aoying-archive-unit.cjs audit/public-executions-unit.cjs audit/aoying-public-archive-unit.cjs audit/okx-trades-unit.cjs
-          node --check books-shell.js
-          node audit/shell-unit.cjs
-          node audit/market-live-unit.cjs
-          node --check trader/account-live.js
-          node --check trader/account-analytics.js
-          node --check trader/plaza.js
-          node audit/account-live-unit.cjs
-          node audit/account-analytics-unit.cjs
-          node --check scripts/collect_trader_analytics.cjs
-          node audit/trader-analytics-collector-unit.cjs
-          node --check scripts/collect_trader_portfolios.cjs
-          node audit/trader-portfolio-collector-unit.cjs
-          node --check scripts/resolve_trader_refresh_mode.cjs
-          node audit/trader-refresh-mode-unit.cjs
-          node audit/trader-refresh-health-unit.cjs
-          node audit/trader-linked-account-unit.cjs
-          node --check scripts/hyperliquid_run_guard.cjs
-          node audit/hyperliquid-run-guard-unit.cjs
-          node --check scripts/collect_hyperliquid_fills.cjs
-          node --test audit/hyperliquid-fills-unit.cjs
-          node --check scripts/refresh_trader_positions.cjs
-          node audit/refresh-trader-positions-unit.cjs
-          node audit/trader-unit.cjs
-          node --check scripts/collect_binance.cjs
-          node --check scripts/collect_aoying.cjs
-          node audit/aoying-collector-unit.cjs
-          node --check trader/binance-data.js
-          node audit/binance-plaza-data-unit.cjs
-          node --check trader/binance/redirect.js
-          node audit/binance-redirect-unit.cjs
-          node --check trader/binance/monitor.js
-          node audit/binance-collector-unit.cjs
-          node audit/binance-multi-unit.cjs
-          node audit/binance-run-guard-unit.cjs
-          node audit/binance-ui-unit.cjs
-
-      - name: Test snapshot validation and last-good handling
-        run: python3 -B audit/hyperliquid-collector-test.py
-
-      - name: Check durable Binance source permissions
-        id: binance-policy
-        if: steps.refresh-mode.outputs.mode != 'skip'
-        shell: bash
-        run: |
-          set -euo pipefail
-          node -e "let p; try { p = require('./scripts/source-holds.json'); } catch (_) {} console.log('allowed=' + (p?.binancePublicCollector === 'approved' && p?.githubRunInventory === 'approved'))" >> "$GITHUB_OUTPUT"
-
-      - name: Select the latest Python Binance source checkpoint
-        id: binance-peer-select
-        if: steps.refresh-mode.outputs.mode != 'skip' && steps.binance-policy.outputs.allowed == 'true'
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: >-
-          python3 -B tools/binance_watch/actions_state.py select-peer
-          --directory "$RUNNER_TEMP/binance-watch-peer"
-          --selection "$RUNNER_TEMP/binance-watch-peer-selection.json"
-
-      - name: Restore the exact Python Binance source checkpoint
-        id: binance-peer-restore
-        if: steps.refresh-mode.outputs.mode != 'skip' && steps.binance-peer-select.outcome == 'success' && steps.binance-peer-select.outputs.restore_run_id != ''
-        continue-on-error: true
-        uses: actions/download-artifact@v4
-        with:
-          artifact-ids: ${{ steps.binance-peer-select.outputs.restore_artifact_id }}
-          run-id: ${{ steps.binance-peer-select.outputs.restore_run_id }}
-          github-token: ${{ github.token }}
-          repository: sking-3/xuanliu-site
-          path: ${{ runner.temp }}/binance-watch-peer
-          merge-multiple: true
-
-      - name: Validate the Python Binance global source-stop state
-        id: binance-peer-validate
-        if: steps.refresh-mode.outputs.mode != 'skip' && steps.binance-peer-select.outcome == 'success' && (steps.binance-peer-select.outputs.restore_run_id == '' || steps.binance-peer-restore.outcome == 'success')
-        continue-on-error: true
-        run: >-
-          python3 -B tools/binance_watch/actions_state.py validate-peer
-          --directory "$RUNNER_TEMP/binance-watch-peer"
-          --selection "$RUNNER_TEMP/binance-watch-peer-selection.json"
-
-      - name: Report blocked Binance collection without changing its snapshots
-        if: steps.refresh-mode.outputs.mode != 'skip'
-        env:
-          BINANCE_PEER_ALLOWED: ${{ steps.binance-peer-validate.outputs.allowed }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ "$BINANCE_PEER_ALLOWED" != "true" ]; then
-            printf '%s\n' 'Binance source collection skipped: source policy is paused or the previous checkpoint could not be verified. Existing Binance snapshots and timestamps are preserved. Hyperliquid and publication retain their existing guards.' >> "$GITHUB_STEP_SUMMARY"
-          fi
-
-      - name: Verify the preceding Binance run was safely committed
-        id: binance-guard
-        continue-on-error: true
-        if: steps.refresh-mode.outputs.mode != 'skip' && steps.binance-peer-validate.outputs.allowed == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          guard=$(node scripts/binance_run_guard.cjs)
-          if [ "$guard" = "halt" ]; then
-            echo 'BINANCE_PREVIOUS_RUN_UNVERIFIED=1' >> "$GITHUB_ENV"
-            echo 'allowed=false' >> "$GITHUB_OUTPUT"
-          elif [ "$guard" = "ok" ]; then
-            echo 'allowed=true' >> "$GITHUB_OUTPUT"
-          else
-            exit 1
-          fi
-
-      - name: Collect Aoying official public reference
-        id: aoying-refresh
-        if: steps.refresh-mode.outputs.mode != 'skip' && steps.binance-policy.outputs.allowed == 'true' && steps.binance-peer-validate.outputs.allowed == 'true' && steps.binance-guard.outputs.allowed == 'true'
-        # Binance's public performance/profile data is independent from the
-        # Hyperliquid batch. A failed read aborts this collection before any
-        # evidence or history file is replaced.
-        run: node scripts/collect_aoying.cjs
-
-      - name: Refresh verified public 90-day and 365-day returns
-        id: binance-periods
-        if: steps.refresh-mode.outputs.mode == 'full' && steps.binance-policy.outputs.allowed == 'true' && steps.binance-peer-validate.outputs.allowed == 'true' && steps.binance-guard.outputs.allowed == 'true'
-        continue-on-error: true
-        run: node scripts/collect_binance_periods.cjs
-
-      - name: Refresh verified OKX public trader returns
-        id: okx-periods
-        if: steps.refresh-mode.outputs.mode == 'full'
-        continue-on-error: true
-        run: node scripts/collect_okx_periods.cjs
-
-      - name: Archive Aoying public execution history
-        if: steps.refresh-mode.outputs.mode != 'skip'
-        continue-on-error: true
-        shell: bash
-        run: |
-          curl --fail --silent --show-error --location --max-time 20 https://raw.githubusercontent.com/sking-3/xuanliu-site/binance-public-orders-state/monitor-state/5075281354358777856.json --output "$RUNNER_TEMP/aoying-public-checkpoint.json"
-          node scripts/archive_aoying_records.cjs "$RUNNER_TEMP/aoying-public-checkpoint.json"
-
-      - name: Refresh verified OKX public position history
-        id: okx-positions
-        if: steps.refresh-mode.outputs.mode == 'full'
-        continue-on-error: true
-        run: node scripts/collect_okx_trades.cjs
-
-      - name: Refresh verified Bitget public trader records
-        id: bitget-refresh
-        if: steps.refresh-mode.outputs.mode == 'full'
-        continue-on-error: true
-        run: node scripts/collect_bitget_periods.cjs
-
-      # Preserve exchange data and stops before the independent Hyperliquid batch.
-      - name: Checkpoint exchange snapshots before Hyperliquid
-        id: exchange-checkpoint
-        if: steps.refresh-mode.outputs.mode == 'full'
-        env:
-          REFRESH_MODE: ${{ steps.refresh-mode.outputs.mode }}
-          BINANCE_OUTCOME: unknown
-          BINANCE_GUARD_ALLOWED: ${{ steps.binance-guard.outputs.allowed }}
-          OKX_OUTCOME: ${{ steps.okx-periods.outcome }}
-          OKX_POSITIONS_OUTCOME: ${{ steps.okx-positions.outcome }}
-          BITGET_OUTCOME: ${{ steps.bitget-refresh.outcome }}
-          HYPERLIQUID_OUTCOME: unknown
-        shell: bash
-        run: |
-          set -euo pipefail
-          node scripts/trader-refresh-health.cjs
-          git add -- trader/okx trader/bitget trader/refresh-health.json
-          changed=false
-          if ! git diff --cached --quiet; then
-            git fetch --no-tags --depth=1 origin main
-            if [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]; then
-              echo '::error::main changed before exchange snapshots could be saved.'
-              exit 1
-            fi
-            git config user.name 'github-actions[bot]'
-            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-            git commit -m 'chore: checkpoint public exchange snapshots [skip ci]'
-            git push origin HEAD:main
-            changed=true
-          fi
-          mkdir -p "$RUNNER_TEMP/exchange-checkpoint"
-          git rev-parse HEAD > "$RUNNER_TEMP/exchange-checkpoint/sha"
-          printf '%s\n' "$changed" > "$RUNNER_TEMP/exchange-checkpoint/changed"
-
-      - name: Preserve exchange checkpoint for recovery
-        if: steps.exchange-checkpoint.outcome == 'success'
-        uses: actions/upload-artifact@v4
-        with:
-          name: exchange-checkpoint-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/exchange-checkpoint/
-          retention-days: 1
-          if-no-files-found: error
-
-      - name: Check persisted Hyperliquid source refusals
-        id: hyperliquid-guard
-        if: steps.refresh-mode.outputs.mode != 'skip'
-        shell: bash
-        run: |
-          set -euo pipefail
-          gate=$(node scripts/hyperliquid_run_guard.cjs)
-          case "$gate" in allowed=true|allowed=false) ;; *) exit 1 ;; esac
-          if [ "$gate" = 'allowed=true' ]; then
-            gate=$(node scripts/collect_hyperliquid_fills.cjs --gate)
-            case "$gate" in allowed=true|allowed=false) ;; *) exit 1 ;; esac
-          fi
-          printf '%s\n' "$gate" >> "$GITHUB_OUTPUT"
-          printf 'Hyperliquid persisted-source guard: %s\n' "$gate" >> "$GITHUB_STEP_SUMMARY"
-
-      # UI-only publication skips every source; other modes retain independent Binance guards.
-      # Positions preserve analysis files and their original timestamps; full also refreshes analytics.
-      # UI-only pushes reuse all committed snapshots. Tests and deployment remain required.
-      - name: Record this collection start
-        if: steps.refresh-mode.outputs.mode != 'skip' && steps.hyperliquid-guard.outputs.allowed == 'true'
-        shell: bash
-        run: printf 'BOOKS_COLLECTION_STARTED_AT=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
-
-      - name: Collect one public Hyperliquid snapshot
-        id: hyperliquid-refresh
-        if: steps.refresh-mode.outputs.mode != 'skip' && steps.hyperliquid-guard.outputs.allowed == 'true'
-        # Source failures produce a stale last-good snapshot, not invented data.
-        run: python3 -B scripts/collect_hyperliquid.py
-
-      - name: Collect recent public Hyperliquid fills
-        if: steps.refresh-mode.outputs.mode == 'positions' && steps.hyperliquid-guard.outputs.allowed == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          gate=$(node scripts/hyperliquid_run_guard.cjs)
-          case "$gate" in allowed=true) ;; allowed=false) exit 0 ;; *) exit 1 ;; esac
-          # The positions collector shares this source. Let its rate window expire.
-          sleep 60
-          node scripts/collect_hyperliquid_fills.cjs
-
-      - name: Precompute native and 90/180/365-day portfolio windows
-        id: hyperliquid-portfolios
-        if: steps.refresh-mode.outputs.mode == 'full' && steps.hyperliquid-guard.outputs.allowed == 'true'
-        # At most 600 weight/minute; only real source samples are retained.
-        run: node scripts/collect_trader_portfolios.cjs
-
-      - name: Separate shared API rate windows
-        if: steps.refresh-mode.outputs.mode == 'full' && steps.hyperliquid-guard.outputs.allowed == 'true'
-        # The next worker has its own rolling budget. Let this source's prior window expire.
-        run: sleep 60
-
-      - name: Precompute closing-fill win rates with persistent last-good cache
-        timeout-minutes: 25
-        if: steps.refresh-mode.outputs.mode == 'full' && steps.hyperliquid-guard.outputs.allowed == 'true'
-        # At most 900 weight/minute; a 403/429 stops the batch. No raw fills are published.
-        # A cold batch may take up to 22 minutes; missing/old accounts go first next time.
-        run: node scripts/collect_trader_analytics.cjs --portfolio-status trader/portfolios.json
-
-      - name: Reverify holdings after the long analytics batch
-        if: steps.refresh-mode.outputs.mode == 'full' && steps.hyperliquid-guard.outputs.allowed == 'true'
-        # Do not publish holdings that aged while win rates were calculated.
-        # Any same-run 403/429 stops this final check; the wrapper validates all three source statuses.
-        shell: bash
-        run: |
-          sleep 60
-          node scripts/refresh_trader_positions.cjs --not-before "$BOOKS_COLLECTION_STARTED_AT" --history-root trader
-
-      - name: Collect the public Binance lead sample
-        id: binance-snapshot
-        if: steps.refresh-mode.outputs.mode != 'skip' && steps.binance-policy.outputs.allowed == 'true' && steps.binance-peer-validate.outputs.allowed == 'true' && steps.binance-guard.outputs.allowed == 'true'
-        # Anonymous read-only sample. Access refusal is persisted; halted sources are not retried.
-        run: node scripts/collect_binance.cjs
-
-      - name: Record public source refresh status
-        if: steps.refresh-mode.outputs.mode != 'skip'
-        env:
-          REFRESH_MODE: ${{ steps.refresh-mode.outputs.mode }}
-          BINANCE_OUTCOME: ${{ steps.binance-snapshot.outcome }}
-          BINANCE_GUARD_ALLOWED: ${{ steps.binance-guard.outputs.allowed }}
-          OKX_OUTCOME: ${{ steps.okx-periods.outcome }}
-          OKX_POSITIONS_OUTCOME: ${{ steps.okx-positions.outcome }}
-          BITGET_OUTCOME: ${{ steps.bitget-refresh.outcome }}
-          HYPERLIQUID_OUTCOME: ${{ steps.hyperliquid-refresh.outcome }}
-          HYPERLIQUID_ALLOWED: ${{ steps.hyperliquid-guard.outputs.allowed }}
-        run: node scripts/trader-refresh-health.cjs
-
-      - name: Keep verified position observations and historical changes
-        if: steps.refresh-mode.outputs.mode != 'skip'
-        run: node scripts/archive_positions.cjs --bundled
-
-      - name: Save the snapshot without overwriting concurrent edits
-        id: snapshot
-        shell: bash
-        run: |
-          set -euo pipefail
-          git fetch --no-tags --depth=1 origin main
-          if [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]; then
-            echo '::error::main changed during collection. Skipping this deployment; a later run will use the new version.'
-            exit 1
-          fi
-          if [ -f trader/refresh-health.json ]; then git add -- trader/refresh-health.json; fi
-          if [ -f trader/hyperliquid-fills.json ]; then git add -- trader/hyperliquid-fills.json; fi
-          git add -- trader/feed.json trader/analytics.json trader/portfolios.json trader/binance/snapshot.json trader/binance/portfolios.json trader/aoying-history.js trader/binance/evidence/aoying-analysis-current trader/binance/period-returns.json trader/binance/evidence/performance-v1 trader/okx trader/bitget trader/replay-seed.js trader/position-history trader/strategy
-          if ! git diff --cached --quiet; then
-            git config user.name 'github-actions[bot]'
-            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-            git commit -m 'chore: refresh public trader snapshot [skip ci]'
-            # A normal push rejects a concurrent main update; never force or rebase.
-            git push origin HEAD:main
-          fi
-          printf 'sha=%s\n' "$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-
-  release-checks:
-    needs: collect-build
-    runs-on: ubuntu-24.04
-    timeout-minutes: 25
+      published_sha: ${{ steps.save.outputs.sha }}
+      updated: ${{ steps.save.outputs.updated }}
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ needs.collect-build.outputs.published_sha }}
-          persist-credentials: false
-
+          ref: main
+          fetch-depth: 1
       - uses: actions/setup-node@v6
         with:
           node-version: '24'
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Install the static checks dependency
-        run: python3 -m pip install --retries 1 --timeout 25 lxml==6.1.3
 
-      # Production consumes only data files from this workflow. The code release
-      # workflow separately tests the full site in Chromium and WebKit.
-      - name: Gate the final snapshot on offline unit and static checks
-        run: node scripts/verify_public_release.cjs --offline-only
+      - name: Test shared period rules and source guards
+        run: |
+          node --check trader/period-metrics.js
+          node --check scripts/collect_period_samples.cjs
+          node --test audit/period-metrics-unit.cjs audit/period-samples-collector-unit.cjs
+          node audit/hyperliquid-run-guard-unit.cjs
+          python3 audit/hyperliquid-collector-test.py
 
-      - name: Preserve failed release evidence
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-failure-${{ github.run_id }}-${{ github.job }}
-          path: audit/browser-output/release/
-          retention-days: 7
-          if-no-files-found: ignore
-
-  verify-production:
-    needs: collect-build
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          ref: ${{ needs.collect-build.outputs.published_sha }}
-          persist-credentials: false
-
-      - name: Verify the exact snapshots on the formal site
-        env:
-          REFRESH_MODE: ${{ needs.collect-build.outputs.refresh_mode }}
-        run: bash scripts/verify-trader-vps-publication.sh
-
-  recover-exchange:
-    # The formal-site timer can still consume the verified early exchange checkpoint.
-    # A failed collection keeps its original failure status.
-    needs: collect-build
-    if: ${{ !cancelled() && (needs.collect-build.result == 'failure' || needs.collect-build.result == 'cancelled') }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - name: Restore exchange checkpoint from this run
-        id: restore
-        continue-on-error: true
-        uses: actions/download-artifact@v4
-        with:
-          name: exchange-checkpoint-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/exchange-checkpoint
-
-      - name: Validate the recovery commit
-        id: recovery
-        if: steps.restore.outcome == 'success'
+      - name: Check durable source stops before any public request
+        id: guard
         shell: bash
         run: |
           set -euo pipefail
-          sha=$(cat "$RUNNER_TEMP/exchange-checkpoint/sha")
-          changed=$(cat "$RUNNER_TEMP/exchange-checkpoint/changed")
-          if ! [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || ! [[ "$changed" =~ ^(true|false)$ ]]; then
-            echo '::error::Invalid exchange checkpoint.'
-            exit 1
+          # The stop branch is independent of concurrent data/code commits to main.
+          git ls-remote --heads origin hyperliquid-period-source-stop > "$RUNNER_TEMP/source-stop-ref"
+          if [[ -s "$RUNNER_TEMP/source-stop-ref" ]]; then
+            git fetch --no-tags --depth=1 origin hyperliquid-period-source-stop
+            git show FETCH_HEAD:trader/period-samples-stop.json > trader/period-samples-stop.json
+            printf 'BOOKS_PERIOD_STOP_PERSISTED=true\n' >> "$GITHUB_ENV"
           fi
-          printf 'sha=%s\nready=%s\n' "$sha" "$changed" >> "$GITHUB_OUTPUT"
+          gate=$(node scripts/hyperliquid_run_guard.cjs)
+          if [[ -f trader/period-samples-stop.json ]]; then gate=allowed=false; fi
+          case "$gate" in allowed=true|allowed=false) ;; *) exit 1 ;; esac
+          printf '%s\n' "$gate" >> "$GITHUB_OUTPUT"
 
-      - name: Check out the exchange checkpoint
-        if: steps.recovery.outputs.ready == 'true'
-        uses: actions/checkout@v6
+      - name: Read the current official public directory and verify holdings
+        id: directory
+        if: steps.guard.outputs.allowed == 'true'
+        run: python3 -B scripts/collect_hyperliquid.py
+
+      - name: Collect all current accounts with the same period rules
+        id: periods
+        if: steps.guard.outputs.allowed == 'true' && steps.directory.outcome == 'success'
+        env:
+          BOOKS_PERIOD_SOURCE_STOP_FILE: trader/period-samples-stop.json
+        run: |
+          # Clear the directory collector's preceding IP weight window.
+          sleep 60
+          node scripts/collect_period_samples.cjs --feed trader/feed.json --out trader/period-samples.json --evidence "$RUNNER_TEMP/period-evidence"
+
+      - name: Persist source stops or the complete verified bundle
+        id: save
+        if: always() && steps.guard.outcome == 'success'
+        env:
+          PERIODS_OUTCOME: ${{ steps.periods.outcome }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ${BOOKS_PERIOD_STOP_PERSISTED-false} == true ]]; then
+            printf 'sha=%s\nupdated=false\n' "$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [[ "$PERIODS_OUTCOME" != success ]]; then
+            node -e 'const fs=require("fs"),p=require("./trader/source-policy.js"),s={};for(const k of ["feed","analytics","portfolios"])s[k]=JSON.parse(fs.readFileSync("trader/"+k+".json"));const d=p.decision(s),file="trader/period-samples-stop.json";if(!d.allowed&&!fs.existsSync(file))fs.writeFileSync(file,JSON.stringify({schemaVersion:1,source:"hyperliquid",status:"stopped",errorCode:d.reason,detectedAt:new Date().toISOString()}))'
+            if [[ -f trader/period-samples-stop.json ]]; then
+              git add -- trader/period-samples-stop.json
+              if ! git diff --cached --quiet; then
+                git config user.name 'github-actions[bot]'
+                git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+                git commit -m 'safety: persist Hyperliquid source refusal [skip ci]'
+                git push origin HEAD:refs/heads/hyperliquid-period-source-stop
+              fi
+            fi
+            printf 'sha=%s\nupdated=false\n' "$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git add -- trader/feed.json trader/period-samples.json trader/position-history
+          changed=false
+          if ! git diff --cached --quiet; then
+            git fetch --no-tags --depth=1 origin main
+            test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git commit -m 'data: refresh verified Hyperliquid period bundle [skip ci]'
+            git push origin HEAD:main
+            changed=true
+          fi
+          printf 'sha=%s\nupdated=%s\n' "$(git rev-parse HEAD)" "$changed" >> "$GITHUB_OUTPUT"
+
+      - name: Keep source evidence for this real run
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
-          ref: ${{ steps.recovery.outputs.sha }}
-          persist-credentials: false
-          fetch-depth: 1
+          name: hyperliquid-period-evidence-${{ github.run_id }}
+          path: ${{ runner.temp }}/period-evidence/
+          retention-days: 3
+          if-no-files-found: ignore
 
-      - name: Verify the formal site received the exchange checkpoint
-        if: steps.recovery.outputs.ready == 'true'
-        run: bash scripts/verify-trader-vps-publication.sh --exchange-only
+  verify-production:
+    needs: collect
+    if: needs.collect.outputs.updated == 'true' && needs.collect.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.collect.outputs.published_sha }}
+          persist-credentials: false
+      - name: Verify the exact period bundle reached the formal site
+        run: bash scripts/verify-trader-vps-publication.sh --period-bundle

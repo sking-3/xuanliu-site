@@ -418,7 +418,7 @@ def collect_position_checks(rows, task_factory=PositionTask, clock=time.monotoni
                     results[address] = result
                     task.close()
                     del active[address]
-                    if result[0] == 'error' and result[1] in ('http_403', 'http_429'):
+                    if result[0] == 'error' and result[1] in ('http_401', 'http_403', 'http_418', 'http_429', 'http_451'):
                         stop_code = result[1]
                         break
             now = clock()

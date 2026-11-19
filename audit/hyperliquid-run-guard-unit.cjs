@@ -55,7 +55,7 @@ async function test(name,fn){await fn();passed++;console.log('ok '+name);}
   (s,c)=>{s.portfolios.accounts[ADDRESS].errorCode=c;}
  ];
  await test('403 and 429 in every persisted source or record block without mutation',()=>{
-  for(const code of ['http_403','http_429'])for(const set of setters){
+  for(const code of ['http_401','http_403','http_418','http_429','http_451'])for(const set of setters){
    const states=fixtures();set(states,code);const before=clone(states),result=decision(states);
    assert.equal(result.allowed,false);assert.equal(result.reason,code);assert.deepEqual(states,before);
   }

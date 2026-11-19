@@ -71,26 +71,42 @@ function stored(dir){return async(name,url)=>{
   const [bytes,meta]=await Promise.all([fs.readFile(path.join(dir,name+'.raw.json')),fs.readFile(path.join(dir,name+'.meta.json'),'utf8')]);
   return receipt(name,url,bytes,JSON.parse(meta));
 };}
-async function collect(read,wait=async()=>{}){
+async function collect(read,wait=async()=>{},previous=null){
+  if(previous)model.parse(previous);
   const leaderboard=await read('leaders',model.rankUrl);
   const selected=select(leaderboard.payload),accounts=[],archive=[leaderboard];
+  const selectedIds=new Set(selected.map(row=>row.uniqueCode));
+  const old=new Map((previous?.accounts||[]).map(row=>[row.uniqueCode,row]));
+  const ranked=new Map(leaderboard.payload.data[0].ranks.map(row=>[row.uniqueCode,row]));
+  const targets=[...selected];
+  for(const prior of old.values())if(!selectedIds.has(prior.uniqueCode))targets.push(ranked.get(prior.uniqueCode)||{
+    uniqueCode:prior.uniqueCode,nickName:prior.name,portLink:prior.avatarUrl,
+    leadDays:String(prior.leadDays),copyTraderNum:String(prior.copyTraderNum),ccy:'USDT',
+  });
+  expect(targets.length<=model.archiveLimit,'OKX directory archive limit reached');
   let generatedAt=leaderboard.receivedAt;
-  let statsReadFailed=false;
-  for(const r of selected){
-    const id=r.uniqueCode,performance={};
+  for(const r of targets){
+    const id=r.uniqueCode,former=old.get(id),performance={};
+    for(const [period,part]of Object.entries(former?.performance||{}))
+      performance[period]={...part,accountAgeDaysAtCapture:part.accountAgeDaysAtCapture??former.leadDays};
+    let statsReadFailed=false,fresh90End=null;
+    try {
     for(const p of ['90D','7D','30D','365D']){
       if(number(r.leadDays)<model.days[p])continue;
       await wait();
       const source=await read(id+'-'+model.ranges[p],model.curveUrl(id,p));
       const part=curve(source.payload,p,source.receivedAt);
       if(!part)continue;
-      if(p==='90D'){
-        // Require the independent leaderboard return, daily bucket and PnL to match.
+      if(p==='90D'&&ranked.has(id)){
+        // When present, independently match the same account in the current ranking.
         const newest=r.pnlRatios?.reduce((latest,row)=>!latest||number(row.beginTs)>number(latest.beginTs)?row:latest,null);
         if(!newest || number(newest.beginTs)!==part.endTs || Math.abs(part.roi-number(r.pnlRatio)*100)>1e-8 ||
            Math.abs(part.pnl-number(r.pnl))>.000001)break;
-      }else if(!performance['90D'] || part.endTs!==performance['90D'].endTs)continue;
-      performance[p]={...part,sourceUrl:source.url,evidenceSha256:source.sha,evidencePath:source.evidencePath};
+      }else if(fresh90End!==null&&part.endTs!==fresh90End)continue;
+      const saved=performance[p];
+      if(saved&&(part.endTs<saved.endTs||Date.parse(part.lastSuccessAt)<Date.parse(saved.lastSuccessAt)))continue;
+      performance[p]={...part,accountAgeDaysAtCapture:number(r.leadDays),sourceUrl:source.url,evidenceSha256:source.sha,evidencePath:source.evidencePath};
+      if(p==='90D')fresh90End=part.endTs;
       archive.push(source);
       if(Date.parse(source.receivedAt)>Date.parse(generatedAt))generatedAt=source.receivedAt;
       if(statsReadFailed)continue;
@@ -110,8 +126,20 @@ async function collect(read,wait=async()=>{}){
       if(Date.parse(stats.receivedAt)>Date.parse(generatedAt))generatedAt=stats.receivedAt;
     }
     if(!performance['90D'])continue;
+    const selection=selectedIds.has(id)?null:former?.selection||{
+      status:'historical',rankEvidencePath:previous.rankEvidencePath,rankEvidenceSha256:previous.rankEvidenceSha256,
+      rankSourceUrl:previous.rankSourceUrl,rankFetchedAt:previous.rankFetchedAt,rankVersion:previous.rankVersion,
+    };
     accounts.push({uniqueCode:id,name:r.nickName.trim(),avatarUrl:model.avatarUrl(r.portLink),leadDays:number(r.leadDays),copyTraderNum:number(r.copyTraderNum),
-      sourceUrl:model.accountSourceUrl(id),performance});
+      sourceUrl:model.accountSourceUrl(id),performance,...(selection?{selection}:{})});
+    }catch(error){
+      if(error.code==='OKX_SOURCE_STOPPED')throw error;
+      if(!former)continue;
+      accounts.push({...former,performance,selection:former.selection||{
+        status:'historical',rankEvidencePath:previous.rankEvidencePath,rankEvidenceSha256:previous.rankEvidenceSha256,
+        rankSourceUrl:previous.rankSourceUrl,rankFetchedAt:previous.rankFetchedAt,rankVersion:previous.rankVersion,
+      }});
+    }
   }
   expect(accounts.length>0,'no OKX 90D curve matched the leaderboard; previous archive kept');
   const bundle={schemaVersion:1,source:'okx_public_lead',generatedAt,rankEvidencePath:leaderboard.evidencePath,rankEvidenceSha256:leaderboard.sha,
@@ -126,8 +154,15 @@ function mergeDirectory(previous,next){
   const old=new Map(previous.accounts.map(row=>[row.uniqueCode,row]));
   const accounts=next.accounts.map(row=>{
     const former=old.get(row.uniqueCode);old.delete(row.uniqueCode);
-    // Missing new windows retain their own original evidence and observation time.
-    return former?{...row,performance:{...former.performance,...row.performance}}:row;
+    if(!former)return row;
+    const performance={};
+    for(const [period,part]of Object.entries(former.performance))
+      performance[period]={...part,accountAgeDaysAtCapture:part.accountAgeDaysAtCapture??former.leadDays};
+    for(const [period,incoming]of Object.entries(row.performance)){
+      const saved=performance[period];
+      if(!saved||incoming.endTs>=saved.endTs&&Date.parse(incoming.lastSuccessAt)>=Date.parse(saved.lastSuccessAt))performance[period]=incoming;
+    }
+    return {...row,performance};
   });
   for(const row of old.values())accounts.push({...row,selection:row.selection||{
     status:'historical',rankEvidencePath:previous.rankEvidencePath,rankEvidenceSha256:previous.rankEvidenceSha256,
@@ -168,8 +203,12 @@ async function main(args){
   const argsMap=new Map();
   for(let i=0;i<args.length;i+=2){expect(['--receipts','--out'].includes(args[i]) && args[i+1] && !argsMap.has(args[i]),'usage: collect_okx_periods.cjs [--receipts DIR] [--out DIR]');argsMap.set(args[i],args[i+1]);}
   const dir=argsMap.get('--receipts');
-  const result=await collect(dir?stored(dir):fetchReceipt,dir?undefined:()=>new Promise(resolve=>setTimeout(resolve,650)));
-  await publish(argsMap.get('--out')||path.resolve(__dirname,'../trader/okx'),result);
+  const output=argsMap.get('--out')||path.resolve(__dirname,'../trader/okx');
+  let previous;
+  try{previous=JSON.parse(await fs.readFile(path.join(output,'period-returns.json'),'utf8'));}
+  catch(error){if(error.code!=='ENOENT')throw error;}
+  const result=await collect(dir?stored(dir):fetchReceipt,dir?undefined:()=>new Promise(resolve=>setTimeout(resolve,650)),previous);
+  await publish(output,result);
   console.log('OKX verified',Object.fromEntries(Object.keys(model.days).map(p=>[p,result.bundle.accounts.filter(r=>r.performance[p]).length])));
 }
 module.exports={select,curve,receipt,stored,collect,mergeDirectory,publish};
