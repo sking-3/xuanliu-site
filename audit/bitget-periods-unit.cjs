@@ -8,6 +8,7 @@ const collector=require('../scripts/collect_bitget_periods.cjs');
 const root=path.join(__dirname,'../trader');
 const snapshot=JSON.parse(fs.readFileSync(path.join(root,'bitget/period-returns.json')));
 const asOf=Date.parse(snapshot.generatedAt);
+const day=24*60*60*1000;
 model.parse(snapshot,asOf);
 function evidence(ref) {
   const bytes=fs.readFileSync(path.join(root,ref.evidencePath));
@@ -41,8 +42,11 @@ for (const row of snapshot.accounts) {
     assert.equal(curve.dataCycle,model.days[period]);
     assert.deepEqual(part.curve,curve.rows.map(point=>({time:new Date(point.dataTime).toISOString(),value:Number(point.amount)})));
     if(part.pnlCurve)assert.deepEqual(part.pnlCurve,evidenceCurve.pnlRows.rows.map(p=>({time:new Date(p.dataTime).toISOString(),value:Number(p.amount)})));
-    assert.equal(model.performance(row,period,asOf).status,'ready');
-    assert.equal(model.performance(row,period,asOf+86400001).status,'stale');
+    // A new directory read may retain historical period data from an earlier successful read.
+    const lastSuccess=Date.parse(part.lastSuccessAt);
+    assert.equal(model.performance(row,period,asOf).status,asOf-lastSuccess>day?'stale':'ready');
+    assert.equal(model.performance(row,period,lastSuccess+day).status,'ready');
+    assert.equal(model.performance(row,period,lastSuccess+day+1).status,'stale');
   }
   const open=evidence(row.activity.positions),history=row.activity.history;
   if(open.strategySafe)assert.equal(row.activity.positions.status,'restricted');
