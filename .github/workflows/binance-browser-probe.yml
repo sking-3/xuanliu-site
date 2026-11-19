@@ -1,0 +1,70 @@
+name: Probe Binance 365D in normal Chromium
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: binance-browser-manual-probe
+  cancel-in-progress: false
+
+jobs:
+  btc365:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    env:
+      CI: 'true'
+      NO_UPDATE_NOTIFIER: '1'
+      PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/probe-browsers
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Validate probe offline
+        run: node --test audit/binance-playwright-probe-unit.cjs
+      - name: Install pinned Microsoft Playwright CLI and Chromium
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --prefix "$RUNNER_TEMP/probe-cli" --ignore-scripts --no-audit --no-fund --save-exact @playwright/cli@0.1.25
+          "$RUNNER_TEMP/probe-cli/node_modules/.bin/playwright-cli" --version
+          "$RUNNER_TEMP/probe-cli/node_modules/.bin/playwright-cli" install-browser chromium --with-deps --no-shell
+      - name: Observe Btc Star once with a fresh headed browser
+        env:
+          PLAYWRIGHT_CLI_BIN: ${{ runner.temp }}/probe-cli/node_modules/.bin/playwright-cli
+        shell: bash
+        run: |
+          set -euo pipefail
+          xvfb-run -a node scripts/probe_binance_playwright.cjs --output-dir "$RUNNER_TEMP/binance-browser-result"
+      - name: Record actual outcome
+        if: always()
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const filename = path.join(process.env.RUNNER_TEMP, 'binance-browser-result/result.json');
+          let text = 'Probe did not reach the source: inspect the setup/test step. No Binance data was published.\n';
+          if (fs.existsSync(filename)) {
+            const r = JSON.parse(fs.readFileSync(filename));
+            const status = ['success', 'success_observed_changed', 'partial_observed', 'blocked', 'not_proven'].includes(r.status) ? r.status : 'not_proven';
+            const reason = /^[a-z0-9_]{1,80}$/.test(r.reason || '') ? r.reason : 'unknown';
+            text = `Browser probe: ${status}\n\nReason: ${reason}\n\nTarget: Btc星辰 / 4751838302089254401 / 365D\n\nNo site data was modified. A source success is a prerequisite for a separate all-account sync.\n`;
+          }
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, text);
+          NODE
+      - name: Retain allowlisted observation only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: btc365-browser-result
+          retention-days: 1
+          if-no-files-found: warn
+          path: |
+            ${{ runner.temp }}/binance-browser-result/result.json
+            ${{ runner.temp }}/binance-browser-result/visible.png
