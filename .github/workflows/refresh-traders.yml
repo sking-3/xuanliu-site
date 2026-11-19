@@ -88,6 +88,8 @@ jobs:
           node audit/trader-linked-account-unit.cjs
           node --check scripts/hyperliquid_run_guard.cjs
           node audit/hyperliquid-run-guard-unit.cjs
+          node --check scripts/collect_hyperliquid_fills.cjs
+          node --test audit/hyperliquid-fills-unit.cjs
           node --check scripts/refresh_trader_positions.cjs
           node audit/refresh-trader-positions-unit.cjs
           node audit/trader-unit.cjs
@@ -269,6 +271,10 @@ jobs:
           set -euo pipefail
           gate=$(node scripts/hyperliquid_run_guard.cjs)
           case "$gate" in allowed=true|allowed=false) ;; *) exit 1 ;; esac
+          if [ "$gate" = 'allowed=true' ]; then
+            gate=$(node scripts/collect_hyperliquid_fills.cjs --gate)
+            case "$gate" in allowed=true|allowed=false) ;; *) exit 1 ;; esac
+          fi
           printf '%s\n' "$gate" >> "$GITHUB_OUTPUT"
           printf 'Hyperliquid persisted-source guard: %s\n' "$gate" >> "$GITHUB_STEP_SUMMARY"
 
@@ -285,6 +291,17 @@ jobs:
         if: steps.refresh-mode.outputs.mode != 'skip' && steps.hyperliquid-guard.outputs.allowed == 'true'
         # Source failures produce a stale last-good snapshot, not invented data.
         run: python3 -B scripts/collect_hyperliquid.py
+
+      - name: Collect recent public Hyperliquid fills
+        if: steps.refresh-mode.outputs.mode == 'positions' && steps.hyperliquid-guard.outputs.allowed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          gate=$(node scripts/hyperliquid_run_guard.cjs)
+          case "$gate" in allowed=true) ;; allowed=false) exit 0 ;; *) exit 1 ;; esac
+          # The positions collector shares this source. Let its rate window expire.
+          sleep 60
+          node scripts/collect_hyperliquid_fills.cjs
 
       - name: Precompute native and 90/180/365-day portfolio windows
         id: hyperliquid-portfolios
@@ -347,6 +364,7 @@ jobs:
             exit 1
           fi
           if [ -f trader/refresh-health.json ]; then git add -- trader/refresh-health.json; fi
+          if [ -f trader/hyperliquid-fills.json ]; then git add -- trader/hyperliquid-fills.json; fi
           git add -- trader/feed.json trader/analytics.json trader/portfolios.json trader/binance/snapshot.json trader/binance/portfolios.json trader/aoying-history.js trader/binance/evidence/aoying-analysis-current trader/binance/period-returns.json trader/binance/evidence/performance-v1 trader/okx trader/bitget trader/replay-seed.js trader/position-history trader/strategy
           if ! git diff --cached --quiet; then
             git config user.name 'github-actions[bot]'
