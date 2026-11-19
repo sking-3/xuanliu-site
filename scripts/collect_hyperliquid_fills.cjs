@@ -149,16 +149,20 @@ async function collect({feed, previous = null, seed, fetch: fetcher = globalThis
   const addresses = new Set([...(seed === undefined ? [] : validateSeed(seed, start)), ...verified]);
   const verification = feed.source.positionVerification;
   const rosterComplete = !verification.failedAccounts && !verification.unattemptedAccounts;
-  const accounts = rosterComplete ? {} : {...previous?.accounts};
-  let accountCount = Object.keys(accounts).length;
+  const accounts = {};
   const queue = [];
   for (const address of addresses) {
-    if (!Object.hasOwn(accounts, address)) {
-      if (accountCount === LIMITS.accounts) continue;
-      accounts[address] = previous?.accounts[address] || empty();
-      accountCount++;
-    }
+    if (queue.length === LIMITS.accounts) break;
+    accounts[address] = previous?.accounts[address] || empty();
     queue.push(address);
+  }
+  // Keep the most recent past archives in the unused slots. Live and pinned
+  // accounts take priority, including when a previously flat wallet returns.
+  const past = Object.entries(previous?.accounts || {})
+    .filter(([address, record]) => !addresses.has(address) && record.lastSuccessAt)
+    .sort((a, b) => timestamp(b[1].lastSuccessAt) - timestamp(a[1].lastSuccessAt));
+  for (const [address, record] of past.slice(0, LIMITS.accounts - queue.length)) {
+    accounts[address] = record;
   }
   queue.sort((a, b) => (timestamp(accounts[a].checkedAt) || 0) - (timestamp(accounts[b].checkedAt) || 0));
   const ledger = [];

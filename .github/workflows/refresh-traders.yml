@@ -39,6 +39,7 @@ jobs:
       actions: read
     outputs:
       published_sha: ${{ steps.snapshot.outputs.sha }}
+      refresh_mode: ${{ steps.refresh-mode.outputs.mode }}
     steps:
       - name: Check out the latest main branch
         id: checkout
@@ -419,7 +420,15 @@ jobs:
           persist-credentials: false
 
       - name: Verify the exact snapshots on the formal site
-        run: bash scripts/verify-trader-vps-publication.sh
+        env:
+          REFRESH_MODE: ${{ needs.collect-build.outputs.refresh_mode }}
+        shell: bash
+        run: |
+          if [ "$REFRESH_MODE" = positions ]; then
+            bash scripts/verify-trader-vps-publication.sh --hyperliquid-positions
+          else
+            bash scripts/verify-trader-vps-publication.sh
+          fi
 
   recover-exchange:
     # The formal-site timer can still consume the verified early exchange checkpoint.

@@ -9,16 +9,22 @@ exchange_files=(
 case "${1-}" in
   '') files=(trader/feed.json trader/analytics.json trader/portfolios.json "${exchange_files[@]}") ;;
   --exchange-only) files=("${exchange_files[@]}") ;;
-  *) echo 'Usage: verify-trader-vps-publication.sh [--exchange-only]' >&2; exit 2 ;;
+  --hyperliquid-positions) files=(trader/feed.json) ;;
+  *) echo 'Usage: verify-trader-vps-publication.sh [--exchange-only|--hyperliquid-positions]' >&2; exit 2 ;;
 esac
 if (( $# > 1 )); then
-  echo 'Usage: verify-trader-vps-publication.sh [--exchange-only]' >&2
+  echo 'Usage: verify-trader-vps-publication.sh [--exchange-only|--hyperliquid-positions]' >&2
   exit 2
 fi
 
 root=$(cd "$(dirname -- "$0")/.." && pwd -P)
 revision=$(git -C "$root" rev-parse --verify HEAD)
 origin=https://45-77-39-98.sslip.io
+fills=trader/hyperliquid-fills.json
+archive_origin=https://raw.githubusercontent.com/sking-3/xuanliu-site/main
+if [[ ${1-} == --hyperliquid-positions ]] && git -C "$root" cat-file -e "$revision:$fills"; then
+  files+=("$fills")
+fi
 expected=()
 for file in "${files[@]}"; do
   digest=$(git -C "$root" show "$revision:$file" | sha256sum)
@@ -53,6 +59,8 @@ while (( SECONDS < deadline )); do
   echo "Verification pass $attempt"
   for index in "${!files[@]}"; do
     file=${files[index]}
+    file_origin=$origin
+    if [[ $file == "$fills" ]]; then file_origin=$archive_origin; fi
     left=$((deadline - SECONDS))
     if (( left <= 0 )); then
       mismatches=$((mismatches + 1))
@@ -64,7 +72,7 @@ while (( SECONDS < deadline )); do
     if ! result=$(curl --disable --silent --show-error --proto '=https' --tlsv1.2 \
       --connect-timeout 5 --max-time "$timeout" --max-filesize 33554432 \
       --header 'Cache-Control: no-cache' --header 'Accept-Encoding: identity' \
-      --write-out '%{http_code}' "$origin/$file?verify=$cache_key" | hash_response); then
+      --write-out '%{http_code}' "$file_origin/$file?verify=$cache_key" | hash_response); then
       echo "  $file: failed to read HTTPS response"
       mismatches=$((mismatches + 1))
       continue

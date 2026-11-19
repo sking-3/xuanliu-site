@@ -152,7 +152,11 @@ test('an incomplete roster reads verified accounts and preserves prior accounts 
   assert.equal(partial.accounts[address(3)].coveredThrough, start + minute);
   const complete = await batch({at: start + 2 * minute, previous: partial, members: [1, 3], getRows: () => []}).pending;
   assert.equal(complete.source.status, 'ready');
-  assert.equal(complete.accounts[address(2)], undefined);
+  assert.deepEqual(complete.accounts[address(2)], previous.accounts[address(2)]);
+  const returned = batch({at: start + 3 * minute, previous: complete, members: [2, 3], getRows: () => []});
+  const recovered = await returned.pending;
+  assert.ok(returned.requests.some(({query}) => query.user === address(2) && query.startTime === start - LIMITS.overlap));
+  assert.deepEqual(recovered.accounts[address(2)].rows, previous.accounts[address(2)].rows);
 });
 
 test('the explicit watchlist persists flat addresses while the verified live roster adds accounts', async () => {
