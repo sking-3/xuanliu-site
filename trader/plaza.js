@@ -2682,7 +2682,7 @@ async function revalidate(background=false) {
   }
   if(publicListPage||periodReturns||okxReturns||bitgetReturns){
     mergeRows();choosePeriod();renderPreservingCardFocus();renderSource();
-    if((isBinanceTrader(state.detail)||isPublicLead(state.detail))&&$('detail').open){const row=state.rows.find(r=>r.id===state.detail.id);if(row){state.detail=row;renderDetail();}}
+    if(state.detail&&(isBinanceTrader(state.detail)||isPublicLead(state.detail)||isPublicAccount(state.detail))&&$('detail').open){const row=state.rows.find(r=>r.id===state.detail.id);if(row){state.detail=row;renderDetail();}}
   }
   if(publicListPage)saveURL(true);
   openLinkedAccount(true);
