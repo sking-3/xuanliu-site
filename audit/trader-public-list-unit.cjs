@@ -17,6 +17,7 @@ for (const asset of ['plaza.js', 'plaza.css']) {
 const element = (tag) => ({
   tag, children: [], textContent: '', attrs: {}, namespaceURI: 'http://www.w3.org/2000/svg',
   append(...children) { this.children.push(...children); },
+  classList: { add() {} },
   replaceChildren(...children) { this.children = children; },
   setAttribute(name, value) { this.attrs[name] = value; },
   addEventListener() {},
@@ -66,8 +67,10 @@ const okx = { id:'okx', accountId:'1234567890123456', name: '示例 OKX', exchan
 const bitget = { id:'bitget', name: '示例 Bitget', exchange: 'Bitget', sourceKind: 'bitget_public_lead', bitgetRecord: { leadDays: 180,
   performance: { '30D': { roi: 1, pnl: 0, mdd: 0, winRate: 0, currency: 'USD', lastSuccessAt: cut,
     curve: [{time: '2026-10-01T00:00:00Z', value: 0}, {time: cut, value: 1}] } } } };
-const binance = { id:'binance', name: '示例 Binance', exchange: 'Binance', sourceKind: 'copy_trade', periodRecord: {
-  performance: { '90D': { roi: 5, pnl: 55, mdd: 3, winRate: 62.5, currency: 'USDT', status: 'stale', lastSuccessAt: cut, accountAgeDays: 120 } } } };
+const binance = { id:'binance', name: '示例 Binance', accountId:'5126298543040831233', exchange: 'Binance', sourceKind: 'copy_trade',
+  sourceUrl:'https://www.binance.com/en/copy-trading/lead-details/5126298543040831233', periodRecord: {
+  performance: { '90D': { roi: 5, pnl: 55, mdd: 3, winRate: 62.5, currency: 'USDT', status: 'stale', lastSuccessAt: cut,
+    accountAgeDays: 120, sourceUrl:'https://www.binance.com/api/example' } } } };
 
 const hlCard = makeCard(hl);
 assert.match(content(hlCard), /30D 来源收益率.*0\.00%/);
@@ -99,6 +102,14 @@ assert.equal(fields(binanceCard)['来源盈亏'], '+55 USDT');
 assert.equal(fields(binanceCard)['来源胜率'], '62.50%');
 assert.match(content(binanceCard), /业绩曲线.*该周期曲线未接入.*历史快照/);
 const lacking30D = makeCard(binance);
+for(const card of [binanceCard,lacking30D,makeCard({...binance,identityOnly:true,periodRecord:{performance:{}}})]){
+  const official=children(card).find(item=>item.tag==='a'&&item.textContent==='币安官方详情 ↗');
+  assert.equal(official.href,binance.sourceUrl);
+  assert.equal(official.target,'_blank');
+  assert.equal(official.rel,'noopener noreferrer');
+  assert.match(official.attrs['aria-label'],/示例 Binance/);
+}
+for(const card of [hlCard,okxCard,bitgetCard])assert.doesNotMatch(content(card),/币安官方详情/);
 assert.match(content(lacking30D), /30D 来源收益率.*该周期业绩未归档.*已存历史周期.*90D/);
 assert.equal(children(lacking30D).find(item => item.className?.includes('public-return-value')).textContent, '—');
 const archivedPeriod = children(lacking30D).find(item => item.className === 'public-archive-period');

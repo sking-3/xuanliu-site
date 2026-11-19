@@ -1515,7 +1515,14 @@ function publicListCard(entry,period,failed){
   name.title=row.accountId||row.name;
   if(row.accountId){name.textContent='';name.append(publicDetailLink(row,period,row.name,'public-detail-trigger'));}
   heading.append(name,node('p',row.exchange,'public-trader-source'));
-  identity.append(avatar(row),heading);card.append(identity);
+  identity.append(avatar(row),heading);
+  if(binance&&row.sourceUrl){
+    const official=evidenceLink('币安官方详情 ↗',row.sourceUrl);
+    official.classList.add('public-binance-profile');
+    official.setAttribute('aria-label',row.name+' 的币安官方详情（在新标签页打开）');
+    identity.append(official);
+  }
+  card.append(identity);
   const performance=node('div',undefined,'public-performance'),result=node('div',undefined,'public-return');
   const roi=Number.isFinite(record?.roi)?signedValue(record.roi,pct(record.roi)):'—';
   result.append(node('span',`${periodText} ${derived?'采样收益率':'来源收益率'}`,'public-return-label'),
