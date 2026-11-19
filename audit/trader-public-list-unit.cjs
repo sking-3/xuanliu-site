@@ -98,7 +98,11 @@ assert.equal(fields(binanceCard)['来源回撤'], '3.00%');
 assert.equal(fields(binanceCard)['来源盈亏'], '+55 USDT');
 assert.equal(fields(binanceCard)['来源胜率'], '62.50%');
 assert.match(content(binanceCard), /业绩曲线.*该周期曲线未接入.*历史快照/);
-assert.match(content(makeCard(binance)), /30D 来源收益率.*该周期暂无业绩/);
+const lacking30D = makeCard(binance);
+assert.match(content(lacking30D), /30D 来源收益率.*该周期业绩未归档.*已存历史周期.*90D/);
+assert.equal(children(lacking30D).find(item => item.className?.includes('public-return-value')).textContent, '—');
+const archivedPeriod = children(lacking30D).find(item => item.className === 'public-archive-period');
+assert.equal(new URL(archivedPeriod.href).searchParams.get('detailPeriod'), '90D');
 
 // The leaderboard return and the independently sampled PnL must keep their own
 // values and dates, even when both are available for the same displayed period.

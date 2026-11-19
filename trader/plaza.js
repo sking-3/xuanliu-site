@@ -1522,9 +1522,28 @@ function publicListCard(entry,period,failed){
     node('strong',roi,'public-return-value '+(roi==='—'?'public-missing':directionClass(record.roi))));
   if(record?.fullPeriod===false&&(roi!=='—'||Number.isFinite(record?.pnl)))result.append(node('small','周期覆盖不足或待核验','public-sample-range'));
   const okxGap=!record?okxPeriodGap(row,period):null;
+  const archivedBinancePeriods=[];
+  if(binance&&!row.identityOnly&&!record?.lastSuccessAt&&roi==='—'&&!Number.isFinite(record?.pnl)){
+    for(const window of periods){
+      if(window===period)continue;
+      const saved=binancePerformance(row,window);
+      if(saved?.lastSuccessAt&&(Number.isFinite(saved.roi)||Number.isFinite(saved.pnl)))archivedBinancePeriods.push(window);
+    }
+  }
   if(roi==='—'&&!Number.isFinite(record?.pnl)){
-    const missing=row.identityOnly?'已收录身份，暂无已核验业绩':failed?'业绩快照读取失败':okxGap?.summary||'该周期暂无业绩';
+    const missing=row.identityOnly?'已收录身份，暂无已核验业绩':failed?'业绩快照读取失败':
+      archivedBinancePeriods.length?'该周期业绩未归档':okxGap?.summary||'该周期暂无业绩';
     result.append(node('small',missing,'public-sample-range'));
+    if(archivedBinancePeriods.length){
+      const archive=node('small','已存历史周期 ','public-sample-range');
+      for(const [index,window] of archivedBinancePeriods.entries()){
+        if(index)archive.append(node('span',' / '));
+        const link=publicDetailLink(row,window,periodLabel(window),'public-archive-period');
+        link.setAttribute('aria-label','查看 '+row.name+' '+periodLabel(window)+' 历史快照');
+        archive.append(link);
+      }
+      result.append(archive);
+    }
     if(okxGap&&row.accountId&&!failed){
       const requestedDays=period==='ALL'?Infinity:Number.parseInt(period,10);
       const fallback=['365D','90D','30D','7D'].find(candidate=>
@@ -1606,7 +1625,7 @@ function publicListCard(entry,period,failed){
   const sourceTime=record?.sourceAsOf||(record?.asOfType==='source'?record.asOf:null);
   const dated=sourceTime||collected;
   const stale=record?.status==='stale'||(publicAccount&&sourceIsStale());
-  const status=row.identityOnly?'身份已收录':failed?'读取失败':stale?'历史快照':dated?'公开快照':okxGap?'所选周期无快照':'时间未提供';
+  const status=row.identityOnly?'身份已收录':failed?'读取失败':stale?'历史快照':dated?'公开快照':okxGap||archivedBinancePeriods.length?'所选周期无快照':'时间未提供';
   const times=[sourceTime&&`来源时间 ${timeLabel(sourceTime)}`,collected&&`采集时间 ${timeLabel(collected)}`].filter(Boolean);
   if(times.length)explanations.append(node('p',times.join(' · ')+'（北京时间）'));
   if(failed)explanations.append(node('p',dated?'本次快照读取失败，保留上次有效资料。':'本次快照读取失败，暂无已核验表现。'));
