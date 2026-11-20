@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="zh-CN">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Books · 研究控制台</title><link rel="stylesheet" href="control.css?v=49ed035b"><script defer src="model.js?v=d8b893a0"></script><script defer src="control.js?v=fae6605b"></script></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Books · 研究控制台</title><link rel="stylesheet" href="control.css?v=49ed035b"><script defer src="model.js?v=d8b893a0"></script><script defer src="control.js?v=f135bbcb"></script></head>
 <body>
 <header class="top"><a class="brand" href="../index.html">Books</a><nav aria-label="研究导航"><a href="../screening/index.html#trend-screen">A股选股</a><a aria-current="page" href="index.html">研究控制台</a><a href="../account.html">账户</a></nav><span id="identity">正在核验权限</span></header>
 <main><h1>研究控制台</h1><p class="intro">保存你的方案，用已采集的数据反复调试，保留每轮依据。</p>
@@ -20,6 +20,6 @@
 </aside></div>
 <section><div class="section-head"><h2>方案版本</h2><span class="hint">版本保留，可加载、设为默认或回退</span></div><div class="table-wrap"><table><thead><tr><th>版本 / 方案</th><th>参数</th><th>保存时间（北京）</th><th>操作</th></tr></thead><tbody id="versions"></tbody></table></div></section>
 <section><div class="section-head"><h2>运行记录</h2><button id="refresh-state" type="button">刷新记录</button></div><div class="table-wrap"><table><thead><tr><th>运行 / 方案</th><th>数据日期</th><th>状态 / 进度</th><th>开始时间（北京）</th><th>操作</th></tr></thead><tbody id="runs"></tbody></table></div></section>
-<section id="result-panel" hidden><div class="section-head"><h2>本轮结果与诊断</h2><div class="actions"><button id="export-run" type="button">导出运行记录</button><button id="export-csv" type="button">导出结果CSV</button></div></div><p id="result-summary"></p><div class="table-wrap"><table><thead><tr><th>股票</th><th>相关性</th><th>区间涨跌</th><th>成交量比</th><th>判定、原因与数据日期</th></tr></thead><tbody id="results"></tbody></table></div><details><summary>查看脱敏运行详情</summary><pre id="diagnostics"></pre></details></section>
+<section id="result-panel" hidden><div class="section-head"><h2>本轮结果与诊断</h2><div class="actions"><button id="export-run" type="button">导出运行记录</button><button id="export-csv" type="button">导出结果CSV</button></div></div><p id="result-summary"></p><div class="actions"><label>对照运行<select id="compare-run"><option value="">请选择另一轮已完成运行</option></select></label><button id="compare-results" type="button">比较同一归档的结果</button></div><p id="compare-summary" class="hint" role="status"></p><div class="table-wrap"><table><thead><tr><th>股票</th><th>相关性</th><th>区间涨跌</th><th>成交量比</th><th>判定、原因与数据日期</th></tr></thead><tbody id="results"></tbody></table></div><details><summary>查看脱敏运行详情</summary><pre id="diagnostics"></pre></details></section>
 <footer>所有计算复用统一引擎，缺数据保留未知。<span id="engine-version"></span></footer>
 </div></main></body></html>
