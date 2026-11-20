@@ -281,19 +281,7 @@ async function inspect(browser, viewport) {
       if(!mobile)assert.ok(Math.abs(a.sourceY-b.sourceY)<=2,'desktop source labels align');
     }
     await page.screenshot({path:prefix+'-overview.png'});
-    const drawer=page.locator('.home-quote-detail');
-    await drawer.locator('summary').click();
-    await drawer.locator('.pulse-host[data-pulse-state=embedded] iframe').waitFor();
-    const detailGeometry=await drawer.evaluate(el=>{
-      const frame=el.querySelector('iframe').getBoundingClientRect();
-      const foot=el.querySelector('.pulse-source').getBoundingClientRect();
-      return {frameHeight:frame.height,frameBottom:frame.bottom,footerTop:foot.top};
-    });
-    console.log(engine,viewport.width,'expandedChart',JSON.stringify(detailGeometry));
-    assert.ok(Math.abs(detailGeometry.frameHeight-180)<=1,'complete chart frame renders at 180px');
-    assert.ok(detailGeometry.footerTop>=detailGeometry.frameBottom-1,'source note lies below the frame');
-    await drawer.screenshot({path:prefix+'-expanded-chart.png'});
-    await drawer.locator('summary').click();
+    assert.equal(await page.locator('.home-quote-detail, [data-pulse=active], #insight-active').count(),0,'removed redundant quote drawer');
     await page.locator('.market-card-grid').screenshot({path:prefix+'-markets.png'});
     failUs = true;
     await panels.us.locator('[data-kind="losers"]').click();

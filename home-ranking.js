@@ -138,12 +138,18 @@ function rejectOlder(kind,next,before){
   }
 }
 async function readJSON(fetcher,spec){
+  if(!Object.values(FILES).includes(spec))fail();
+  const expected=global.location?new URL(spec.url,global.location.href):null;
+  if(expected&&expected.origin!==global.location.origin)fail();
   const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),10000);
   try{
     const response=await fetcher(spec.url,{cache:'no-cache',credentials:'omit',redirect:'error',signal:controller.signal});
+    if(response.redirected||expected&&response.url&&response.url!==expected.href)fail();
     const contentType=response.headers.get('content-type')||'';
-    const appropriateType=spec.wrapped?/^(?:application|text)\/(?:x-)?javascript(?:;|$)/i.test(contentType):/application\/(?:[\w.+-]*\+)?json(?:;|$)/i.test(contentType);
-    if(!response.ok||!appropriateType||Number(response.headers.get('content-length'))>spec.limit)fail();
+    // The VPS serves these fixed JSON snapshots as octet-stream. Their UTF-8,
+    // size, JSON schema and rollback checks still apply; JS is never executed.
+    const appropriateType=spec.wrapped?/^(?:application|text)\/(?:x-)?javascript(?:\s*;|$)/i.test(contentType):/^application\/(?:(?:[\w.+-]*\+)?json|octet-stream)(?:\s*;|$)/i.test(contentType);
+    if(!response.ok||!appropriateType||!response.body||Number(response.headers.get('content-length'))>spec.limit)fail();
     const reader=response.body.getReader(),chunks=[];let bytes=0;
     for(;;){const {done,value}=await reader.read();if(done)break;bytes+=value.byteLength;if(bytes>spec.limit){await reader.cancel();fail();}chunks.push(value);}
     const payload=new Uint8Array(bytes);let offset=0;
@@ -174,7 +180,7 @@ function mount(doc,options={}){
   observer?.observe(radar);
   measureRadar();
   let period='30D',inflight=null,destroyed=false,pending=false;
-  const view=()=>snapshots.feed||snapshots.binance||snapshots.reference||snapshots.periodReturns||snapshots.okxPeriods?Data.rank({...snapshots,failures:{...failures}},period,now(),desktop?.matches?Infinity:3):null;
+  const view=()=>snapshots.feed||snapshots.binance||snapshots.reference||snapshots.periodReturns||snapshots.okxPeriods||snapshots.bitgetPeriods?Data.rank({...snapshots,failures:{...failures}},period,now(),desktop?.matches?Infinity:3):null;
   function draw(){if(!destroyed)render(doc,view(),period,Data,pending);}
   function onLayout(){measureRadar();draw();}
   desktop?.addEventListener('change',onLayout);

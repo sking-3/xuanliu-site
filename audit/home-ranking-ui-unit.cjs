@@ -73,6 +73,60 @@ await test('first-read failure shows no rankings and no invented zero values',as
 await test('rollback checks cover source snapshots and per-account collection dates',()=>{const f=fixture();for(const k of Object.keys(f)){const next=copy(f[k]);if(k==='feed')next.source.snapshotAt=iso(T-900000);else next.accounts[address].fetchedAt=iso(T-900000);assert.throws(()=>UI.rejectOlder(k,next,f[k]));}const next=copy(f.feed);next.traders=[];assert.doesNotThrow(()=>UI.rejectOlder('feed',next,f.feed));});
 await test('invalid or older incoming data cannot replace accepted rows',async()=>{let old=false;const m=mounted(async(url,options,f)=>{const p=copy(f[kind(url)]);if(old&&kind(url)==='feed'){p.source.snapshotAt=iso(T-999999);p.traders[0].pnl=1;}return response(p);});try{await m.app.refresh();old=true;await m.app.refresh();assert.equal(m.app.getView().rows[0].pnl,12000000);assert.equal(m.app.getView().stale,true);}finally{m.app.destroy();}});
 await test('HTML and oversized responses are rejected before schema validation',async()=>{await assert.rejects(UI.readJSON(async()=>new Response('<html>',{headers:{'content-type':'text/html'}}),UI.FILES.feed));let cancelled=false;const stream=new ReadableStream({start(c){c.enqueue(new Uint8Array(UI.FILES.feed.limit+1));},cancel(){cancelled=true;}});await assert.rejects(UI.readJSON(async()=>new Response(stream,{headers:{'content-type':'application/json'}}),UI.FILES.feed));assert.equal(cancelled,true);});
+await test('fixed JSON snapshot paths accept the VPS octet-stream MIME while the JS reference stays restricted',async()=>{
+ for(const spec of Object.values(UI.FILES).filter(s=>!s.wrapped)){
+  const data={source:spec.url};
+  assert.deepEqual(await UI.readJSON(async()=>new Response(JSON.stringify(data),{headers:{'content-type':'application/octet-stream; charset=utf-8'}}),spec),data);
+ }
+ let requested=false;
+ for(const url of ['https://outside.invalid/feed.json','//outside.invalid/feed.json','trader/unknown.json']){
+  await assert.rejects(UI.readJSON(async()=>{requested=true;return response({});},{...UI.FILES.feed,url}));
+ }
+ assert.equal(requested,false);
+ await assert.rejects(UI.readJSON(async()=>new Response('globalThis.BooksAoyingHistory={};',{headers:{'content-type':'application/octet-stream'}}),UI.FILES.reference));
+});
+await test('changed-origin responses and redirects are rejected even when they contain valid JSON',async()=>{
+ const previous=globalThis.location;
+ globalThis.location={href:'https://books.test/index.html',origin:'https://books.test'};
+ try{
+  for(const url of ['https://outside.invalid/trader/feed.json','https://books.test/trader/unknown.json']){
+   const r=response({});Object.defineProperty(r,'url',{value:url});
+   await assert.rejects(UI.readJSON(async()=>r,UI.FILES.feed));
+  }
+  const redirected=response({});Object.defineProperty(redirected,'redirected',{value:true});
+  await assert.rejects(UI.readJSON(async()=>redirected,UI.FILES.feed));
+  const valid=response({ok:true});Object.defineProperty(valid,'url',{value:'https://books.test/trader/feed.json'});
+  assert.deepEqual(await UI.readJSON(async()=>valid,UI.FILES.feed),{ok:true});
+ }finally{if(previous===undefined)delete globalThis.location;else globalThis.location=previous;}
+});
+await test('octet-stream compatibility still rejects HTML, malformed UTF-8, invalid JSON and oversized bodies',async()=>{
+ for(const body of ['<html>denied</html>','{"missing":',new Uint8Array([0xc3,0x28])]){
+  await assert.rejects(UI.readJSON(async()=>new Response(body,{headers:{'content-type':'application/octet-stream'}}),UI.FILES.feed));
+ }
+ await assert.rejects(UI.readJSON(async()=>new Response('{}',{headers:{'content-type':'text/html'}}),UI.FILES.feed));
+ await assert.rejects(UI.readJSON(async()=>new Response('{}',{headers:{'content-type':'application/octet-stream','content-length':String(UI.FILES.feed.limit+1)}}),UI.FILES.feed));
+});
+await test('octet-stream snapshots pass through validation and invalid updates retain last good values',async()=>{
+ let invalid=false;
+ const m=mounted(async(url,options,f)=>new Response(JSON.stringify(invalid?{}:f[kind(url)]),{headers:{'content-type':'application/octet-stream; charset=utf-8'}}));
+ try{
+  await m.app.refresh();assert.match(m.ids['home-ranking-list'].textContent,/Trader A/);
+  assert.equal(m.app.getView().rows[0].winRate,75);
+  invalid=true;await m.app.refresh();
+  assert.equal(m.app.getView().rows[0].pnl,12000000);assert.equal(m.app.getView().rows[0].winRate,75);
+  assert.equal(m.app.getView().stale,true);assert.match(m.ids['home-ranking-list'].textContent,/历史快照/);
+ }finally{m.app.destroy();}
+});
+await test('a Bitget-only successful source can render independently of every other snapshot',async()=>{
+ const d=dom(),marker={generatedAt:iso(T),accounts:[]};
+ const bitgetData={...Data,validateBitgetPeriods(p){assert.deepEqual(p,marker);return p;},rank(input,period){assert.deepEqual(input.bitgetPeriods,marker);assert.equal(input.feed,undefined);return Data.rank({...fixture(),failures:{}},period);}};
+ const app=UI.mount(d.doc,{data:bitgetData,now:()=>T,fetch:async url=>{
+  if(url===UI.FILES.bitgetPeriods.url)return new Response(JSON.stringify(marker),{headers:{'content-type':'application/octet-stream'}});
+  throw Error('source unavailable');
+ }});
+ try{await app.refresh();assert.equal(app.getView().eligibleCount,1);assert.match(d.ids['home-ranking-list'].textContent,/Trader A/);}
+ finally{app.destroy();}
+});
 await test('focus survives a list refresh and destroy removes listeners',async()=>{const m=mounted();try{await m.app.refresh();const link=m.ids['home-ranking-list'].querySelector('a');link.focus();await m.app.refresh();assert.equal(m.doc.activeElement.href,link.href);assert.notEqual(m.doc.activeElement,link);m.app.destroy();m.buttons[2].click();assert.equal(m.app.getPeriod(),'30D');const calls=m.calls.length;await m.app.refresh();assert.equal(m.calls.length,calls);}finally{m.app.destroy();}});
 await test('published Binance reference alone enables the three periods with the same ROI, units and account URL as the plaza',async()=>{
  const fs=require('node:fs'),path=require('node:path'),real=require('../home-trader-data.js'),ref=require('../trader/reference-data.js');

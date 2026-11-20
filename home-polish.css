@@ -64,13 +64,6 @@
 }
 .pulse-source { margin-top: auto; color: #526d9e; }
 .pulse-source .pulse-state { margin: 0; color: #69778a; }
-.home-quote-detail { border-bottom: 1px solid #dfe5eb; margin-bottom: 14px; }
-.home-quote-detail summary { width: fit-content; cursor: pointer; font-size: 12px; color: #485e78; padding: 10px 2px; }
-.home-quote-detail .pulse-card { border: 1px solid #dfe5eb; background: #fff; border-radius: 8px; padding: 10px 14px; margin: 0 0 10px; }
-.home-quote-detail .pulse-live { max-width: 660px; }
-.home-quote-detail .pulse-source { margin-top: 4px; }
-.home-quote-detail .pulse-saved { max-width: 660px; }
-.home-quote-detail .sr-only { position: absolute; width: 1px; height: 1px; clip-path: inset(50%); overflow: hidden; white-space: nowrap; }
 
 .books-shell .market-card-grid { align-items: stretch; }
 .books-shell .market-card-grid > .feed-card {
@@ -124,7 +117,7 @@
 .research-actions h2 { margin: 0; font-size: 15px; }
 .research-actions a { display: inline-flex; align-items: center; justify-content: center; min-height: 34px; padding: 6px 10px; border: 1px solid #d8e1e5; border-radius: 7px; background: #fff; color: #365c82; font-size: 11px; font-weight: 650; text-decoration: none; box-shadow: 0 1px 2px #1823350a; }
 .research-actions a:hover, .index-labels a:hover { border-color: #b9cbe4; background: #f5f8ff; color: #254f87; text-decoration: none; }
-.research-actions a:focus-visible, .home-quote-detail summary:focus-visible,
+.research-actions a:focus-visible,
 .index-labels a:focus-visible { outline: 2px solid #486a95; outline-offset: 2px; }
 
 @media (max-width: 1050px) {
@@ -139,9 +132,7 @@
   .books-shell .home-grid { grid-template-columns: minmax(0, 1fr); }
   .research-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 8px; }
   .research-actions h2 { grid-column: 1 / -1; padding: 5px 0; }
-  .research-actions a, .books-page-heading .index-labels a,
-  .home-quote-detail summary { display: inline-flex; align-items: center; min-height: 44px; }
-  .home-quote-detail summary { display: list-item; align-content: center; }
+  .research-actions a, .books-page-heading .index-labels a { display: inline-flex; align-items: center; min-height: 44px; }
 }
 @media (max-width: 359px) {
   .books-shell .market-insights { grid-template-columns: minmax(0, 1fr); }
