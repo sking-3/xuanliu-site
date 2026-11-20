@@ -8,36 +8,49 @@
   
   <title>Books · A股研究与选股</title>
   
-<link rel="stylesheet" href="index-preview.css"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'self' https://s3.tradingview.com/external-embedding/embed-widget-market-overview.js; connect-src 'self' https://web.ifzq.gtimg.cn https://proxy.finance.qq.com https://raw.githubusercontent.com/wenyuanw/a-share-heatmap/main/src/lib/data/market-heatmap-fallback.json; img-src 'self'; form-action 'none'; base-uri 'none'; object-src 'none'; frame-src 'self' https://www.tradingview-widget.com"><meta name="referrer" content="no-referrer"><meta name="robots" content="noindex, nofollow"><link rel="stylesheet" href="../preview.css"><link rel="stylesheet" href="../books-ui.css?v=52cf1963"><link rel="stylesheet" href="../index-ticker.css?v=d6459a25"><script defer src="../index-ticker.js?v=c49031ee"></script><script src="../books-shell.js?v=35acfa43"></script><script defer src="review.js?v=35426953"></script><link rel="stylesheet" href="../stock-workspace.css?v=74e550dd"><script defer src="../stock-workspace.js?v=ba06ed4a"></script><link rel="stylesheet" href="../market-feed.css?v=219324d4"><script defer src="../market-feed-status.js?v=7d8907b5"></script><link rel="stylesheet" href="../a14-plan.css?v=a5b5cc29"><link rel="stylesheet" href="../research-desk.css?v=d249b57a"><script defer src="../home-daily-movers.js?v=61aa1d2e"></script><link rel="stylesheet" href="stock-selection.css?v=e76b0ffd"><script defer src="../market-calendar.js?v=2b890cc1"></script><script defer src="market-pool.js?v=5fe7c491"></script><script defer src="technical-screen.js?v=17abbc9e"></script><script defer src="trend-screen.js?v=09dc81ae"></script><script defer src="stock-selection.js?v=bd6f7722"></script><script defer src="trend-controller.js?v=e50f6864"></script><script defer src="selection-shell.js?v=958ae3b8"></script><script defer src="../research-desk.js?v=fdaf2018"></script><link rel="stylesheet" href="../desk-skin.css?v=de90c7f4"></head>
+<link rel="stylesheet" href="index-preview.css"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'self' https://s3.tradingview.com/external-embedding/embed-widget-market-overview.js; connect-src 'self' https://web.ifzq.gtimg.cn https://proxy.finance.qq.com https://raw.githubusercontent.com/wenyuanw/a-share-heatmap/main/src/lib/data/market-heatmap-fallback.json; img-src 'self'; form-action 'none'; base-uri 'none'; object-src 'none'; frame-src 'self' https://www.tradingview-widget.com"><meta name="referrer" content="no-referrer"><meta name="robots" content="noindex, nofollow"><link rel="stylesheet" href="../preview.css"><link rel="stylesheet" href="../books-ui.css?v=52cf1963"><link rel="stylesheet" href="../index-ticker.css?v=d6459a25"><script defer src="../index-ticker.js?v=c49031ee"></script><script src="../books-shell.js?v=35acfa43"></script><script defer src="review.js?v=35426953"></script><link rel="stylesheet" href="../stock-workspace.css?v=74e550dd"><script defer src="../stock-workspace.js?v=ba06ed4a"></script><link rel="stylesheet" href="../market-feed.css?v=219324d4"><script defer src="../market-feed-status.js?v=7d8907b5"></script><link rel="stylesheet" href="../a14-plan.css?v=a5b5cc29"><link rel="stylesheet" href="../research-desk.css?v=d249b57a"><script defer src="../home-daily-movers.js?v=61aa1d2e"></script><link rel="stylesheet" href="stock-selection.css?v=ae5a7126"><script defer src="../market-calendar.js?v=2b890cc1"></script><script defer src="market-pool.js?v=5fe7c491"></script><script defer src="technical-screen.js?v=17abbc9e"></script><script defer src="trend-screen.js?v=5994ecaf"></script><script defer src="stock-selection.js?v=22260d75"></script><script defer src="trend-controller.js?v=a9f18b1b"></script><script defer src="selection-shell.js?v=958ae3b8"></script><script defer src="../research-desk.js?v=fdaf2018"></script><link rel="stylesheet" href="../desk-skin.css?v=de90c7f4"></head>
 <body class="books-shell research-page"><section class="index-ticker" id="index-ticker" aria-label="全球指数行情"><iframe src="../market-strip.html?v=a494c410" title="全球指数行情"></iframe></section><a class="skip-link" href="#content">跳到股票筛选</a>
   <aside class="books-sidebar" aria-label="研究导航"><a class="books-brand" href="../index.html">Books<span>RESEARCH STUDIO</span></a><nav class="books-nav" aria-label="工作区"><a href="../index.html">市场总览</a><a href="../screening/index.html" aria-current="page">A股选股</a><a href="../us.html">美股选股</a><a href="../trader/index.html">带单员广场</a><a href="../research.html">公司研究</a><a href="../screening/history.html">历史研究</a><a href="../tools.html">研究工具</a></nav><nav class="books-shortcuts" aria-label="行情快捷入口"><a href="../a-shares.html">A 股行情</a><a href="../us-live.html">美股监控</a><a href="../crypto.html">加密行情</a></nav><p class="books-side-note">独立研究 · 证据优先</p></aside>
 
-  <main id="content" class="stock-main" tabindex="-1"><header class="stock-page-heading"><h1>A股选股</h1><p>一键找大盘同向、个股相似和共同走强的股票。</p></header><nav class="research-jumps" aria-label="本页工具"><a href="#trend-screen">一键走势筛选</a><a href="#a-market">全市场行情</a><a href="#a14-preselection">14:00 预选</a><a href="#strategy-design">三线策略</a><a href="../company-dossier.html">个股研究</a><a href="#institution-research">机构披露</a><a href="#review-title">历史文件复核</a></nav><section id="stock-selection" class="pick-desk" data-selection data-state="loading" aria-labelledby="pick-heading">
+  <main id="content" class="stock-main" tabindex="-1"><header class="stock-page-heading"><h1>A股选股</h1><p>从市场共性出发，找尚未明显拉升的同向股票。</p></header><nav class="research-jumps" aria-label="本页工具"><a href="#trend-screen">市场共同走势</a><a href="#a-market">全市场行情</a><a href="#a14-preselection">14:00 预选</a><a href="#strategy-design">三线策略</a><a href="../company-dossier.html">个股研究</a><a href="#institution-research">机构披露</a><a href="#review-title">历史文件复核</a></nav><section id="stock-selection" class="pick-desk" data-selection data-state="loading" aria-labelledby="pick-heading">
   <header class="pick-heading"><div><h2 id="pick-heading">收盘选股</h2><p id="pick-source" role="status">正在读取沪深北行情快照…</p></div><button id="pick-refresh" type="button">刷新快照</button></header>
   <p id="pick-freshness" role="status"></p>
   <section id="trend-screen" class="trend-screen" aria-labelledby="trend-heading">
-    <header class="pick-heading"><div><h3 id="trend-heading">一键走势筛选</h3><p>选一个方向，按同一交易日筛出走势接近或共同走强的股票。</p></div><button type="button" id="trend-stop" hidden>停止筛选</button></header>
+    <header class="pick-heading"><div><h3 id="trend-heading">市场共同走势</h3><p>从观察市场自动识别共同走势，排除已经明显拉升的股票。</p></div><button type="button" id="trend-stop" hidden>停止筛选</button></header>
     <div class="trend-options">
       <label>观察周期<select id="trend-lookback"><option value="20">近20个交易日</option><option value="60">近60个交易日</option></select></label>
-      <label>筛选范围<select id="trend-scope"><option value="filtered">当前筛选结果</option><option value="page">当前页20只</option><option value="saved">我的自选</option></select></label>
-      <label>大盘基准<select id="trend-benchmark"><option value="000300.SH">沪深300</option><option value="000001.SH">上证指数</option><option value="399001.SZ">深证成指</option></select></label>
-      <label>参考股票<input id="trend-reference" type="search" autocomplete="off" placeholder="类似个股时填写，如600519"></label>
+      <label>市场共性覆盖<select id="trend-sample"><option value="120">分层快筛 · 120只</option><option value="240">分层快筛 · 240只</option><option value="all">完整观察市场 · 逐只读取</option></select></label>
+      <label>个股范围（指数 / 转强）<select id="trend-scope"><option value="filtered">当前筛选结果</option><option value="page">当前页20只</option><option value="saved">我的自选</option></select></label>
+      <label>交易日历 / 指数对照<select id="trend-benchmark"><option value="000300.SH">沪深300</option><option value="000001.SH">上证指数</option><option value="399001.SZ">深证成指</option></select></label>
     </div>
-    <div class="trend-modes" role="group" aria-label="一键走势筛选方式">
-      <button type="button" data-trend-mode="market"><strong>跟随大盘</strong><span>找与基准指数同向的股票</span></button>
-      <button type="button" data-trend-mode="similar"><strong>类似这只股票</strong><span>按参考股找相似走势</span></button>
-      <button type="button" data-trend-mode="strength"><strong>共同走强</strong><span>上涨、均线上行并放量</span></button>
+    <div class="trend-modes" role="group" aria-label="走势筛选方式">
+      <button type="button" data-trend-mode="consensus"><strong>找市场共同走势</strong><span>自动识别样本多数共同的方向</span></button>
+      <button type="button" data-trend-mode="market"><strong>跟随指数</strong><span>核对与所选指数的同向程度</span></button>
+      <button type="button" data-trend-mode="strength"><strong>初期转强</strong><span>找近期均线转强、尚未明显拉升的股票</span></button>
     </div>
-    <p id="trend-status" role="status" aria-live="polite">等待市场快照；选择上方方式开始筛选。</p>
-    <p id="trend-rules" class="trend-rule-note">默认使用当前筛选结果，沿用下方市场、行业与市值条件。全市场逐股读取需要时间；可停止，页面内已读数据会复用。</p>
-    <details class="trend-method"><summary>查看计算口径</summary>
-      <p><b>跟随大盘：</b>按相同交易日的每日涨跌计算相关系数，至少0.65，且同向交易日占比至少60%。一起下跌也可能命中，不代表走强。</p>
-      <p><b>类似个股：</b>每日涨跌相关系数至少0.65、同向占比至少60%，且归一起点后的收盘曲线相关系数至少0.80。不把参考股自身列入结果。</p>
-      <p><b>共同走强：</b>所选周期和近5日均上涨，收盘高于MA20、MA5高于MA20、MA20比5个交易日前抬升；近5日均量至少为此前20日均量的1.2倍。所选指数仅用于对齐交易日，不参与这项涨跌条件。</p>
-      <p>股票使用前复权日线，指数使用指数原始点位；只取快照对应的已收盘交易日。缺日期、缺量、停牌或样本不足单列为资料不足。这些是可复算的观察初值，未做收益验证；上市、ST、停牌及交易资格仍需单独核对。</p>
+    <p id="trend-status" role="status" aria-live="polite">等待市场快照，选择一种方式开始。</p>
+    <p id="trend-market-summary" class="trend-rule-note" aria-live="polite">共性参考池覆盖整个观察市场，按行业及交易所分层取样，独立于涨幅排序和当前页。快筛只代表所列样本，完整观察市场需要逐只读取。</p>
+    <p id="trend-rules" class="trend-rule-note">完成所选批次、数据覆盖达标，且至少60%有效样本同向共振后才显示主流共性；市场分化时明确显示未形成共性。</p>
+    <details class="trend-heat"><summary>调整过度拉升过滤</summary>
+      <label class="trend-heat-toggle"><input id="trend-exclude-hot" type="checkbox" checked>排除已明显拉升、偏离均线或异常放量的股票</label>
+      <div class="trend-limits">
+        <label>所选周期涨幅上限（%）<input id="trend-max-return" type="number" min="0.1" max="1000" step="0.5" value="15"></label>
+        <label>近5日涨幅上限（%）<input id="trend-max-five" type="number" min="0.1" max="1000" step="0.5" value="8"></label>
+        <label>高于MA20上限（%）<input id="trend-max-deviation" type="number" min="0.1" max="1000" step="0.5" value="8"></label>
+        <label>成交量比上限（倍）<input id="trend-max-volume" type="number" min="0.1" max="100" step="0.1" value="2.5"></label>
+      </div>
+      <p>超过上限单独标为“过热排除”，原始涨幅和成交量比保留。20日默认涨幅上限15%，60日默认30%；这些是可调研究初值。</p>
+    </details>
+    <details class="trend-method"><summary>查看共性与数值口径</summary>
+      <p><b>市场共同走势：</b>按同行业、同交易所占比分层覆盖，股票按代码均匀取样。每个交易日取所有有效样本涨跌的中位数形成市场共同曲线；核对某只股票时，将它自身剔出参考计算。指数只提供交易日历。</p>
+      <p>至少取得所选批次80%的有效日线，且不少于30只。每日涨跌相关性至少0.50、同向占比至少60%的股票达到有效样本60%，才识别为“样本主流”。否则显示市场走势分化。取样规模、有效数量和占比单独列明。</p>
+      <p><b>初期转强：</b>近5日上涨，收盘高于MA20，MA5高于MA20，并在近5个交易日内出现金叉。取消原来强制放量和按最大涨幅排序的条件，优先观察偏离均线较小的股票。</p>
+      <p><b>涨幅：</b>使用同一段前复权收盘价，区间末价除以期初价减1，再乘100%；20个交易日需要21个收盘点。</p>
+      <p><b>成交量比：</b>同一股票近5日平均成交量除以此前20日平均成交量，两个窗口不重叠。它是无单位的成交量倍数，不是资金金额或主力净流入。结果提供起止价及均量输入供复算。</p>
+      <p>缺日期、缺量、停牌或样本不足单列；来源批次时间与日线读取时间分别展示。上市、ST、停牌及交易资格仍需单独核对，条件命中没有经过收益验证。</p>
     </details>
     <div class="pick-toolbar"><span id="trend-count">尚未筛选</span><label><input id="trend-only-matches" type="checkbox" checked>只看命中</label></div>
-    <table class="pick-table trend-table"><caption class="sr-only">同周期走势筛选结果</caption><thead><tr><th>股票</th><th>走势相关性</th><th>同向占比</th><th>区间涨跌</th><th>5日量能比</th><th>结果与依据</th></tr></thead><tbody id="trend-rows"><tr><td colspan="6">运行后显示命中原因、数据区间和读取时间。</td></tr></tbody></table>
+    <table class="pick-table trend-table"><caption class="sr-only">同周期市场共性筛选结果</caption><thead><tr><th>股票</th><th>同向相关性</th><th>同向占比</th><th>区间涨跌</th><th>成交量比</th><th>结果与复算依据</th></tr></thead><tbody id="trend-rows"><tr><td colspan="6">运行后显示市场覆盖、共性比例及排除原因。</td></tr></tbody></table>
     <div class="pick-pages"><button id="trend-prev" type="button" disabled>上一页结果</button><span id="trend-page">0页</span><button id="trend-next" type="button" disabled>下一页结果</button></div>
   </section>
   <details class="pick-advanced"><summary>调整范围 · 行业、市值与自选名单</summary>

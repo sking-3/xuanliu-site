@@ -239,7 +239,7 @@
   const chains=window.BooksMarketPool.chains;
   for (const chain of chains) el('pick-chain').add(new Option(chain.name+'（'+chain.codes.length+'）',chain.name));
   window.BooksStockSelection = {accept,unavailable,
-    getContext:()=>({rows:filtered.slice(),pageRows:scope(),allRows:pool?.rows||[],savedRows:(pool?.rows||[]).filter(row=>saved.has(row.code)),day:pool?.day||'',asOf,sourceState:sourceAccess(),freshness:freshness()}),
+    getContext:()=>({rows:filtered.slice(),pageRows:scope(),allRows:pool?.rows||[],marketRows:window.BooksMarketPool.select(pool?.rows||[],{universe:el('pick-universe').value,excludeRiskNames:true}).filter(row=>row.exchange!=='BJ'),savedRows:(pool?.rows||[]).filter(row=>saved.has(row.code)),day:pool?.day||'',asOf,sourceState:sourceAccess(),freshness:freshness()}),
     stopTechnicalScan:()=>{if(runner){stopReason='已切换到走势筛选';halt();renderPage();renderTech();}}
   };
   let inputTimer;

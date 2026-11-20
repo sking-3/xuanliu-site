@@ -75,3 +75,11 @@
 }
 .trend-screen .pick-toolbar label {flex:0 0 auto;width:auto;white-space:nowrap;gap:6px;min-height:44px}
 .pick-desk .trend-screen input[type=checkbox] {appearance:auto;box-sizing:border-box;width:17px;height:17px;min-height:0;padding:0;margin:0;flex:0 0 17px;accent-color:var(--desk-accent)}
+
+.trend-limits {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:10px 0}
+.trend-limits label {min-width:0;font-size:12px;font-weight:550}
+.trend-limits input {display:block;width:100%;margin-top:5px}
+.trend-heat-toggle {display:inline-flex;align-items:center;gap:7px;min-height:44px}
+.pick-desk .trend-modes button[data-trend-mode=consensus] {border-color:#5b7c96}
+.pick-desk #trend-market-summary {font-size:12px;color:#526575;line-height:1.7}
+@media(max-width:850px){.trend-limits{grid-template-columns:repeat(2,minmax(0,1fr))}}
