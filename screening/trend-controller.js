@@ -95,13 +95,24 @@
    }catch{if(current()){state.status='stopped';state.reason=(blocked()||'读取已停止，已完成结果保留。')+(mode==='consensus'?'；未判断市场共性。':'');active=null;emit();}}
    return state;
   }
-  function exportDataset(){
-   if(active||!dataset?.completed||dataset.collectionStatus!=='complete'||!['complete','unavailable'].includes(state.status)||blocked())return null;
+  function getExportStatus(){
+   if(active)return {available:false,reason:'本轮仍在读取，完成完整批次后才能导出。'};
+   const denied=blocked();if(denied)return {available:false,reason:denied};
+   if(state.status==='stopped')return {available:false,reason:state.reason||'本轮已停止，不能导出未完成批次。'};
+   if(!dataset?.completed||dataset.collectionStatus!=='complete'||!['complete','unavailable'].includes(state.status))return {available:false,reason:state.reason||'尚无完整采集批次，请先完成一轮读取。'};
    const codes=new Set(dataset.universe.map(s=>s.code)),records=dataset.records;
-   if(!dataset.reference||dataset.reference.adjustment!=='index'||codes.size!==dataset.totalUniverseCount||records.length!==dataset.expectedCount||new Set(records.map(r=>r.stock.code)).size!==records.length||records.some(r=>!codes.has(r.stock.code)||r.source.status==='ready'&&r.source.adjustment!=='qfq'))return null;
+   if(!dataset.reference||dataset.reference.adjustment!=='index')return {available:false,reason:'指数日历资料不完整或口径未确认，不能导出。'};
+   if(codes.size!==dataset.totalUniverseCount)return {available:false,reason:'参考股票池存在重复或数量不符，不能导出。'};
+   if(records.length!==dataset.expectedCount||new Set(records.map(r=>r.stock.code)).size!==records.length)return {available:false,reason:'请求记录与计划数量不符或存在重复，不能导出。'};
+   if(records.some(r=>!codes.has(r.stock.code)))return {available:false,reason:'所选股票包含当前参考股票池之外的证券，请调整范围后重新读取。'};
+   if(records.some(r=>r.source.status==='ready'&&r.source.adjustment!=='qfq'))return {available:false,reason:'个股前复权口径未确认，不能导出。'};
+   return {available:true,reason:''};
+  }
+  function exportDataset(){
+   if(!getExportStatus().available)return null;
    return JSON.parse(JSON.stringify(dataset));
   }
-  return {run,cancel,exportDataset,getState:()=>({...state,records:state.records.slice()}),clear(){cancel();dataset=null;state=initial();emit();},cacheSize:()=>cache.size};
+  return {run,cancel,exportDataset,getExportStatus,getState:()=>({...state,records:state.records.slice()}),clear(){cancel();dataset=null;state=initial();emit();},cacheSize:()=>cache.size};
  }
  function mount(doc,options={}){
   const host=doc.getElementById('trend-screen');if(!host)return null;
@@ -170,7 +181,7 @@
   listen(el('trend-stop'),'click',()=>runner.cancel('已停止，已读取日线保留在本页缓存。'));
   listen(env,'books:selection-changed',()=>{const key=identity();if(contextKey&&contextKey!==key){page=0;runner.clear();}contextKey=key;render();});
   listen(env,'books:technical-source-state',()=>{if(technical.sourceState().status!=='idle')runner.cancel(technical.sourceState().reason);render();});listen(env,'pagehide',()=>runner.cancel('页面已离开，筛选停止。'));
-  contextKey=identity();render();return {start,render,runner,exportDataset:()=>runner.exportDataset(),getState:()=>runner.getState(),isRunning:()=>runner.getState().status==='running',destroy(){runner.cancel();for(const [target,name,fn]of listeners)target.removeEventListener(name,fn);}};
+  contextKey=identity();render();return {start,render,runner,exportDataset:()=>runner.exportDataset(),getExportStatus:()=>runner.getExportStatus(),getState:()=>runner.getState(),isRunning:()=>runner.getState().status==='running',destroy(){runner.cancel();for(const [target,name,fn]of listeners)target.removeEventListener(name,fn);}};
  }
  return {createRunner,mount,sortRecords,names};
 });

@@ -101,6 +101,21 @@ test('a new source hold blocks export of previously collected data and incompati
  let stopped=false;const s=setup({sourceState:()=>({status:stopped?'restricted':'idle',reason:'HTTP418'})});await s.runner.run(options({mode:'consensus'}));assert.ok(s.runner.exportDataset());stopped=true;assert.equal(s.runner.exportDataset(),null);
  const incompatible=setup();await incompatible.runner.run(options({mode:'market'}));assert.equal(incompatible.runner.getState().status,'complete');assert.equal(incompatible.runner.exportDataset(),null);
 });
+test('export status explains absent, running, cancelled and incompatible batches using the same export guard',async()=>{
+ let release;const s=setup({history:async stock=>new Promise(resolve=>release=()=>resolve(good(stock.code,true)))});assert.deepEqual(s.runner.getExportStatus(),{available:false,reason:'尚无完整采集批次，请先完成一轮读取。'});
+ const pending=s.runner.run(options({mode:'consensus'}));assert.match(s.runner.getExportStatus().reason,/仍在读取/);assert.equal(s.runner.getExportStatus().available,false);s.runner.cancel('用户暂停');release();await pending;assert.match(s.runner.getExportStatus().reason,/用户暂停/);assert.equal(s.runner.exportDataset(),null);
+ const incompatible=setup();await incompatible.runner.run(options({mode:'market'}));assert.equal(incompatible.runner.getExportStatus().available,false);assert.match(incompatible.runner.getExportStatus().reason,/参考股票池之外/);assert.equal(incompatible.runner.exportDataset(),null);
+});
+test('export status rejects paused, restricted and unavailable sources and explains response-level stops',async()=>{
+ let status='idle';const s=setup({sourceState:()=>({status,reason:status+' 来源停止'})});await s.runner.run(options({mode:'consensus'}));assert.deepEqual(s.runner.getExportStatus(),{available:true,reason:''});
+ for(status of ['paused','restricted','unavailable']){assert.deepEqual(s.runner.getExportStatus(),{available:false,reason:status+' 来源停止'});assert.equal(s.runner.exportDataset(),null);}
+ const denied=setup({history:async()=>({status:'unavailable',sourceStopped:true,reason:'HTTP429 来源限制'})});await denied.runner.run(options({mode:'consensus'}));assert.match(denied.runner.getExportStatus().reason,/HTTP429/);assert.equal(denied.runner.getExportStatus().available,false);
+});
+test('export eligibility is a lightweight check that never serializes or exposes mutable private data',async()=>{
+ const s=setup();await s.runner.run(options({mode:'consensus'}));const stringify=JSON.stringify;let status;
+ try{JSON.stringify=()=>{throw Error('status must not clone the dataset');};status=s.runner.getExportStatus();assert.deepEqual(status,{available:true,reason:''});}finally{JSON.stringify=stringify;}
+ status.available=false;status.reason='edited';assert.deepEqual(s.runner.getExportStatus(),{available:true,reason:''});assert.ok(s.runner.exportDataset());
+});
 test('dataset failure diagnostics omit source URLs and authentication header values',async()=>{
  const s=setup({history:async(stock,target,signal,opts)=>opts.index?good(stock.code,true):{status:'unavailable',reason:'读取 https://example.test/?token=private-token 失败\nAuthorization: Bearer hidden-credential'}});
  await s.runner.run(options({mode:'consensus'}));const data=s.runner.exportDataset();assert.ok(data);assert.doesNotMatch(JSON.stringify(data),/example\.test|private-token|hidden-credential|Bearer/);assert.match(data.records[0].source.reason,/来源地址省略.*Authorization=\[已隐藏\]/);
@@ -126,7 +141,7 @@ test('UI has no single reference input and no startup request; independent pool 
 test('mounted app exposes dataset and state plus a finished event with no source payload',async()=>{
  const d=dom(),s=setup(),events=[];d.env.CustomEvent=class{constructor(type,options){this.type=type;this.detail=options.detail;}};
  d.env.addEventListener('books:trend-run-finished',event=>events.push(event.detail));const app=mount(d.doc,{selection:{getContext:()=>context()},technical:s.technical,engine:s.engine,wait:async()=>{}});
- assert.equal(app.exportDataset(),null);await app.start('consensus');assert.equal(app.getState().status,'complete');assert.equal(app.exportDataset().expectedCount,32);assert.equal(events.length,1);
+ assert.equal(app.exportDataset(),null);assert.equal(app.getExportStatus().available,false);await app.start('consensus');assert.equal(app.getState().status,'complete');assert.deepEqual(app.getExportStatus(),{available:true,reason:''});assert.equal(app.exportDataset().expectedCount,32);assert.equal(events.length,1);
  assert.deepEqual(events[0],{status:'complete',mode:'consensus',day,startedAt:app.getState().startedAt,finishedAt:app.getState().finishedAt});assert.doesNotMatch(JSON.stringify(events),/bars|sourceUrl/);app.destroy();
 });
 test('UI gives consensus coverage and breadth, not a stock benchmark or winner subset',async()=>{
