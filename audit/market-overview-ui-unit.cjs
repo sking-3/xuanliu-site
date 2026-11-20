@@ -71,6 +71,27 @@ await test('both same-origin snapshots share one timeout and coalesce overlappin
   assert.doesNotMatch(ids['insight-macro'].textContent,/BLS|美国|日历更新/);
  }finally{app.destroy();}
 });
+await test('removing the active quote widget leaves the four visible cards loading independently and retains focus',async()=>{
+ const {doc,ids}=dom(),calls=[];delete ids['insight-active'];
+ const app=API.mount(doc,{now:()=>T,fetch:async url=>{calls.push(url);return response(url==='macro-cn.json'?chineseFixture():fixture());}});
+ assert.ok(app);
+ try{
+  await app.refresh();assert.deepEqual(calls.sort(),['macro-cn.json','market-overview.json']);
+  for(const id of ['sentiment','valuation','flows','macro'])assert.equal(ids['insight-'+id].dataset.state,'ready');
+  assert.match(ids['insight-sentiment'].textContent,/32/);assert.match(ids['insight-valuation'].textContent,/12.61/);
+  assert.match(ids['insight-flows'].textContent,/3,007.24/);assert.match(ids['insight-macro'].textContent,/国家统计局最新发布/);
+  assert.ok(app.getSnapshot().cards.active.data);
+  const link=ids['insight-sentiment'].querySelector('a');link.focus();await app.refresh();assert.equal(doc.activeElement.href,link.href);
+ }finally{app.destroy();}
+});
+await test('no visible snapshot hosts means no fetches, while a single remaining host can render',async()=>{
+ const empty=dom();for(const id of API.IDS)delete empty.ids['insight-'+id];let calls=0;
+ assert.equal(API.mount(empty.doc,{fetch:async()=>{calls++;throw Error('must not fetch');}}),null);assert.equal(calls,0);
+ const {doc,ids}=dom();for(const id of API.IDS)if(id!=='valuation')delete ids['insight-'+id];
+ const app=API.mount(doc,{now:()=>T,fetch:async url=>response(url==='macro-cn.json'?chineseFixture():fixture())});
+ try{await app.refresh();assert.equal(ids['insight-valuation'].dataset.state,'ready');assert.match(ids['insight-valuation'].textContent,/12.61/);}
+ finally{app.destroy();}
+});
 await test('stored source snapshots render through the VPS octet-stream MIME without changing their data times',async()=>{
  const root=path.join(__dirname,'..'),overview=JSON.parse(fs.readFileSync(path.join(root,'market-overview.json'),'utf8')),macro=JSON.parse(fs.readFileSync(path.join(root,'macro-cn.json'),'utf8'));
  const checked=Math.max(Date.now(),Date.parse(overview.generatedAt),Date.parse(macro.generatedAt))+1000;
@@ -159,6 +180,6 @@ await test('network failure retains last good values and visibly marks them stal
 await test('generation rollback and per-card older statistics never replace successful values',async()=>{const {doc,ids}=dom();let p=fixture();const app=API.mount(doc,{now:()=>T+60000,fetch:async()=>response(p)});try{await app.refresh();p=fixture();p.generatedAt=iso(T-60000);p.cards.sentiment.data.value=1;await app.refresh();assert.equal(app.getSnapshot().cards.sentiment.data.value,32);p=fixture();p.generatedAt=iso(T+30000);p.cards.sentiment.data.value=2;p.cards.sentiment.asOf=iso(T-7200000);await app.refresh();assert.equal(app.getSnapshot().cards.sentiment.data.value,32);assert.equal(ids['insight-sentiment'].attrs['data-state'],'stale');}finally{app.destroy();}});
 await test('failed first read renders an explanation and source without invented values; HTML and oversized responses fail closed',async()=>{for(const kind of ['html','oversized']){const {doc,ids}=dom();const app=API.mount(doc,{now:()=>T,fetch:async()=>kind==='html'?new Response('<h1>error</h1>',{headers:{'content-type':'text/html'}}):new Response('x'.repeat(API.MAX_BYTES+1),{headers:{'content-type':'application/json'}})});try{await app.refresh();assert.equal(app.getSnapshot(),null);const host=ids['insight-active'];assert.match(host.textContent,/站内快照读取失败/);assert.match(host.textContent,kind==='html'?/响应格式不正确/:/超过大小限制/);assert.match(host.textContent,/数据时间未提供/);assert.equal(host.querySelector('a').href,'https://alternative.me/crypto/');assert.equal(host.dataset.state,'unavailable');assert.doesNotMatch(host.textContent,/USDT|0%|采集 /);}finally{app.destroy();}}});
 await test('successful reload clears stale state while retaining source-link keyboard focus',async()=>{const {doc,ids}=dom();let failed=false;const app=API.mount(doc,{now:()=>T,fetch:async()=>{if(failed)throw Error('offline');return response(fixture());}});try{await app.refresh();const link=ids['insight-sentiment'].querySelector('a');link.focus();failed=true;await app.refresh();assert.equal(doc.activeElement.href,link.href);failed=false;await app.refresh();assert.equal(ids['insight-sentiment'].attrs['data-state'],'ready');assert.equal(doc.activeElement.href,link.href);}finally{app.destroy();}});
-await test('page integration retains existing markets and allows only same-origin snapshot connections',()=>{const root=path.join(__dirname,'..'),html=fs.readFileSync(path.join(root,'index.html'),'utf8'),css=fs.readFileSync(path.join(root,'market-overview.css'),'utf8');assert.equal((html.match(/data-feed-config/g)||[]).length,3);assert.equal((html.match(/class="market-insight(?: pulse-card)?"/g)||[]).length,5);assert.match(html,/connect-src 'self'(?: [^;]+)?;/);assert.match(html,/data-local-feed="crypto"/);assert.match(html,/market-overview\.js/);assert.match(css,/repeat\(5,minmax\(0,1fr\)\)/);assert.match(css,/@media\(max-width:520px\)/);});
+await test('page integration retains the four visible cards and markets without the removed quote widget',()=>{const root=path.join(__dirname,'..'),html=fs.readFileSync(path.join(root,'index.html'),'utf8'),css=fs.readFileSync(path.join(root,'market-overview.css'),'utf8');assert.equal((html.match(/data-feed-config/g)||[]).length,3);assert.equal((html.match(/class="market-insight(?: pulse-card)?"/g)||[]).length,4);assert.doesNotMatch(html,/id="insight-active"|跨市场报价与成交额/);assert.match(html,/connect-src 'self'(?: [^;]+)?;/);assert.match(html,/data-local-feed="crypto"/);assert.match(html,/market-overview\.js/);assert.match(css,/@media\(max-width:520px\)/);});
 console.log('PASS '+count+' market overview UI checks. Stored snapshots and synthetic failure fixtures; no external requests.');
 })().catch(error=>{console.error(error);process.exitCode=1;});

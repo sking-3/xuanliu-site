@@ -179,7 +179,8 @@ function renderCard(doc,host,id,c,now,readFailed){
 }
 function mount(doc,options={}){
   const root=doc.getElementById('market-insights');if(!root)return null;
-  const hosts=Object.fromEntries(IDS.map(id=>[id,doc.getElementById('insight-'+id)]));if(IDS.some(id=>!hosts[id]))return null;
+  const hosts=Object.fromEntries(IDS.map(id=>[id,doc.getElementById('insight-'+id)]).filter(([,host])=>host));
+  const presentIds=Object.keys(hosts);if(!presentIds.length)return null;
   const fetcher=options.fetch||global.fetch.bind(global),now=options.now||Date.now;
   let aggregate=null,chinese=null,inflight=null,aggregateFailed=false,chineseFailed=false,aggregateError=null,chineseError=null,cardErrors={};
   function getSnapshot(){
@@ -188,8 +189,8 @@ function mount(doc,options={}){
     return {...aggregate,generatedAt,cards:{...aggregate.cards,macro:chinese.card}};
   }
   function render(){
-    const active=doc.activeElement,focusId=IDS.find(id=>hosts[id].contains?.(active)),href=active?.href;
-    for(const id of IDS){
+    const active=doc.activeElement,focusId=presentIds.find(id=>hosts[id].contains?.(active)),href=active?.href;
+    for(const id of presentIds){
       const source=id==='macro'&&chinese?chinese.card:aggregate?.cards[id];
       if(source){
         const failed=id==='macro'&&chinese?chineseFailed:aggregateFailed||!!cardErrors[id]||(id==='macro'&&chineseFailed);
