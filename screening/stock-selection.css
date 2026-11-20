@@ -49,3 +49,29 @@
 }
 
 .pick-run-actions{display:flex;gap:6px;flex-wrap:wrap}.pick-desk [hidden]{display:none!important}
+
+/* One shared surface for the three dated, read-only trend screens. */
+.trend-screen {padding:18px 0 16px;margin:14px 0 18px;border-block:1px solid var(--desk-border);scroll-margin-top:80px}
+.trend-options {display:grid;grid-template-columns:repeat(3,minmax(0,1fr)) minmax(200px,1.3fr);gap:12px;margin:14px 0}
+.trend-options label {font-size:12px;font-weight:550;min-width:0}
+.trend-options :is(select,input) {display:block;width:100%;margin-top:5px}
+.trend-modes {display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}
+.pick-desk .trend-modes button {flex:1 1 180px;min-height:62px;text-align:left;padding:10px 12px;background:#f4f7fa;border-color:#b8c8d4}
+.trend-modes strong,.trend-modes span {display:block;line-height:1.6}
+.trend-modes strong {font-size:14px}.trend-modes span {font-size:12px;color:#526575}
+.pick-desk .trend-modes button[aria-pressed=true] {background:#e8f0f7;border-color:#234e70}
+.pick-desk #trend-status {color:#234e70;font-weight:550;margin-top:12px}
+.trend-table {table-layout:fixed}.trend-table th:first-child{width:18%}.trend-table th:last-child{width:34%}
+.trend-table td {overflow-wrap:anywhere}.trend-table td:last-child {text-align:left;line-height:1.6}
+.trend-table time {display:block;font-size:11px;color:#526575}
+.trend-rule-note,.trend-method p {max-width:100ch}
+@media(max-width:850px){.trend-options{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:650px){
+ .trend-screen{padding-top:14px}.trend-options{gap:12px 10px}
+ .trend-options label:last-child{grid-column:1/-1}
+ .pick-desk .trend-modes button{flex-basis:100%;min-height:58px}
+ .trend-table{table-layout:auto}.trend-table tr td:last-child{grid-column:1/-1;justify-content:flex-start;display:block}
+ .trend-table td[colspan]{grid-column:1/-1;display:block}
+}
+.trend-screen .pick-toolbar label {flex:0 0 auto;width:auto;white-space:nowrap;gap:6px;min-height:44px}
+.pick-desk .trend-screen input[type=checkbox] {appearance:auto;box-sizing:border-box;width:17px;height:17px;min-height:0;padding:0;margin:0;flex:0 0 17px;accent-color:var(--desk-accent)}

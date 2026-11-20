@@ -165,8 +165,10 @@
     if (order==='cap') filtered.sort((a,b)=>(b.totalMarketCap??-1)-(a.totalMarketCap??-1) || a.code.localeCompare(b.code));
     page=Math.max(0,Math.min(page,Math.ceil(filtered.length/size)-1));
     renderPage();renderTech();
+    window.dispatchEvent(new Event('books:selection-changed'));
   }
   async function scan(all=false) {
+    if(window.BooksTrendControllerApp?.isRunning()){label('pick-tech-status','正在进行走势筛选，请先停止该任务。');return;}
     halt();
     if(sourceAccess().status!=='idle'){stopReason='来源已停止访问';renderPage();renderTech();return;}
     const batch=all?filtered.slice():scope(), day=pool?.day;
@@ -236,7 +238,10 @@
   }
   const chains=window.BooksMarketPool.chains;
   for (const chain of chains) el('pick-chain').add(new Option(chain.name+'（'+chain.codes.length+'）',chain.name));
-  window.BooksStockSelection = {accept,unavailable};
+  window.BooksStockSelection = {accept,unavailable,
+    getContext:()=>({rows:filtered.slice(),pageRows:scope(),allRows:pool?.rows||[],savedRows:(pool?.rows||[]).filter(row=>saved.has(row.code)),day:pool?.day||'',asOf,sourceState:sourceAccess(),freshness:freshness()}),
+    stopTechnicalScan:()=>{if(runner){stopReason='已切换到走势筛选';halt();renderPage();renderTech();}}
+  };
   let inputTimer;
   for (const id of ['pick-query','pick-min-change','pick-max-change','pick-cap-min','pick-cap-max']) el(id).addEventListener('input',()=>{
     clearTimeout(inputTimer);halt();el('pick-run').disabled=true;el('pick-run-all').disabled=true;
@@ -246,8 +251,8 @@
   el('pick-hits').addEventListener('change',()=>{techPage=0;renderTech();});
   el('pick-tech-prev').addEventListener('click',()=>{techPage--;renderTech();});
   el('pick-tech-next').addEventListener('click',()=>{techPage++;renderTech();});
-  el('pick-prev').addEventListener('click',()=>{page--;if(scanAll) renderPage();else update(false);});
-  el('pick-next').addEventListener('click',()=>{page++;if(scanAll) renderPage();else update(false);});
+  el('pick-prev').addEventListener('click',()=>{page--;if(scanAll) {renderPage();window.dispatchEvent(new Event('books:selection-changed'));}else update(false);});
+  el('pick-next').addEventListener('click',()=>{page++;if(scanAll) {renderPage();window.dispatchEvent(new Event('books:selection-changed'));}else update(false);});
   el('pick-reset').addEventListener('click',()=>{
     for (const id of ['pick-chain','pick-sector','pick-venue','pick-query','pick-min-change','pick-max-change','pick-cap-min','pick-cap-max']) el(id).value='';
     clearTimeout(inputTimer);el('pick-universe').value='main';segmentName='';el('pick-saved').checked=false;el('pick-sort').value='up';update();
@@ -259,7 +264,7 @@
     let persisted=true;
     try {localStorage.setItem(savedKey,JSON.stringify([...saved]));}catch{persisted=false;}
     if (el('pick-saved').checked) update(false);
-    else renderPage();
+    else {renderPage();window.dispatchEvent(new Event('books:selection-changed'));}
     for (const btn of el('pick-rows').querySelectorAll('[data-save]')) if (btn.dataset.save===code) btn.focus();
     if (!persisted) label('pick-notice','自选仅保存在本次页面中，浏览器存储不可用。');
   });
