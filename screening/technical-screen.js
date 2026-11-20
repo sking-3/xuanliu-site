@@ -9,6 +9,7 @@
   const dayMs = 86400000;
   const shanghaiOffset = 8 * 3600000;
   const stopKey='books.screening.tencent-source-stop.v1';
+  const indices=new Set(['000001.SH','399001.SZ','000300.SH']);
   const active=new Set();
   let stopped=null, persistenceChecked=false;
   const now=()=>env.now?env.now():Date.now();
@@ -59,12 +60,14 @@
     return Number(value);
   }
 
-  function readBars(entry, day) {
+  function readBars(entry, day, historyOptions) {
     if (!entry || typeof entry !== 'object') throw Error('该代码没有日线');
     // A qfq request alone does not prove the adjustment of a day-only response.
-    if (!Object.hasOwn(entry, 'qfqday')) throw Error('来源仅返回 day，前复权口径未确认');
-    const rows = entry.qfqday;
-    if (!Array.isArray(rows) || !rows.length) throw Error('没有可用前复权日线');
+    const index=historyOptions?.index===true;
+    if (!Object.hasOwn(entry,index?'day':'qfqday')) throw Error(index?'来源未返回指数原始日线':'来源仅返回 day，前复权口径未确认');
+    const rows = index?entry.day:entry.qfqday;
+    if (!Array.isArray(rows) || !rows.length) throw Error(index?'没有可用指数日线':'没有可用前复权日线');
+    if (historyOptions && rows.length>640) throw Error('日线记录超过640根限制');
     const bars = [];
     const dates = new Set();
     for (const row of rows) {
@@ -82,12 +85,13 @@
       const [open, close, high, low] = row.slice(1, 5).map(decimal);
       if (![open, close, high, low].every(v => Number.isFinite(v) && v > 0)
           || high < Math.max(open, close) || low > Math.min(open, close)) throw Error('日线价格缺失或异常');
-      bars.push({date, close});
+      bars.push({date,close,volume});
     }
     bars.sort((a, b) => a.date.localeCompare(b.date));
     if (bars.at(-1)?.date !== day) throw Error('缺少目标交易日日线，可能停牌或来源滞后');
-    if (bars.length < 60) throw Error('不足 60 根有效日线');
-    return bars.slice(-60).map(bar => bar.close);
+    const minimum=historyOptions?historyOptions.minBars:60;
+    if (bars.length < minimum) throw Error('不足 '+minimum+' 根有效日线');
+    return historyOptions?bars:bars.slice(-60).map(bar => bar.close);
   }
 
   function evaluate(closes) {
@@ -116,7 +120,7 @@
       const response = await env.fetch(url, {
         signal: control.signal, cache: 'no-store', credentials: 'omit', redirect: 'error', referrerPolicy: 'no-referrer'
       });
-      if ([401, 403, 429].includes(response.status)) {
+      if ([401, 403, 418, 429].includes(response.status)) {
         stop({httpStatus:response.status,source:url.origin,stoppedAt:new Date(now()).toISOString()});
         return {restricted:true};
       }
@@ -130,7 +134,7 @@
     }
   }
 
-  async function run(stock, day, signal) {
+  async function request(stock, day, signal, historyOptions) {
     abortIfNeeded(signal);
     const code = stock?.code;
     const fail = reason => unavailable(code, day, reason);
@@ -138,6 +142,7 @@
     if(sourceState().status!=='idle')return blocked();
     if (typeof code !== 'string' || !/^\d{6}\.(?:SH|SZ|BJ)$/.test(code)) return fail('证券代码或交易所无效');
     if (code.endsWith('.BJ')) return fail('腾讯前复权日线未覆盖北交所');
+    if (historyOptions?.index && !indices.has(code)) return fail('指数仅支持上证指数、深证成指和沪深300');
     if (!validDay(day)) return fail('目标交易日无效');
     const currentTime = now();
     const marketClose = Date.parse(day + 'T15:00:00+08:00');
@@ -150,12 +155,13 @@
     }
     const ticker = code.slice(-2).toLowerCase() + code.slice(0, 6);
     const today = new Date(currentTime + shanghaiOffset).toISOString().slice(0, 10);
-    const start = new Date(Date.parse(day + 'T00:00:00Z') - 360 * dayMs).toISOString().slice(0, 10);
+    const lookback=historyOptions?Math.max(360,Math.ceil(historyOptions.minBars*1.7)+20):360;
+    const start = new Date(Date.parse(day + 'T00:00:00Z') - lookback * dayMs).toISOString().slice(0, 10);
     let reason = '腾讯日线连接失败或超时';
     for (const host of hosts) {
       if(sourceState().status!=='idle')return blocked();
       const url = new URL(host + path);
-      url.searchParams.set('param', [ticker, 'day', start, day, 640, 'qfq'].join(','));
+      url.searchParams.set('param', [ticker,'day',start,day,640,historyOptions?.index?'':'qfq'].join(','));
       let result;
       try { result = await load(url, signal); }
       catch { if(sourceState().status!=='idle')return blocked();abortIfNeeded(signal);continue; }
@@ -165,7 +171,7 @@
       if (payload?.code !== 0 && payload?.code !== '0') { reason = '腾讯未返回该标的日线'; continue; }
       const entry = payload.data?.[ticker];
       try {
-        const closes = readBars(entry, day);
+        const values = readBars(entry,day,historyOptions);
         if (today === day) {
           const quote = entry.qt?.[ticker];
           const stamp = quote?.[30];
@@ -174,13 +180,20 @@
               || stamp.slice(0, 8) !== day.replaceAll('-', '') || stamp.slice(8) < '150000')
             throw Error('来源尚未确认目标日收盘');
         }
-        return {code, day, status: 'ready', ...evaluate(closes)};
+        if(historyOptions)return {code,day,status:'ready',bars:values,adjustment:historyOptions.index?'index':'qfq',fetchedAt:new Date(now()).toISOString(),sourceUrl:url.href};
+        return {code, day, status: 'ready', ...evaluate(values)};
       } catch (error) { reason = error.message; }
     }
     return fail(reason);
   }
 
-  return {run,sourceState};
+  function run(stock,day,signal){return request(stock,day,signal);}
+  async function history(stock,day,signal,{minBars=61,index=false}={}){
+    abortIfNeeded(signal);
+    if(!Number.isInteger(minBars)||minBars<2||minBars>640||typeof index!=='boolean')return unavailable(stock?.code,day,'日线数量须为2至640的整数，指数选项须明确');
+    return request(stock,day,signal,{minBars,index});
+  }
+  return {run,history,sourceState};
  }
   const api = {...createClient(root),createClient};
   if (typeof module === 'object' && module.exports) module.exports = api;

@@ -34,6 +34,8 @@ test('browser and CommonJS expose the same entry point',()=>{
   const scope={};
   vm.runInNewContext(fs.readFileSync(require.resolve('../screening/technical-screen.js'),'utf8'),scope);
   assert.equal(typeof scope.BooksTechnicalScreen.run,'function');
+  assert.equal(typeof scope.BooksTechnicalScreen.history,'function');
+  assert.equal(typeof createClient({}).history,'function');
   assert.equal(typeof run,'function');
 });
 
@@ -150,8 +152,8 @@ test('honor an explicit access or rate limit response',async t=>{
  });
 
 const frozenNow=()=>Date.parse('2026-11-16T08:00:00Z');
-test('401, 403 and 429 persist across repeated calls and a new client without any fallback',async()=>{
- for(const status of [401,403,429]){
+test('401, 403, 418 and 429 persist across repeated calls and a new client without any fallback',async()=>{
+ for(const status of [401,403,418,429]){
   const storage=memoryStorage();let requests=0;
   const env={localStorage:storage,now:frozenNow,fetch:async()=>{requests++;return {ok:false,status}}};
   const first=createClient(env);
@@ -178,4 +180,102 @@ test('existing or malformed stop records cannot be silently cleared',async()=>{
  const storage=memoryStorage();storage.setItem('books.screening.tencent-source-stop.v1','unparseable');let requests=0;
  const client=createClient({localStorage:storage,now:frozenNow,fetch:async()=>{requests++}});
  assert.equal((await client.run(stock,day)).sourceStopped,true);assert.equal(requests,0);assert.match(client.sourceState().reason,/人工核对/);
+});
+
+function historyClient(reply,options={}){
+ const storage=options.localStorage||memoryStorage(),calls=[];
+ const client=createClient({localStorage:storage,now:options.now||frozenNow,fetch:async(url,opt)=>{calls.push({url,opt});return reply(url,opt);}});
+ return {client,calls,storage};
+}
+function historyResponse(url,entry){
+ const ticker=url.searchParams.get('param').split(',')[0];
+ return {ok:true,status:200,json:async()=>({code:0,data:{[ticker]:entry}})};
+}
+const historySequence=Array.from({length:61},(_,i)=>100+i);
+test('history exposes chronological dated closes and source volumes without changing the legacy signal result',async()=>{
+ const raw=rows(historySequence);raw.forEach((row,i)=>row[5]=String(100+i));
+ const {client,calls}=historyClient(url=>historyResponse(url,{qfqday:[...raw].reverse()}));
+ const result=await client.history(stock,day);
+ assert.equal(result.status,'ready');assert.equal(result.adjustment,'qfq');assert.equal(result.bars.length,61);
+ assert.deepEqual(result.bars.at(-1),{date:day,close:160,volume:160});
+ assert.equal(result.bars[0].date,raw[0][0]);assert.equal(result.fetchedAt,'2026-11-16T08:00:00.000Z');
+ assert.equal(result.sourceUrl,calls[0].url.href);assert.equal(calls[0].url.searchParams.get('param').split(',').at(-1),'qfq');
+ const legacy=await client.run(stock,day);assert.equal(legacy.close,160);assert.equal(legacy.bars,undefined);
+});
+test('history enforces requested 61 and 26 bar minimums and skips inactive historical days',async()=>{
+ const entry={qfqday:rows(historySequence)};
+ const {client}=historyClient(url=>historyResponse(url,entry));
+ entry.qfqday=rows(historySequence.slice(1));assert.match((await client.history(stock,day)).reason,/61/);
+ entry.qfqday=rows(historySequence.slice(0,26));const short=await client.history(stock,day,undefined,{minBars:26});
+ assert.equal(short.status,'ready');assert.equal(short.bars.length,26);
+ entry.qfqday=rows(historySequence.slice(0,25));assert.match((await client.history(stock,day,undefined,{minBars:26})).reason,/26/);
+ entry.qfqday=rows(Array.from({length:62},(_,i)=>100+i));const gap=entry.qfqday[5][0];entry.qfqday[5][5]='0';
+ const active=await client.history(stock,day);assert.equal(active.bars.length,61);assert.ok(!active.bars.some(b=>b.date===gap));
+});
+test('stock history never infers qfq adjustment from raw day or a requested qfq parameter',async()=>{
+ const {client}=historyClient(url=>historyResponse(url,{day:rows(historySequence)}));
+ const result=await client.history(stock,day);assert.equal(result.status,'unavailable');assert.match(result.reason,/前复权口径未确认/);
+});
+test('only three explicitly selected benchmark indices accept raw index day bars',async()=>{
+ const {client,calls}=historyClient(url=>historyResponse(url,{day:rows(historySequence),qfqday:rows(historySequence.map(x=>x*5))}));
+ for(const code of ['000001.SH','399001.SZ','000300.SH']){
+  const result=await client.history({code,asOf:closing},day,undefined,{index:true});
+  assert.equal(result.status,'ready');assert.equal(result.adjustment,'index');assert.equal(result.bars.at(-1).close,160);
+  const param=calls.at(-1).url.searchParams.get('param').split(',');
+  assert.equal(param[0],code.slice(-2).toLowerCase()+code.slice(0,6));assert.equal(param[5],'');
+ }
+ const count=calls.length;
+ for(const code of ['600519.SH','399006.SZ','000300.SZ','920111.BJ']){
+  const result=await client.history({code},day,undefined,{index:true});assert.equal(result.status,'unavailable');
+ }
+ assert.equal(calls.length,count);
+});
+test('index history cannot silently substitute qfqday when raw index day evidence is missing',async()=>{
+ const {client}=historyClient(url=>historyResponse(url,{qfqday:rows(historySequence)}));
+ const result=await client.history({code:'000300.SH'},day,undefined,{index:true});
+ assert.equal(result.status,'unavailable');assert.match(result.reason,/指数原始日线/);
+});
+test('history refuses invalid options, nonclosed dates and intraday snapshot cutoffs before requests',async()=>{
+ const {client,calls}=historyClient(()=>{throw Error('unexpected request')});
+ for(const options of [{minBars:0},{minBars:1},{minBars:641},{minBars:61.5},{index:'yes'}])assert.equal((await client.history(stock,day,undefined,options)).status,'unavailable');
+ for(const [candidate,date] of [[stock,'2026-11-17'],[stock,'2026-02-30'],[{...stock,asOf:day+'T06:59:59Z'},day]])assert.equal((await client.history(candidate,date)).status,'unavailable');
+ assert.equal(calls.length,0);
+});
+test('history rejects duplicate, malformed, stopped or oversized data and ignores future bars',async()=>{
+ const entry={qfqday:rows(historySequence)}, {client}=historyClient(url=>historyResponse(url,entry));
+ const duplicate=rows(historySequence);duplicate[3][0]=duplicate[4][0];
+ const badVolume=rows(historySequence);badVolume[3][5]='-1';
+ const badPrice=rows(historySequence);badPrice[3][3]='1';
+ const halted=rows(historySequence);halted.at(-1)[5]='0';
+ const wrongEnd=rows(historySequence,addDays(day,-1));
+ for(const [bad,pattern] of [[duplicate,/重复/],[badVolume,/成交量/],[badPrice,/价格/],[halted,/停牌/],[wrongEnd,/目标交易日/],[rows(Array(641).fill(1)),/640/]]){
+  entry.qfqday=bad;const result=await client.history(stock,day);assert.equal(result.status,'unavailable');assert.match(result.reason,pattern);
+ }
+ entry.qfqday=rows(historySequence).concat([[addDays(day,3),'999','999','999','999','10']]);
+ const result=await client.history(stock,day);assert.equal(result.status,'ready');assert.equal(result.bars.length,61);assert.equal(result.bars.at(-1).close,160);
+});
+test('today history still requires same-symbol after-close source confirmation for stocks and indices',async()=>{
+ const entry={qfqday:rows(historySequence),day:rows(historySequence),qt:{}};
+ const {client}=historyClient(url=>historyResponse(url,entry),{now:()=>Date.parse(day+'T07:10:00Z')});
+ for(const [candidate,options] of [[stock,{}],[{code:'000300.SH',asOf:closing},{index:true}]]){
+  const ticker=candidate.code.slice(-2).toLowerCase()+candidate.code.slice(0,6),quote=[];quote[2]=candidate.code.slice(0,6);quote[30]='20261113145959';entry.qt[ticker]=quote;
+  assert.match((await client.history(candidate,day,undefined,options)).reason,/收盘/);
+  quote[30]='20261113150000';assert.equal((await client.history(candidate,day,undefined,options)).status,'ready');
+ }
+});
+test('history and legacy run share persisted 401,403,418,429 stops without immediate retries or fallback',async()=>{
+ for(const status of [401,403,418,429]){
+  const {client,calls,storage}=historyClient(()=>({ok:false,status}));
+  const first=await client.history(stock,day);assert.equal(first.sourceStopped,true);
+  assert.equal((await client.run(stock,day)).sourceStopped,true);assert.equal((await client.history(stock,day)).sourceStopped,true);
+  const reloaded=createClient({localStorage:storage,now:frozenNow,fetch:async()=>{throw Error('must stay stopped')}});
+  assert.equal((await reloaded.history(stock,day)).sourceStopped,true);assert.equal(calls.length,1);
+ }
+});
+test('history cancellation aborts its request and never falls back',async()=>{
+ const control=new AbortController();
+ const {client,calls}=historyClient((url,opt)=>new Promise((resolve,reject)=>opt.signal.addEventListener('abort',()=>reject(Error('aborted')),{once:true})));
+ const pending=client.history(stock,day,control.signal);control.abort();
+ await assert.rejects(pending,{name:'AbortError'});await assert.rejects(client.history(stock,day,control.signal),{name:'AbortError'});
+ assert.equal(calls.length,1);
 });
