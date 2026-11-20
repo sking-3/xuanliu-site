@@ -22,13 +22,21 @@
  function validLimits(limits={}){
   return typeof limits.enabled!=='boolean'||limits.enabled?['maxReturn20','maxReturn60','maxReturn5','maxDeviation','maxVolumeRatio'].every(k=>limits[k]===undefined||Number.isFinite(limits[k])&&limits[k]>=0&&limits[k]<=(k==='maxVolumeRatio'?100:1000)):true;
  }
+ function stockMetadata(stock){
+  const code=typeof stock?.code==='string'?stock.code:'';
+  return {code,name:typeof stock?.name==='string'?stock.name:code,sector:typeof stock?.sector==='string'?stock.sector:'未分类',exchange:typeof stock?.exchange==='string'?stock.exchange:code.slice(-2)};
+ }
+ function sourceData(source,day){
+  const reason=typeof source.reason==='string'?source.reason.replace(/https?:\/\/[^\s）)]+/gi,'[来源地址省略]').replace(/\b(cookie|authorization)\s*[:=][^\r\n]*/gi,'$1=[已隐藏]').replace(/\b(api[-_]?key|token|secret)\s*[:=]\s*[^\s;]+/gi,'$1=[已隐藏]').replace(/[<>\u0000-\u001f\u007f]/g,' ').slice(0,500).trim()||null:null;
+  return {status:source.status,day:source.day||day,bars:Array.isArray(source.bars)?source.bars.slice(-61).map(b=>({date:b.date,close:b.close,volume:b.volume})):[],adjustment:source.adjustment||null,fetchedAt:source.fetchedAt||null,reason};
+ }
  function createRunner({technical,engine,wait:pause=wait,now=Date.now,onUpdate=()=>{}}){
-  const cache=new Map();let active=null,requested=false,state=initial();
+  const cache=new Map();let active=null,requested=false,state=initial(),dataset=null;
   function emit(){onUpdate({...state,records:state.records.slice()});}
   function blocked(){const s=technical.sourceState();return s.status!=='idle'?s.reason||'日线来源已停止访问。':'';}
   function cancel(reason='已停止'){if(active){active.abort();active=null;state.status='stopped';state.reason=reason+(state.mode==='consensus'?'；参考批次未完成，未判断市场共性。':'');emit();}}
   async function run(options={}){
-   cancel();const control=new AbortController();active=control;
+   cancel();dataset=null;const control=new AbortController();active=control;
    const {mode,lookback,day,asOf,reference,limits={}}=options,marketRows=options.marketRows||[],size=options.sampleSize==='all'?Infinity:Number(options.sampleSize??120);
    let stocks=options.stocks||[];
    if(mode==='consensus'&&(size===Infinity||[120,240].includes(size)))stocks=engine.selectMarketSample(marketRows,size);
@@ -37,6 +45,7 @@
    if(!Object.hasOwn(names,mode)||![20,60].includes(lookback)||!/^\d{4}-\d{2}-\d{2}$/.test(day||'')||!stocks.length||!fixedIndices.has(reference?.code)||!validLimits(limits)||mode==='consensus'&&(!(size===Infinity||[120,240].includes(size))||stocks.length<30)){
     state.status='unavailable';state.reason=mode==='consensus'&&stocks.length<30?'市场参考池不足30只，不能把少数股票称为市场共同走势。':'筛选范围、交易日、指数日历或排除上限尚未准备好。';active=null;emit();return state;
    }
+   const collected={schema:'books.research.dataset.v1',day,asOf,source:'tencent-public-history',reference:null,universe:marketRows.map(stockMetadata),records:[],expectedCount:stocks.length,totalUniverseCount:marketRows.length,completed:false,collectionStatus:'running',startedAt:state.startedAt,finishedAt:null};dataset=collected;
    const deny=blocked();if(deny){state.status='stopped';state.reason=deny;active=null;emit();return state;}emit();
    async function history(stock,isIndex=false){
     const denied=blocked();if(denied)return {status:'unavailable',sourceStopped:true,reason:denied};
@@ -61,12 +70,14 @@
    try{
     const anchor=await history(reference,true);if(!current())return state;
     if(anchor.status!=='ready'){state.status=anchor.sourceStopped?'stopped':'unavailable';state.reason=anchor.reason||'交易日日历不足，未开始逐股读取。';active=null;emit();return state;}
+    const anchorData=sourceData(anchor,day);collected.reference={code:reference.code,bars:anchorData.bars,fetchedAt:anchorData.fetchedAt,adjustment:anchorData.adjustment};
     state.referenceFetchedAt=anchor.fetchedAt||null;emit();
     for(const stock of stocks){
      if(!current())return state;let source;
      try{source=await history(stock);}catch{if(!current())return state;source={status:'unavailable',reason:'日线请求未完成。'};}
      if(!current())return state;
      if(source.sourceStopped){state.status='stopped';state.reason=(source.reason||'来源限制访问，已停止。')+(mode==='consensus'?'；未完成参考批次，未判断市场共性。':'');active=null;emit();return state;}
+     collected.records.push({stock:stockMetadata(stock),source:sourceData(source,day)});
      const record={stock,source,fetchedAt:source.fetchedAt||null,sourceUrl:source.sourceUrl||null,referenceFetchedAt:anchor.fetchedAt||null};
      record.result=mode==='consensus'&&source.status==='ready'?{status:'pending',matched:null,reason:'等候完整参考批次后计算共性。'}:evaluate(record,anchor,null);
      state.records.push(record);emit();
@@ -80,11 +91,17 @@
      state.reason=state.consensus.reason||'';
      state.status=state.consensus.status==='ready'?'complete':'unavailable';
     }else{state.phase='evaluated';state.status='complete';}
-    active=null;emit();
+    state.finishedAt=new Date(now()).toISOString();collected.finishedAt=state.finishedAt;collected.completed=true;collected.collectionStatus='complete';active=null;emit();
    }catch{if(current()){state.status='stopped';state.reason=(blocked()||'读取已停止，已完成结果保留。')+(mode==='consensus'?'；未判断市场共性。':'');active=null;emit();}}
    return state;
   }
-  return {run,cancel,getState:()=>({...state,records:state.records.slice()}),clear(){cancel();state=initial();emit();},cacheSize:()=>cache.size};
+  function exportDataset(){
+   if(active||!dataset?.completed||dataset.collectionStatus!=='complete'||!['complete','unavailable'].includes(state.status)||blocked())return null;
+   const codes=new Set(dataset.universe.map(s=>s.code)),records=dataset.records;
+   if(!dataset.reference||dataset.reference.adjustment!=='index'||codes.size!==dataset.totalUniverseCount||records.length!==dataset.expectedCount||new Set(records.map(r=>r.stock.code)).size!==records.length||records.some(r=>!codes.has(r.stock.code)||r.source.status==='ready'&&r.source.adjustment!=='qfq'))return null;
+   return JSON.parse(JSON.stringify(dataset));
+  }
+  return {run,cancel,exportDataset,getState:()=>({...state,records:state.records.slice()}),clear(){cancel();dataset=null;state=initial();emit();},cacheSize:()=>cache.size};
  }
  function mount(doc,options={}){
   const host=doc.getElementById('trend-screen');if(!host)return null;
@@ -130,12 +147,15 @@
    el('trend-count').textContent=`显示 ${visible.length} 条 · 命中 ${count.matched} · 过热排除 ${count.excluded} · 资料不足 ${count.missing}`;
    el('trend-page').textContent=visible.length?`${page+1} / ${Math.ceil(visible.length/20)}`:'0 / 0';el('trend-prev').disabled=page===0;el('trend-next').disabled=(page+1)*20>=visible.length;
   }
-  const runner=createRunner({technical,engine,wait:options.wait,now:options.now,onUpdate:value=>{state=value;render();}});
+  const runner=createRunner({technical,engine,wait:options.wait,now:options.now,onUpdate:value=>{
+   const finished=state.status==='running'&&value.status!=='running';state=value;render();
+   if(finished&&env.dispatchEvent&&typeof env.CustomEvent==='function')env.dispatchEvent(new env.CustomEvent('books:trend-run-finished',{detail:{status:state.status,mode:state.mode,day:state.day,startedAt:state.startedAt,finishedAt:state.finishedAt||null}}));
+  }});
   async function start(mode){
    const value=id=>el(id).value.trim()===''?NaN:Number(el(id).value);
    const c=context(),lookback=Number(el('trend-lookback').value),max=value('trend-max-return');
    const limits={enabled:el('trend-exclude-hot').checked,maxReturn20:lookback===20?max:15,maxReturn60:lookback===60?max:30,maxReturn5:value('trend-max-five'),maxDeviation:value('trend-max-deviation'),maxVolumeRatio:value('trend-max-volume')};
-   if(!validLimits(limits)){state={...initial(),reason:'排除上限须为有效的非负数：百分比不超过1000，成交量比不超过100。'};render();return state;}
+   if(!validLimits(limits)){runner.clear();state={...initial(),reason:'排除上限须为有效的非负数：百分比不超过1000，成交量比不超过100。'};render();return state;}
    selection()?.stopTechnicalScan?.();page=0;
    return runner.run({mode,lookback,day:c.day,asOf:c.asOf,stocks:rows(c).slice(),marketRows:c.marketRows||[],sampleSize:el('trend-sample').value,reference:{code:el('trend-benchmark').value},index:true,limits});
   }
@@ -150,7 +170,7 @@
   listen(el('trend-stop'),'click',()=>runner.cancel('已停止，已读取日线保留在本页缓存。'));
   listen(env,'books:selection-changed',()=>{const key=identity();if(contextKey&&contextKey!==key){page=0;runner.clear();}contextKey=key;render();});
   listen(env,'books:technical-source-state',()=>{if(technical.sourceState().status!=='idle')runner.cancel(technical.sourceState().reason);render();});listen(env,'pagehide',()=>runner.cancel('页面已离开，筛选停止。'));
-  contextKey=identity();render();return {start,render,runner,isRunning:()=>runner.getState().status==='running',destroy(){runner.cancel();for(const [target,name,fn]of listeners)target.removeEventListener(name,fn);}};
+  contextKey=identity();render();return {start,render,runner,exportDataset:()=>runner.exportDataset(),getState:()=>runner.getState(),isRunning:()=>runner.getState().status==='running',destroy(){runner.cancel();for(const [target,name,fn]of listeners)target.removeEventListener(name,fn);}};
  }
  return {createRunner,mount,sortRecords,names};
 });

@@ -67,6 +67,52 @@ test('source is checked after a pause before every new request',async()=>{
  let blocked=false,calls=0,pauses=0;const technical={sourceState:()=>({status:blocked?'restricted':'idle',reason:'来源限制'}),history:async stock=>{calls++;return good(stock.code);}};
  const runner=createRunner({technical,engine:fakeEngine(),wait:async()=>{if(++pauses===2)blocked=true;}});const r=await runner.run(options());assert.equal(r.status,'stopped');assert.equal(calls,2);assert.equal(r.records.length,1);
 });
+test('dataset export keeps the full universe and exact selected batch without making a request',async()=>{
+ const universe=Array.from({length:40},(_,i)=>({...marketRows[i%32],code:String(600000+i)+'.SH',privateNote:'never export',price:100}));
+ const s=setup({}, {selectMarketSample:rows=>rows.slice(0,32)});assert.equal(s.runner.exportDataset(),null);
+ await s.runner.run(options({mode:'consensus',marketRows:universe}));const calls=s.calls.length,data=s.runner.exportDataset();
+ assert.equal(data.schema,'books.research.dataset.v1');assert.equal(data.source,'tencent-public-history');assert.equal(data.day,day);assert.equal(data.asOf,asOf);assert.equal(data.completed,true);assert.equal(data.collectionStatus,'complete');
+ assert.equal(data.universe.length,40);assert.equal(data.totalUniverseCount,40);assert.equal(data.expectedCount,32);assert.equal(data.records.length,32);assert.equal(data.reference.code,'000300.SH');assert.equal(data.reference.adjustment,'index');assert.equal(data.reference.bars.length,61);assert.equal(data.records[0].source.bars.length,61);
+ assert.equal(data.startedAt,new Date(fetchedAt).toISOString());assert.equal(data.finishedAt,new Date(fetchedAt).toISOString());assert.deepEqual(Object.keys(data.universe[0]),['code','name','sector','exchange']);assert.deepEqual(Object.keys(data.records[0].source),['status','day','bars','adjustment','fetchedAt','reason']);
+ assert.doesNotMatch(JSON.stringify(data),/privateNote|sourceUrl|https:|"price"/);assert.equal(s.calls.length,calls);
+});
+test('dataset captures raw source values privately and each export is independent of caller mutation',async()=>{
+ const sources=[],universe=marketRows.map(r=>({...r}));const s=setup({history:async(stock,target,signal,opts)=>{const source=good(stock.code,opts.index);source.cookie='secret';source.bars.at(-1).rawSecret='secret';sources.push(source);return source;}});
+ await s.runner.run(options({mode:'consensus',marketRows:universe}));const data=s.runner.exportDataset(),price=data.records[0].source.bars.at(-1).close;
+ data.reference.bars[0].close=-1;data.records[0].source.bars.at(-1).close=-1;data.universe[0].name='edited export';
+ sources[1].bars.at(-1).close=-2;s.runner.getState().records[0].source.bars.at(-1).close=-3;universe[0].name='edited input';
+ const next=s.runner.exportDataset();assert.equal(next.records[0].source.bars.at(-1).close,price);assert.equal(next.reference.bars[0].close,bars().slice(-61)[0].close);assert.equal(next.universe[0].name,marketRows[0].name);assert.doesNotMatch(JSON.stringify(next),/cookie|secret|rawSecret/);
+ assert.deepEqual(next.records[0].source.bars.at(-1),{date:day,close:164,volume:1000});
+});
+test('fully collected missing histories export missing statuses rather than a smaller fabricated universe',async()=>{
+ const s=setup({history:async(stock,target,signal,opts)=>opts.index||Number(stock.code.slice(0,6))<600029?good(stock.code,opts.index):{status:'unavailable',reason:'缺少同日数据'}});
+ const state=await s.runner.run(options({mode:'consensus'}));assert.equal(state.status,'unavailable');const data=s.runner.exportDataset();
+ assert.equal(data.completed,true);assert.equal(data.collectionStatus,'complete');assert.equal(data.records.length,32);assert.equal(data.expectedCount,32);assert.equal(data.totalUniverseCount,32);assert.equal(data.records.filter(r=>r.source.status==='ready').length,29);
+ assert.deepEqual(data.records.at(-1).source,{status:'unavailable',day,bars:[],adjustment:null,fetchedAt:null,reason:'缺少同日数据'});
+});
+test('running, cancelled, source-stopped, reset and invalid batches cannot export a completed dataset',async()=>{
+ let release;const s=setup({history:async stock=>new Promise(resolve=>release=()=>resolve(good(stock.code,true)))}),pending=s.runner.run(options({mode:'consensus'}));
+ assert.equal(s.runner.exportDataset(),null);s.runner.cancel();release();await pending;assert.equal(s.runner.exportDataset(),null);
+ const complete=setup();await complete.runner.run(options({mode:'consensus'}));assert.ok(complete.runner.exportDataset());complete.runner.clear();assert.equal(complete.runner.exportDataset(),null);
+ await complete.runner.run(options({mode:'consensus',marketRows:[]}));assert.equal(complete.runner.exportDataset(),null);
+ let calls=0;const denied=setup({history:async(stock,target,signal,opts)=>++calls<4?good(stock.code,opts.index):{status:'unavailable',sourceStopped:true,reason:'HTTP429'}});await denied.runner.run(options({mode:'consensus'}));assert.equal(denied.runner.exportDataset(),null);
+});
+test('a new source hold blocks export of previously collected data and incompatible target scopes are rejected',async()=>{
+ let stopped=false;const s=setup({sourceState:()=>({status:stopped?'restricted':'idle',reason:'HTTP418'})});await s.runner.run(options({mode:'consensus'}));assert.ok(s.runner.exportDataset());stopped=true;assert.equal(s.runner.exportDataset(),null);
+ const incompatible=setup();await incompatible.runner.run(options({mode:'market'}));assert.equal(incompatible.runner.getState().status,'complete');assert.equal(incompatible.runner.exportDataset(),null);
+});
+test('dataset failure diagnostics omit source URLs and authentication header values',async()=>{
+ const s=setup({history:async(stock,target,signal,opts)=>opts.index?good(stock.code,true):{status:'unavailable',reason:'读取 https://example.test/?token=private-token 失败\nAuthorization: Bearer hidden-credential'}});
+ await s.runner.run(options({mode:'consensus'}));const data=s.runner.exportDataset();assert.ok(data);assert.doesNotMatch(JSON.stringify(data),/example\.test|private-token|hidden-credential|Bearer/);assert.match(data.records[0].source.reason,/来源地址省略.*Authorization=\[已隐藏\]/);
+});
+test('exported raw dataset reproduces the actual consensus metrics without exported conclusions',async()=>{
+ const actual=require('../screening/trend-screen.js'),s=setup({},actual),state=await s.runner.run(options({mode:'consensus'})),data=s.runner.exportDataset();
+ assert.equal(state.status,'complete');const consensus=actual.buildConsensus({records:data.records.filter(r=>r.source.status==='ready').map(r=>({stock:r.stock,bars:r.source.bars})),calendar:data.reference.bars,lookback:20,day:data.day,expectedCount:data.expectedCount,totalUniverseCount:data.totalUniverseCount});
+ assert.equal(consensus.identified,state.consensus.identified);assert.equal(consensus.commonCount,state.consensus.commonCount);
+ const record=data.records[0],result=actual.evaluate({mode:'consensus',bars:record.source.bars,consensus,lookback:20,day:data.day,code:record.stock.code,limits:options().limits});
+ assert.deepEqual(result.metrics,state.records[0].result.metrics);assert.doesNotMatch(JSON.stringify(data),/"metrics"|"matched"|"consensus"/);
+ const model=require('../control/model.js'),replay=await model.evaluateDataset(data,model.DEFAULT_CONFIG,actual);assert.equal(replay.status,state.status);assert.equal(replay.summary.commonCount,state.consensus.commonCount);assert.deepEqual(replay.records[0].result.metrics,state.records[0].result.metrics);
+});
 class Target{constructor(){this.events={};}addEventListener(k,f){(this.events[k]??=[]).push(f);}removeEventListener(k,f){this.events[k]=(this.events[k]||[]).filter(x=>x!==f);}dispatchEvent(e){for(const f of this.events[e.type]||[])f(e);}}
 class Element extends Target{constructor(tag='div'){super();this.tagName=tag;this.children=[];this.dataset={};this.attrs={};this.value='';this.checked=false;this.own='';}set textContent(v){this.own=String(v);this.children=[];}get textContent(){return this.own+this.children.map(x=>x.textContent).join('');}set innerHTML(_){throw Error('unsafe HTML');}append(...nodes){this.children.push(...nodes);}replaceChildren(...nodes){this.children=nodes;this.own='';}setAttribute(k,v){this.attrs[k]=String(v);}querySelectorAll(q){return q==='[data-trend-mode]'?this.children.filter(x=>x.dataset.trendMode):[];}}
 function dom(){const env=new Target(),ids={},doc={defaultView:env,getElementById:id=>ids[id],createElement:tag=>new Element(tag)};
@@ -76,6 +122,12 @@ const context=(rows=stocks)=>({day,asOf,rows,pageRows:rows,savedRows:rows,allRow
 test('UI has no single reference input and no startup request; independent pool size is explicit',async()=>{
  const d=dom(),s=setup();const app=mount(d.doc,{selection:{getContext:()=>context()},technical:s.technical,engine:s.engine,wait:async()=>{}});
  assert.equal(d.ids['trend-reference'],undefined);assert.equal(s.calls.length,0);assert.match(d.ids['trend-status'].textContent,/市场参考池32|市场参考池 32/);assert.match(d.ids['trend-rules'].textContent,/不需要填写参考股票/);app.destroy();
+});
+test('mounted app exposes dataset and state plus a finished event with no source payload',async()=>{
+ const d=dom(),s=setup(),events=[];d.env.CustomEvent=class{constructor(type,options){this.type=type;this.detail=options.detail;}};
+ d.env.addEventListener('books:trend-run-finished',event=>events.push(event.detail));const app=mount(d.doc,{selection:{getContext:()=>context()},technical:s.technical,engine:s.engine,wait:async()=>{}});
+ assert.equal(app.exportDataset(),null);await app.start('consensus');assert.equal(app.getState().status,'complete');assert.equal(app.exportDataset().expectedCount,32);assert.equal(events.length,1);
+ assert.deepEqual(events[0],{status:'complete',mode:'consensus',day,startedAt:app.getState().startedAt,finishedAt:app.getState().finishedAt});assert.doesNotMatch(JSON.stringify(events),/bars|sourceUrl/);app.destroy();
 });
 test('UI gives consensus coverage and breadth, not a stock benchmark or winner subset',async()=>{
  const d=dom(),s=setup(),app=mount(d.doc,{selection:{getContext:()=>context([stocks[0]])},technical:s.technical,engine:s.engine,wait:async()=>{}});
@@ -96,6 +148,9 @@ test('blank caps fail validation, period changes use defaults while preserving e
  d.ids['trend-max-return'].value='';await app.start('strength');assert.equal(s.calls.length,0);assert.match(d.ids['trend-status'].textContent,/有效的非负数/);
  d.ids['trend-max-return'].value='15';d.ids['trend-lookback'].value='60';d.ids['trend-lookback'].dispatchEvent({type:'change'});assert.equal(d.ids['trend-max-return'].value,'30');
  d.ids['trend-max-return'].value='22';d.ids['trend-lookback'].value='20';d.ids['trend-lookback'].dispatchEvent({type:'change'});assert.equal(d.ids['trend-max-return'].value,'22');app.destroy();
+});
+test('starting with invalid settings clears the previous dataset instead of exporting stale results',async()=>{
+ const d=dom(),s=setup(),app=mount(d.doc,{selection:{getContext:()=>context()},technical:s.technical,engine:s.engine,wait:async()=>{}});await app.start('consensus');assert.ok(app.exportDataset());d.ids['trend-max-return'].value='';await app.start('consensus');assert.equal(app.exportDataset(),null);app.destroy();
 });
 test('scope and changed filters cannot silently keep stale results or broaden non-consensus scans',async()=>{
  const d=dom(),s=setup();let c={...context(),savedRows:[stocks[1]]};const app=mount(d.doc,{selection:{getContext:()=>c},technical:s.technical,engine:s.engine,wait:async()=>{}});
