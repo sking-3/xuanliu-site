@@ -3,10 +3,27 @@
 const IDS=['sentiment','valuation','flows','active','macro'];
 const MAX_BYTES=262144;
 const MAX_AGE_DAYS={sentiment:3,valuation:45,flows:120,active:2/24,macro:45};
-const LABELS={sentiment:'市场温度',valuation:'核心估值',flows:'跨境资金',active:'活跃标的',macro:'宏观速递'};
+const LABELS={sentiment:'加密情绪',valuation:'核心估值',flows:'跨境资金',active:'活跃标的',macro:'宏观速递'};
 const SCOPES={sentiment:'比特币 · 恐惧与贪婪',valuation:'沪深300 · 月末事实表',flows:'美国长期证券 · 月度净买入',active:'加密资产 · 24小时成交额',macro:'中国宏观 · 国家统计局发布'};
 const CADENCE={sentiment:'日度情绪指标 · 非盘中报价',valuation:'月末估值 · 随来源事实表发布',flows:'月度统计 · 不代表盘中资金流',active:'成交额快照 · 盘中报价见行情区',macro:'中文官方发布 · 非盘中行情'};
 const HOSTS=['alternative.me','csindex.com.cn','treasury.gov','bls.gov','stats.gov.cn'];
+const SOURCES={
+  sentiment:['Alternative.me','https://alternative.me/crypto/fear-and-greed-index/'],
+  valuation:['中证指数','https://oss-ch.csindex.com.cn/static/html/csindex/public/uploads/indices/detail/files/zh_CN/000300factsheet.pdf'],
+  flows:['美国财政部 TIC','https://home.treasury.gov/data/treasury-international-capital-tic-system-home-page/tic-forms-instructions/securities-a-us-transactions-with-foreign-residents-in-long-term-securities'],
+  active:['Alternative.me','https://alternative.me/crypto/'],
+  macro:['国家统计局','https://www.stats.gov.cn/sj/zxfb/']
+};
+function unavailableCard(id,errorCode){
+  const [sourceName,sourceUrl]=SOURCES[id];
+  return {status:'unavailable',sourceName,sourceUrl,sourceUpdatedAt:null,fetchedAt:null,lastAttemptAt:null,asOf:null,errorCode,data:null};
+}
+function readFailure(code){const error=Error('Market snapshot could not be read');error.snapshotCode=code;throw error;}
+function failureCode(error){return /^(?:snapshot_(?:content_type|too_large|invalid_encoding|invalid_json|invalid_card|older|origin|body)|snapshot_http_[1-5]\d\d)$/.test(error?.snapshotCode||'')?error.snapshotCode:'snapshot_unreachable';}
+function errorLabel(code){
+  if(/^snapshot_http_[1-5]\d\d$/.test(code||''))return '站内快照返回 HTTP '+code.slice(-3);
+  return ({snapshot_content_type:'站内快照响应格式不正确',snapshot_too_large:'站内快照超过大小限制',snapshot_invalid_encoding:'站内快照编码无效',snapshot_invalid_json:'站内快照不是有效 JSON',snapshot_invalid_card:'该项快照未通过数据校验',snapshot_older:'站内快照时间回退',snapshot_origin:'站内快照地址不匹配',snapshot_body:'站内快照没有响应正文',snapshot_unreachable:'站内快照无法读取'})[code]||'暂无有效快照';
+}
 function fail(){throw Error('Invalid market overview snapshot');}
 function plain(v){return v!==null&&typeof v==='object'&&!Array.isArray(v);}
 function str(v,max=160){if(typeof v!=='string'||!v.trim()||v.length>max)fail();return v.trim();}
@@ -80,9 +97,9 @@ function cardState(id,c,now=Date.now(),readFailed=false){
 function cardStateLabel(state,readFailed=false){
   if(state==='ready')return '已更新';
   if(state==='stale')return readFailed?'读取失败 · 保留旧值':'历史快照 · 待更新';
-  return readFailed?'来源读取失败':'暂无可核验数据';
+  return readFailed?'站内快照读取失败':'暂无可核验数据';
 }
-function dateLabel(v,time=false){return new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',month:'2-digit',day:'2-digit',...(time?{hour:'2-digit',minute:'2-digit',hour12:false}:{year:'numeric'})}).format(new Date(v));}
+function dateLabel(v,time=false,withYear=!time){return new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',month:'2-digit',day:'2-digit',...(withYear?{year:'numeric'}:{}),...(time?{hour:'2-digit',minute:'2-digit',hour12:false}:{})}).format(new Date(v));}
 function decimal(v,n=2){return v.toLocaleString('zh-CN',{minimumFractionDigits:n,maximumFractionDigits:n});}
 function signed(v,n=2){return (v>0?'+':'')+decimal(v,n);}
 function compactUsd(v){return v>=1e8?decimal(v/1e8)+' 亿美元':v>=1e4?decimal(v/1e4)+' 万美元':decimal(v)+' 美元';}
@@ -151,18 +168,20 @@ function renderCard(doc,host,id,c,now,readFailed){
       for(const e of events){const a=anchor(doc,eventTitle(e.title),e.url,'insight-event');a.append(node(doc,'time',dateLabel(e.startAt,true)+' 北京时间'));body.append(a);}
       if(!events.length&&foreignMacro)body.append(node(doc,'p','暂无未来已核验发布，等待下一次官方日历更新','insight-caption'));
     }
-  }else body.append(node(doc,'p',status==='stale'?'最近一次快照已过期，等待来源恢复':readFailed?'本次来源读取失败，未取得可用快照':'来源返回成功，但没有可核验数据','insight-empty'));
+  }else body.append(node(doc,'p',readFailed?errorLabel(c.errorCode)+'，尚无有效快照。可打开来源核对。':'暂无可核验数据，可打开来源查看发布情况。','insight-empty'));
   const cadenceText=foreignMacro?'中文快照暂不可用 · 美国官方备用来源':CADENCE[id];
-  const cadence=node(doc,'p',cadenceText+(c.errorCode?(c.errorCode==='http_403'||c.errorCode==='http_429'?' · 来源访问已停止':' · 本次读取失败，保留旧值'):''),'insight-cadence');
+  const cadence=node(doc,'p',cadenceText+(c.errorCode?(c.errorCode==='http_403'||c.errorCode==='http_429'?' · 来源访问已停止':c.data?' · 本次读取失败，保留旧值':''):''),'insight-cadence');
   const foot=node(doc,'footer',undefined,'insight-footer');foot.append(anchor(doc,c.sourceName+' ↗',c.sourceUrl,'insight-source'));
-  if(c.asOf){const time=node(doc,'time','截至 '+dateLabel(c.asOf,id==='active'),'insight-asof');time.dateTime=c.asOf;time.setAttribute('title','来源统计时间（北京时间）；采集于 '+dateLabel(c.fetchedAt,true)+(c.sourceUpdatedAt?'；来源更新 '+dateLabel(c.sourceUpdatedAt,true):''));foot.append(time);}
+  if(c.asOf){const time=node(doc,'time','数据截至 '+dateLabel(c.asOf,id==='active',true),'insight-asof');time.dateTime=c.asOf;time.setAttribute('title','来源统计时间（北京时间）'+(c.sourceUpdatedAt?'；来源更新 '+dateLabel(c.sourceUpdatedAt,true,true):''));foot.append(time);}
+  else foot.append(node(doc,'span','数据时间未提供','insight-asof'));
+  if(c.fetchedAt){const time=node(doc,'time','采集 '+dateLabel(c.fetchedAt,true,true)+'（北京）','insight-fetched');time.dateTime=c.fetchedAt;foot.append(time);}
   host.setAttribute('data-state',status);host.setAttribute('aria-busy','false');host.replaceChildren(head,scope,body,cadence,foot);
 }
 function mount(doc,options={}){
   const root=doc.getElementById('market-insights');if(!root)return null;
   const hosts=Object.fromEntries(IDS.map(id=>[id,doc.getElementById('insight-'+id)]));if(IDS.some(id=>!hosts[id]))return null;
   const fetcher=options.fetch||global.fetch.bind(global),now=options.now||Date.now;
-  let aggregate=null,chinese=null,inflight=null,aggregateFailed=false,chineseFailed=false;
+  let aggregate=null,chinese=null,inflight=null,aggregateFailed=false,chineseFailed=false,aggregateError=null,chineseError=null,cardErrors={};
   function getSnapshot(){
     if(!aggregate||!chinese)return aggregate;
     const generatedAt=Date.parse(chinese.generatedAt)>Date.parse(aggregate.generatedAt)?chinese.generatedAt:aggregate.generatedAt;
@@ -173,49 +192,70 @@ function mount(doc,options={}){
     for(const id of IDS){
       const source=id==='macro'&&chinese?chinese.card:aggregate?.cards[id];
       if(source){
-        const failed=id==='macro'?(chineseFailed||(!chinese&&aggregateFailed)):aggregateFailed;
+        const failed=id==='macro'&&chinese?chineseFailed:aggregateFailed||!!cardErrors[id]||(id==='macro'&&chineseFailed);
         renderCard(doc,hosts[id],id,source,now(),failed);
       }else{
-        hosts[id].setAttribute('aria-busy','false');
-        const state=hosts[id].querySelector('.insight-state');
-        if(state)state.textContent=aggregateFailed||chineseFailed?'来源读取失败':'暂未取得数据';
-        hosts[id].dataset.state=aggregateFailed||chineseFailed?'unavailable':'loading';
+        const error=id==='macro'?(chineseError||aggregateError):aggregateError;
+        renderCard(doc,hosts[id],id,unavailableCard(id,error),now(),!!error);
       }
     }
     if(focusId&&href){const replacement=[...hosts[focusId].querySelectorAll('a')].find(a=>a.href===href);replacement?.focus();}
   }
   async function readJson(path,signal){
+    if(path!=='market-overview.json'&&path!=='macro-cn.json')readFailure('snapshot_origin');
     const response=await fetcher(path,{cache:'no-cache',credentials:'omit',redirect:'error',signal});
-    if(!response.ok||!/application\/(?:[\w.+-]*\+)?json(?:;|$)/i.test(response.headers.get('content-type')||'')||Number(response.headers.get('content-length'))>MAX_BYTES)fail();
+    const expected=global.location?new URL(path,global.location.href):null;
+    if(expected&&response.url&&response.url!==expected.href)readFailure('snapshot_origin');
+    if(!response.ok)readFailure('snapshot_http_'+response.status);
+    // The VPS previously served these exact JSON files as octet-stream. Accept
+    // that MIME only here; strict UTF-8, JSON and per-card validation still apply.
+    const type=response.headers.get('content-type')||'';
+    if(!/^application\/(?:(?:[\w.+-]*\+)?json|octet-stream)(?:\s*;|$)/i.test(type))readFailure('snapshot_content_type');
+    if(Number(response.headers.get('content-length'))>MAX_BYTES)readFailure('snapshot_too_large');
+    if(!response.body)readFailure('snapshot_body');
     const reader=response.body.getReader(),chunks=[];
     let bytes=0;
     for(;;){
       const {done,value}=await reader.read();
       if(done)break;
       bytes+=value.byteLength;
-      if(bytes>MAX_BYTES){await reader.cancel();fail();}
+      if(bytes>MAX_BYTES){await reader.cancel();readFailure('snapshot_too_large');}
       chunks.push(value);
     }
     const payload=new Uint8Array(bytes);let offset=0;
     for(const chunk of chunks){payload.set(chunk,offset);offset+=chunk.byteLength;}
-    const decoded=new TextDecoder('utf-8',{fatal:true}).decode(payload);
-    return JSON.parse(decoded);
+    let decoded;
+    try{decoded=new TextDecoder('utf-8',{fatal:true}).decode(payload);}catch(_){readFailure('snapshot_invalid_encoding');}
+    try{return JSON.parse(decoded);}catch(_){readFailure('snapshot_invalid_json');}
   }
   function regresses(before,after){
     return !!before?.data&&(!after.data||Date.parse(after.fetchedAt)<Date.parse(before.fetchedAt)||Date.parse(after.asOf)<Date.parse(before.asOf));
   }
   async function readAggregate(signal){
-    const next=validate(await readJson('market-overview.json',signal),now());
-    if(aggregate&&Date.parse(next.generatedAt)<Date.parse(aggregate.generatedAt))fail();
+    const payload=await readJson('market-overview.json',signal),checkedAt=now();
+    if(!plain(payload)||payload.schemaVersion!==1||!plain(payload.cards))readFailure('snapshot_invalid_card');
+    let generatedAt;try{generatedAt=stamp(payload.generatedAt,checkedAt);}catch(_){readFailure('snapshot_invalid_card');}
+    if(aggregate&&Date.parse(generatedAt)<Date.parse(aggregate.generatedAt))readFailure('snapshot_older');
+    const next={schemaVersion:1,generatedAt,cards:{}},errors={};
+    for(const id of IDS){
+      try{next.cards[id]=validateCard(id,payload.cards[id],generatedAt,checkedAt);}
+      catch(_){
+        errors[id]='snapshot_invalid_card';
+        const before=aggregate?.cards[id];
+        next.cards[id]=before?.data?{...before,status:'stale',errorCode:'snapshot_invalid_card'}:unavailableCard(id,'snapshot_invalid_card');
+      }
+    }
     if(aggregate)for(const id of IDS){
       const before=aggregate.cards[id],after=next.cards[id];
       if(regresses(before,after))next.cards[id]={...before,status:'stale',lastAttemptAt:after.lastAttemptAt,errorCode:after.errorCode||'older_snapshot'};
     }
     aggregate=next;
+    cardErrors=errors;
   }
   async function readChinese(signal){
-    const next=chineseRelease(await readJson('macro-cn.json',signal),now());
-    if(chinese&&(Date.parse(next.generatedAt)<Date.parse(chinese.generatedAt)||regresses(chinese.card,next.card)))fail();
+    const payload=await readJson('macro-cn.json',signal);let next;
+    try{next=chineseRelease(payload,now());}catch(_){readFailure('snapshot_invalid_card');}
+    if(chinese&&(Date.parse(next.generatedAt)<Date.parse(chinese.generatedAt)||regresses(chinese.card,next.card)))readFailure('snapshot_older');
     chinese=next;
   }
   async function read(){
@@ -224,6 +264,8 @@ function mount(doc,options={}){
       const [overview,release]=await Promise.allSettled([readAggregate(controller.signal),readChinese(controller.signal)]);
       aggregateFailed=overview.status==='rejected';
       chineseFailed=release.status==='rejected';
+      aggregateError=aggregateFailed?failureCode(overview.reason):null;
+      chineseError=chineseFailed?failureCode(release.reason):null;
       render();
     }finally{clearTimeout(timer);}
   }

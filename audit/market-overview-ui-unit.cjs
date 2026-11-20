@@ -71,6 +71,56 @@ await test('both same-origin snapshots share one timeout and coalesce overlappin
   assert.doesNotMatch(ids['insight-macro'].textContent,/BLS|美国|日历更新/);
  }finally{app.destroy();}
 });
+await test('stored source snapshots render through the VPS octet-stream MIME without changing their data times',async()=>{
+ const root=path.join(__dirname,'..'),overview=JSON.parse(fs.readFileSync(path.join(root,'market-overview.json'),'utf8')),macro=JSON.parse(fs.readFileSync(path.join(root,'macro-cn.json'),'utf8'));
+ const checked=Math.max(Date.now(),Date.parse(overview.generatedAt),Date.parse(macro.generatedAt))+1000;
+ const expected=API.validate(overview,checked),merged=API.macroSnapshot(macro,expected,checked);
+ const {doc,ids}=dom(),app=API.mount(doc,{now:()=>checked,fetch:async url=>new Response(JSON.stringify(url==='macro-cn.json'?macro:overview),{headers:{'content-type':'application/octet-stream; charset=utf-8'}})});
+ try{
+  await app.refresh();const actual=app.getSnapshot();
+  assert.deepEqual(actual.cards.sentiment.data,expected.cards.sentiment.data);
+  assert.equal(actual.cards.sentiment.asOf,expected.cards.sentiment.asOf);
+  assert.equal(actual.cards.macro.asOf,merged.cards.macro.asOf);
+  assert.equal(actual.cards.macro.fetchedAt,merged.cards.macro.fetchedAt);
+  assert.match(ids['insight-sentiment'].textContent,/加密情绪/);
+  assert.ok(ids['insight-sentiment'].textContent.includes(String(expected.cards.sentiment.data.value)));
+  assert.ok(ids['insight-macro'].textContent.includes(merged.cards.macro.data.latest.title));
+  assert.equal(ids['insight-macro'].querySelector('.insight-fetched').dateTime,merged.cards.macro.fetchedAt);
+  assert.match(ids['insight-macro'].textContent,/数据截至.*采集.*2026/);
+ }finally{app.destroy();}
+});
+await test('octet-stream does not make invalid JSON or invalid UTF-8 into usable snapshots',async()=>{
+ for(const kind of ['html-body','invalid-encoding']){
+  const {doc,ids}=dom(),body=kind==='html-body'?'<h1>Not a snapshot</h1>':new Uint8Array([0xff,0xfe]);
+  const app=API.mount(doc,{now:()=>T,fetch:async()=>new Response(body,{headers:{'content-type':'application/octet-stream'}})});
+  try{await app.refresh();assert.equal(app.getSnapshot(),null);assert.match(ids['insight-sentiment'].textContent,kind==='html-body'?/不是有效 JSON/:/编码无效/);assert.doesNotMatch(ids['insight-sentiment'].textContent,/0%|采集 /);}finally{app.destroy();}
+ }
+});
+await test('one invalid or missing card cannot clear independent valid cards, while publication validation stays strict',async()=>{
+ const {doc,ids}=dom(),broken=fixture();broken.cards.sentiment.data.value=101;delete broken.cards.valuation;
+ assert.throws(()=>API.validate(broken,T));
+ const app=API.mount(doc,{now:()=>T,fetch:async url=>response(url==='macro-cn.json'?chineseFixture():broken)});
+ try{
+  await app.refresh();
+  assert.equal(ids['insight-sentiment'].dataset.state,'unavailable');assert.match(ids['insight-sentiment'].textContent,/未通过数据校验/);
+  assert.equal(ids['insight-valuation'].dataset.state,'unavailable');assert.match(ids['insight-valuation'].textContent,/中证指数/);
+  assert.equal(ids['insight-flows'].dataset.state,'ready');assert.match(ids['insight-flows'].textContent,/3,007.24/);
+  assert.equal(ids['insight-active'].dataset.state,'ready');assert.match(ids['insight-active'].textContent,/USDT/);
+  assert.equal(ids['insight-macro'].dataset.state,'ready');assert.match(ids['insight-macro'].textContent,/国家统计局最新发布/);
+ }finally{app.destroy();}
+});
+await test('an invalid card preserves its last good value and timestamps while other valid cards advance',async()=>{
+ const {doc,ids}=dom();let p=fixture();
+ const app=API.mount(doc,{now:()=>T+60000,fetch:async url=>response(url==='macro-cn.json'?chineseFixture():p)});
+ try{
+  await app.refresh();const original=clone(app.getSnapshot().cards.sentiment);
+  p=fixture();p.generatedAt=iso(T+30000);p.cards.sentiment.data.value=101;p.cards.sentiment.fetchedAt=iso(T+30000);p.cards.valuation.data.pe=14;
+  await app.refresh();const saved=app.getSnapshot().cards.sentiment;
+  assert.deepEqual(saved.data,original.data);assert.equal(saved.fetchedAt,original.fetchedAt);assert.equal(saved.asOf,original.asOf);
+  assert.equal(ids['insight-sentiment'].dataset.state,'stale');assert.match(ids['insight-sentiment'].textContent,/读取失败 · 保留旧值/);
+  assert.equal(ids['insight-valuation'].dataset.state,'ready');assert.match(ids['insight-valuation'].textContent,/14.00/);
+ }finally{app.destroy();}
+});
 await test('an independent release advances with unchanged or failed aggregate and cannot roll back',async()=>{
  const {doc,ids}=dom();let published=T-3600000,checked=T,aggregateDown=false,releaseDown=false;
  const app=API.mount(doc,{now:()=>T+60000,fetch:async url=>{
@@ -94,7 +144,7 @@ await test('an unavailable aggregate on first load still displays the Chinese re
  const {doc,ids}=dom();const app=API.mount(doc,{now:()=>T,fetch:async url=>{
   if(url==='macro-cn.json')return response(chineseFixture());throw Error('offline');
  }});
- try{await app.refresh();assert.match(ids['insight-macro'].textContent,/国家统计局最新发布/);assert.match(ids['insight-valuation'].textContent,/来源读取失败/);assert.equal(ids['insight-valuation'].dataset.state,'unavailable');}finally{app.destroy();}
+ try{await app.refresh();assert.match(ids['insight-macro'].textContent,/国家统计局最新发布/);assert.match(ids['insight-valuation'].textContent,/站内快照读取失败/);assert.equal(ids['insight-valuation'].dataset.state,'unavailable');}finally{app.destroy();}
 });
 await test('the fallback identifies its actual source when no Chinese snapshot can be validated',async()=>{
  const {doc,ids}=dom();const invalid=chineseFixture();invalid.card.data.latest.url='https://www.bls.gov/';
@@ -107,8 +157,8 @@ await test('a missed daily collection is distinct from a quiet publication day',
 });
 await test('network failure retains last good values and visibly marks them stale',async()=>{const {doc,ids}=dom();let failed=false;const app=API.mount(doc,{now:()=>T,fetch:async()=>{if(failed)throw Error('offline');return response(fixture());}});try{await app.refresh();failed=true;await app.refresh();assert.match(ids['insight-sentiment'].textContent,/32/);assert.equal(ids['insight-sentiment'].attrs['data-state'],'stale');assert.match(ids['insight-sentiment'].textContent,/读取失败 · 保留旧值/);}finally{app.destroy();}});
 await test('generation rollback and per-card older statistics never replace successful values',async()=>{const {doc,ids}=dom();let p=fixture();const app=API.mount(doc,{now:()=>T+60000,fetch:async()=>response(p)});try{await app.refresh();p=fixture();p.generatedAt=iso(T-60000);p.cards.sentiment.data.value=1;await app.refresh();assert.equal(app.getSnapshot().cards.sentiment.data.value,32);p=fixture();p.generatedAt=iso(T+30000);p.cards.sentiment.data.value=2;p.cards.sentiment.asOf=iso(T-7200000);await app.refresh();assert.equal(app.getSnapshot().cards.sentiment.data.value,32);assert.equal(ids['insight-sentiment'].attrs['data-state'],'stale');}finally{app.destroy();}});
-await test('failed first read leaves values empty and oversized or HTML responses fail closed',async()=>{for(const kind of ['html','oversized']){const {doc,ids}=dom();const app=API.mount(doc,{now:()=>T,fetch:async()=>kind==='html'?new Response('<h1>error</h1>',{headers:{'content-type':'text/html'}}):new Response('x'.repeat(API.MAX_BYTES+1),{headers:{'content-type':'application/json'}})});try{await app.refresh();assert.equal(app.getSnapshot(),null);assert.match(ids['insight-active'].textContent,/来源读取失败/);assert.equal(ids['insight-active'].dataset.state,'unavailable');assert.doesNotMatch(ids['insight-active'].textContent,/USDT|0%/);}finally{app.destroy();}}});
+await test('failed first read renders an explanation and source without invented values; HTML and oversized responses fail closed',async()=>{for(const kind of ['html','oversized']){const {doc,ids}=dom();const app=API.mount(doc,{now:()=>T,fetch:async()=>kind==='html'?new Response('<h1>error</h1>',{headers:{'content-type':'text/html'}}):new Response('x'.repeat(API.MAX_BYTES+1),{headers:{'content-type':'application/json'}})});try{await app.refresh();assert.equal(app.getSnapshot(),null);const host=ids['insight-active'];assert.match(host.textContent,/站内快照读取失败/);assert.match(host.textContent,kind==='html'?/响应格式不正确/:/超过大小限制/);assert.match(host.textContent,/数据时间未提供/);assert.equal(host.querySelector('a').href,'https://alternative.me/crypto/');assert.equal(host.dataset.state,'unavailable');assert.doesNotMatch(host.textContent,/USDT|0%|采集 /);}finally{app.destroy();}}});
 await test('successful reload clears stale state while retaining source-link keyboard focus',async()=>{const {doc,ids}=dom();let failed=false;const app=API.mount(doc,{now:()=>T,fetch:async()=>{if(failed)throw Error('offline');return response(fixture());}});try{await app.refresh();const link=ids['insight-sentiment'].querySelector('a');link.focus();failed=true;await app.refresh();assert.equal(doc.activeElement.href,link.href);failed=false;await app.refresh();assert.equal(ids['insight-sentiment'].attrs['data-state'],'ready');assert.equal(doc.activeElement.href,link.href);}finally{app.destroy();}});
 await test('page integration retains existing markets and allows only same-origin snapshot connections',()=>{const root=path.join(__dirname,'..'),html=fs.readFileSync(path.join(root,'index.html'),'utf8'),css=fs.readFileSync(path.join(root,'market-overview.css'),'utf8');assert.equal((html.match(/data-feed-config/g)||[]).length,3);assert.equal((html.match(/class="market-insight(?: pulse-card)?"/g)||[]).length,5);assert.match(html,/connect-src 'self'(?: [^;]+)?;/);assert.match(html,/data-local-feed="crypto"/);assert.match(html,/market-overview\.js/);assert.match(css,/repeat\(5,minmax\(0,1fr\)\)/);assert.match(css,/@media\(max-width:520px\)/);});
-console.log('PASS '+count+' market overview UI checks. Offline synthetic fixtures only.');
+console.log('PASS '+count+' market overview UI checks. Stored snapshots and synthetic failure fixtures; no external requests.');
 })().catch(error=>{console.error(error);process.exitCode=1;});

@@ -18,6 +18,6 @@ assert.equal(api.cardState('macro', base, now, false), 'ready');
 assert.equal(api.cardState('macro', base, now, true), 'stale');
 assert.equal(api.cardStateLabel('stale', true), '读取失败 · 保留旧值');
 assert.equal(api.cardState('macro', { ...base, data: null }, now, true), 'unavailable');
-assert.equal(api.cardStateLabel('unavailable', true), '来源读取失败');
+assert.equal(api.cardStateLabel('unavailable', true), '站内快照读取失败');
 assert.equal(api.cardStateLabel('unavailable', false), '暂无可核验数据');
 console.log('market overview state tests passed');
