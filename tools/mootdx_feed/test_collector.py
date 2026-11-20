@@ -32,6 +32,14 @@ class CollectorTests(unittest.TestCase):
         access = patch.object(c, "require_source_access")
         access.start()
         self.addCleanup(access.stop)
+        # Existing parser/local-filesystem cases bypass both closed gates.
+        # Shared CAS and cross-entry integration are tested in test_tdx_source_guard.
+        transport = patch.object(c, "source_call", side_effect=lambda fn, *a, **k: fn(*a, **k))
+        transport.start()
+        self.addCleanup(transport.stop)
+        shared = patch.object(c.shared_tdx, "require_tdx_access")
+        shared.start()
+        self.addCleanup(shared.stop)
         # Every test blocks raw sockets even when testing the real pinned parser.
         self.socket = patch("socket.socket.connect", side_effect=AssertionError("Unexpected network"))
         self.socket.start()
@@ -538,6 +546,37 @@ class CollectorTests(unittest.TestCase):
             from mootdx.reader import Reader
             self.assertTrue(callable(Quotes.factory))
             self.assertTrue(callable(Reader.factory))
+
+
+    def test_legacy_ready_guard_uses_real_pinned_fixed_parser_only(self):
+        from mootdx import config, quotes
+        from tools.stock_research import a_share_sources as legacy
+        from tools.test_tdx_source_guard import SQLiteFixture
+        from tools import tdx_source_guard as guard
+        store = SQLiteFixture(self.root / "legacy-synthetic.sqlite")
+        store.seed({"schema": guard.SCHEMA, "source": guard.SOURCE, "state": "ready"})
+        ready = guard.Guard(store, migration_complete=True)
+        transport = Mock()
+        transport.connect.return_value = True
+        transport.get_security_bars.return_value = [BAR]
+        with patch.object(guard, "PRODUCTION_GUARD", ready), \
+                patch.object(guard, "require_tdx_access", side_effect=ready.check), \
+                patch.object(c, "source_call", side_effect=guard.source_call), \
+                patch.dict(os.environ, {"BOOKS_TDX_SERVER": "192.0.2.1:7709"}), \
+                patch.object(config, "setup", side_effect=AssertionError("bootstrap")) as setup, \
+                patch.object(config, "bestip", side_effect=AssertionError("scan")) as scan, \
+                patch.object(quotes, "check_server", side_effect=AssertionError("scan")) as check, \
+                patch.object(quotes.Quotes, "factory", side_effect=AssertionError("old factory")) as factory, \
+                patch.object(quotes, "TdxHq_API", return_value=transport) as api:
+            result = legacy.Provider("mootdx").daily("600519.SH", "2026-11-01", "2026-11-16")
+            self.assertEqual(result[0]["close"], 11.0)
+            api.assert_called_once_with(heartbeat=False, auto_retry=False, raise_exception=True)
+            transport.connect.assert_called_once_with("192.0.2.1", 7709, time_out=10)
+            # The pinned SDK caps the requested 1000 rows to its 800-row limit.
+            transport.get_security_bars.assert_called_once_with(9, 1, "600519", 0, 800)
+            for forbidden in (setup, scan, check, factory):
+                forbidden.assert_not_called()
+        self.assertEqual(store.read(guard.SOURCE)[1]["state"], "ready")
 
 
 class SourceAccessTests(unittest.TestCase):
