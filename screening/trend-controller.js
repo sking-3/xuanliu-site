@@ -232,10 +232,14 @@
    const count={checked:state.records.length,matched:state.records.filter(r=>r.result.status==='ready'&&r.result.matched).length,missing:state.records.filter(r=>r.result.status==='unavailable').length,excluded:state.records.filter(r=>r.result.excluded).length};
    const date=state.day||'未取得',co=state.consensus;
    let progress=state.mode?`${names[state.mode]} · 本站日终缓存 ${date} · 已载入 ${count.checked}/${state.total} 只 · 命中 ${count.matched} · 过热排除 ${count.excluded} · 资料不足 ${count.missing}`:`本站日终缓存 · 指数/转强范围 ${rows(c).length} 只`;
-   if(state.mode==='consensus')progress+=` · ${state.fullMarket?'完整池':'分层样本'} ${state.total}/${state.marketUniverseCount}`;
+   if(state.mode==='consensus'&&state.generation)progress+=` · ${state.fullMarket?'完整池':'分层样本'} ${state.total}/${state.marketUniverseCount}`;
+   if(!state.generation){
+    progress=(names[state.mode]||'走势筛选')+' · '+(running?'正在读取本站结果':'尚无已完成批次');
+    if(state.attempt)progress+=` · 后台目标 ${state.attempt.day||'待核验'} · 已处理 ${state.attempt.checked}/${state.attempt.total} 只 · 有效 ${state.attempt.ready} 只`;
+   }
    progress+=state.reason?' · '+state.reason:running?' · 正在读取本站结果':state.status==='complete'?' · 缓存核验完成':'';
    if(state.lastSuccess)progress+=' · 最近完成 '+stamp(state.lastSuccess.finishedAt)+'（北京）';
-   if(state.attempt?.error)progress+=' · 最近采集：'+state.attempt.error;
+   if(state.attempt?.error&&state.attempt.error!==state.reason)progress+=' · 最近采集：'+state.attempt.error;
    else if(state.attempt?.status==='running')progress+=' · 后台采集 '+(state.attempt.checked||0)+'/'+(state.attempt.total||'—')+' 只';
    el('trend-status').textContent=progress;
    const medianReturn=co?.medianReturns?.length&&co.medianReturns.every(Number.isFinite)?(co.medianReturns.reduce((v,r)=>v*(1+r),1)-1)*100:NaN;
@@ -258,7 +262,7 @@
     body.append(tr);
    }
    if(!body.children.length){const tr=doc.createElement('tr'),td=add(tr,state.mode==='consensus'&&state.phase==='collecting'?'参考池尚未完成，暂不展示市场共性名单。':state.records.length?'当前显示条件下暂无记录；关闭“只看命中”可查看过热排除、资料不足与未命中。':state.reason||'尚未运行走势筛选。');td.colSpan=6;body.append(tr);}
-   el('trend-count').textContent=`显示 ${visible.length} 条 · 命中 ${count.matched} · 过热排除 ${count.excluded} · 资料不足 ${count.missing}`;
+   el('trend-count').textContent=state.generation?`显示 ${visible.length} 条 · 命中 ${count.matched} · 过热排除 ${count.excluded} · 资料不足 ${count.missing}`:'尚无可显示的完整结果';
    el('trend-page').textContent=visible.length?`${page+1} / ${Math.ceil(visible.length/20)}`:'0 / 0';el('trend-prev').disabled=page===0;el('trend-next').disabled=(page+1)*20>=visible.length;
   }
   const runner=createCachedRunner({env,engine,model:options.model||env.BooksControlModel,onUpdate:value=>{
