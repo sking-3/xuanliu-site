@@ -1,0 +1,36 @@
+# TEMPLATE ONLY: copy the observer files to tools/hl-focus-observer before use.
+# Manual, bounded read-only smoke; it has no schedules or successor dispatch.
+name: Hyperliquid focus read-only smoke
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'tools/hl-focus-observer/**'
+      - '.github/workflows/hl-focus-observer-smoke.yml'
+permissions:
+  contents: read
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Test observer
+        run: node --test tools/hl-focus-observer/observer.test.mjs
+      - name: Read one public WebSocket snapshot for up to 20 seconds
+        env:
+          HL_FOCUS_SMOKE_REPORT: ${{ runner.temp }}/hl-focus-smoke.json
+        run: node tools/hl-focus-observer/smoke.mjs
+      - name: Preserve summary without raw trades
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hl-focus-read-only-smoke
+          path: ${{ runner.temp }}/hl-focus-smoke.json
+          if-no-files-found: warn
+          retention-days: 3
