@@ -43,3 +43,32 @@
   .pulse-card .pulse-host[data-pulse-state=loading]{height:88px!important}
   .pulse-card .pulse-host[data-pulse-state=loading]::after{font-size:10px}
 }
+
+/* Source methods stay available without expanding the first-screen dashboard. */
+.books-shell .market-methods{margin:12px 0 0;border:1px solid #d8e1e5;border-radius:10px;background:#fff;color:#253b48}
+.market-methods>summary{display:list-item;cursor:pointer;padding:12px 16px;font-size:13px;font-weight:650;line-height:1.5;min-height:44px;box-sizing:border-box}
+.market-methods-summary{margin-inline-start:12px;color:#53677a;font-size:12px;font-weight:400}
+.market-methods-content{padding:0 16px 16px}
+.market-methods-intro,.market-methods-note{max-width:90ch;font-size:12px;line-height:1.8;color:#52677a;margin:2px 0 14px}
+.market-methods-note{margin:14px 0 0}
+.market-methods-table{border-collapse:collapse;width:100%;table-layout:fixed;text-align:left;font-size:12px;line-height:1.7}
+.market-methods-table th,.market-methods-table td{padding:10px 12px;vertical-align:top;border-bottom:1px solid #e2e8ed;overflow-wrap:anywhere}
+.market-methods-table thead th{font-weight:650;background:#f5f7f8;color:#435b6d}
+.market-methods-table thead th:first-child{width:17%}.market-methods-table thead th:nth-child(2){width:28%}
+.market-methods-table tbody th{font-weight:650}.market-methods-table tbody th span{display:block;font-size:11px;font-weight:400;color:#566d7e}
+.market-methods-table tbody tr:last-child>*{border-bottom:0}
+.market-methods-table a{display:inline-block;margin-inline-end:10px;color:#315f85;text-underline-offset:3px}
+.market-methods :is(summary,a):focus-visible{outline:2px solid #315f85;outline-offset:3px;border-radius:3px}
+.market-methods .sr-only{position:absolute;width:1px;height:1px;clip-path:inset(50%);overflow:hidden;white-space:nowrap}
+.books-shell .market-insight .insight-fetched{color:#53677a;font-variant-numeric:tabular-nums}
+.books-shell .pulse-saved[data-state=ready] .insight-state{display:none}
+@media(max-width:640px){
+ .market-methods>summary{font-size:14px;padding:12px}.market-methods-summary{display:block;margin:3px 0 0;font-size:12px}
+ .market-methods-content{padding:0 12px 12px}.market-methods-intro,.market-methods-note{font-size:13px}
+ .market-methods-table,.market-methods-table tbody,.market-methods-table tr,.market-methods-table th,.market-methods-table td{display:block;width:auto}
+ .market-methods-table thead{position:absolute;width:1px;height:1px;clip-path:inset(50%);overflow:hidden}
+ .market-methods-table tbody tr{padding:10px 0;border-bottom:1px solid #e2e8ed}.market-methods-table tbody tr:last-child{border-bottom:0}
+ .market-methods-table tbody th,.market-methods-table td{border:0;padding:2px 0;font-size:13px}
+ .market-methods-table tbody th span{display:inline;margin-inline-start:8px;font-size:12px}
+ .market-methods-table a{padding:7px 0;line-height:1.8}
+}
