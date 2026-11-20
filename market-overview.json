@@ -1,31 +1,31 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-11-13T14:31:49Z",
+  "generatedAt": "2026-11-20T04:57:54Z",
   "cards": {
     "sentiment": {
       "status": "ready",
       "sourceName": "Alternative.me",
       "sourceUrl": "https://alternative.me/crypto/fear-and-greed-index/",
-      "sourceUpdatedAt": "2026-11-13T00:00:00Z",
-      "fetchedAt": "2026-11-13T14:31:33Z",
-      "lastAttemptAt": "2026-11-13T14:31:31Z",
-      "asOf": "2026-11-13T00:00:00Z",
+      "sourceUpdatedAt": "2026-11-20T00:00:00Z",
+      "fetchedAt": "2026-11-20T04:57:37Z",
+      "lastAttemptAt": "2026-11-20T04:57:36Z",
+      "asOf": "2026-11-20T00:00:00Z",
       "errorCode": null,
       "data": {
-        "value": 20,
-        "previous": 28,
+        "value": 12,
+        "previous": 10,
         "classification": "Extreme Fear"
       }
     },
     "valuation": {
-      "status": "stale",
+      "status": "ready",
       "sourceName": "中证指数",
       "sourceUrl": "https://oss-ch.csindex.com.cn/static/html/csindex/public/uploads/indices/detail/files/zh_CN/000300factsheet.pdf",
       "sourceUpdatedAt": "2026-11-03T08:41:20Z",
-      "fetchedAt": "2026-11-10T09:40:13Z",
-      "lastAttemptAt": "2026-11-13T14:31:33Z",
+      "fetchedAt": "2026-11-20T04:57:52Z",
+      "lastAttemptAt": "2026-11-20T04:57:37Z",
       "asOf": "2026-10-29T16:00:00Z",
-      "errorCode": "network_error",
+      "errorCode": null,
       "data": {
         "name": "沪深300",
         "indexCode": "000300",
@@ -38,18 +38,18 @@
       "status": "ready",
       "sourceName": "美国财政部 TIC",
       "sourceUrl": "https://home.treasury.gov/data/treasury-international-capital-tic-system-home-page/tic-forms-instructions/securities-a-us-transactions-with-foreign-residents-in-long-term-securities",
-      "sourceUpdatedAt": "2026-10-16T20:06:51Z",
-      "fetchedAt": "2026-11-13T14:31:47Z",
-      "lastAttemptAt": "2026-11-13T14:31:43Z",
-      "asOf": "2026-08-31T00:00:00Z",
+      "sourceUpdatedAt": "2026-11-18T21:04:48Z",
+      "fetchedAt": "2026-11-20T04:57:54Z",
+      "lastAttemptAt": "2026-11-20T04:57:52Z",
+      "asOf": "2026-09-30T00:00:00Z",
       "errorCode": null,
       "data": {
-        "period": "2026-08",
-        "netMillions": 300724.0,
-        "treasuryMillions": 108908.0,
-        "agencyMillions": -3746.0,
-        "corporateMillions": 41620.0,
-        "equityMillions": 153942.0
+        "period": "2026-09",
+        "netMillions": 186707.0,
+        "treasuryMillions": 80766.0,
+        "agencyMillions": 12120.0,
+        "corporateMillions": 27031.0,
+        "equityMillions": 66790.0
       }
     },
     "active": {

@@ -503,12 +503,17 @@ def validate_snapshot(value, now):
     return copy.deepcopy(value)
 
 
-def collect(previous=None, *, fetch=fetch_url, clock=lambda: datetime.now(UTC)):
+def collect(previous=None, *, fetch=fetch_url, clock=lambda: datetime.now(UTC), card_ids=None):
+    selected = CARD_IDS if card_ids is None else tuple(card_ids)
+    if not selected or len(set(selected)) != len(selected) or any(key not in CARD_IDS for key in selected):
+        fail('invalid_collection_scope')
     started = clock()
     previous = validate_snapshot(previous, started) if previous is not None else None
     cards = copy.deepcopy(previous['cards']) if previous else {key: empty_card(key) for key in CARD_IDS}
     stops = copy.deepcopy(previous['sourceStops']) if previous else {}
     for key in CARD_IDS:
+        if key not in selected:
+            continue
         old, now = cards[key], clock()
         urls = SOURCES[key][2]
         blocked = next((stops[urllib.parse.urlsplit(url).hostname] for url in urls if urllib.parse.urlsplit(url).hostname in stops), None)
@@ -599,11 +604,13 @@ def collection_receipt(env):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=Path, default=Path(__file__).resolve().parents[1] / 'market-overview.json')
+    parser.add_argument('--cards', nargs='+', choices=CARD_IDS,
+                        help='Refresh only these cards; retain unselected cards and all persisted source stops.')
     args = parser.parse_args(argv)
     try:
         receipt = collection_receipt(os.environ)
         previous = load_previous(args.output, datetime.now(UTC))
-        result = collect(previous)
+        result = collect(previous, card_ids=args.cards)
         result.update(receipt)
         write_atomic(args.output, result)
         print(json.dumps({'generatedAt': result['generatedAt'], 'cards': {key: {'status': card['status'], 'asOf': card['asOf'], 'errorCode': card['errorCode']} for key, card in result['cards'].items()}, 'stoppedHosts': sorted(result['sourceStops'])}, ensure_ascii=False))

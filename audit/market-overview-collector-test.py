@@ -84,7 +84,7 @@ END:VCALENDAR
             c.BLS_CAL: (ics.encode(), {})}
 
 
-def run(previous=None, now=NOW, errors=None, payloads=None):
+def run(previous=None, now=NOW, errors=None, payloads=None, card_ids=None):
     data = fixtures(now) if payloads is None else payloads
     calls = []
     def fetch(url):
@@ -93,11 +93,33 @@ def run(previous=None, now=NOW, errors=None, payloads=None):
             raise c.SourceError(errors[url])
         return data[url]
     with mock.patch.object(c, 'parse_valuation', side_effect=lambda body, n: c.parse_valuation_text(LAYOUT, n)):
-        result = c.collect(previous, fetch=fetch, clock=lambda: now)
+        result = c.collect(previous, fetch=fetch, clock=lambda: now, card_ids=card_ids)
     return result, calls
 
 
 class CollectorTests(unittest.TestCase):
+    def test_selected_refresh_leaves_other_cards_and_host_stops_untouched(self):
+        before, _ = run(errors={c.BLS_FEED: 'http_403'})
+        after, calls = run(before, NOW+timedelta(days=2), card_ids=('sentiment', 'valuation', 'flows'))
+        self.assertEqual(calls, [c.FNG, c.CSI, c.TIC])
+        self.assertEqual(after['sourceStops'], before['sourceStops'])
+        for key in ('active', 'macro'):
+            self.assertEqual(after['cards'][key], before['cards'][key])
+
+    def test_selection_does_not_bypass_a_persisted_source_refusal(self):
+        before, _ = run(errors={c.FNG: 'http_429'})
+        after, calls = run(before, NOW+timedelta(days=2), card_ids=('sentiment',))
+        self.assertEqual(calls, [])
+        self.assertEqual(after['sourceStops'], before['sourceStops'])
+        self.assertEqual(after['cards']['sentiment']['errorCode'], 'http_429')
+
+    def test_invalid_scope_fails_before_any_request(self):
+        for selected in ((), ('sentiment', 'sentiment'), ('not-a-card',), 'sentiment'):
+            fetch = mock.Mock(side_effect=AssertionError('must not fetch'))
+            with self.assertRaises(c.SourceError):
+                c.collect(fetch=fetch, card_ids=selected)
+            fetch.assert_not_called()
+
     def test_all_five_sources_normalize_without_price_or_performance_invention(self):
         result, calls = run()
         self.assertEqual(len(calls), 8)
