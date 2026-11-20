@@ -1,126 +1,112 @@
 'use strict';
 const {test}=require('node:test'),assert=require('node:assert/strict');
-const {createRunner,resolveReference,sortRecords,mount}=require('../screening/trend-controller.js');
+const {createRunner,sortRecords,mount}=require('../screening/trend-controller.js');
 const day='2026-11-20',asOf='2026-11-20T08:00:00Z',fetchedAt='2026-11-20T10:00:00Z';
 const stocks=[{code:'600519.SH',name:'贵州茅台'},{code:'000858.SZ',name:'五粮液'}];
+const marketRows=Array.from({length:32},(_,i)=>({code:String(600000+i)+'.SH',name:'市场'+i,exchange:'SH',sector:i%2?'银行':'工业',changePct:32-i}));
 function bars(n=65){return Array.from({length:n},(_,i)=>({date:new Date(Date.parse(day+'T00:00:00Z')-(n-i-1)*86400000).toISOString().slice(0,10),close:100+i,volume:1000}));}
 const good=(code,index=false)=>({status:'ready',code,day,adjustment:index?'index':'qfq',bars:bars(),fetchedAt,sourceUrl:'https://web.ifzq.gtimg.cn/'});
-const engine={evaluate:()=>({status:'ready',matched:true,metrics:{correlation:.8,directionAgreement:.8,periodReturn:12.3,startAt:'2026-10-20',endAt:day},reasons:['共同条件']})};
-function setup(overrides={}){const calls=[],pauses=[],updates=[];const technical={sourceState:()=>({status:'idle'}),history:async(stock,target,signal,options)=>{calls.push({stock,target,signal,options});return good(stock.code,options.index);},...overrides};const runner=createRunner({technical,engine,wait:async(ms,signal)=>{pauses.push(ms);assert.equal(signal.aborted,false);},now:()=>Date.parse(fetchedAt),onUpdate:s=>updates.push(s)});return {calls,pauses,updates,runner,technical};}
-const options=(extra={})=>({mode:'strength',lookback:20,day,asOf,stocks,reference:{code:'000300.SH'},index:true,...extra});
-test('new controller never fetches on construction, missing DOM or invalid scope',async()=>{
+const metrics={correlation:.8,directionAgreement:.8,periodReturn:12.3,return5:3,ma20Deviation:2,startClose:100,endClose:112.3,volumeAvg5:100,volumeAvgPrevious20:100,volumeRatio:1,startAt:'2026-10-20',endAt:day};
+function fakeEngine(overrides={}){return {
+ selectMarketSample:rows=>rows.slice().sort((a,b)=>a.code.localeCompare(b.code)),
+ buildConsensus:({records,expectedCount})=>({status:records.length>=30?'ready':'unavailable',identified:records.length>=30,validCount:records.length,coverage:records.length/expectedCount,breadth:.8,commonCount:Math.floor(records.length*.8),reason:records.length>=30?'样本形成主流':'覆盖不足'}),
+ evaluate:input=>({status:'ready',matched:input.mode!=='consensus'||input.consensus.identified,excluded:false,metrics:{...metrics},reasons:['共性条件'],reason:'研究条件'}),...overrides
+};}
+function setup(overrides={},engineOverrides={}){const calls=[],pauses=[],updates=[],engine=fakeEngine(engineOverrides);const technical={sourceState:()=>({status:'idle'}),history:async(stock,target,signal,options)=>{calls.push({stock,target,signal,options});return good(stock.code,options.index);},...overrides};const runner=createRunner({technical,engine,wait:async(ms,signal)=>{pauses.push(ms);assert.equal(signal.aborted,false);},now:()=>Date.parse(fetchedAt),onUpdate:s=>updates.push(s)});return {calls,pauses,updates,runner,technical,engine};}
+const options=(extra={})=>({mode:'strength',lookback:20,day,asOf,stocks,marketRows,sampleSize:120,reference:{code:'000300.SH'},index:true,limits:{enabled:true,maxReturn20:15,maxReturn60:30,maxReturn5:8,maxDeviation:8,maxVolumeRatio:2.5},...extra});
+test('construction and invalid scope make no requests; individual-stock mode is removed',async()=>{
  const s=setup();assert.equal(s.calls.length,0);assert.equal(mount({getElementById:()=>null}),null);
- assert.equal((await s.runner.run(options({stocks:[]}))).status,'unavailable');assert.equal(s.calls.length,0);
+ for(const extra of [{stocks:[]},{mode:'similar'},{reference:{code:'600519.SH'}}])assert.equal((await s.runner.run(options(extra))).status,'unavailable');assert.equal(s.calls.length,0);
 });
-test('same shared history client performs serial, dated requests with guarded pauses',async()=>{
- const s=setup(),result=await s.runner.run(options());
- assert.equal(result.status,'complete');assert.equal(result.records.length,2);assert.equal(result.requests,3);assert.deepEqual(s.pauses,[1500,1500]);
- for(const [i,c] of s.calls.entries()){assert.equal(c.stock.asOf,asOf);assert.equal(c.target,day);assert.deepEqual(c.options,{minBars:26,index:i===0});}
- assert.equal(result.records[0].fetchedAt,fetchedAt);assert.equal(result.records[0].sourceUrl,'https://web.ifzq.gtimg.cn/');
+test('serial dated source reads use shared index calendar and bounded pauses',async()=>{
+ const s=setup(),r=await s.runner.run(options());assert.equal(r.status,'complete');assert.equal(r.records.length,2);assert.equal(r.requests,3);assert.deepEqual(s.pauses,[1500,1500]);
+ for(const [i,c] of s.calls.entries()){assert.equal(c.stock.asOf,asOf);assert.equal(c.target,day);assert.deepEqual(c.options,{minBars:26,index:i===0});}assert.equal(r.records[0].fetchedAt,fetchedAt);
 });
-test('market reads exactly one fixed index before stocks, preserving separate adjustment',async()=>{
- const s=setup(),result=await s.runner.run(options({mode:'market',reference:{code:'000300.SH'},index:true,lookback:60}));
- assert.deepEqual(s.calls.map(c=>c.stock.code),['000300.SH','600519.SH','000858.SZ']);assert.equal(s.calls[0].options.index,true);assert.equal(s.calls[1].options.index,false);assert.equal(s.calls[0].options.minBars,61);assert.equal(result.records[0].referenceFetchedAt,fetchedAt);
- const invalid=await s.runner.run(options({mode:'market',reference:{code:'600519.SH'},index:true}));assert.equal(invalid.status,'unavailable');assert.equal(s.calls.length,3);
+test('a market reference always uses the independent market pool, never winners/currentpage/stocks',async()=>{
+ const calls=[],s=setup({}, {buildConsensus:input=>{calls.push(input);return fakeEngine().buildConsensus(input);}});
+ const r=await s.runner.run(options({mode:'consensus',stocks:[{code:'600999.SH',name:'单只领涨股'}]}));assert.equal(r.total,32);assert.equal(r.records.length,32);assert.equal(r.status,'complete');
+ assert.deepEqual(s.calls.map(c=>c.stock.code),['000300.SH',...marketRows.map(r=>r.code)]);assert.equal(calls[0].expectedCount,32);assert.equal(calls[0].totalUniverseCount,32);assert.ok(calls[0].calendar.length>=26);assert.equal(calls[0].records.length,32);
+ assert.ok(s.updates.filter(u=>u.status==='running').every(u=>u.consensus===null),'collecting cannot assert a partial majority');assert.equal(r.consensus.identified,true);
 });
-test('same-batch successful daily bars are reused across modes and windows',async()=>{
- const s=setup();await s.runner.run(options());assert.equal(s.runner.cacheSize(),3);
- const result=await s.runner.run(options({mode:'similar',lookback:60,reference:stocks[0],index:false}));assert.equal(result.status,'complete');assert.equal(result.requests,0);assert.equal(s.calls.length,3);assert.equal(result.records.length,1);
- await s.runner.run(options({asOf:'2026-11-20T09:00:00Z'}));assert.equal(s.calls.length,6,'a changed source batch cannot reuse old bars');
+test('fewer than30 reference stocks cannot be called market consensus, even with a single winning target',async()=>{
+ const s=setup(),r=await s.runner.run(options({mode:'consensus',marketRows:marketRows.slice(0,29)}));assert.equal(r.status,'unavailable');assert.match(r.reason,/不足30/);assert.equal(s.calls.length,0);
 });
-test('persisted source stops prohibit even a reference request',async()=>{
- const s=setup({sourceState:()=>({status:'restricted',reason:'HTTP 429 已停止'})});const r=await s.runner.run(options({mode:'market',reference:{code:'000300.SH'},index:true}));assert.equal(r.status,'stopped');assert.match(r.reason,/429/);assert.equal(s.calls.length,0);
+test('sample and full market settings reach the sampler explicitly without using scope lists',async()=>{
+ const sizes=[],s=setup({}, {selectMarketSample:(rows,limit)=>{sizes.push(limit);return rows;}});
+ await s.runner.run(options({mode:'consensus',sampleSize:240}));await s.runner.run(options({mode:'consensus',sampleSize:'all'}));assert.deepEqual(sizes,[240,Infinity]);
+ const n=s.calls.length;assert.equal((await s.runner.run(options({mode:'consensus',sampleSize:20}))).status,'unavailable');assert.equal(s.calls.length,n);
 });
-test('source refusal in an anchor terminates without a stock request or retry',async()=>{
- let calls=0;const s=setup({history:async()=>{calls++;return {status:'unavailable',sourceStopped:true,reason:'HTTP 403'};}});
- const r=await s.runner.run(options({mode:'similar',reference:stocks[0],index:false}));assert.equal(r.status,'stopped');assert.match(r.reason,/403/);assert.equal(calls,1);assert.equal(r.records.length,0);
+test('source failure during consensus does not build a partial majority or retry',async()=>{
+ let calls=0,built=0;const s=setup({history:async stock=>++calls<=4?good(stock.code):{status:'unavailable',sourceStopped:true,reason:'HTTP429'}},{buildConsensus:()=>{built++;return {};}});
+ const r=await s.runner.run(options({mode:'consensus'}));assert.equal(r.status,'stopped');assert.equal(r.records.length,3);assert.equal(calls,5);assert.equal(built,0);assert.equal(r.consensus,null);assert.match(r.reason,/未判断市场共性/);
 });
-test('a source refusal mid-scan retains completed rows without advancing or retrying',async()=>{
- let calls=0;const s=setup({history:async(stock)=>++calls<=2?good(stock.code):{status:'unavailable',sourceStopped:true,reason:'HTTP 429'}});
- const r=await s.runner.run(options());assert.equal(r.status,'stopped');assert.equal(r.records.length,1);assert.equal(calls,3);assert.equal(r.total,2);
+test('coverage failure remains unknown instead of a forced zero or false majority',async()=>{
+ const s=setup({history:async(stock,target,signal,opts)=>opts.index?good(stock.code,true):{status:'unavailable',reason:'缺少同日数据'}});
+ const r=await s.runner.run(options({mode:'consensus'}));assert.equal(r.status,'unavailable');assert.equal(r.consensus.identified,false);assert.ok(r.records.every(r=>r.result.status==='unavailable'&&r.result.matched===null));
 });
-test('missing input is recorded separately from a valid non-match',async()=>{
- const s=setup({history:async stock=>stock.code===stocks[0].code?{status:'unavailable',reason:'缺少目标交易日'}:good(stock.code)});
- const result=await s.runner.run(options());assert.equal(result.status,'complete');assert.equal(result.records[0].result.status,'unavailable');assert.match(result.records[0].result.reason,/目标/);assert.equal(result.records[1].result.matched,true);
+test('a complete but divergent reference pool does not produce matched results',async()=>{
+ const s=setup({}, {buildConsensus:input=>({...fakeEngine().buildConsensus(input),identified:false,breadth:.45,commonCount:14,reason:'市场走势分化'})});
+ const r=await s.runner.run(options({mode:'consensus'}));assert.equal(r.status,'complete');assert.match(r.reason,/分化/);assert.ok(r.records.every(r=>r.result.matched===false));
 });
-test('cancellation discards a late result and does not start the next stock',async()=>{
- let resolve,calls=0;const s=setup({history:async stock=>{calls++;return new Promise(r=>resolve=()=>r(good(stock.code)));}});
- const pending=s.runner.run(options());assert.equal(calls,1);s.runner.cancel('用户停止');resolve();await pending;assert.equal(s.runner.getState().records.length,0);assert.equal(calls,1);assert.equal(s.runner.getState().status,'stopped');assert.match(s.runner.getState().reason,/用户停止/);
+test('heat caps are passed to the engine without clipping the original price or volume metrics',async()=>{
+ const seen=[],s=setup({}, {evaluate:input=>{seen.push(input);return {status:'ready',matched:false,excluded:true,exclusionReasons:['阶段涨幅超过上限'],metrics:{...metrics,periodReturn:43.76,startClose:100,endClose:143.76,volumeRatio:5.48}};}});
+ const r=await s.runner.run(options());assert.deepEqual(seen[0].limits,options().limits);assert.equal(r.records[0].result.metrics.periodReturn,43.76);assert.equal(r.records[0].result.metrics.volumeRatio,5.48);assert.equal(r.records[0].result.excluded,true);
 });
-test('source restriction is checked again after a delay before the next request',async()=>{
- let blocked=false,calls=0,pauses=0;const technical={sourceState:()=>({status:blocked?'restricted':'idle',reason:'限制'}),history:async stock=>{calls++;return good(stock.code);}};
- const runner=createRunner({technical,engine,wait:async()=>{if(++pauses===2)blocked=true;}});const r=await runner.run(options());assert.equal(r.status,'stopped');assert.equal(calls,2);assert.equal(r.records.length,1);
+test('source stop blocks all reads including cached histories and changed index roles stay distinct',async()=>{
+ let restricted=false;const s=setup({sourceState:()=>({status:restricted?'restricted':'idle',reason:'HTTP418已停止'})});await s.runner.run(options());restricted=true;const before=s.calls.length;
+ assert.equal((await s.runner.run(options())).status,'stopped');assert.equal(s.calls.length,before);
 });
-test('reference resolution uses actual unique listed codes or names, not guessed symbols',()=>{
- assert.equal(resolveReference('600519',stocks).stock.code,'600519.SH');assert.equal(resolveReference('000858.sz',stocks).stock.code,'000858.SZ');assert.equal(resolveReference(' 贵州茅台 ',stocks).stock.code,'600519.SH');assert.match(resolveReference('fake',stocks).reason,/名单/);assert.match(resolveReference('双名',[{code:'600000.SH',name:'双名'},{code:'000001.SZ',name:'双名'}]).reason,/不唯一/);
+test('same batch shares stock history across modes and20/60 windows but a new snapshot re-reads',async()=>{
+ const s=setup();await s.runner.run(options());const r=await s.runner.run(options({mode:'market',lookback:60}));assert.equal(r.requests,0);assert.equal(s.calls.length,3);await s.runner.run(options({asOf:'2026-11-20T09:00:00Z'}));assert.equal(s.calls.length,6);
 });
-class Target{
- constructor(){this.events={};}
- addEventListener(k,f){(this.events[k]??=[]).push(f);}
- removeEventListener(k,f){this.events[k]=(this.events[k]||[]).filter(v=>v!==f);}
- dispatchEvent(e){for(const fn of this.events[e.type]||[])fn(e);}
-}
-class Element extends Target{
- constructor(tag='div'){super();this.tagName=tag;this.children=[];this.dataset={};this.attrs={};this.value='';this.checked=false;this.own='';}
- set textContent(v){this.own=String(v);this.children=[];}
- get textContent(){return this.own+this.children.map(v=>v.textContent).join('');}
- set innerHTML(_){throw Error('unsafe HTML');}
- append(...nodes){this.children.push(...nodes);}
- replaceChildren(...nodes){this.children=nodes;this.own='';}
- setAttribute(k,v){this.attrs[k]=String(v);}
- querySelectorAll(selector){return selector==='[data-trend-mode]'?this.children.filter(e=>e.dataset.trendMode):[];}
-}
-function dom(){
- const env=new Target(),ids={},doc={defaultView:env,getElementById:id=>ids[id],createElement:tag=>new Element(tag)};
- for(const id of ['trend-screen','trend-lookback','trend-benchmark','trend-reference','trend-scope','trend-stop','trend-status','trend-rules','trend-only-matches','trend-count','trend-rows','trend-prev','trend-next','trend-page'])ids[id]=new Element();
- for(const mode of ['market','similar','strength']){const b=new Element('button');b.dataset.trendMode=mode;ids['trend-screen'].append(b);}
- ids['trend-lookback'].value='20';ids['trend-benchmark'].value='000300.SH';ids['trend-scope'].value='filtered';ids['trend-only-matches'].checked=true;
- return {env,ids,doc};
-}
-test('mounted UI defaults to no requests and shows safe text, dates and full counts after one click',async()=>{
- const d=dom(),s=setup(),weird=[{code:'600519.SH',name:'<script>name</script>'}];let stopped=0;
- const selection={getContext:()=>({day,asOf,rows:weird,pageRows:weird,savedRows:weird,allRows:weird}),stopTechnicalScan:()=>stopped++};
- const app=mount(d.doc,{selection,technical:s.technical,engine,wait:async()=>{}});
- assert.equal(s.calls.length,0);assert.match(d.ids['trend-status'].textContent,/当前范围 1/);assert.equal(d.ids['trend-stop'].hidden,true);
- await app.start('strength');assert.equal(stopped,1);assert.equal(s.calls.length,2);assert.match(d.ids['trend-rows'].textContent,/<script>name<\/script>/);assert.match(d.ids['trend-status'].textContent,/已核验 1\/1.*命中 1.*核验完成/);assert.match(d.ids['trend-rows'].textContent,/读取.*北京/);assert.equal(d.ids['trend-rows'].children[0].children[0].children[0].href,'../company-dossier.html?symbol=600519.SH');app.destroy();
+test('cancellation cannot leak a late result, a majority claim or another source read',async()=>{
+ let release,calls=0;const s=setup({history:async stock=>{calls++;return new Promise(resolve=>release=()=>resolve(good(stock.code)));}}),pending=s.runner.run(options({mode:'consensus'}));
+ s.runner.cancel('用户停止');release();await pending;assert.equal(calls,1);assert.equal(s.runner.getState().records.length,0);assert.equal(s.runner.getState().consensus,null);assert.equal(s.runner.getState().status,'stopped');
 });
-test('the first filter change cancels an already-running scan and clears its obsolete view',async()=>{
- const d=dom();let release,calls=0;let c={day,asOf,rows:stocks,pageRows:stocks,savedRows:[],allRows:stocks};
- const technical={sourceState:()=>({status:'idle'}),history:async stock=>{calls++;return new Promise(r=>release=()=>r(good(stock.code)));}};
- const app=mount(d.doc,{selection:{getContext:()=>c},technical,engine,wait:async()=>{}}),pending=app.start('strength');assert.equal(calls,1);
- c={...c,rows:[stocks[1]]};d.env.dispatchEvent({type:'books:selection-changed'});release();await pending;
- assert.equal(app.runner.getState().records.length,0);assert.equal(app.runner.getState().status,'idle');assert.equal(calls,1);assert.match(d.ids['trend-status'].textContent,/当前范围 1/);app.destroy();
+test('source is checked after a pause before every new request',async()=>{
+ let blocked=false,calls=0,pauses=0;const technical={sourceState:()=>({status:blocked?'restricted':'idle',reason:'来源限制'}),history:async stock=>{calls++;return good(stock.code);}};
+ const runner=createRunner({technical,engine:fakeEngine(),wait:async()=>{if(++pauses===2)blocked=true;}});const r=await runner.run(options());assert.equal(r.status,'stopped');assert.equal(calls,2);assert.equal(r.records.length,1);
 });
-test('saved scope and invalid reference do not silently broaden the request universe',async()=>{
- const d=dom(),s=setup();const c={day,asOf,rows:stocks,pageRows:stocks,savedRows:[stocks[1]],allRows:stocks};
- const app=mount(d.doc,{selection:{getContext:()=>c},technical:s.technical,engine,wait:async()=>{}});
- d.ids['trend-reference'].value='not listed';await app.start('similar');assert.equal(s.calls.length,0);assert.match(d.ids['trend-status'].textContent,/名单/);
- d.ids['trend-scope'].value='saved';d.ids['trend-scope'].dispatchEvent({type:'change'});await app.start('strength');assert.deepEqual(s.calls.map(c=>c.stock.code),['000300.SH','000858.SZ']);app.destroy();
+class Target{constructor(){this.events={};}addEventListener(k,f){(this.events[k]??=[]).push(f);}removeEventListener(k,f){this.events[k]=(this.events[k]||[]).filter(x=>x!==f);}dispatchEvent(e){for(const f of this.events[e.type]||[])f(e);}}
+class Element extends Target{constructor(tag='div'){super();this.tagName=tag;this.children=[];this.dataset={};this.attrs={};this.value='';this.checked=false;this.own='';}set textContent(v){this.own=String(v);this.children=[];}get textContent(){return this.own+this.children.map(x=>x.textContent).join('');}set innerHTML(_){throw Error('unsafe HTML');}append(...nodes){this.children.push(...nodes);}replaceChildren(...nodes){this.children=nodes;this.own='';}setAttribute(k,v){this.attrs[k]=String(v);}querySelectorAll(q){return q==='[data-trend-mode]'?this.children.filter(x=>x.dataset.trendMode):[];}}
+function dom(){const env=new Target(),ids={},doc={defaultView:env,getElementById:id=>ids[id],createElement:tag=>new Element(tag)};
+ for(const id of ['trend-screen','trend-lookback','trend-benchmark','trend-scope','trend-sample','trend-exclude-hot','trend-max-return','trend-max-five','trend-max-deviation','trend-max-volume','trend-stop','trend-status','trend-rules','trend-market-summary','trend-only-matches','trend-count','trend-rows','trend-prev','trend-next','trend-page'])ids[id]=new Element();
+ for(const mode of ['consensus','market','strength']){const b=new Element('button');b.dataset.trendMode=mode;ids['trend-screen'].append(b);}for(const [id,value]of Object.entries({'trend-lookback':'20','trend-benchmark':'000300.SH','trend-scope':'filtered','trend-sample':'120','trend-max-return':'15','trend-max-five':'8','trend-max-deviation':'8','trend-max-volume':'2.5'}))ids[id].value=value;ids['trend-only-matches'].checked=true;ids['trend-exclude-hot'].checked=true;return {env,ids,doc};}
+const context=(rows=stocks)=>({day,asOf,rows,pageRows:rows,savedRows:rows,allRows:marketRows,marketRows});
+test('UI has no single reference input and no startup request; independent pool size is explicit',async()=>{
+ const d=dom(),s=setup();const app=mount(d.doc,{selection:{getContext:()=>context()},technical:s.technical,engine:s.engine,wait:async()=>{}});
+ assert.equal(d.ids['trend-reference'],undefined);assert.equal(s.calls.length,0);assert.match(d.ids['trend-status'].textContent,/市场参考池32|市场参考池 32/);assert.match(d.ids['trend-rules'].textContent,/不需要填写参考股票/);app.destroy();
 });
-test('result sorting puts matched and valid rows first then ranks the selected mode metric',()=>{
- const row=(code,status,matched,metrics)=>({stock:{code},result:{status,matched,metrics}});
- const records=[row('missing','unavailable',false,{}),row('not-hit','ready',false,{correlation:.99,curveCorrelation:.99,periodReturn:99}),row('a','ready',true,{correlation:.7,curveCorrelation:.95,periodReturn:10}),row('b','ready',true,{correlation:.9,curveCorrelation:.85,periodReturn:20})];
- assert.deepEqual(sortRecords(records,'market').map(r=>r.stock.code),['b','a','not-hit','missing']);
- assert.deepEqual(sortRecords(records,'similar').map(r=>r.stock.code),['a','b','not-hit','missing']);
- assert.deepEqual(sortRecords(records,'strength').map(r=>r.stock.code),['b','a','not-hit','missing']);
- assert.equal(records[0].stock.code,'missing','presentation sorting must not mutate scan records');
+test('UI gives consensus coverage and breadth, not a stock benchmark or winner subset',async()=>{
+ const d=dom(),s=setup(),app=mount(d.doc,{selection:{getContext:()=>context([stocks[0]])},technical:s.technical,engine:s.engine,wait:async()=>{}});
+ await app.start('consensus');assert.equal(s.calls.length,33);assert.match(d.ids['trend-status'].textContent,/分层样本 32\/32/);assert.match(d.ids['trend-market-summary'].textContent,/有效覆盖 100%.*80%.*样本已形成/);assert.doesNotMatch(d.ids['trend-rows'].textContent,/参考股票|600519.SH/);app.destroy();
 });
-test('similar screening excludes its own reference from queue, totals and missing counts',async()=>{
- const s=setup(),r=await s.runner.run(options({mode:'similar',reference:stocks[0],index:false}));
- assert.equal(r.total,1);assert.equal(r.records.length,1);assert.equal(r.records[0].stock.code,stocks[1].code);assert.equal(r.reference.code,stocks[0].code);assert.equal(r.reference.name,stocks[0].name);assert.equal(r.referenceFetchedAt,fetchedAt);
- const only=setup(),noOther=await only.runner.run(options({mode:'similar',stocks:[stocks[0]],reference:stocks[0],index:false}));
- assert.equal(noOther.status,'unavailable');assert.equal(noOther.total,0);assert.match(noOther.reason,/自身/);assert.equal(only.calls.length,0);
+test('UI preserves raw high metrics, counts exclusions separately and exposes input-price/volume audit',async()=>{
+ const d=dom(),s=setup({}, {evaluate:()=>({status:'ready',matched:false,excluded:true,reason:'过热',exclusionReasons:['涨幅超限'],metrics:{...metrics,startClose:100,endClose:143.76,periodReturn:43.76,volumeRatio:5.48,volumeAvg5:548,volumeAvgPrevious20:100}})});
+ d.ids['trend-only-matches'].checked=false;const app=mount(d.doc,{selection:{getContext:()=>context([stocks[0]])},technical:s.technical,engine:s.engine,wait:async()=>{}});await app.start('strength');
+ assert.match(d.ids['trend-rows'].textContent,/43.76%.*5.48倍.*过热排除/);assert.match(d.ids['trend-count'].textContent,/过热排除 1.*资料不足 0/);assert.match(d.ids['trend-rows'].textContent,/起点 100.*终点 143.76.*548.*100.*不是资金金额/);app.destroy();
 });
-test('market UI identifies its benchmark and displays independent anchor and stock read times',async()=>{
- const d=dom(),s=setup(),c={day,asOf,rows:stocks,pageRows:stocks,savedRows:stocks,allRows:stocks};
- const app=mount(d.doc,{selection:{getContext:()=>c},technical:s.technical,engine,wait:async()=>{}});
- await app.start('market');assert.match(d.ids['trend-status'].textContent,/对照 沪深300 000300\.SH/);assert.match(d.ids['trend-rows'].textContent,/对照读取/);assert.match(d.ids['trend-rules'].textContent,/保持页面打开/);app.destroy();
+test('a downward market common pattern is explicitly labeled downward instead of implying strength',async()=>{
+ const d=dom(),s=setup({}, {buildConsensus:input=>({...fakeEngine().buildConsensus(input),dates:['2026-10-31',day],medianReturns:[-.01,-.02]})});
+ const app=mount(d.doc,{selection:{getContext:()=>context()},technical:s.technical,engine:s.engine,wait:async()=>{}});await app.start('consensus');
+ assert.match(d.ids['trend-market-summary'].textContent,/样本中位曲线 2026-10-31 至 2026-11-20 -2.98%（下行）/);app.destroy();
 });
-test('strength reads the selected index calendar first and passes it to date-aligned evaluation',async()=>{
- const calls=[],inputs=[];const technical={sourceState:()=>({status:'idle'}),history:async(stock,target,signal,opts)=>{calls.push({code:stock.code,index:opts.index});return good(stock.code,opts.index);}};
- const runner=createRunner({technical,engine:{evaluate:input=>{inputs.push(input);return {status:'ready',matched:false,metrics:{},reasons:[]};}},wait:async()=>{}});
- const r=await runner.run(options({reference:{code:'399001.SZ'},stocks:[stocks[0]]}));
- assert.equal(r.status,'complete');assert.deepEqual(calls,[{code:'399001.SZ',index:true},{code:'600519.SH',index:false}]);assert.equal(inputs[0].mode,'strength');assert.equal(inputs[0].referenceCode,'399001.SZ');assert.equal(inputs[0].referenceBars.at(-1).date,day);
- const d=dom(),s=setup(),c={day,asOf,rows:stocks,pageRows:stocks,savedRows:stocks,allRows:stocks};
- const app=mount(d.doc,{selection:{getContext:()=>c},technical:s.technical,engine,wait:async()=>{}});await app.start('strength');assert.match(d.ids['trend-status'].textContent,/交易日对照 沪深300/);assert.match(d.ids['trend-rules'].textContent,/仅用于对齐交易日/);app.destroy();
+test('blank caps fail validation, period changes use defaults while preserving explicit custom caps',async()=>{
+ const d=dom(),s=setup(),app=mount(d.doc,{selection:{getContext:()=>context()},technical:s.technical,engine:s.engine,wait:async()=>{}});
+ d.ids['trend-max-return'].value='';await app.start('strength');assert.equal(s.calls.length,0);assert.match(d.ids['trend-status'].textContent,/有效的非负数/);
+ d.ids['trend-max-return'].value='15';d.ids['trend-lookback'].value='60';d.ids['trend-lookback'].dispatchEvent({type:'change'});assert.equal(d.ids['trend-max-return'].value,'30');
+ d.ids['trend-max-return'].value='22';d.ids['trend-lookback'].value='20';d.ids['trend-lookback'].dispatchEvent({type:'change'});assert.equal(d.ids['trend-max-return'].value,'22');app.destroy();
+});
+test('scope and changed filters cannot silently keep stale results or broaden non-consensus scans',async()=>{
+ const d=dom(),s=setup();let c={...context(),savedRows:[stocks[1]]};const app=mount(d.doc,{selection:{getContext:()=>c},technical:s.technical,engine:s.engine,wait:async()=>{}});
+ d.ids['trend-scope'].value='saved';d.ids['trend-scope'].dispatchEvent({type:'change'});await app.start('market');assert.deepEqual(s.calls.map(x=>x.stock.code),['000300.SH','000858.SZ']);
+ c={...c,rows:[stocks[0]]};d.env.dispatchEvent({type:'books:selection-changed'});assert.equal(app.runner.getState().records.length,0);app.destroy();
+});
+test('first filter change cancels a late outstanding response without a new read',async()=>{
+ const d=dom();let c=context(),release,calls=0;const technical={sourceState:()=>({status:'idle'}),history:async stock=>{calls++;return new Promise(resolve=>release=()=>resolve(good(stock.code)));}};
+ const app=mount(d.doc,{selection:{getContext:()=>c},technical,engine:fakeEngine(),wait:async()=>{}}),pending=app.start('strength');c={...c,rows:[stocks[1]]};d.env.dispatchEvent({type:'books:selection-changed'});release();await pending;assert.equal(calls,1);assert.equal(app.runner.getState().status,'idle');app.destroy();
+});
+test('early-turn sorting favors lower extension, not the largest period gain, and does not mutate input',()=>{
+ const row=(code,matched,excluded,metrics)=>({stock:{code},result:{status:'ready',matched,excluded,metrics}}),records=[row('hot',false,true,{periodReturn:99,ma20Deviation:30}),row('raised',true,false,{periodReturn:14,ma20Deviation:7,correlation:.7}),row('early',true,false,{periodReturn:2,ma20Deviation:1,correlation:.9})];
+ assert.deepEqual(sortRecords(records,'strength').map(r=>r.stock.code),['early','raised','hot']);assert.deepEqual(sortRecords(records,'consensus').map(r=>r.stock.code),['early','raised','hot']);assert.equal(records[0].stock.code,'hot');
 });
