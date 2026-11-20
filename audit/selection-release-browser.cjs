@@ -23,7 +23,7 @@ async function openWorkspace(page){
   await c.addInitScript(stamp=>{window.testNow=Date.parse(stamp);Date.now=()=>window.testNow;},now);
   await c.route('**/*',async r=>{
    const url=new URL(r.request().url());if(await handler?.(r,url))return;
-   if(url.href.includes('market-heatmap-fallback.json'))return r.fulfill({json:snapshot});
+   if(url.href.includes('market-heatmap-fallback.json')||url.origin===new URL(base).origin&&url.pathname==='/api/a-share-daily/market')return r.fulfill({json:snapshot});
    if(url.origin===new URL(base).origin&&url.pathname.startsWith(new URL(base).pathname))return r.continue();return r.abort();
   });return c;
  }

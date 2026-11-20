@@ -1,6 +1,6 @@
 'use strict';
 const {test}=require('node:test'),assert=require('node:assert/strict');
-const {createRunner,sortRecords,mount}=require('../screening/trend-controller.js');
+const {createRunner,createCachedRunner,sortRecords,mount}=require('../screening/trend-controller.js');
 const day='2026-11-20',asOf='2026-11-20T08:00:00Z',fetchedAt='2026-11-20T10:00:00Z';
 const stocks=[{code:'600519.SH',name:'贵州茅台'},{code:'000858.SZ',name:'五粮液'}];
 const marketRows=Array.from({length:32},(_,i)=>({code:String(600000+i)+'.SH',name:'市场'+i,exchange:'SH',sector:i%2?'银行':'工业',changePct:32-i}));
@@ -128,53 +128,117 @@ test('exported raw dataset reproduces the actual consensus metrics without expor
  assert.deepEqual(result.metrics,state.records[0].result.metrics);assert.doesNotMatch(JSON.stringify(data),/"metrics"|"matched"|"consensus"/);
  const model=require('../control/model.js'),replay=await model.evaluateDataset(data,model.DEFAULT_CONFIG,actual);assert.equal(replay.status,state.status);assert.equal(replay.summary.commonCount,state.consensus.commonCount);assert.deepEqual(replay.records[0].result.metrics,state.records[0].result.metrics);
 });
+const actualEngine=require('../screening/trend-screen.js'),controlModel=require('../control/model.js');
+const settle=()=>new Promise(setImmediate);
+function dataset(benchmark='000300.SH'){
+ const universe=marketRows.map(({code,name,sector,exchange})=>({code,name,sector,exchange}));
+ return {schema:'books.research.dataset.v1',day,asOf,completed:true,collectionStatus:'complete',expectedCount:universe.length,totalUniverseCount:universe.length,universe,reference:{code:benchmark,adjustment:'index',bars:bars().slice(-61),fetchedAt},records:universe.map(stock=>({stock,source:{status:'ready',day,adjustment:'qfq',bars:bars().slice(-61),fetchedAt}}))};
+}
+function cachedResult(query={}){
+ const mode=query.mode||'consensus',lookback=Number(query.lookback||20),data=dataset(query.benchmark),consensus=mode==='consensus'?actualEngine.buildConsensus({records:data.records.map(r=>({stock:r.stock,bars:r.source.bars})),calendar:data.reference.bars,lookback,day,expectedCount:32,totalUniverseCount:32}):null;
+ return {mode,lookback,day,asOf,status:'complete',phase:'evaluated',limits:{enabled:false},reference:{code:data.reference.code,name:'沪深300'},records:data.records.map(r=>({stock:r.stock,result:actualEngine.evaluate({mode,bars:r.source.bars,referenceBars:data.reference.bars,code:r.stock.code,consensus,lookback,day,limits:{enabled:false}}),fetchedAt,referenceFetchedAt:fetchedAt})),consensus,total:32,marketUniverseCount:32,fullMarket:query.sampleSize==='all',requests:33,generation:'daily-generation-1',referenceFetchedAt:fetchedAt,poolFetchedStart:fetchedAt,poolFetchedEnd:fetchedAt,startedAt:fetchedAt,finishedAt:fetchedAt};
+}
+function cacheSetup(overrides={}){
+ const calls=[],updates=[];let meta={available:true,lastSuccess:{generation:'daily-generation-1',day,asOf,finishedAt:fetchedAt,total:32,ready:32},attempt:{status:'complete'}},resultOverride=null,rawOverride=null;
+ const env={fetch:async(path,init)=>{calls.push({path,init});assert.ok(path.startsWith('/api/a-share-daily/'));const url=new URL(path,'https://books.test'),operation=url.pathname.split('/').at(-1);let value=operation==='state'?meta:operation==='dataset'?(rawOverride||dataset(url.searchParams.get('benchmark'))):(resultOverride||cachedResult(Object.fromEntries(url.searchParams)));return {ok:true,json:async()=>JSON.parse(JSON.stringify(value))};},...overrides};
+ const runner=createCachedRunner({env,engine:actualEngine,model:controlModel,onUpdate:s=>updates.push(s)});
+ const input=extra=>({mode:'consensus',lookback:20,sampleSize:'120',reference:{code:'000300.SH'},stocks:marketRows.slice(0,2),limits:options().limits,...extra});
+ return {env,calls,updates,runner,input,setMetadata:v=>meta=v,setResult:v=>resultOverride=v,setDataset:v=>rawOverride=v};
+}
+test('all three cached modes use only same-origin artifacts, and120 does not silently shrink market or strength scope',async()=>{
+ const s=cacheSetup();for(const mode of ['consensus','market','strength']){const result=await s.runner.run(s.input({mode}));assert.equal(result.status,'complete');assert.equal(result.records.length,mode==='consensus'?32:2);assert.equal(result.origin,'daily-cache');}
+ const urls=s.calls.filter(c=>c.path.includes('/result?')).map(c=>new URL(c.path,'https://books.test'));assert.deepEqual(urls.map(u=>u.searchParams.get('sampleSize')),['120','all','all']);assert.ok(s.calls.every(c=>c.init.credentials==='same-origin'));
+});
+test('heat caps reapply to cached baseline without a request or clipping raw metrics',async()=>{
+ const s=cacheSetup(),base=cachedResult();base.records[0].result.metrics.periodReturn=43.76;s.setResult(base);await s.runner.run(s.input());const n=s.calls.length;
+ assert.equal(s.runner.getState().records[0].result.excluded,true);s.runner.reapply({limits:{...options().limits,enabled:false}});assert.equal(s.runner.getState().records[0].result.matched,true);assert.equal(s.runner.getState().records[0].result.metrics.periodReturn,43.76);
+ s.runner.reapply({limits:options().limits});assert.equal(s.runner.getState().records[0].result.excluded,true);assert.equal(s.calls.length,n);assert.equal(base.records[0].result.excluded,false);
+});
+test('cached consensus reference ignores local filters while market scopes retain unknown uncovered stocks',async()=>{
+ const s=cacheSetup();await s.runner.run(s.input());const before=s.runner.getState().consensus.commonCount,n=s.calls.length;s.runner.reapply({stocks:[marketRows[0]]});assert.equal(s.runner.getState().records.length,32);assert.equal(s.runner.getState().consensus.commonCount,before);assert.equal(s.calls.length,n);
+ await s.runner.run(s.input({mode:'market'}));const fetched=s.calls.length;s.runner.reapply({stocks:[marketRows[1],{code:'830001.BJ',name:'未覆盖'}]});const state=s.runner.getState();assert.equal(state.status,'unavailable');assert.equal(state.scopeUncovered,1);assert.equal(state.records.length,2);assert.equal(state.records[1].result.matched,null);assert.match(state.reason,/未被本批日终缓存覆盖/);assert.equal(s.calls.length,fetched);await assert.rejects(()=>s.runner.loadDataset(),/缓存之外/);
+});
+test('raw dataset is lazy, generation-pinned, reused and independently exportable',async()=>{
+ const s=cacheSetup();await s.runner.run(s.input());assert.equal(s.calls.length,2);assert.equal(s.runner.getExportStatus().available,false);assert.equal(s.runner.exportDataset(),null);
+ await s.runner.loadDataset();assert.equal(s.calls.length,3);const url=new URL(s.calls.at(-1).path,'https://books.test');assert.equal(url.searchParams.get('generation'),'daily-generation-1');assert.equal(url.searchParams.get('sampleSize'),'120');assert.equal(s.runner.getExportStatus().available,true);
+ const data=s.runner.exportDataset();data.records[0].source.bars[0].close=-1;assert.ok(s.runner.exportDataset().records[0].source.bars[0].close>0);await s.runner.loadDataset();assert.equal(s.calls.length,3);
+});
+test('cached exports reject a raw artifact from a different source snapshot',async()=>{
+ const s=cacheSetup();await s.runner.run(s.input());s.setDataset({...dataset(),asOf:'2026-11-20T09:00:00Z'});await assert.rejects(()=>s.runner.loadDataset(),/当前显示批次不一致/);assert.equal(s.runner.getExportStatus().available,false);assert.equal(s.runner.exportDataset(),null);
+});
+test('cancelling a cached read discards a late result and never resumes upstream collection',async()=>{
+ let release;const s=cacheSetup(),fetch=s.env.fetch;s.env.fetch=async(path,init)=>path.includes('/result?')?{ok:true,json:()=>new Promise(resolve=>release=()=>resolve(cachedResult()))}:fetch(path,init);
+ const pending=s.runner.run(s.input());await new Promise(setImmediate);assert.ok(release);s.runner.cancel('手动停止');release();await pending;assert.equal(s.runner.getState().status,'stopped');assert.equal(s.runner.getState().records.length,0);assert.equal(s.runner.getExportStatus().available,false);
+});
+test('missing completed caches stay empty and retain last successful completion time',async()=>{
+ const s=cacheSetup();s.setMetadata({available:false,lastSuccess:{generation:'old',day,finishedAt:fetchedAt},attempt:{status:'failed',error:'来源429，后台已停止'}});const result=await s.runner.run(s.input());assert.equal(result.status,'unavailable');assert.equal(result.records.length,0);assert.equal(result.lastSuccess.finishedAt,fetchedAt);assert.match(result.reason,/429/);assert.equal(s.calls.length,1);
+});
+test('precomputed mode mismatch cannot be shown as a completed result',async()=>{
+ const s=cacheSetup();s.setResult(cachedResult({mode:'market'}));const result=await s.runner.run(s.input());assert.equal(result.status,'unavailable');assert.equal(result.records.length,0);assert.match(result.reason,/模式、周期/);
+});
+test('result reads pin metadata generation and reject a response from a different completed generation',async()=>{
+ const s=cacheSetup();s.setResult({...cachedResult(),generation:'new-pointer-during-fetch'});const result=await s.runner.run(s.input());assert.equal(result.status,'unavailable');assert.equal(result.records.length,0);const url=new URL(s.calls.at(-1).path,'https://books.test');assert.equal(url.searchParams.get('generation'),'daily-generation-1');
+});
+test('failed mode changes preserve the previous labeled results and raw archive without claiming the new mode completed',async()=>{
+ const s=cacheSetup();await s.runner.run(s.input());await s.runner.loadDataset();const fetch=s.env.fetch;s.env.fetch=async(path,init)=>path.includes('mode=strength')?{ok:false,json:async()=>({error:'该模式缓存缺失'})}:fetch(path,init);
+ const result=await s.runner.run(s.input({mode:'strength'}));assert.equal(result.status,'unavailable');assert.equal(result.mode,'consensus');assert.equal(result.attemptedMode,'strength');assert.equal(result.records.length,32);assert.match(result.reason,/初期转强.*失败.*保留市场共同走势/);assert.equal(s.runner.getExportStatus().available,true);assert.equal(s.runner.exportDataset().day,day);
+});
+test('same-generation cached modes are reused but a new generation loads new completed artifacts',async()=>{
+ const s=cacheSetup();await s.runner.run(s.input());await s.runner.run(s.input());assert.equal(s.calls.filter(c=>c.path.includes('/result?')).length,1);s.setMetadata({available:true,lastSuccess:{generation:'daily-generation-2',day,finishedAt:fetchedAt}});s.setResult({...cachedResult(),generation:'daily-generation-2'});await s.runner.run(s.input());assert.equal(s.calls.filter(c=>c.path.includes('/result?')).length,2);assert.equal(s.runner.getState().generation,'daily-generation-2');
+});
+test('an initially unavailable page automatically gains its first completed generation without another state download',async()=>{
+ const s=cacheSetup();s.setMetadata({available:false,attempt:{status:'running',checked:10,total:32}});await s.runner.run(s.input());assert.equal(s.runner.getState().status,'unavailable');
+ s.setMetadata({available:true,lastSuccess:{generation:'daily-generation-1',day,asOf,finishedAt:fetchedAt},attempt:{status:'complete'}});await s.runner.refreshIfChanged();assert.equal(s.runner.getState().status,'complete');assert.equal(s.runner.getState().records.length,32);assert.equal(s.calls.length,3);assert.equal(s.calls.filter(c=>c.path.includes('/result?')).length,1);
+});
+test('same-generation polling only updates job progress while generation changes retain local settings and scope',async()=>{
+ const s=cacheSetup();await s.runner.run(s.input({mode:'market'}));s.runner.reapply({stocks:[marketRows[2]],limits:{...options().limits,maxReturn20:1}});const resultReads=()=>s.calls.filter(c=>c.path.includes('/result?')).length;
+ s.setMetadata({available:true,lastSuccess:{generation:'daily-generation-1',day,finishedAt:fetchedAt},attempt:{status:'running',checked:100,total:3052}});await s.runner.refreshIfChanged();assert.equal(resultReads(),1);assert.equal(s.runner.getState().attempt.checked,100);
+ s.setMetadata({available:true,lastSuccess:{generation:'daily-generation-2',day,finishedAt:fetchedAt},attempt:{status:'complete'}});s.setResult({...cachedResult({mode:'market'}),generation:'daily-generation-2'});await s.runner.refreshIfChanged();const state=s.runner.getState();assert.equal(resultReads(),2);assert.equal(state.mode,'market');assert.equal(state.limits.maxReturn20,1);assert.deepEqual(state.records.map(r=>r.stock.code),[marketRows[2].code]);assert.equal(state.records[0].result.excluded,true);
+});
+test('a late polling response cannot replace a newer explicit mode selection',async()=>{
+ const s=cacheSetup();await s.runner.run(s.input());const fetch=s.env.fetch;let release;s.env.fetch=async(path,init)=>path.endsWith('/state')?{ok:true,json:()=>new Promise(resolve=>release=()=>resolve({available:true,lastSuccess:{generation:'stale-generation'}}))}:fetch(path,init);
+ const poll=s.runner.refreshIfChanged();await new Promise(setImmediate);s.env.fetch=fetch;await s.runner.run(s.input({mode:'market'}));release();await poll;assert.equal(s.runner.getState().mode,'market');assert.equal(s.runner.getState().generation,'daily-generation-1');
+});
+test('after a failed parameter read the next completed generation uses the requested period rather than the retained old result period',async()=>{
+ const s=cacheSetup();await s.runner.run(s.input());const fetch=s.env.fetch;s.env.fetch=async(path,init)=>path.includes('lookback=60')?{ok:false,json:async()=>({error:'60日缓存暂不可用'})}:fetch(path,init);await s.runner.run(s.input({lookback:60}));assert.equal(s.runner.getState().lookback,20);
+ s.env.fetch=fetch;s.setMetadata({available:true,lastSuccess:{generation:'daily-generation-2',day,finishedAt:fetchedAt}});s.setResult({...cachedResult({lookback:60}),generation:'daily-generation-2'});await s.runner.refreshIfChanged();assert.equal(s.runner.getState().lookback,60);assert.equal(s.runner.getState().generation,'daily-generation-2');
+});
 class Target{constructor(){this.events={};}addEventListener(k,f){(this.events[k]??=[]).push(f);}removeEventListener(k,f){this.events[k]=(this.events[k]||[]).filter(x=>x!==f);}dispatchEvent(e){for(const f of this.events[e.type]||[])f(e);}}
 class Element extends Target{constructor(tag='div'){super();this.tagName=tag;this.children=[];this.dataset={};this.attrs={};this.value='';this.checked=false;this.own='';}set textContent(v){this.own=String(v);this.children=[];}get textContent(){return this.own+this.children.map(x=>x.textContent).join('');}set innerHTML(_){throw Error('unsafe HTML');}append(...nodes){this.children.push(...nodes);}replaceChildren(...nodes){this.children=nodes;this.own='';}setAttribute(k,v){this.attrs[k]=String(v);}querySelectorAll(q){return q==='[data-trend-mode]'?this.children.filter(x=>x.dataset.trendMode):[];}}
-function dom(){const env=new Target(),ids={},doc={defaultView:env,getElementById:id=>ids[id],createElement:tag=>new Element(tag)};
+function dom(){const env=new Target(),ids={},doc={defaultView:env,getElementById:id=>ids[id],createElement:tag=>new Element(tag)};env.setInterval=setInterval;env.clearInterval=clearInterval;
  for(const id of ['trend-screen','trend-lookback','trend-benchmark','trend-scope','trend-sample','trend-exclude-hot','trend-max-return','trend-max-five','trend-max-deviation','trend-max-volume','trend-stop','trend-status','trend-rules','trend-market-summary','trend-only-matches','trend-count','trend-rows','trend-prev','trend-next','trend-page'])ids[id]=new Element();
  for(const mode of ['consensus','market','strength']){const b=new Element('button');b.dataset.trendMode=mode;ids['trend-screen'].append(b);}for(const [id,value]of Object.entries({'trend-lookback':'20','trend-benchmark':'000300.SH','trend-scope':'filtered','trend-sample':'120','trend-max-return':'15','trend-max-five':'8','trend-max-deviation':'8','trend-max-volume':'2.5'}))ids[id].value=value;ids['trend-only-matches'].checked=true;ids['trend-exclude-hot'].checked=true;return {env,ids,doc};}
-const context=(rows=stocks)=>({day,asOf,rows,pageRows:rows,savedRows:rows,allRows:marketRows,marketRows});
-test('UI has no single reference input and no startup request; independent pool size is explicit',async()=>{
- const d=dom(),s=setup();const app=mount(d.doc,{selection:{getContext:()=>context()},technical:s.technical,engine:s.engine,wait:async()=>{}});
- assert.equal(d.ids['trend-reference'],undefined);assert.equal(s.calls.length,0);assert.match(d.ids['trend-status'].textContent,/市场参考池32|市场参考池 32/);assert.match(d.ids['trend-rules'].textContent,/不需要填写参考股票/);app.destroy();
+const context=(rows=marketRows)=>({day,asOf,rows,pageRows:rows.slice(0,20),savedRows:rows.slice(0,2),allRows:marketRows,marketRows});
+function mounted(extra={}){const d=dom(),s=cacheSetup();d.env.fetch=s.env.fetch;d.env.CustomEvent=class{constructor(type,options){this.type=type;this.detail=options.detail;}};const app=mount(d.doc,{selection:{getContext:()=>context()},engine:actualEngine,model:controlModel,autoLoad:false,...extra});return {...s,...d,app};}
+test('first screen automatically loads consensus even when the legacy browser source is held',async()=>{
+ const d=dom(),s=cacheSetup();d.env.fetch=s.env.fetch;d.env.BooksTechnicalScreen={sourceState:()=>({status:'restricted',reason:'旧来源停止'}),history:()=>{throw Error('must not request upstream');}};const app=mount(d.doc,{selection:{getContext:()=>context([])},engine:actualEngine,model:controlModel});await new Promise(setImmediate);assert.equal(app.getState().status,'complete');assert.equal(app.getState().records.length,32);assert.equal(s.calls.length,2);assert.equal(d.ids['trend-reference'],undefined);assert.match(d.ids['trend-status'].textContent,/本站日终缓存 2026-11-20/);app.destroy();
 });
-test('mounted app exposes dataset and state plus a finished event with no source payload',async()=>{
- const d=dom(),s=setup(),events=[];d.env.CustomEvent=class{constructor(type,options){this.type=type;this.detail=options.detail;}};
- d.env.addEventListener('books:trend-run-finished',event=>events.push(event.detail));const app=mount(d.doc,{selection:{getContext:()=>context()},technical:s.technical,engine:s.engine,wait:async()=>{}});
- assert.equal(app.exportDataset(),null);assert.equal(app.getExportStatus().available,false);await app.start('consensus');assert.equal(app.getState().status,'complete');assert.deepEqual(app.getExportStatus(),{available:true,reason:''});assert.equal(app.exportDataset().expectedCount,32);assert.equal(events.length,1);
- assert.deepEqual(events[0],{status:'complete',mode:'consensus',day,startedAt:app.getState().startedAt,finishedAt:app.getState().finishedAt});assert.doesNotMatch(JSON.stringify(events),/bars|sourceUrl/);app.destroy();
+test('mounted app keeps finished events and makes dataset loading explicitly lazy',async()=>{
+ const s=mounted(),events=[];s.env.addEventListener('books:trend-run-finished',event=>events.push(event.detail));await s.app.start('consensus');assert.equal(s.app.getExportStatus().available,false);assert.equal(events.length,1);await s.app.loadDataset();assert.equal(s.app.getExportStatus().available,true);assert.equal(s.app.exportDataset().expectedCount,32);s.app.destroy();
 });
-test('UI gives consensus coverage and breadth, not a stock benchmark or winner subset',async()=>{
- const d=dom(),s=setup(),app=mount(d.doc,{selection:{getContext:()=>context([stocks[0]])},technical:s.technical,engine:s.engine,wait:async()=>{}});
- await app.start('consensus');assert.equal(s.calls.length,33);assert.match(d.ids['trend-status'].textContent,/分层样本 32\/32/);assert.match(d.ids['trend-market-summary'].textContent,/有效覆盖 100%.*80%.*样本已形成/);assert.doesNotMatch(d.ids['trend-rows'].textContent,/参考股票|600519.SH/);app.destroy();
+test('mounted60-second polling skips hidden documents and is removed on page exit',async()=>{
+ const d=dom(),s=cacheSetup();d.env.fetch=s.env.fetch;let tick;const cleared=[];d.env.setInterval=(fn,ms)=>{assert.equal(ms,60000);tick=fn;return 9;};d.env.clearInterval=id=>cleared.push(id);
+ const app=mount(d.doc,{selection:{getContext:()=>context()},engine:actualEngine,model:controlModel,autoLoad:false});await app.start('consensus');const initial=s.calls.length;d.doc.hidden=true;tick();await settle();assert.equal(s.calls.length,initial);d.doc.hidden=false;tick();await settle();assert.equal(s.calls.length,initial+1);d.env.dispatchEvent({type:'pagehide'});assert.deepEqual(cleared,[9]);app.destroy();
 });
-test('UI preserves raw high metrics, counts exclusions separately and exposes input-price/volume audit',async()=>{
- const d=dom(),s=setup({}, {evaluate:()=>({status:'ready',matched:false,excluded:true,reason:'过热',exclusionReasons:['涨幅超限'],metrics:{...metrics,startClose:100,endClose:143.76,periodReturn:43.76,volumeRatio:5.48,volumeAvg5:548,volumeAvgPrevious20:100}})});
- d.ids['trend-only-matches'].checked=false;const app=mount(d.doc,{selection:{getContext:()=>context([stocks[0]])},technical:s.technical,engine:s.engine,wait:async()=>{}});await app.start('strength');
- assert.match(d.ids['trend-rows'].textContent,/43.76%.*5.48倍.*过热排除/);assert.match(d.ids['trend-count'].textContent,/过热排除 1.*资料不足 0/);assert.match(d.ids['trend-rows'].textContent,/起点 100.*终点 143.76.*548.*100.*不是资金金额/);app.destroy();
+test('completed generation changes refresh the matching market snapshot once without resetting controls',async()=>{
+ const s=mounted(),events=[];s.env.addEventListener('books:refresh-selection',event=>events.push(event.detail.generation));await s.app.start('consensus');assert.deepEqual(events,['daily-generation-1']);
+ await s.app.runner.refreshIfChanged();assert.deepEqual(events,['daily-generation-1']);s.ids['trend-max-return'].value='7';s.ids['trend-max-return'].dispatchEvent({type:'change'});
+ s.setMetadata({available:true,lastSuccess:{generation:'daily-generation-2',day,finishedAt:fetchedAt}});s.setResult({...cachedResult(),generation:'daily-generation-2'});await s.app.runner.refreshIfChanged();assert.deepEqual(events,['daily-generation-1','daily-generation-2']);assert.equal(s.ids['trend-max-return'].value,'7');s.app.destroy();
 });
-test('a downward market common pattern is explicitly labeled downward instead of implying strength',async()=>{
- const d=dom(),s=setup({}, {buildConsensus:input=>({...fakeEngine().buildConsensus(input),dates:['2026-10-31',day],medianReturns:[-.01,-.02]})});
- const app=mount(d.doc,{selection:{getContext:()=>context()},technical:s.technical,engine:s.engine,wait:async()=>{}});await app.start('consensus');
- assert.match(d.ids['trend-market-summary'].textContent,/样本中位曲线 2026-10-31 至 2026-11-20 -2.98%（下行）/);app.destroy();
+test('heat controls and only-matches adjust results locally while keeping raw metric audit and pagination',async()=>{
+ const s=mounted();await s.app.start('consensus');const calls=s.calls.length;assert.equal(s.ids['trend-rows'].children.length,20);s.ids['trend-next'].dispatchEvent({type:'click'});assert.equal(s.ids['trend-rows'].children.length,12);
+ s.ids['trend-max-return'].value='1';s.ids['trend-max-return'].dispatchEvent({type:'change'});assert.equal(s.app.getState().records.filter(r=>r.result.excluded).length,32);s.ids['trend-only-matches'].checked=false;s.ids['trend-only-matches'].dispatchEvent({type:'change'});assert.match(s.ids['trend-rows'].textContent,/过热排除/);assert.match(s.ids['trend-rows'].textContent,/核对原始计算.*前复权起点/);assert.equal(s.calls.length,calls);s.app.destroy();
 });
-test('blank caps fail validation, period changes use defaults while preserving explicit custom caps',async()=>{
- const d=dom(),s=setup(),app=mount(d.doc,{selection:{getContext:()=>context()},technical:s.technical,engine:s.engine,wait:async()=>{}});
- d.ids['trend-max-return'].value='';await app.start('strength');assert.equal(s.calls.length,0);assert.match(d.ids['trend-status'].textContent,/有效的非负数/);
- d.ids['trend-max-return'].value='15';d.ids['trend-lookback'].value='60';d.ids['trend-lookback'].dispatchEvent({type:'change'});assert.equal(d.ids['trend-max-return'].value,'30');
- d.ids['trend-max-return'].value='22';d.ids['trend-lookback'].value='20';d.ids['trend-lookback'].dispatchEvent({type:'change'});assert.equal(d.ids['trend-max-return'].value,'22');app.destroy();
+test('scope and saved-list changes reselect cached market records without touching the consensus pool or source',async()=>{
+ let current=context();const s=mounted({selection:{getContext:()=>current}});await s.app.start('market');const calls=s.calls.length;s.ids['trend-scope'].value='saved';s.ids['trend-scope'].dispatchEvent({type:'change'});assert.equal(s.app.getState().records.length,2);
+ current={...current,savedRows:[marketRows[3]]};s.env.dispatchEvent({type:'books:selection-changed'});assert.deepEqual(s.app.getState().records.map(r=>r.stock.code),[marketRows[3].code]);assert.equal(s.calls.length,calls);s.app.destroy();
 });
-test('starting with invalid settings clears the previous dataset instead of exporting stale results',async()=>{
- const d=dom(),s=setup(),app=mount(d.doc,{selection:{getContext:()=>context()},technical:s.technical,engine:s.engine,wait:async()=>{}});await app.start('consensus');assert.ok(app.exportDataset());d.ids['trend-max-return'].value='';await app.start('consensus');assert.equal(app.exportDataset(),null);app.destroy();
+test('period changes load only another same-origin cache and preserve custom gain caps',async()=>{
+ const s=mounted();await s.app.start('consensus');s.ids['trend-lookback'].value='60';s.ids['trend-lookback'].dispatchEvent({type:'change'});await new Promise(resolve=>setTimeout(resolve,10));assert.equal(s.app.getState().lookback,60);assert.equal(s.ids['trend-max-return'].value,'30');
+ s.ids['trend-max-return'].value='22';s.ids['trend-lookback'].value='20';s.ids['trend-lookback'].dispatchEvent({type:'change'});await new Promise(resolve=>setTimeout(resolve,10));assert.equal(s.ids['trend-max-return'].value,'22');assert.equal(s.app.getState().lookback,20);assert.ok(s.calls.every(c=>c.path.startsWith('/api/a-share-daily/')));s.app.destroy();
 });
-test('scope and changed filters cannot silently keep stale results or broaden non-consensus scans',async()=>{
- const d=dom(),s=setup();let c={...context(),savedRows:[stocks[1]]};const app=mount(d.doc,{selection:{getContext:()=>c},technical:s.technical,engine:s.engine,wait:async()=>{}});
- d.ids['trend-scope'].value='saved';d.ids['trend-scope'].dispatchEvent({type:'change'});await app.start('market');assert.deepEqual(s.calls.map(x=>x.stock.code),['000300.SH','000858.SZ']);
- c={...c,rows:[stocks[0]]};d.env.dispatchEvent({type:'books:selection-changed'});assert.equal(app.runner.getState().records.length,0);app.destroy();
-});
-test('first filter change cancels a late outstanding response without a new read',async()=>{
- const d=dom();let c=context(),release,calls=0;const technical={sourceState:()=>({status:'idle'}),history:async stock=>{calls++;return new Promise(resolve=>release=()=>resolve(good(stock.code)));}};
- const app=mount(d.doc,{selection:{getContext:()=>c},technical,engine:fakeEngine(),wait:async()=>{}}),pending=app.start('strength');c={...c,rows:[stocks[1]]};d.env.dispatchEvent({type:'books:selection-changed'});release();await pending;assert.equal(calls,1);assert.equal(app.runner.getState().status,'idle');app.destroy();
+test('invalid local settings clear export eligibility instead of retaining a completed old dataset',async()=>{
+ const s=mounted();await s.app.start('consensus');await s.app.loadDataset();s.ids['trend-max-return'].value='';await s.app.start('consensus');assert.equal(s.app.exportDataset(),null);assert.match(s.ids['trend-status'].textContent,/有效的非负数/);s.app.destroy();
 });
 test('early-turn sorting favors lower extension, not the largest period gain, and does not mutate input',()=>{
  const row=(code,matched,excluded,metrics)=>({stock:{code},result:{status:'ready',matched,excluded,metrics}}),records=[row('hot',false,true,{periodReturn:99,ma20Deviation:30}),row('raised',true,false,{periodReturn:14,ma20Deviation:7,correlation:.7}),row('early',true,false,{periodReturn:2,ma20Deviation:1,correlation:.9})];

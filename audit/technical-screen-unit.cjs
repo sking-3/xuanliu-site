@@ -39,6 +39,29 @@ test('browser and CommonJS expose the same entry point',()=>{
   assert.equal(typeof run,'function');
 });
 
+test('worker may prefer a proven successful existing host while a later denial still stops every host', async () => {
+  const seen=[];
+  const client=createClient({preferSuccessfulHost:true,now:()=>Date.parse('2026-11-16T08:00:00Z'),localStorage:memoryStorage(),fetch:async url=>{
+    seen.push(url.hostname);
+    if(seen.length===1)throw Error('transport unavailable');
+    if(seen.length===4)return {ok:false,status:429};
+    return succeed({qfqday:rows(Array.from({length:61},(_,i)=>100+i))});
+  }});
+  assert.equal((await client.history(stock,day,undefined,{minBars:26})).status,'ready');
+  assert.equal((await client.history(stock,day,undefined,{minBars:26})).status,'ready');
+  assert.deepEqual(seen,['web.ifzq.gtimg.cn','proxy.finance.qq.com','proxy.finance.qq.com']);
+  assert.equal((await client.history(stock,day,undefined,{minBars:26})).sourceStopped,true);
+  assert.equal((await client.history(stock,day,undefined,{minBars:26})).sourceStopped,true);
+  assert.equal(seen.length,4);
+});
+
+test('two HTTP501 responses remain a transport failure with their status instead of stock-level missing data',async()=>{
+ let calls=0;
+ const client=createClient({now:()=>Date.parse('2026-11-16T08:00:00Z'),localStorage:memoryStorage(),fetch:async()=>{calls++;return {ok:false,status:501};}});
+ const result=await client.history(stock,day,undefined,{minBars:26});
+ assert.equal(result.status,'unavailable');assert.equal(result.transportError,true);assert.match(result.reason,/HTTP 501/);assert.equal(calls,2);
+});
+
 test('adjusted closes, not intraday highs, produce source MA offsets and turtle ties',async t=>{
   const adjusted=rows(sequence);
   adjusted[50][3]='888.00';

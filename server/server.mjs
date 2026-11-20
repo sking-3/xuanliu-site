@@ -8,6 +8,7 @@ import { promisify } from 'node:util';
 import { DatabaseSync } from 'node:sqlite';
 import { createRequire } from 'node:module';
 import { createControlService } from './control-service.mjs';
+import { createAShareCache } from './a-share-cache.mjs';
 
 const scrypt = promisify(scryptCb);
 const ROOT = dirname(fileURLToPath(import.meta.url));
@@ -279,13 +280,14 @@ function allowedOriginSet(value) {
   return new Set(String(value || '').split(',').map((item) => item.trim()).filter(Boolean));
 }
 
-export function createApp({ dbFile = ':memory:', siteDir = DEFAULT_SITE_DIR, avatarDirectory = process.env.BOOKS_AVATAR_DIR || '', allowedOrigins = process.env.BOOKS_ALLOWED_ORIGINS, paymentProvider = null, paymentNetwork = process.env.BOOKS_PAYMENT_NETWORK || '', paymentWebhookSecret = process.env.BOOKS_PAYMENT_WEBHOOK_SECRET || '' } = {}) {
+export function createApp({ dbFile = ':memory:', siteDir = DEFAULT_SITE_DIR, aShareDir = process.env.BOOKS_A_SHARE_DIR || '/var/lib/books/a-share-daily', avatarDirectory = process.env.BOOKS_AVATAR_DIR || '', allowedOrigins = process.env.BOOKS_ALLOWED_ORIGINS, paymentProvider = null, paymentNetwork = process.env.BOOKS_PAYMENT_NETWORK || '', paymentWebhookSecret = process.env.BOOKS_PAYMENT_WEBHOOK_SECRET || '' } = {}) {
   if (dbFile !== ':memory:') mkdirSync(dirname(resolve(dbFile)), { recursive: true });
   const avatarDir = resolve(avatarDirectory || resolve(siteDir, 'media', 'avatars'));
   mkdirSync(avatarDir, { recursive: true });
   const db = new DatabaseSync(dbFile);
   initDb(db);
   let researchControl = null;
+  const aShareCache = createAShareCache({directory:aShareDir});
   const attempts = new Map();
   const corsOrigins = allowedOriginSet(allowedOrigins);
   const configuredPaymentProvider = paymentProvider || buildEnvPaymentProvider({
@@ -352,6 +354,7 @@ export function createApp({ dbFile = ':memory:', siteDir = DEFAULT_SITE_DIR, ava
         res.setHeader('vary', 'Origin');
       }
       if (req.method === 'OPTIONS') return res.writeHead(204).end();
+      if (await aShareCache.handle(req, res, {path,url,json})) return;
       if (path.startsWith('/api/research-control/')) {
         const user = requireAdmin(req, res); if (!user) return;
         if (req.method !== 'GET' && req.method !== 'POST') return json(res, 405, { error: 'method_not_allowed' });

@@ -61,15 +61,19 @@
       clearTimeout(timeout);
     }
   }
-  const remote = 'https://raw.githubusercontent.com/wenyuanw/a-share-heatmap/main/src/lib/data/market-heatmap-fallback.json';
-  let pending;
-  function refresh() {
+  const remote = '/api/a-share-daily/market';
+  let pending, requestedGeneration = null;
+  function refresh(event) {
+    if (event?.detail?.generation) requestedGeneration = event.detail.generation;
     if (pending) return pending;
+    const generation = requestedGeneration;
     const button=document.getElementById('pick-refresh');
     if (button) button.disabled=true;
-    pending=read(remote,'upstream').catch(()=>window.BooksStockSelection?.unavailable()).finally(()=>{
+    const url = generation ? remote+'?generation='+encodeURIComponent(generation) : remote;
+    pending=read(url,'upstream').catch(()=>window.BooksStockSelection?.unavailable()).finally(()=>{
       pending=null;
       if (button) button.disabled=false;
+      if (requestedGeneration !== generation) refresh();
     });
     return pending;
   }

@@ -105,6 +105,19 @@
     if(typeof result.enabled!=='boolean')throw Error('排除条件开关无效');
     for(const key of Object.keys(DEFAULT_LIMITS).filter(k=>k!=='enabled'))if(!Number.isFinite(result[key])||result[key]<=0)throw Error('排除条件须为有限正数');return result;
   }
+  function applyLimits(result,input,lookback=20){
+    const metrics=result.metrics?{...result.metrics}:result.metrics;
+    if(result.status!=='ready')return {...result,metrics,reasons:[...(result.reasons||[])],exclusionReasons:[...(result.exclusionReasons||[])]};
+    if(![20,60].includes(lookback))throw Error('排除条件周期无效');
+    const limits=limitsOf(input),reasons=(result.reasons||[]).filter(reason=>!reason.startsWith('排除：'));
+    const baseMatched=result.excluded?!reasons.some(reason=>reason.startsWith('未满足：')):result.matched;
+    const exclusionReasons=[];
+    if(limits.enabled){
+      for(const [value,cap,label]of [[metrics.periodReturn,lookback===20?limits.maxReturn20:limits.maxReturn60,'所选周期涨幅'],[metrics.return5,limits.maxReturn5,'近5日涨幅'],[metrics.ma20Deviation,limits.maxDeviation,'相对MA20正乖离'],[metrics.volumeRatio,limits.maxVolumeRatio,'近5日/此前20日成交量比']])if(exceeds(value,cap))exclusionReasons.push(label+' '+value.toFixed(2)+(label.includes('成交量比')?'倍':'%')+' 超过上限 '+cap+(label.includes('成交量比')?'倍':'%'));
+    }
+    const excluded=exclusionReasons.length>0,matched=baseMatched&&!excluded;
+    return {...result,matched,excluded,exclusionReasons,reason:excluded?exclusionReasons[0]:matched?'满足所选研究条件':reasons.find(reason=>reason.startsWith('未满足：')),metrics,reasons:reasons.concat(exclusionReasons.map(reason=>'排除：'+reason))};
+  }
   function evaluate(input={}){
     const {mode,bars,referenceBars,lookback,day,code,consensus}=input;
     if(!MODES.includes(mode)||![20,60].includes(lookback)||!validDay(day))return unavailable('筛选模式、周期或目标交易日无效');
@@ -143,14 +156,10 @@
         checks=[[metrics.return5>0,'最近5个交易日上涨'],[exceeds(last,metrics.ma20),'收盘价 > MA20'],[exceeds(metrics.ma5,metrics.ma20),'MA5 > MA20'],[metrics.crossedUpRecently,'MA5在近5个交易日内上穿MA20']];
       }
       if(Object.values(metrics).some(v=>typeof v==='number'&&!Number.isFinite(v)))throw Error('计算结果超出有效数值范围');
-      const exclusionReasons=[];
-      if(limits.enabled){
-        for(const [value,cap,label]of [[metrics.periodReturn,lookback===20?limits.maxReturn20:limits.maxReturn60,'所选周期涨幅'],[metrics.return5,limits.maxReturn5,'近5日涨幅'],[metrics.ma20Deviation,limits.maxDeviation,'相对MA20正乖离'],[metrics.volumeRatio,limits.maxVolumeRatio,'近5日/此前20日成交量比']])if(exceeds(value,cap))exclusionReasons.push(label+' '+value.toFixed(2)+(label.includes('成交量比')?'倍':'%')+' 超过上限 '+cap+(label.includes('成交量比')?'倍':'%'));
-      }
-      const excluded=exclusionReasons.length>0,matched=checks.every(([pass])=>pass)&&!excluded,reasons=checks.map(([pass,label])=>(pass?'满足：':'未满足：')+label).concat(exclusionReasons.map(s=>'排除：'+s));
-      return {status:'ready',matched,excluded,exclusionReasons,reason:excluded?exclusionReasons[0]:matched?'满足所选研究条件':reasons.find(r=>r.startsWith('未满足：')),metrics,reasons};
+      const reasons=checks.map(([pass,label])=>(pass?'满足：':'未满足：')+label);
+      return applyLimits({status:'ready',matched:checks.every(([pass])=>pass),excluded:false,exclusionReasons:[],metrics,reasons},limits,lookback);
     }catch(error){return unavailable(error.message||'日线数据无法核验');}
   }
-  const api={RULES,DEFAULT_LIMITS,MODES,evaluate,selectMarketSample,buildConsensus};
+  const api={RULES,DEFAULT_LIMITS,MODES,evaluate,applyLimits,selectMarketSample,buildConsensus};
   if(typeof module==='object'&&module.exports)module.exports=api;else root.BooksTrendScreen=api;
 })(typeof globalThis==='object'?globalThis:this);

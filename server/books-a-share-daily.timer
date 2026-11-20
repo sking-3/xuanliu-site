@@ -1,0 +1,10 @@
+[Unit]
+Description=Books A-share daily after-close precomputation
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 16:30:00 Asia/Shanghai
+Persistent=true
+Unit=books-a-share-daily.service
+
+[Install]
+WantedBy=timers.target

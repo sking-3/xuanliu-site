@@ -111,7 +111,7 @@
   const result=(status,reason)=>({status,reason,summary,records,counts,day:dataset.day,sourceTimes,engineVersion});
   const stopped=()=>typeof shouldStop==='function'&&shouldStop();
   const progress=()=>{if(typeof onProgress==='function')onProgress({checked:counts.checked,total:counts.total,counts:{...counts},day:dataset.day});};
-  if(requested!==dataset.expectedCount)return result('unavailable','原始批次与所选样本规模不一致，须重新采集；不能扩大或缩小已采集参考池');
+  if(settings.mode==='consensus'&&requested!==dataset.expectedCount)return result('unavailable','原始批次与所选样本规模不一致，须使用对应的完整共性归档；不能扩大或缩小已采集参考池');
   if(settings.benchmark!==dataset.reference.code)return result('unavailable','原始批次指数日历与所选基准不一致，须使用对应原始日线');
   if(stopped())return result('stopped','研究已停止，尚未生成完整结论');
   let consensus=null;

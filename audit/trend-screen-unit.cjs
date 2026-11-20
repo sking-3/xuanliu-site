@@ -76,6 +76,28 @@ test('heat limits distinguish period gain, recent gain, positive deviation and a
  for(const value of [0,-1,NaN,Infinity,null])assert.equal(run({limits:{maxReturn20:value}}).status,'unavailable');
  assert.equal(run({limits:{enabled:'yes'}}).status,'unavailable');
 });
+test('cached heat filtering matches direct evaluation and leaves raw metrics and source result unchanged',()=>{
+ const b=early();for(let i=b.length-5;i<b.length;i++)b[i].volume=300;
+ for(const lookback of [20,60]){
+  const base=run({mode:'strength',bars:b,lookback,limits:{enabled:false}}),before=JSON.stringify(base),limits={enabled:true,maxReturn20:15,maxReturn60:30,maxReturn5:8,maxDeviation:8,maxVolumeRatio:2.5};
+  const cached=API.applyLimits(base,limits,lookback),direct=run({mode:'strength',bars:b,lookback,limits});assert.deepEqual(cached,direct);assert.equal(JSON.stringify(base),before);assert.notEqual(cached.metrics,base.metrics);assert.notEqual(cached.reasons,base.reasons);assert.deepEqual(cached.metrics,base.metrics);assert.equal(cached.metrics.volumeRatio,3);
+ }
+});
+test('cached heat limits use the selected period and preserve boundary values without clipping',()=>{
+ const base=run({mode:'strength',bars:early(),limits:{enabled:false}});base.metrics.periodReturn=25;
+ const short=API.applyLimits(base,{enabled:true},20),long=API.applyLimits(base,{enabled:true},60);assert.equal(short.excluded,true);assert.equal(long.excluded,false);assert.equal(long.matched,true);assert.equal(short.metrics.periodReturn,25);assert.equal(long.metrics.periodReturn,25);
+ base.metrics.periodReturn=15;base.metrics.return5=8;base.metrics.ma20Deviation=8;base.metrics.volumeRatio=2.5;assert.equal(API.applyLimits(base,{enabled:true},20).excluded,false);
+ base.metrics.volumeRatio=2.50001;assert.match(API.applyLimits(base,{enabled:true},20).exclusionReasons[0],/成交量比/);assert.equal(base.metrics.volumeRatio,2.50001);
+});
+test('repeated cached heat toggles restore the underlying rule outcome and do not accumulate reasons',()=>{
+ for(const base of [run({mode:'strength',bars:early(),limits:{enabled:false}}),run({mode:'strength',limits:{enabled:false}})]){
+  const before=JSON.stringify(base);base.metrics.volumeRatio=3;
+  const capped=API.applyLimits(base,{enabled:true}),disabled=API.applyLimits(capped,{enabled:false}),again=API.applyLimits(disabled,{enabled:true});assert.equal(capped.excluded,true);assert.equal(disabled.excluded,false);assert.equal(disabled.matched,base.matched);assert.equal(disabled.exclusionReasons.length,0);assert.deepEqual(again.exclusionReasons,capped.exclusionReasons);assert.deepEqual(again.reasons,capped.reasons);assert.equal(base.excluded,false);assert.deepEqual(base.reasons,JSON.parse(before).reasons);
+ }
+});
+test('cached unavailable results remain unknown and cannot become matches when heat is disabled',()=>{
+ const base=run({bars:[]}),before=JSON.stringify(base),filtered=API.applyLimits(base,{enabled:false});assert.deepEqual(filtered,base);assert.equal(filtered.status,'unavailable');assert.equal(filtered.matched,null);assert.equal(JSON.stringify(base),before);assert.notEqual(filtered,base);
+});
 test('market majority is computed before heat filtering, so excluding hot members cannot manufacture breadth',()=>{
  const c=consensus(Array(40).fill(i=>varied(i)*5));assert.equal(c.identified,true);assert.equal(c.breadth,1);
  const r=run({mode:'consensus',consensus:c,bars:bars(i=>varied(i)*5),code:c.memberCodes[0],limits:{enabled:true}});assert.equal(r.excluded,true);assert.equal(r.matched,false);assert.equal(c.breadth,1);

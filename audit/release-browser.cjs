@@ -18,7 +18,7 @@ async function main(){
    await context.route('**/*',route=>{
     const url=new URL(route.request().url());
     if(url.origin===base.origin&&url.pathname===new URL('quant-research/data/latest.json',base).pathname)return route.fulfill({json:quantFixture});
-    if(url.href.includes('market-heatmap-fallback.json'))return route.fulfill({json:fixture});
+    if(url.href.includes('market-heatmap-fallback.json')||url.origin===base.origin&&url.pathname==='/api/a-share-daily/market')return route.fulfill({json:fixture});
     if(url.origin===base.origin&&url.pathname.startsWith(base.pathname))return route.continue();
     return route.abort();
    });

@@ -87,6 +87,12 @@ test('market and early-strength modes use the same normalized raw batch and shar
  for(const mode of ['market','strength']){const r=await model.evaluateDataset(dataset(),config({mode,limits:{enabled:false}}),engine);assert.equal(r.status,'complete');assert.equal(r.summary.identified,false);assert.equal(r.summary.breadth,null);assert.equal(r.counts.ready,120);assert.equal(r.summary.coverage,1);}
  const r=await model.evaluateDataset(dataset(),config({benchmark:'399001.SZ'}),engine);assert.equal(r.status,'unavailable');assert.match(r.reason,/基准/);
 });
+test('nonconsensus replay uses the archived scope independently of the consensus sample setting',async()=>{
+ for(const raw of [dataset(300),dataset(300,300)])for(const mode of ['market','strength'])for(const sampleSize of ['120','240','all']){
+  const r=await model.evaluateDataset(raw,config({mode,sampleSize,limits:{enabled:false}}),engine);
+  assert.equal(r.status,'complete');assert.equal(r.counts.checked,raw.expectedCount);assert.equal(r.summary.requestedCount,raw.expectedCount);assert.equal(r.summary.totalUniverseCount,300);assert.equal(r.summary.fullMarket,raw.expectedCount===300);
+ }
+});
 test('evaluation yields to stop signals and never publishes a complete majority conclusion after stop',async()=>{
  let stop=false;const progress=[];const r=await model.evaluateDataset(dataset(),model.DEFAULT_CONFIG,engine,{shouldStop:()=>stop,onProgress:p=>{progress.push(p.checked);if(p.checked===20)setTimeout(()=>{stop=true;},0);}});
  assert.equal(r.status,'stopped');assert.equal(r.counts.checked,20);assert.equal(r.summary.identified,false);assert.equal(r.records.length,20);assert.deepEqual(progress,[0,20]);

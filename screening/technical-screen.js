@@ -13,6 +13,11 @@
   const active=new Set();
   let stopped=null, persistenceChecked=false;
   const now=()=>env.now?env.now():Date.now();
+  function preferHost(host) {
+    if (!env.preferSuccessfulHost || hosts[0] === host) return;
+    hosts.splice(hosts.indexOf(host), 1);
+    hosts.unshift(host);
+  }
   function stop(record){
     stopped=record;
     try{env.localStorage.setItem(stopKey,JSON.stringify(record));}catch{}
@@ -125,7 +130,7 @@
         return {restricted:true};
       }
       if(sourceState().status!=='idle')return {restricted:true};
-      if (!response.ok) throw Error('行情服务暂不可用');
+      if (!response.ok) throw Object.assign(Error('行情服务暂不可用'), {httpStatus:response.status});
       return {payload: await response.json()};
     } finally {
       active.delete(control);
@@ -157,18 +162,23 @@
     const today = new Date(currentTime + shanghaiOffset).toISOString().slice(0, 10);
     const lookback=historyOptions?Math.max(360,Math.ceil(historyOptions.minBars*1.7)+20):360;
     const start = new Date(Date.parse(day + 'T00:00:00Z') - lookback * dayMs).toISOString().slice(0, 10);
-    let reason = '腾讯日线连接失败或超时';
+    let reason = '腾讯日线连接失败或超时', transportError=false;
     for (const host of hosts) {
       if(sourceState().status!=='idle')return blocked();
       const url = new URL(host + path);
       url.searchParams.set('param', [ticker,'day',start,day,640,historyOptions?.index?'':'qfq'].join(','));
       let result;
       try { result = await load(url, signal); }
-      catch { if(sourceState().status!=='idle')return blocked();abortIfNeeded(signal);continue; }
+      catch (error) {
+        if(sourceState().status!=='idle')return blocked();
+        abortIfNeeded(signal);transportError=true;
+        reason='腾讯日线连接失败或超时'+(error.httpStatus?'（HTTP '+error.httpStatus+'）':'');
+        continue;
+      }
       abortIfNeeded(signal);
       if (result.restricted||sourceState().status!=='idle')return blocked();
       const payload = result.payload;
-      if (payload?.code !== 0 && payload?.code !== '0') { reason = '腾讯未返回该标的日线'; continue; }
+      if (payload?.code !== 0 && payload?.code !== '0') { transportError=false;reason = '腾讯未返回该标的日线'; continue; }
       const entry = payload.data?.[ticker];
       try {
         const values = readBars(entry,day,historyOptions);
@@ -180,11 +190,12 @@
               || stamp.slice(0, 8) !== day.replaceAll('-', '') || stamp.slice(8) < '150000')
             throw Error('来源尚未确认目标日收盘');
         }
+        preferHost(host);
         if(historyOptions)return {code,day,status:'ready',bars:values,adjustment:historyOptions.index?'index':'qfq',fetchedAt:new Date(now()).toISOString(),sourceUrl:url.href};
         return {code, day, status: 'ready', ...evaluate(values)};
-      } catch (error) { reason = error.message; }
+      } catch (error) { transportError=false;reason = error.message; }
     }
-    return fail(reason);
+    return transportError?{...fail(reason),transportError:true}:fail(reason);
   }
 
   function run(stock,day,signal){return request(stock,day,signal);}
