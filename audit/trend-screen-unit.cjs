@@ -173,3 +173,63 @@ test('typed heat toggles do not infer rule outcomes from Chinese or translated p
  const blocked={...capped,candidateMatched:false,matched:true,baseMatched:true,reasons:['满足：任意文本']};assert.equal(API.applyLimits(blocked,{enabled:false}).matched,false);
  const legacy={status:'ready',matched:true,excluded:false,metrics:base.metrics,reasons:['legacy rule label']};const oldCap=API.applyLimits(legacy,{enabled:true}),oldRestore=API.applyLimits(oldCap,{enabled:false});assert.equal(oldRestore.matched,true);assert.deepEqual(oldRestore.ruleReasons,['legacy rule label']);
 });
+test('direction classification uses strict net return boundaries and a closing range to reject V-shaped consolidation',()=>{
+ assert.equal(API.classifyDirection({periodReturn:3,periodRangePercent:8}),'sideways');
+ assert.equal(API.classifyDirection({periodReturn:-3,periodRangePercent:8}),'sideways');
+ assert.equal(API.classifyDirection({periodReturn:3.01,periodRangePercent:40}),'up');
+ assert.equal(API.classifyDirection({periodReturn:-3.01,periodRangePercent:40}),'down');
+ assert.equal(API.classifyDirection({periodReturn:0,periodRangePercent:40}),'unclassified');
+ assert.equal(API.classifyDirection({periodReturn:0}),null);
+ assert.equal(API.classifyDirection({periodReturn:0,periodRangePercent:-1}),null);
+ assert.equal(API.classifyDirection({periodReturn:2,periodRangePercent:5},{minimumReturnPercent:1}),'up');
+ const b=bars();b.slice(-21).forEach((bar,i)=>bar.close=100+(i<=10?i:20-i)*5);
+ const r=run({bars:b,referenceBars:b});assert.equal(r.status,'ready');closeTo(r.metrics.periodReturn,0);closeTo(r.metrics.periodRangePercent,50);assert.equal(API.classifyDirection(r.metrics),'unclassified');
+ for(const directionRules of [{minimumReturnPercent:-1},{minimumReturnPercent:101},{maximumSidewaysRangePercent:1001},{maximumSidewaysRangePercent:NaN}])assert.throws(()=>API.classifyDirection({periodReturn:1,periodRangePercent:1},directionRules));
+});
+test('cross age uses full contiguous support without raising the26-bar20-day base requirement',()=>{
+ const b=early(),full=run({mode:'strength',bars:b});assert.equal(full.metrics.crossAgeDays,1);assert.equal(full.metrics.crossSearchDays,20);
+ const short=run({mode:'strength',bars:b.slice(-26)});assert.equal(short.status,'ready');assert.equal(short.metrics.crossSearchDays,6);assert.equal(short.matched,true);
+ const unknown=API.applyStrengthRules(short,{strength:{crossWithinDays:20}});assert.equal(unknown.status,'ready');assert.equal(unknown.strengthKnown,false);assert.equal(unknown.candidateMatched,null);assert.equal(unknown.matched,false);
+ assert.equal(API.applyLimits(unknown,{enabled:false}).matched,false);assert.equal(API.applyStrengthRules(unknown,{strength:{crossWithinDays:5}}).matched,true);
+ const gapped=b.filter((_,i)=>i!==30),g=run({mode:'strength',bars:gapped});assert.equal(g.status,'ready');assert.equal(g.metrics.crossSearchDays,10);
+ const calendarOnly=run({mode:'consensus',bars:b,consensus:consensus(Array(40).fill(varied)),code:'600000.SH',referenceBars:undefined});assert.equal(calendarOnly.metrics.crossSearchDays,6);
+});
+test('adjustable cross windows use observed age rather than old booleans and preserve every independent gate',()=>{
+ const b=bars(()=>0),wave=[99,99,99,99,99,99.5,100,100.5,101,101.5],start=46;
+ wave.forEach((close,i)=>b[start+i].close=close);for(let i=start+10;i<b.length;i++)b[i].close=101.5+(i-start-9)*.1;
+ const base=run({mode:'strength',bars:b});assert.equal(base.metrics.crossAgeDays,6);assert.equal(base.candidateMatched,false);
+ const wide=API.applyStrengthRules(base,{strength:{crossWithinDays:7}});assert.equal(wide.matched,true);
+ assert.equal(API.applyStrengthRules(base,{strength:{crossWithinDays:6}}).matched,false);
+ assert.equal(API.applyStrengthRules(wide,{strength:{crossWithinDays:7,minReturn5:1}}).matched,false);
+ const before=JSON.stringify(wide);
+ for(const gate of [{eligible:false,eligibilityCodes:['risk_name']},{marketQualified:false},{directionMatched:false},{excluded:true,exclusionReasons:['volume cap']}]){
+  const result=API.applyStrengthRules({...wide,...gate},{strength:{crossWithinDays:20}});assert.equal(result.candidateMatched,true);assert.equal(result.matched,false);assert.equal(API.applyLimits(result,{enabled:false}).matched,gate.excluded===true);
+ }
+ assert.equal(JSON.stringify(wide),before);
+ const legacy={...wide,metrics:{...wide.metrics,crossAgeDays:undefined,crossSearchDays:undefined,crossedUpRecently:true}};
+ assert.equal(API.applyStrengthRules(legacy,{strength:{crossWithinDays:5}}).strengthKnown,false);
+ for(const strength of [{crossWithinDays:0},{crossWithinDays:21},{crossWithinDays:1.5},{minReturn5:-101},{minReturn5:'0'}])assert.throws(()=>API.applyStrengthRules(wide,{strength}));
+});
+test('the current session is cross age0 and a one-day window cannot accept yesterday',()=>{
+ const b=bars(()=>0);[99,99,99,99,99,104].forEach((close,i)=>b[b.length-6+i].close=close);
+ const today=run({mode:'strength',bars:b,strength:{crossWithinDays:1}});assert.equal(today.metrics.crossAgeDays,0);assert.equal(today.matched,true);
+ assert.equal(run({mode:'strength',bars:early(),strength:{crossWithinDays:1}}).matched,false);
+});
+test('direction group breadth keeps the original market denominator, observation candidates, risks and heat',()=>{
+ const c=consensus(Array(40).fill(varied)),base=run({mode:'consensus',consensus:c,code:c.memberCodes[0]});
+ const records=stocks(40).map((stock,i)=>({stock,patterns:{labels:[]},result:{...base,metrics:{...base.metrics,periodReturn:i<20?5:-5,periodRangePercent:10},eligible:i!==0,eligibilityCodes:i===0?['risk_name']:[],excluded:i===1,exclusionReasons:i===1?['volume cap']:[]}}));
+ const before=JSON.stringify(records),high=API.applyDirection(records,{direction:'up',consensus:c,minimumBreadth:.6});
+ assert.equal(high.summary.candidateCount,40);assert.equal(high.summary.selectedCandidateCount,20);assert.equal(high.summary.validCount,40);assert.equal(high.summary.breadth,.5);assert.equal(high.summary.allBreadth,1);assert.equal(high.summary.marketQualified,false);assert.equal(high.records.filter(r=>r.result.matched).length,0);
+ const low=API.applyDirection(high.records,{direction:'up',consensus:c,minimumBreadth:.5});assert.equal(low.records.filter(r=>r.result.matched).length,18);assert.equal(low.records[0].result.eligible,false);assert.equal(low.records[1].result.excluded,true);assert.equal(low.records[1].patterns.labels.length,0);
+ const down=API.applyDirection(low.records,{direction:'down',consensus:c,minimumBreadth:.5});assert.equal(down.records.filter(r=>r.result.matched).length,20);
+ const all=API.applyDirection(down.records,{direction:'all',consensus:c,minimumBreadth:.6});assert.equal(all.records.filter(r=>r.result.matched).length,38);assert.equal(all.summary.breadth,1);assert.equal(JSON.stringify(records),before);
+ const mismatch=low.records[25].result;assert.equal(API.applyLimits(mismatch,{enabled:false}).matched,false);assert.equal(API.applyConsensusThreshold(mismatch,{consensus:c,minimumBreadth:0}).matched,false);
+});
+test('direction threshold cannot revive incomplete coverage or classify absent range as sideways',()=>{
+ const c=consensus(Array(40).fill(varied)),base=run({mode:'consensus',consensus:c,code:c.memberCodes[0]}),records=stocks(40).map(stock=>({stock,result:{...base,metrics:{...base.metrics,periodReturn:0,periodRangePercent:null}}}));
+ const r=API.applyDirection(records,{direction:'sideways',consensus:c,minimumBreadth:0});assert.equal(r.summary.selectedCandidateCount,0);assert(r.records.every(row=>row.result.direction===null&&row.result.matched===false));
+ const invalid=API.applyDirection(records,{direction:'all',consensus:{...c,status:'unavailable'},minimumBreadth:0});assert.equal(invalid.summary.marketQualified,null);assert(invalid.records.every(row=>row.result.matched!==true));
+ const nonmarket=API.applyDirection([{stock:stocks(1)[0],result:{...base,marketQualified:false}}],{direction:'all'});assert.equal(nonmarket.records[0].result.matched,false);
+ for(const gate of [{eligible:false},{directionMatched:false},{marketQualified:false}])assert.equal(API.applyLimits({status:'ready',matched:true,excluded:false,metrics:base.metrics,...gate},{enabled:false}).matched,false);
+ assert.throws(()=>API.applyDirection(records,{direction:'mixed'}));
+});

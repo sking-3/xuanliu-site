@@ -143,6 +143,27 @@ test('a saved0.5 threshold survives activation, service restart and an actual re
   const exported=(await f.request('export?id='+run.id)).body;assert.equal(exported.settings.settings.minimumBreadth,.5);assert.equal(exported.result.summary.minimumBreadth,.5);
   assert.equal((await f.request('state')).body.activeConfig.settings.minimumBreadth,.5);
 });
+test('direction, rule and pattern settings survive version activation, restart, real replay and export without shrinking the market denominator',async t=>{
+  const f=fixture(t),raw=dataset();
+  for(const record of raw.records.slice(24)){let close=100;record.source.bars=record.source.bars.map((bar,i)=>({...bar,close:close*=1-[.002,-.001,.004,-.002,.003][i%5]}));}
+  const settings={mode:'consensus',sampleSize:'all',lookback:20,minimumBreadth:.55,direction:'up',directionRules:{minimumReturnPercent:1,maximumSidewaysRangePercent:6},strength:{crossWithinDays:9,minReturn5:1.25},patterns:{nearPct:3,rangePct:6,crossWindow:7,pullbackMinPct:1,pullbackMaxPct:9,volumeExpandRatio:1.5,volumeContractRatio:.6},limits:{enabled:false}};
+  const config=Model.normalizeConfig({name:'上行共性参数',settings}),saved=await f.request('config',{expectedRevision:0,config});assert.equal(saved.status,201);
+  assert.equal((await f.request('activate',{revision:1,expectedActiveRevision:0})).status,200);
+  const draft=Model.normalizeConfig({name:'未激活下行草稿',settings:{...settings,direction:'down',minimumBreadth:.1,patterns:{...settings.patterns,nearPct:9}}});
+  assert.equal((await f.request('config',{expectedRevision:1,config:draft})).status,201);
+  f.replace();const state=(await f.request('state')).body;
+  assert.equal(state.activeRevision,1);assert.deepEqual(state.activeConfig,config);assert.deepEqual(state.config,draft);assert.deepEqual(state.versions.find(v=>v.revision===1).config,config);
+  let externalRequests=0;t.mock.method(globalThis,'fetch',()=>{externalRequests++;throw Error('archive replay cannot request external data');});
+  const id=await f.importData(raw),queued=await f.request('run',{datasetId:id,revision:1});assert.equal(queued.status,202);await f.drain();
+  const completed=(await f.request('runs?id='+queued.body.run.id)).body;
+  assert.equal(completed.status,'complete');assert.deepEqual(completed.settings,config);assert.equal(completed.result.summary.day,raw.day);assert.equal(completed.result.summary.requestedCount,40);assert.equal(completed.result.summary.validCount,40);assert.equal(completed.result.summary.coverage,1);
+  const direction=completed.result.summary.directionSummary;
+  assert.equal(direction.direction,'up');assert.equal(direction.validCount,40);assert.equal(direction.candidateCount,24);assert.equal(direction.selectedCandidateCount,24);assert.equal(direction.breadth,24/40);assert.equal(direction.allBreadth,.6);assert.equal(direction.minimumBreadth,.55);assert.equal(direction.marketQualified,true);assert.notEqual(direction.breadth,1);
+  assert.equal(completed.result.counts.matched,24);assert.equal(completed.result.counts.total,40);assert.equal(completed.result.records.length,40);
+  assert(completed.result.records.slice(0,24).every(record=>record.result.direction==='up'&&record.result.matched));assert(completed.result.records.slice(24).every(record=>record.result.direction==='down'&&!record.result.matched));
+  const exported=(await f.request('export?id='+completed.id)).body;assert.deepEqual(exported,completed);assert.deepEqual(exported.settings.settings.directionRules,settings.directionRules);assert.deepEqual(exported.settings.settings.strength,settings.strength);assert.deepEqual(exported.settings.settings.patterns,settings.patterns);
+  assert.deepEqual((await f.request('state')).body.activeConfig,config);assert.equal(externalRequests,0);
+});
 test('an incompatible real archive reports unavailable instead of manufacturing a complete result',async t=>{
   const f=fixture(t),id=await f.importData();await f.request('config',{expectedRevision:0,config:{settings:{benchmark:'000001.SH'}}});
   const run=(await f.request('run',{datasetId:id,revision:1})).body.run;await f.drain();

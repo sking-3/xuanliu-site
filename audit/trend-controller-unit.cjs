@@ -124,11 +124,11 @@ test('exported raw dataset reproduces the actual consensus metrics without expor
  const actual=require('../screening/trend-screen.js'),s=setup({},actual),state=await s.runner.run(options({mode:'consensus'})),data=s.runner.exportDataset();
  assert.equal(state.status,'complete');const consensus=actual.buildConsensus({records:data.records.filter(r=>r.source.status==='ready').map(r=>({stock:r.stock,bars:r.source.bars})),calendar:data.reference.bars,lookback:20,day:data.day,expectedCount:data.expectedCount,totalUniverseCount:data.totalUniverseCount});
  assert.equal(consensus.identified,state.consensus.identified);assert.equal(consensus.commonCount,state.consensus.commonCount);
- const record=data.records[0],result=actual.evaluate({mode:'consensus',bars:record.source.bars,consensus,lookback:20,day:data.day,code:record.stock.code,limits:options().limits});
+ const record=data.records[0],result=actual.evaluate({mode:'consensus',bars:record.source.bars,referenceBars:data.reference.bars,consensus,lookback:20,day:data.day,code:record.stock.code,limits:options().limits});
  assert.deepEqual(result.metrics,state.records[0].result.metrics);assert.doesNotMatch(JSON.stringify(data),/"metrics"|"matched"|"consensus"/);
  const model=require('../control/model.js'),replay=await model.evaluateDataset(data,model.DEFAULT_CONFIG,actual);assert.equal(replay.status,state.status);assert.equal(replay.summary.commonCount,state.consensus.commonCount);assert.deepEqual(replay.records[0].result.metrics,state.records[0].result.metrics);
 });
-const actualEngine=require('../screening/trend-screen.js'),controlModel=require('../control/model.js'),marketPool=require('../screening/market-pool.js');
+const actualEngine=require('../screening/trend-screen.js'),controlModel=require('../control/model.js'),marketPool=require('../screening/market-pool.js'),actualPatterns=require('../screening/trend-patterns.js');
 const settle=()=>new Promise(setImmediate);
 function dataset(benchmark='000300.SH',count=marketRows.length,total=count){
  const universe=Array.from({length:total},(_,i)=>{
@@ -296,14 +296,16 @@ class Element extends Target{
  remove(){if(this.parentNode){const items=this.parentNode.children;items.splice(items.indexOf(this),1);this.parentNode=null;}}
  replaceChildren(...nodes){for(const child of this.children)child.parentNode=null;this.children=[];this.own='';this.append(...nodes);}
  setAttribute(key,value){this.attrs[key]=String(value);}
- querySelectorAll(selector){return selector==='[data-trend-mode]'?this.children.filter(node=>node.dataset.trendMode):[];}
+ querySelectorAll(selector){const key=selector.slice(1,-1).replace(/^data-/,'').replace(/-([a-z])/g,(_,letter)=>letter.toUpperCase());return this.children.filter(node=>node.dataset[key]!==undefined);}
 }
 function dom(){
  const env=new Target(),ids={},doc={defaultView:env,getElementById:id=>ids[id],createElement:tag=>new Element(tag)};
  env.setInterval=setInterval;env.clearInterval=clearInterval;
  env.CustomEvent=class{constructor(type,options){this.type=type;this.detail=options.detail;}};
- for(const id of ['trend-screen','trend-lookback','trend-pattern','trend-display','trend-breadth','trend-consensus-controls','trend-qualified-only','trend-consensus-status','trend-status','trend-count','trend-results','trend-pagination','trend-prev','trend-next','trend-page'])ids[id]=new Element();
+ for(const id of ['trend-screen','trend-lookback','trend-pattern','trend-display','trend-breadth','trend-consensus-controls','trend-qualified-only','trend-consensus-status','trend-status','trend-count','trend-results','trend-pagination','trend-prev','trend-next','trend-page','trend-direction-controls','trend-direction-settings','trend-strength-controls','trend-heat-enabled','trend-settings-error','trend-reset-settings','trend-strategy-status'])ids[id]=new Element();
  for(const mode of ['consensus','market','strength']){const button=new Element('button');button.dataset.trendMode=mode;ids['trend-screen'].append(button);}
+ for(const direction of ['up','down','sideways','all']){const button=new Element('button');button.dataset.trendDirection=direction;ids['trend-screen'].append(button);}
+ for(const [data,keys]of Object.entries({trendDirectionRule:['minimumReturnPercent','maximumSidewaysRangePercent'],trendStrength:['crossWithinDays','minReturn5'],trendLimit:['maxReturn20','maxReturn60','maxReturn5','maxDeviation','maxVolumeRatio'],trendPatternParam:['nearPct','rangePct','crossWindow','pullbackMinPct','pullbackMaxPct','volumeExpandRatio','volumeContractRatio']}))for(const key of keys){const field=new Element('input');field.dataset[data]=key;ids['trend-screen'].append(field);}
  ids['trend-lookback'].value='20';return {env,ids,doc};
 }
 function chartSpy(){
@@ -314,14 +316,14 @@ function chartSpy(){
 const context=(rows=marketRows)=>({day,asOf,rows,pageRows:rows.slice(0,20),savedRows:rows.slice(0,2),allRows:marketRows,marketRows});
 function mounted(extra={},storage){
  const d=dom(),s=cacheSetup(),charts=chartSpy();d.env.fetch=s.env.fetch;if(storage)d.env.localStorage=storage;
- const app=mount(d.doc,{selection:{getContext:()=>context()},engine:actualEngine,model:controlModel,pool:marketPool,charts:charts.api,autoLoad:false,...extra});
+ const app=mount(d.doc,{selection:{getContext:()=>context()},engine:actualEngine,model:controlModel,pool:marketPool,patterns:actualPatterns,charts:charts.api,configuration:controlModel.DEFAULT_CONFIG,autoLoad:false,...extra});
  return {...s,...d,charts,app};
 }
 const articles=s=>s.ids['trend-results'].children.filter(node=>node.tagName==='article');
 const patternDetails=article=>article.children.find(node=>node.className==='trend-stock-patterns');
 test('the frozen compact DOM automatically loads all cached result cards without old parameter nodes',async()=>{
  const d=dom(),s=cacheSetup(),charts=chartSpy();d.env.fetch=s.env.fetch;d.env.BooksTechnicalScreen={sourceState:()=>({status:'restricted',reason:'旧来源停止'}),history:()=>{throw Error('must not request upstream');}};
- const app=mount(d.doc,{selection:{getContext:()=>context()},engine:actualEngine,model:controlModel,charts:charts.api});await settle();
+ const app=mount(d.doc,{selection:{getContext:()=>context()},engine:actualEngine,model:controlModel,charts:charts.api,configuration:controlModel.DEFAULT_CONFIG});await settle();
  assert.equal(app.getState().status,'complete');assert.equal(articles(d).length,32);assert.equal(charts.observed.length,32);assert.equal(d.ids['trend-status'].textContent,'沪深主板 32只 · 数据日2026-11-20');assert.equal(d.ids['trend-count'].textContent,'32 只');
  const item=articles(d)[0];assert.equal(item.className,'trend-stock');assert.equal(item.attrs.role,'listitem');assert.match(item.children[0].children[0].children[0].href,/\.\.\/chart\.html\?tvwidgetsymbol=SSE%3A/);assert.doesNotMatch(item.textContent,/HTTP|回撤|复算|盈亏|请求/);assert.equal(new URL(s.calls.at(-1).path,'https://books.test').searchParams.get('sampleSize'),'all');app.destroy();
 });
@@ -393,8 +395,8 @@ test('derived-only generations show full roster counts and never dispatch a raw-
 test('unified configuration applies once before hand-selection and preserves raw export APIs',async()=>{
  const s=mounted(),config={module:'a-share-consensus',name:'服务器方案',settings:{...controlModel.DEFAULT_CONFIG.settings,mode:'market',sampleSize:'240',benchmark:'399001.SZ',limits:{...options().limits,maxReturn20:1}}};assert.equal(s.app.applyConfiguration(config),true);await settle();assert.equal(s.app.getState().mode,'market');assert.equal(s.app.getState().reference.code,'399001.SZ');assert.equal(s.app.getState().limits.maxReturn20,1);assert.equal(s.app.applyConfiguration(controlModel.DEFAULT_CONFIG),false);await s.app.loadDataset();assert.equal(s.app.getExportStatus().available,true);assert.equal(s.app.exportDataset().reference.code,'399001.SZ');s.app.destroy();
 });
-test('late admin defaults cannot override a clicked mode or user-selected period',async()=>{
- for(const choose of ['mode','period']){const s=mounted();if(choose==='mode')s.ids['trend-screen'].children.find(button=>button.dataset.trendMode==='market').dispatchEvent({type:'click'});else{s.ids['trend-lookback'].value='60';s.ids['trend-lookback'].dispatchEvent({type:'change'});}assert.equal(s.app.applyConfiguration(controlModel.DEFAULT_CONFIG),false);await settle();assert.equal(s.app.getState()[choose==='mode'?'mode':'lookback'],choose==='mode'?'market':60);s.app.destroy();}
+test('late admin defaults merge unedited fields without overriding a clicked mode or user-selected period',async()=>{
+ for(const choose of ['mode','period']){const s=mounted();if(choose==='mode')s.ids['trend-screen'].children.find(button=>button.dataset.trendMode==='market').dispatchEvent({type:'click'});else{s.ids['trend-lookback'].value='60';s.ids['trend-lookback'].dispatchEvent({type:'change'});}assert.equal(s.app.applyConfiguration(controlModel.DEFAULT_CONFIG),true);await settle();assert.equal(s.app.getState()[choose==='mode'?'mode':'lookback'],choose==='mode'?'market':60);s.app.destroy();}
 });
 test('mounted polling remains visibility-aware, emits generation refreshes once and cleans every lifecycle owner',async()=>{
  const d=dom(),s=cacheSetup(),charts=chartSpy(),cleared=[],events=[];d.env.fetch=s.env.fetch;let tick;d.env.setInterval=(fn,ms)=>{assert.equal(ms,60000);tick=fn;return 9;};d.env.clearInterval=id=>cleared.push(id);d.env.addEventListener('books:refresh-selection',event=>events.push(event.detail.generation));
@@ -402,13 +404,13 @@ test('mounted polling remains visibility-aware, emits generation refreshes once 
 });
 test('back-forward cache preserves charts and controls while explicit destroy still cleans resources',async()=>{
  const d=dom(),s=cacheSetup(),charts=chartSpy(),cleared=[];d.env.fetch=s.env.fetch;d.env.setInterval=()=>17;d.env.clearInterval=id=>cleared.push(id);
- const app=mount(d.doc,{selection:{getContext:()=>context()},engine:actualEngine,model:controlModel,charts:charts.api,autoLoad:false});await app.start('consensus');const nodes=articles(d).slice();
+ const app=mount(d.doc,{selection:{getContext:()=>context()},engine:actualEngine,model:controlModel,charts:charts.api,configuration:controlModel.DEFAULT_CONFIG,autoLoad:false});await app.start('consensus');const nodes=articles(d).slice();
  d.env.dispatchEvent({type:'pagehide',persisted:true});assert.equal(charts.destroyed,0);assert.deepEqual(cleared,[]);assert.deepEqual(articles(d),nodes);
  d.env.dispatchEvent({type:'pageshow',persisted:true});d.ids['trend-screen'].children.find(button=>button.dataset.trendMode==='market').dispatchEvent({type:'click'});await settle();assert.equal(app.getState().mode,'market');assert.equal(app.getState().status,'complete');assert.equal(articles(d).length,32);assert.equal(charts.destroyed,0);
  app.destroy();assert.equal(charts.destroyed,1);assert.deepEqual(cleared,[17]);
 });
 test('browser mounting announces the app only after assigning its public instance',async()=>{
- const vm=require('node:vm'),fs=require('node:fs'),d=dom(),s=cacheSetup(),charts=chartSpy(),seen=[];Object.assign(d.env,{document:d.doc,fetch:s.env.fetch,BooksTrendScreen:actualEngine,BooksControlModel:controlModel,BooksMarketPool:marketPool,BooksStockCharts:charts.api,BooksStockSelection:{getContext:()=>context()},AbortController,URLSearchParams,Event:class{constructor(type){this.type=type;}}});d.env.addEventListener('books:trend-mounted',()=>seen.push(d.env.BooksTrendControllerApp));vm.runInNewContext(fs.readFileSync(require.resolve('../screening/trend-controller.js'),'utf8'),d.env);assert.equal(seen.length,1);assert.equal(seen[0],d.env.BooksTrendControllerApp);await settle();assert.equal(d.env.BooksTrendControllerApp.getState().status,'complete');d.env.BooksTrendControllerApp.destroy();
+ const vm=require('node:vm'),fs=require('node:fs'),d=dom(),s=cacheSetup(),charts=chartSpy(),seen=[];Object.assign(d.env,{document:d.doc,fetch:s.env.fetch,BooksTrendScreen:actualEngine,BooksControlModel:{...controlModel,normalizeConfig:value=>controlModel.normalizeConfig(value===undefined?undefined:JSON.parse(JSON.stringify(value)))},BooksMarketPool:marketPool,BooksTrendPatterns:actualPatterns,BooksStockCharts:charts.api,BooksStockSelection:{getContext:()=>context()},AbortController,URLSearchParams,Event:class{constructor(type){this.type=type;}}});d.env.addEventListener('books:trend-mounted',()=>seen.push(d.env.BooksTrendControllerApp));vm.runInNewContext(fs.readFileSync(require.resolve('../screening/trend-controller.js'),'utf8'),d.env);assert.equal(seen.length,1);assert.equal(seen[0],d.env.BooksTrendControllerApp);await settle();assert.equal(d.env.BooksTrendControllerApp.getState().status,'complete');d.env.BooksTrendControllerApp.destroy();
 });
 test('early-turn sorting favors lower extension, not the largest period gain, and does not mutate input',()=>{
  const row=(code,matched,excluded,metrics)=>({stock:{code},result:{status:'ready',matched,excluded,metrics}}),records=[row('hot',false,true,{periodReturn:99,ma20Deviation:30}),row('raised',true,false,{periodReturn:14,ma20Deviation:7,correlation:.7}),row('early',true,false,{periodReturn:2,ma20Deviation:1,correlation:.9})];
@@ -416,9 +418,13 @@ test('early-turn sorting favors lower extension, not the largest period gain, an
 });
 
 const patternDefinition={id:'volume-contract',label:'缩量',group:'量价',rule:'近5日均量不超过此前20日均量的0.8倍'};
+function patternFor(lookback,contract=true){
+ const values=bars();values.forEach((bar,index)=>bar.volume=index>=values.length-5&&contract?700:1000);
+ return actualPatterns.classify({bars:values,calendar:values,day,lookback});
+}
 function withPatterns(result){
- result.patternVersion='test-v1';result.patternDefinitions=[patternDefinition];
- result.records.forEach((record,index)=>record.patterns={version:'test-v1',day,lookback:result.lookback,status:'ready',labels:index<3?[{...patternDefinition,evidence:'均量比0.70；近5日涨跌+2%'}]:[]});
+ result.patternVersion=actualPatterns.version;result.patternDefinitions=actualPatterns.definitionsFor();
+ result.records.forEach((record,index)=>record.patterns=patternFor(result.lookback,index<3));
  return result;
 }
 test('all display retains every stock, while20 and4 use local pages without another request',async()=>{
@@ -432,7 +438,7 @@ test('uniform multi-label filtering uses same-day same-window versioned artifact
  const s=mounted(),result=withPatterns(cachedResult());
  result.records[1].patterns.day='2026-11-19';result.records[2].patterns.lookback=60;
  s.setResult(result);await s.app.start('consensus');const requests=s.calls.length;
- const item=articles(s)[0];assert.equal(patternDetails(item).hidden,false);assert.match(patternDetails(item).textContent,/缩量.*均量比0.70/);
+ const item=articles(s)[0];assert.equal(patternDetails(item).hidden,false);assert.match(patternDetails(item).textContent,/缩量.*0.70/);
  assert.equal(patternDetails(articles(s)[1]).hidden,true);assert.equal(patternDetails(articles(s)[2]).hidden,true);
  s.ids['trend-pattern'].value='volume-contract';s.ids['trend-pattern'].dispatchEvent({type:'change'});
  assert.deepEqual(articles(s).map(node=>node.dataset.code),[result.records[0].stock.code]);assert.equal(s.ids['trend-count'].textContent,'1 只');assert.equal(s.calls.length,requests);
@@ -442,15 +448,15 @@ test('pattern filter survives the loading state and switches to the new generati
  const s=mounted();s.setResult(withPatterns(cachedResult()));await s.app.start('consensus');
  s.ids['trend-pattern'].value='volume-contract';s.ids['trend-pattern'].dispatchEvent({type:'change'});assert.equal(articles(s).length,3);
  s.setMetadata({available:true,scope:'full-market',lastSuccess:{generation:'daily-generation-2',day}});
- const next=withPatterns({...cachedResult(),generation:'daily-generation-2'});next.records[0].patterns.labels=[];s.setResult(next);await s.app.runner.refreshIfChanged();
+ const next=withPatterns({...cachedResult(),generation:'daily-generation-2'});next.records[0].patterns=patternFor(next.lookback,false);s.setResult(next);await s.app.runner.refreshIfChanged();
  assert.equal(s.ids['trend-pattern'].value,'volume-contract');assert.equal(articles(s).length,2);assert.equal(s.app.getState().generation,'daily-generation-2');s.app.destroy();
 });
 
-test('a chosen pattern or display size blocks a late server configuration from changing the view',async()=>{
+test('a chosen pattern or display size survives a late configuration merging unchanged settings',async()=>{
  for(const [id,value]of [['trend-pattern','volume-contract'],['trend-display','20']]){
   const s=mounted();s.setResult(withPatterns(cachedResult()));await s.app.start('consensus');
   s.ids[id].value=value;s.ids[id].dispatchEvent({type:'change'});
-  assert.equal(s.app.applyConfiguration({...controlModel.DEFAULT_CONFIG,settings:{...controlModel.DEFAULT_CONFIG.settings,mode:'market',lookback:60}}),false);
+  assert.equal(s.app.applyConfiguration(controlModel.DEFAULT_CONFIG),true);await settle();
   assert.equal(s.app.getState().mode,'consensus');assert.equal(s.app.getState().lookback,20);assert.equal(s.ids[id].value,value);s.app.destroy();
  }
 });
@@ -472,14 +478,14 @@ test('the default60-day view shows1707 observation candidates while separating o
  s.setResult(cachedResult({mode:'market',lookback:60}));await s.app.start('market');assert.equal(s.ids['trend-consensus-controls'].hidden,true);assert.equal(s.ids['trend-consensus-status'].textContent,'');assert.equal(s.ids['trend-results'].textContent,'没有符合条件的股票');
 });
 test('a selected pattern with no matches is distinguished from overall market dispersion',async()=>{
- const s=mounted(),value=withPatterns(cachedResult());value.records.forEach(record=>record.patterns.labels=[]);s.setResult(value);await s.app.start('consensus');
+ const s=mounted(),value=withPatterns(cachedResult());value.records.forEach(record=>record.patterns=patternFor(value.lookback,false));s.setResult(value);await s.app.start('consensus');
  s.ids['trend-pattern'].value='volume-contract';s.ids['trend-pattern'].dispatchEvent({type:'change'});assert.equal(s.ids['trend-results'].textContent,'所选周期没有符合该技术形态的股票。');s.app.destroy();
 });
-function memoryStorage(initial){const values=new Map(initial===undefined?[]:[['books.screening.minimumBreadth.v1',initial]]);return {getItem:key=>values.get(key)??null,setItem:(key,value)=>values.set(key,value),values};}
+function memoryStorage(initial){const values=new Map(initial===undefined?[]:[['books.screening.minimumBreadth.v1',initial]]);return {getItem:key=>values.get(key)??null,setItem:(key,value)=>values.set(key,value),removeItem:key=>values.delete(key),values};}
 test('only the local breadth overrides an initial admin configuration and manual changes block late defaults',async t=>{
  const storage=memoryStorage('0.55'),s=mounted({},storage);t.after(()=>s.app.destroy());assert.equal(s.ids['trend-breadth'].value,'55');
  const config={...controlModel.DEFAULT_CONFIG,settings:{...controlModel.DEFAULT_CONFIG.settings,mode:'market',lookback:60,minimumBreadth:.8}};assert.equal(s.app.applyConfiguration(config),true);await settle();assert.equal(s.app.getState().mode,'market');assert.equal(s.app.getState().lookback,60);assert.equal(s.app.getState().minimumBreadth,.55);assert.equal(s.ids['trend-breadth'].value,'55');
- const second=mounted({},storage);t.after(()=>second.app.destroy());second.setResult(dispersedResult());await second.app.start('consensus');const requests=second.calls.length;second.ids['trend-breadth'].value='50';second.ids['trend-breadth'].dispatchEvent({type:'change'});assert.equal(second.calls.length,requests);assert.equal(second.app.getState().minimumBreadth,.5);assert.equal(storage.values.get('books.screening.minimumBreadth.v1'),'0.5');assert.equal(second.app.applyConfiguration(config),false);
+ const second=mounted({},storage);t.after(()=>second.app.destroy());second.setResult(dispersedResult());await second.app.start('consensus');const requests=second.calls.length;second.ids['trend-breadth'].value='50';second.ids['trend-breadth'].dispatchEvent({type:'change'});assert.equal(second.calls.length,requests);assert.equal(second.app.getState().minimumBreadth,.5);assert.equal(JSON.parse(storage.values.get('books.screening.settings.v1')).minimumBreadth,.5);assert.equal(second.app.applyConfiguration(config),true);await settle();
  const next=mounted({},storage);t.after(()=>next.app.destroy());assert.equal(next.ids['trend-breadth'].value,'50');await next.app.start('consensus');assert.equal(next.app.getState().minimumBreadth,.5);
 });
 test('breadth editing during a failed or loading generation preserves cards and the current pattern and page controls',async t=>{
@@ -490,5 +496,66 @@ test('breadth editing during a failed or loading generation preserves cards and 
 });
 test('invalid stored or entered breadth and unavailable local storage never prevent observing cached results',async t=>{
  for(const saved of ['broken','null','2']){const s=mounted({},memoryStorage(saved));t.after(()=>s.app.destroy());assert.equal(s.ids['trend-breadth'].value,'60');await s.app.start('consensus');const requests=s.calls.length;for(const input of ['', '-1','101','NaN']){s.ids['trend-breadth'].value=input;s.ids['trend-breadth'].dispatchEvent({type:'change'});assert.equal(s.ids['trend-breadth'].value,'60');}assert.equal(s.calls.length,requests);}
- const s=mounted({}, {getItem(){throw Error('blocked');},setItem(){throw Error('blocked');}});t.after(()=>s.app.destroy());await s.app.start('consensus');const requests=s.calls.length;s.ids['trend-breadth'].value='0';s.ids['trend-breadth'].dispatchEvent({type:'change'});assert.equal(s.app.getState().minimumBreadth,0);assert.equal(articles(s).length,32);assert.match(s.ids['trend-consensus-status'].textContent,/本机设置未能保存/);assert.equal(s.calls.length,requests);
+ const s=mounted({}, {getItem(){throw Error('blocked');},setItem(){throw Error('blocked');}});t.after(()=>s.app.destroy());await s.app.start('consensus');const requests=s.calls.length;s.ids['trend-breadth'].value='0';s.ids['trend-breadth'].dispatchEvent({type:'change'});assert.equal(s.app.getState().minimumBreadth,0);assert.equal(articles(s).length,32);assert.match(s.ids['trend-strategy-status'].textContent,/本机设置未能保存/);assert.equal(s.calls.length,requests);
+});
+
+const field=(s,group,key)=>s.ids['trend-screen'].children.find(node=>node.dataset[group]===key);
+function edit(s,group,key,value){const node=field(s,group,key);node.value=String(value);node.dispatchEvent({type:'change'});}
+function chooseDirection(s,value){field(s,'trendDirection',value).dispatchEvent({type:'click'});}
+function earlyStrengthResult(){
+ const result=withPatterns(cachedResult({mode:'strength'}));
+ result.records=result.records.slice(0,2);result.records.forEach((record,index)=>Object.assign(record.result.metrics,{periodReturn:-2.47,return5:1.43,ma20Deviation:1,ma5:102,ma20:101,crossAgeDays:index?7:1,crossSearchDays:20}));
+ return result;
+}
+test('public landing is early strength with five-day main return and a separately labeled negative20-day return',async t=>{
+ const s=mounted({configuration:undefined});t.after(()=>s.app.destroy());s.setResult(earlyStrengthResult());await s.app.start('strength');
+ assert.equal(s.app.getState().mode,'strength');assert.equal(s.app.getState().direction,'up');assert.equal(s.app.getState().limits.maxReturn20,10);assert.equal(s.app.getState().limits.maxReturn60,20);
+ const item=articles(s)[0],change=item.children[0].children[1],qualification=item.children[1];
+ assert.equal(articles(s).length,1);assert.equal(change.children[0].textContent,'+1.43%');assert.equal(change.children[1].textContent,'近5日涨跌');assert.equal(change.children[2].textContent,'20日 -2.47%');
+ assert.equal(qualification.children[0].textContent,'初期转强条件已满足');assert.match(qualification.textContent,/上穿MA20距今 1 个交易日/);assert.equal(qualification.open,undefined);
+ assert.equal(s.ids['trend-direction-controls'].hidden,true);assert.equal(s.ids['trend-direction-settings'].hidden,true);assert.equal(s.ids['trend-strength-controls'].hidden,false);
+});
+test('direction cohorts retain the original market denominator and a volatileV shape never becomes sideways',async t=>{
+ const s=mounted();t.after(()=>s.app.destroy());const value=dispersedResult();
+ value.records.slice(0,17).forEach((record,index)=>Object.assign(record.result.metrics,{periodReturn:index<4?5:index<14?-5:0,periodRangePercent:index===16?25:6,ma20Deviation:1,return5:1}));
+ s.setResult(value);await s.app.start('consensus');const requests=s.calls.length;
+ s.ids['trend-breadth'].value='10';s.ids['trend-breadth'].dispatchEvent({type:'change'});chooseDirection(s,'up');assert.equal(articles(s).length,4);assert.equal(s.app.getState().directionSummary.validCount,32);assert.equal(s.app.getState().directionSummary.breadth,4/32);assert.match(s.ids['trend-consensus-status'].textContent,/共同上涨 12.5%（4\/32）/);
+ chooseDirection(s,'down');assert.equal(articles(s).length,10);assert.equal(s.app.getState().directionSummary.breadth,10/32);
+ chooseDirection(s,'sideways');assert.equal(articles(s).length,2);assert.ok(articles(s).every(article=>article.dataset.code!==value.records[16].stock.code));assert.equal(s.app.getState().directionSummary.marketQualified,false);
+ chooseDirection(s,'all');assert.equal(articles(s).length,17);assert.equal(s.app.getState().directionSummary.breadth,17/32);assert.equal(s.calls.length,requests);
+});
+test('an emptydirection explains the activeperiod and nextaction without masking qualification or patternempty states',async t=>{
+ const s=mounted();t.after(()=>s.app.destroy());s.setResult(dispersedResult({lookback:60}));s.ids['trend-lookback'].value='60';await s.app.start('consensus');chooseDirection(s,'sideways');
+ assert.equal(s.ids['trend-results'].textContent,'所选60日没有符合横盘整理条件的共性候选，可调整涨跌分界和横盘区间幅度，或切换全部方向。');
+ s.ids['trend-qualified-only'].checked=true;s.ids['trend-qualified-only'].dispatchEvent({type:'change'});assert.match(s.ids['trend-results'].textContent,/取消“仅看达标”/);
+});
+test('local parameter patches survive reload and late admin configuration only replaces unedited fields',async t=>{
+ const storage=memoryStorage(),s=mounted({configuration:undefined},storage);t.after(()=>s.app.destroy());s.setResult(earlyStrengthResult());await s.app.start('strength');
+ edit(s,'trendStrength','crossWithinDays',10);edit(s,'trendPatternParam','nearPct',5);edit(s,'trendLimit','maxReturn20',8);
+ const admin={settings:{mode:'consensus',direction:'down',strength:{crossWithinDays:3,minReturn5:1},patterns:{nearPct:1,rangePct:6},limits:{maxReturn20:99,maxReturn60:40}}};
+ assert.equal(s.app.applyConfiguration(admin),true);await settle();const state=s.app.getState();assert.equal(state.mode,'strength');assert.equal(state.direction,'up');assert.equal(state.strength.crossWithinDays,10);assert.equal(state.strength.minReturn5,1);assert.equal(state.patterns.nearPct,5);assert.equal(state.patterns.rangePct,6);assert.equal(state.limits.maxReturn20,8);assert.equal(state.limits.maxReturn60,40);
+ const patch=JSON.parse(storage.values.get('books.screening.settings.v1'));assert.deepEqual(patch,{strength:{crossWithinDays:10},patterns:{nearPct:5},limits:{maxReturn20:8}});
+ field(s,'trendMode','consensus').dispatchEvent({type:'click'});await settle();chooseDirection(s,'down');const next=mounted({configuration:undefined},storage);t.after(()=>next.app.destroy());assert.equal(field(next,'trendMode','consensus').attrs['aria-pressed'],'true');assert.equal(field(next,'trendDirection','down').attrs['aria-pressed'],'true');assert.equal(field(next,'trendStrength','crossWithinDays').value,'10');
+});
+test('facts thresholds and strength windows reapply locally without replacing chartDOM or mutating capturedfacts',async t=>{
+ const s=mounted(),value=earlyStrengthResult();t.after(()=>s.app.destroy());s.setResult(value);const before=JSON.stringify(value);await s.app.start('strength');const item=articles(s)[0],requests=s.calls.length;
+ edit(s,'trendStrength','crossWithinDays',10);assert.equal(articles(s).length,2);assert.equal(articles(s)[0],item);
+ s.ids['trend-pattern'].value='volume-contract';s.ids['trend-pattern'].dispatchEvent({type:'change'});assert.equal(articles(s).length,2);
+ edit(s,'trendPatternParam','volumeContractRatio',.6);assert.equal(articles(s).length,0);assert.match(s.ids['trend-pattern'].textContent,/0.6|缩量/);
+ edit(s,'trendPatternParam','volumeContractRatio',.8);assert.equal(articles(s).length,2);assert.equal(s.calls.length,requests);assert.equal(JSON.stringify(value),before);
+ chooseDirection(s,'down');assert.equal(articles(s).length,2,'a stored consensus direction never removes early-strength candidates');
+});
+test('invalid or inconsistent conditions revert the fields, keep the savedpatch, and never request data',async t=>{
+ const storage=memoryStorage(),s=mounted({},storage);t.after(()=>s.app.destroy());await s.app.start('consensus');edit(s,'trendPatternParam','nearPct',5);const before=storage.values.get('books.screening.settings.v1'),requests=s.calls.length;
+ for(const [group,key,value,expected]of [['trendStrength','crossWithinDays',0,'5'],['trendPatternParam','pullbackMinPct',9,'2'],['trendPatternParam','volumeContractRatio',1.3,'0.8'],['trendLimit','maxReturn20','', '15']]){edit(s,group,key,value);assert.equal(field(s,group,key).value,expected);assert.equal(s.ids['trend-settings-error'].hidden,false);assert.equal(storage.values.get('books.screening.settings.v1'),before);}
+ edit(s,'trendStrength','crossWithinDays',8);assert.equal(s.ids['trend-settings-error'].hidden,true);assert.equal(s.calls.length,requests);
+});
+test('reset removes only condition preferences and retains mode direction period and unrelatedlocalstorage',async t=>{
+ const storage=memoryStorage('0.4'),s=mounted({configuration:undefined},storage);t.after(()=>s.app.destroy());storage.values.set('books.unrelated','keep');s.setResult(earlyStrengthResult());await s.app.start('strength');edit(s,'trendStrength','crossWithinDays',10);chooseDirection(s,'down');const requests=s.calls.length;
+ s.ids['trend-reset-settings'].dispatchEvent({type:'click'});assert.equal(s.app.getState().strength.crossWithinDays,5);assert.equal(s.app.getState().minimumBreadth,.6);assert.equal(s.app.getState().limits.maxReturn20,10);assert.equal(s.app.getState().direction,'down');assert.equal(s.app.getState().mode,'strength');assert.equal(storage.values.get('books.unrelated'),'keep');assert.equal(storage.values.has('books.screening.minimumBreadth.v1'),false);assert.deepEqual(JSON.parse(storage.values.get('books.screening.settings.v1')),{direction:'down'});assert.equal(s.calls.length,requests);
+});
+test('new parameters persist through failed and nextcompleted generations without upstream requests',async()=>{
+ const s=cacheSetup(),first=earlyStrengthResult();s.setResult(first);await s.runner.run(s.input({mode:'strength',stocks:null}));const fetch=s.env.fetch;
+ s.env.fetch=async()=>{throw Error('cache offline');};await s.runner.run(s.input({mode:'strength',stocks:null}));const requests=s.calls.length;s.runner.reapply({strength:{crossWithinDays:10},patterns:{nearPct:5},direction:'down'});assert.equal(s.runner.getState().cacheReadFailed,true);assert.equal(s.runner.getState().records.filter(record=>record.result.matched).length,2);assert.equal(s.calls.length,requests);
+ s.env.fetch=fetch;s.setMetadata({available:true,scope:'full-market',lastSuccess:{generation:'daily-generation-2',day}});s.setResult({...earlyStrengthResult(),generation:'daily-generation-2'});await s.runner.refreshIfChanged();const state=s.runner.getState();assert.equal(state.generation,'daily-generation-2');assert.equal(state.strength.crossWithinDays,10);assert.equal(state.patterns.nearPct,5);assert.equal(state.direction,'down');assert.equal(state.directionSummary.direction,'all');assert.equal(state.records.filter(record=>record.result.matched).length,2);
 });

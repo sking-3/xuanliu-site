@@ -6,6 +6,7 @@ import { join, resolve } from 'node:path';
 import { collect, createGuard, openStore, precompute, recomputeFromCache, retryAfter, INDICES } from '../server/a-share-daily.mjs';
 import {sourceId,dataPolicy} from '../server/a-share-tickflow.mjs';
 import {gzipSync} from 'node:zlib';
+import patterns from '../screening/trend-patterns.js';
 
 const now = () => Date.parse('2026-11-21T00:00:00Z');
 const asOf = '2026-11-20T08:15:00.000Z';
@@ -196,8 +197,16 @@ test('public precomputation contains derived metrics only while raw bars stay pr
     const value=JSON.parse(await readFile(join(location,'result-'+mode+'-'+lookback+'-all-000300.SH.json')));
     assert.equal(value.records.length,40);assert.equal(value.sourceId,sourceId);assert.equal(value.dataPolicy.rawPublic,false);assert.equal(value.records[0].result.matched,false);assert.match(value.records[0].result.reason,/风险名称/);assert.doesNotMatch(JSON.stringify(value),/startClose|endClose|987654321|"bars"/);
     assert(value.records.every(record=>record.result.status!=='ready'||record.result.metrics.endAt===latest.date));
-    assert.equal(value.patternVersion,'books.trend-patterns.2026-11-22.v1');assert.equal(value.patternProfile.id,'daily-close-volume-v1');assert.equal(value.patternDefinitions.length,16);
+    assert.equal(value.patternVersion,patterns.version);assert.equal(value.patternProfile.id,'daily-close-volume-v1');assert.equal(value.patternDefinitions.length,16);
     assert(value.records.every(record=>record.patterns.version===value.patternVersion&&record.patterns.day===latest.date&&record.patterns.lookback===lookback));
+    for(const record of value.records){
+      const facts=record.patterns.facts,m=record.result.metrics,window=bars.slice(-lookback-1).map(bar=>bar.close),range=(Math.max(...window)/Math.min(...window)-1)*100;
+      assert.equal(facts.version,patterns.version);assert.equal(facts.day,value.day);assert.equal(facts.lookback,lookback);assert.equal(facts.sampleCount,bars.length);assert.deepEqual(facts.profile,patterns.profile);
+      assert.deepEqual(patterns.classifyFacts({facts,day:value.day,lookback}).labels,record.patterns.labels);
+      assert.doesNotMatch(JSON.stringify(facts),/"(?:bars|prices|volumes|close|price|high|low|open|ma5|ma20|volumeAvg5|volumeAvgPrevious20)"/);
+      assert(Math.abs(m.periodRangePercent-range)<1e-10);assert.equal(m.crossSearchDays,20);assert(m.crossAgeDays===null||Number.isInteger(m.crossAgeDays)&&m.crossAgeDays>=0&&m.crossAgeDays<m.crossSearchDays);
+      assert.equal(typeof m.periodRangePercent,'number');assert.equal(typeof m.crossSearchDays,'number');
+    }
     const risk=value.records[0].result,normal=value.records[1].result;
     assert.equal(risk.candidateMatched,true);assert.equal(risk.eligible,false);assert.equal(risk.baseMatched,false);assert.deepEqual(risk.eligibilityCodes,['risk_name']);assert.equal(normal.candidateMatched,true);assert.equal(normal.eligible,true);assert.equal(normal.matched,true);assert.equal(risk.marketQualified,normal.marketQualified);
     const heated=engine.applyLimits(risk,{enabled:true},lookback),restored=engine.applyLimits(heated,{enabled:false},lookback);
@@ -228,7 +237,7 @@ test('offline replay bypasses same-day collection skip, publishes complete deriv
   const f=await privateReplay(dir),before=await readFile(join(f.location,'dataset-all-000300.SH.json'),'utf8');
   t.mock.method(globalThis,'fetch',()=>{throw Error('offline replay must not request external data');});
   const replay=await recomputeFromCache({dir,siteDir:resolve('.'),now:()=>now()+1000});
-  assert.equal(replay.attempt.jobType,'recompute');assert.equal(replay.attempt.status,'complete');assert.equal(replay.attempt.requests,0);assert.equal(replay.lastSuccess.recomputedFrom,f.previous.generation);assert.equal(replay.lastSuccess.patternVersion,'books.trend-patterns.2026-11-22.v1');assert.equal(replay.lastSuccess.patternProfile.id,'daily-close-volume-v1');
+  assert.equal(replay.attempt.jobType,'recompute');assert.equal(replay.attempt.status,'complete');assert.equal(replay.attempt.requests,0);assert.equal(replay.lastSuccess.recomputedFrom,f.previous.generation);assert.equal(replay.lastSuccess.patternVersion,patterns.version);assert.equal(replay.lastSuccess.patternProfile.id,'daily-close-volume-v1');
   assert.equal(replay.lastSuccess.day,latest.date);assert.equal(replay.lastSuccess.asOf,asOf);assert.equal(replay.lastSuccess.total,1000);assert.equal(replay.lastSuccess.ready,999);
   assert.equal(await readFile(join(dir,'status.json'),'utf8'),'中止或完成的原始采集回执保持不变');assert.equal(await readFile(join(f.location,'dataset-all-000300.SH.json'),'utf8'),before);
   assert.equal(JSON.parse(await readFile(join(dir,'current.json'))).generation,replay.lastSuccess.generation);
@@ -236,6 +245,7 @@ test('offline replay bypasses same-day collection skip, publishes complete deriv
   for(const code of INDICES)for(const mode of ['consensus','market','strength'])for(const lookback of [20,60]){
     const value=JSON.parse(await readFile(join(dir,'generations',replay.lastSuccess.generation,'result-'+mode+'-'+lookback+'-all-'+code+'.json')));
     assert.equal(value.records.length,1000);assert.equal(value.patternDefinitions.length,16);assert.equal(value.records[0].fetchedAt,new Date(now()).toISOString());assert.equal(value.dataPolicy.rawPublic,false);
+    assert.equal(value.patternVersion,patterns.version);assert.equal(value.records[0].patterns.facts.version,patterns.version);assert.equal(value.records[0].patterns.facts.day,value.day);assert.equal(value.records[0].patterns.facts.lookback,lookback);assert.deepEqual(value.records[0].patterns.facts.profile,patterns.profile);
     assert.equal(value.records.at(-1).patterns.status,'unavailable');assert.equal(value.records.at(-1).patterns.labels.length,0);
     assert.doesNotMatch(JSON.stringify(value),/"bars"|"startClose"|"endClose"/);
   }

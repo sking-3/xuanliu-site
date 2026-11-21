@@ -69,6 +69,22 @@
 .trend-consensus-controls small {font-size:11px}
 .pick-desk .trend-consensus-status {margin:0 0 8px;font-size:12px;color:var(--desk-muted)}
 .trend-consensus-status:empty {display:none}
+.trend-directions {display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px}
+.pick-desk .trend-directions button {min-height:44px;font-size:12px;padding:6px 12px}
+.pick-desk .trend-directions button[aria-pressed=true] {border-color:#526f66;background:#edf3f1}
+.pick-desk .trend-strategy-status {font-size:12px;line-height:1.6;color:var(--desk-muted);margin:0 0 8px;font-variant-numeric:tabular-nums}
+.trend-strategy-status:empty {display:none}
+.pick-desk .trend-settings {margin:0 0 16px;border-bottom:1px solid var(--desk-border);padding-bottom:8px}
+.pick-desk .trend-settings>summary {font-size:12px;min-height:44px;align-content:center}
+.pick-desk .trend-settings h4 {font-size:13px;margin:14px 0 8px}
+.trend-settings-grid {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px 16px}
+.trend-settings-grid label {display:block;font-size:12px;color:var(--desk-muted);min-width:0}
+.pick-desk .trend-settings-grid input {display:block;width:100%;min-height:44px;margin-top:4px;font-variant-numeric:tabular-nums}
+.pick-desk .trend-settings p {font-size:11px;line-height:1.6;color:var(--desk-muted);margin:8px 0}
+.trend-settings .trend-check {display:inline-flex;align-items:center;gap:7px;min-height:44px;font-size:12px}
+.pick-desk #trend-heat-enabled {width:18px;height:18px;min-height:0;padding:0;margin:0;flex:0 0 18px}
+.pick-desk #trend-settings-error {color:#a52e36}
+.pick-desk #trend-reset-settings {min-height:44px;margin:6px 0;font-size:12px}
 .trend-result-summary {display:flex;align-items:baseline;justify-content:space-between;gap:8px 16px;flex-wrap:wrap;margin:0 0 12px;color:var(--desk-muted);font-size:12px}
 .pick-desk #trend-status {margin:0;font-size:12px;color:var(--desk-muted);font-weight:400}
 .trend-result-summary :empty {display:none}
@@ -100,6 +116,8 @@
 .pick-desk .trend-empty {grid-column:1/-1;margin:12px 0 16px;font-size:13px;color:var(--desk-muted)}
 #trend-pagination {margin:16px 0 0}
 @media(max-width:650px){
+ .trend-settings-grid {grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+ .trend-directions {display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
  .trend-toolbar {flex-wrap:wrap;gap:8px}
  .trend-modes {width:100%;grid-template-columns:repeat(3,minmax(0,1fr))}
  .pick-desk .trend-modes button {padding:8px 6px;font-size:13px}

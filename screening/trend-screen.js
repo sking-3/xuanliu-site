@@ -3,10 +3,12 @@
 (function(root){
   const RULES=Object.freeze({correlation:.65,directionAgreement:.6,consensusCorrelation:.5,consensusBreadth:.6,minimumMembers:30,coverage:.8});
   const DEFAULT_LIMITS=Object.freeze({enabled:true,maxReturn20:15,maxReturn60:30,maxReturn5:8,maxDeviation:8,maxVolumeRatio:2.5});
+  const DEFAULT_DIRECTION_RULES=Object.freeze({minimumReturnPercent:3,maximumSidewaysRangePercent:8});
+  const DEFAULT_STRENGTH=Object.freeze({crossWithinDays:5,minReturn5:0});
   const MODES=Object.freeze(['market','consensus','strength']);
   const compare=(a,b)=>a<b?-1:a>b?1:0;
   const exceeds=(a,b)=>a-b>Number.EPSILON*64*Math.max(1,Math.abs(a),Math.abs(b));
-  const emptyMetrics=()=>({correlation:null,curveCorrelation:null,directionAgreement:null,periodReturn:null,referenceReturn:null,return5:null,volumeRatio:null,volumeAvg5:null,volumeAvgPrevious20:null,ma5:null,ma20:null,ma20Deviation:null,startClose:null,endClose:null,startAt:null,endAt:null,sampleCount:0,crossedUpRecently:null});
+  const emptyMetrics=()=>({correlation:null,curveCorrelation:null,directionAgreement:null,periodReturn:null,periodRangePercent:null,referenceReturn:null,return5:null,volumeRatio:null,volumeAvg5:null,volumeAvgPrevious20:null,ma5:null,ma20:null,ma20Deviation:null,startClose:null,endClose:null,startAt:null,endAt:null,sampleCount:0,crossedUpRecently:null,crossAgeDays:null,crossSearchDays:0});
   function unavailable(reason){return {status:'unavailable',matched:null,candidateMatched:null,marketQualified:null,eligible:true,eligibilityCodes:[],excluded:false,exclusionReasons:[],reason,metrics:emptyMetrics(),reasons:[]};}
   function breadthThreshold(value=RULES.consensusBreadth){
     if(!Number.isFinite(value)||value<0||value>1)throw Error('整体共性门槛须为0至1的有限数值');return value;
@@ -110,6 +112,41 @@
     if(typeof result.enabled!=='boolean')throw Error('排除条件开关无效');
     for(const key of Object.keys(DEFAULT_LIMITS).filter(k=>k!=='enabled'))if(!Number.isFinite(result[key])||result[key]<=0)throw Error('排除条件须为有限正数');return result;
   }
+  function directionRulesOf(input){
+    const rules={...DEFAULT_DIRECTION_RULES,...input};
+    if(!Number.isFinite(rules.minimumReturnPercent)||rules.minimumReturnPercent<0||rules.minimumReturnPercent>100||!Number.isFinite(rules.maximumSidewaysRangePercent)||rules.maximumSidewaysRangePercent<0||rules.maximumSidewaysRangePercent>1000)throw Error('方向条件超出范围');return rules;
+  }
+  function strengthOf(input){
+    const rules={...DEFAULT_STRENGTH,...input};
+    if(!Number.isInteger(rules.crossWithinDays)||rules.crossWithinDays<1||rules.crossWithinDays>20||!Number.isFinite(rules.minReturn5)||rules.minReturn5< -100||rules.minReturn5>100)throw Error('初期转强条件超出范围');return rules;
+  }
+  function classifyDirection(metrics,directionRules){
+    const rules=directionRulesOf(directionRules),value=metrics?.periodReturn;
+    if(!Number.isFinite(value))return null;
+    if(exceeds(value,rules.minimumReturnPercent))return 'up';
+    if(exceeds(-value,rules.minimumReturnPercent))return 'down';
+    if(!Number.isFinite(metrics.periodRangePercent)||metrics.periodRangePercent<0)return null;
+    return exceeds(metrics.periodRangePercent,rules.maximumSidewaysRangePercent)?'unclassified':'sideways';
+  }
+  function crossMetrics(stock,calendar){
+    let i=stock.length-1,j=calendar.length-1;const prices=[];
+    while(i>=0&&j>=0&&stock[i].date===calendar[j].date){prices.unshift(stock[i].close);i--;j--;}
+    const crossSearchDays=Math.max(0,Math.min(20,prices.length-20));let crossAgeDays=null;
+    for(let age=0;age<crossSearchDays;age++){
+      const t=prices.length-1-age,ma5=mean(prices.slice(t-4,t+1)),ma20=mean(prices.slice(t-19,t+1)),old5=mean(prices.slice(t-5,t)),old20=mean(prices.slice(t-20,t));
+      if(exceeds(ma5,ma20)&&!exceeds(old5,old20)){crossAgeDays=age;break;}
+    }
+    return {crossAgeDays,crossSearchDays,crossedUpRecently:crossSearchDays>=5?crossAgeDays!==null&&crossAgeDays<5:null};
+  }
+  function applyStrengthRules(result,{strength}={}){
+    const rules=strengthOf(strength),metrics=result.metrics?{...result.metrics}:result.metrics;
+    if(result.status!=='ready')return {...result,metrics};
+    const known=metrics&&Number.isFinite(metrics.return5)&&Number.isFinite(metrics.ma20Deviation)&&Number.isFinite(metrics.ma5)&&Number.isFinite(metrics.ma20)&&Number.isInteger(metrics.crossSearchDays)&&metrics.crossSearchDays>=rules.crossWithinDays&&(metrics.crossAgeDays===null||Number.isInteger(metrics.crossAgeDays)&&metrics.crossAgeDays>=0&&metrics.crossAgeDays<metrics.crossSearchDays);
+    const checks=known?[[exceeds(metrics.return5,rules.minReturn5),'近5日涨幅 > '+rules.minReturn5+'%'],[exceeds(metrics.ma20Deviation,0),'收盘价 > MA20'],[exceeds(metrics.ma5,metrics.ma20),'MA5 > MA20'],[metrics.crossAgeDays!==null&&metrics.crossAgeDays<rules.crossWithinDays,'MA5在近'+rules.crossWithinDays+'个交易日内上穿MA20']]:[[false,'交叉历史不足，无法核验近'+rules.crossWithinDays+'个交易日条件']];
+    const candidateMatched=known?checks.every(([pass])=>pass):null,baseMatched=candidateMatched===true&&result.eligible!==false&&result.marketQualified!==false&&result.directionMatched!==false,excluded=result.excluded===true;
+    const ruleReasons=checks.map(([pass,label])=>(pass?'满足：':'未满足：')+label),failed=checks.find(([pass])=>!pass),ruleFailure=failed?'未满足：'+failed[1]:result.eligible===false?'未满足：筛选资格不合格':result.marketQualified===false?'未满足：整体共性门槛':result.directionMatched===false?'未满足：所选走势方向':null,exclusionReasons=(result.exclusionReasons||[]).slice();
+    return {...result,metrics,strengthKnown:!!known,candidateMatched,baseMatched,matched:baseMatched&&!excluded,ruleReasons,ruleFailure,reason:excluded?exclusionReasons[0]:baseMatched?'满足所选研究条件':ruleFailure,reasons:ruleReasons.concat(exclusionReasons.map(reason=>'排除：'+reason))};
+  }
   function applyLimits(result,input,lookback=20){
     const metrics=result.metrics?{...result.metrics}:result.metrics;
     if(result.status!=='ready')return {...result,metrics,reasons:[...(result.reasons||[])],exclusionReasons:[...(result.exclusionReasons||[])]};
@@ -118,7 +155,8 @@
     let ruleReasons=[];
     if(Array.isArray(result.ruleReasons))ruleReasons=result.ruleReasons.slice();
     else if(!result.excluded)ruleReasons=(result.reasons||[]).slice();
-    const baseMatched=typeof result.candidateMatched==='boolean'?result.candidateMatched&&result.eligible!==false&&result.marketQualified!==false:typeof result.baseMatched==='boolean'?result.baseMatched:result.matched;
+    const candidateBase=typeof result.candidateMatched==='boolean'?result.candidateMatched:typeof result.baseMatched==='boolean'?result.baseMatched:result.matched;
+    const baseMatched=candidateBase&&result.eligible!==false&&result.marketQualified!==false&&result.directionMatched!==false;
     const exclusionReasons=[];
     if(limits.enabled){
       for(const [value,cap,label]of [[metrics.periodReturn,lookback===20?limits.maxReturn20:limits.maxReturn60,'所选周期涨幅'],[metrics.return5,limits.maxReturn5,'近5日涨幅'],[metrics.ma20Deviation,limits.maxDeviation,'相对MA20正乖离'],[metrics.volumeRatio,limits.maxVolumeRatio,'近5日/此前20日成交量比']])if(exceeds(value,cap))exclusionReasons.push(label+' '+value.toFixed(2)+(label.includes('成交量比')?'倍':'%')+' 超过上限 '+cap+(label.includes('成交量比')?'倍':'%'));
@@ -140,8 +178,35 @@
     const candidateMatched=candidateChecks.every(([pass])=>pass),marketQualified=!exceeds(threshold,c.breadth);
     const checks=[[marketQualified,'市场共性占比 '+percent(c.breadth)+' 达到所设门槛 '+percent(threshold)],...candidateChecks,[eligible,codes.includes('risk_name')?'风险名称不在筛选资格内':'筛选资格合格']];
     const ruleReasons=checks.map(([pass,label])=>(pass?'满足：':'未满足：')+label),failed=checks.find(([pass])=>!pass),ruleFailure=failed?'未满足：'+failed[1]:null;
-    const baseMatched=candidateMatched&&marketQualified&&eligible,excluded=result.excluded===true,exclusionReasons=(result.exclusionReasons||[]).slice();
+    const baseMatched=candidateMatched&&marketQualified&&eligible&&result.directionMatched!==false,excluded=result.excluded===true,exclusionReasons=(result.exclusionReasons||[]).slice();
     return {...result,candidateMatched,marketQualified,eligible,eligibilityCodes:codes,minimumBreadth:threshold,baseMatched,matched:baseMatched&&!excluded,metrics,ruleReasons,ruleFailure,exclusionReasons,reason:excluded?exclusionReasons[0]:baseMatched?'满足所选研究条件':ruleFailure,reasons:ruleReasons.concat(exclusionReasons.map(reason=>'排除：'+reason))};
+  }
+  function applyDirection(records,{direction='all',directionRules,consensus=null,minimumBreadth=RULES.consensusBreadth}={}){
+    if(!Array.isArray(records)||!['all','up','down','sideways'].includes(direction))throw Error('走势方向无效');
+    const rules=directionRulesOf(directionRules),threshold=breadthThreshold(minimumBreadth);
+    const prepared=records.map(record=>{
+      let result=record.result;
+      if(consensus)result=applyConsensusThreshold({...result,directionMatched:true},{consensus,minimumBreadth:threshold});
+      const classification=classifyDirection(result.metrics,rules);
+      return {...record,result:{...result,direction:classification,directionMatched:direction==='all'||classification===direction}};
+    });
+    const candidateCount=prepared.filter(r=>r.result.status==='ready'&&r.result.candidateMatched===true).length;
+    const selectedCandidateCount=prepared.filter(r=>r.result.status==='ready'&&r.result.candidateMatched===true&&r.result.directionMatched).length;
+    const validCount=consensus?consensus.validCount:prepared.filter(r=>r.result.status==='ready').length;
+    const valid=consensus?prepared.some(r=>r.result.status==='ready'&&r.result.marketQualified!==null):true;
+    const allBreadth=consensus&&valid?consensus.breadth:null,breadth=consensus&&valid?(direction==='all'?allBreadth:selectedCandidateCount/validCount):null;
+    const marketQualified=consensus?(valid?!exceeds(threshold,breadth):null):null;
+    const updated=prepared.map(record=>{
+      const r=record.result;if(r.status!=='ready')return record;
+      const previous=r.directionReasons||[],ruleReasons=(r.ruleReasons||[]).filter(reason=>!previous.includes(reason));
+      const directionLabel={all:'全部方向',up:'共同上涨',down:'共同下跌',sideways:'横盘整理'}[direction];
+      const directionReasons=direction==='all'?[]:[(r.directionMatched?'满足：':'未满足：')+'所选走势方向 '+directionLabel,(marketQualified===null||marketQualified?'满足：':'未满足：')+'方向组占有效市场样本 '+(breadth===null?'不适用':percent(breadth))];
+      const qualified=consensus?marketQualified:r.marketQualified,baseMatched=r.candidateMatched===true&&r.eligible!==false&&qualified!==false&&r.directionMatched,excluded=r.excluded===true;
+      const ruleFailure=!r.directionMatched?'未满足：所选走势方向':qualified===false?'未满足：方向组整体共性门槛':r.candidateMatched!==true||r.eligible===false?r.ruleFailure:null;
+      const reasons=ruleReasons.concat(directionReasons),exclusionReasons=(r.exclusionReasons||[]).slice();
+      return {...record,result:{...r,marketQualified:qualified,baseMatched,matched:baseMatched&&!excluded,directionReasons,ruleReasons:reasons,ruleFailure,reason:excluded?exclusionReasons[0]:baseMatched?'满足所选研究条件':ruleFailure,reasons:reasons.concat(exclusionReasons.map(reason=>'排除：'+reason))}};
+    });
+    return {records:updated,summary:{direction,validCount,candidateCount,selectedCandidateCount,breadth,allBreadth,marketQualified,minimumBreadth:threshold}};
   }
   function evaluate(input={}){
     const {mode,bars,referenceBars,lookback,day,code,consensus}=input;
@@ -161,8 +226,11 @@
       const aligned=align(stock,supportDates),window=aligned.slice(-lookback-1),prices=aligned.map(b=>b.close),last=prices.at(-1),metrics=emptyMetrics();
       metrics.startAt=window[0].date;metrics.endAt=window.at(-1).date;metrics.sampleCount=window.length;metrics.startClose=window[0].close;metrics.endClose=last;
       metrics.periodReturn=(last/metrics.startClose-1)*100;metrics.return5=(last/prices.at(-6)-1)*100;
+      metrics.periodRangePercent=(Math.max(...window.map(b=>b.close))/Math.min(...window.map(b=>b.close))-1)*100;
       metrics.ma5=mean(prices.slice(-5));metrics.ma20=mean(prices.slice(-20));metrics.ma20Deviation=(last/metrics.ma20-1)*100;
       metrics.volumeAvg5=mean(aligned.slice(-5).map(b=>b.volume));metrics.volumeAvgPrevious20=mean(aligned.slice(-25,-5).map(b=>b.volume));metrics.volumeRatio=metrics.volumeAvg5/metrics.volumeAvgPrevious20;
+      const calendar=referenceBars?readBars(referenceBars,day,'交易日历',true):supportDates.map(date=>({date}));
+      Object.assign(metrics,crossMetrics(stock,calendar));
       let checks=[];
       if(mode==='market'||mode==='consensus'){
         const daily=returns(window.map(b=>b.close));let relative;
@@ -172,23 +240,18 @@
         Object.assign(metrics,relative);
         if(metrics.correlation===null||metrics.curveCorrelation===null)throw Error('所选周期波动不足，无法计算走势相关性');
         checks=mode==='consensus'?[[metrics.correlation>=RULES.consensusCorrelation,'与其余市场样本日收益相关性 ≥ 0.50'],[metrics.directionAgreement>=RULES.directionAgreement,'同向交易日占比 ≥ 60%']]:[[metrics.correlation>=RULES.correlation,'日收益相关性 ≥ 0.65'],[metrics.directionAgreement>=RULES.directionAgreement,'同向交易日占比 ≥ 60%']];
-      }else{
-        metrics.crossedUpRecently=false;
-        for(let t=prices.length-5;t<prices.length;t++){
-          const ma5=mean(prices.slice(t-4,t+1)),ma20=mean(prices.slice(t-19,t+1)),old5=mean(prices.slice(t-5,t)),old20=mean(prices.slice(t-20,t));
-          if(exceeds(ma5,ma20)&&!exceeds(old5,old20))metrics.crossedUpRecently=true;
-        }
-        checks=[[metrics.return5>0,'最近5个交易日上涨'],[exceeds(last,metrics.ma20),'收盘价 > MA20'],[exceeds(metrics.ma5,metrics.ma20),'MA5 > MA20'],[metrics.crossedUpRecently,'MA5在近5个交易日内上穿MA20']];
       }
       if(Object.values(metrics).some(v=>typeof v==='number'&&!Number.isFinite(v)))throw Error('计算结果超出有效数值范围');
       const reasons=checks.map(([pass,label])=>(pass?'满足：':'未满足：')+label);
       const candidateMatched=checks.every(([pass])=>pass),failed=checks.find(([pass])=>!pass);
-      const filtered=applyLimits({status:'ready',candidateMatched,marketQualified:null,eligible:true,eligibilityCodes:[],matched:candidateMatched,excluded:false,exclusionReasons:[],metrics,reasons,ruleReasons:reasons,ruleFailure:failed?'未满足：'+failed[1]:null},limits,lookback);
+      let base={status:'ready',candidateMatched,marketQualified:null,eligible:true,eligibilityCodes:[],matched:candidateMatched,excluded:false,exclusionReasons:[],metrics,reasons,ruleReasons:reasons,ruleFailure:failed?'未满足：'+failed[1]:null};
+      if(mode==='strength')base=applyStrengthRules(base,{strength:input.strength});
+      const filtered=applyLimits(base,limits,lookback);
       if(mode!=='consensus')return filtered;
       const minimumBreadth=input.minimumBreadth===undefined?(consensus.minimumBreadth??RULES.consensusBreadth):input.minimumBreadth;
       return applyConsensusThreshold(filtered,{consensus,minimumBreadth});
     }catch(error){return unavailable(error.message||'日线数据无法核验');}
   }
-  const api={RULES,DEFAULT_LIMITS,MODES,evaluate,applyLimits,applyConsensusThreshold,selectMarketSample,buildConsensus};
+  const api={RULES,DEFAULT_LIMITS,DEFAULT_DIRECTION_RULES,DEFAULT_STRENGTH,MODES,evaluate,applyLimits,applyConsensusThreshold,applyStrengthRules,classifyDirection,applyDirection,selectMarketSample,buildConsensus};
   if(typeof module==='object'&&module.exports)module.exports=api;else root.BooksTrendScreen=api;
 })(typeof globalThis==='object'?globalThis:this);

@@ -65,3 +65,16 @@ test('legacy imports receive60 percent and invalid empty or out-of-range values 
  for(const value of ['','-1','101']){f.elements.get('cfg-minimum-breadth').value=value;await f.emit('config-form','submit');assert.equal(f.requests.filter(request=>request.method==='POST').length,0);assert.equal(f.state.currentRevision,1);assert.equal(f.elements.get('control-status').dataset.error,'true');}
  for(const [value,ratio]of [['0',0],['100',1]]){f.elements.get('cfg-minimum-breadth').value=value;await f.emit('config-form','submit');assert.equal(f.state.config.settings.minimumBreadth,ratio);assert.equal((await f.exported()).settings.minimumBreadth,ratio);}
 });
+test('direction, early strength and pattern thresholds survive the actual console save and import paths',async()=>{
+ const f=await fixture(),values={'cfg-direction':'sideways','cfg-direction-min':'2','cfg-direction-range':'6','cfg-cross-days':'3','cfg-min-return5':'0.5','cfg-pattern-near':'1.5','cfg-pattern-range':'3','cfg-pattern-cross':'10','cfg-pattern-pullback-min':'1','cfg-pattern-pullback-max':'6','cfg-pattern-expand':'1.5','cfg-pattern-contract':'0.6'};
+ for(const [id,value]of Object.entries(values))f.elements.get(id).value=value;
+ await f.emit('config-form','submit');const settings=f.state.config.settings;
+ assert.equal(settings.direction,'sideways');assert.deepEqual(settings.directionRules,{minimumReturnPercent:2,maximumSidewaysRangePercent:6});assert.deepEqual(settings.strength,{crossWithinDays:3,minReturn5:.5});
+ assert.deepEqual(settings.patterns,{nearPct:1.5,rangePct:3,crossWindow:10,pullbackMinPct:1,pullbackMaxPct:6,volumeExpandRatio:1.5,volumeContractRatio:.6});
+ assert.deepEqual((await f.exported()).settings,settings);
+ const imported={name:'重新导入条件',settings},text=JSON.stringify(imported);f.elements.get('import-config').files=[{size:text.length,text:async()=>text}];await f.emit('import-config','change');
+ for(const [id,value]of Object.entries(values))assert.equal(f.elements.get(id).value,value,id);
+ const posts=f.requests.filter(request=>request.method==='POST').length;
+ f.elements.get('cfg-pattern-pullback-min').value='7';await f.emit('config-form','submit');assert.equal(f.requests.filter(request=>request.method==='POST').length,posts);
+ f.elements.get('cfg-pattern-pullback-min').value='1';f.elements.get('cfg-cross-days').value='';await f.emit('config-form','submit');assert.equal(f.requests.filter(request=>request.method==='POST').length,posts);
+});

@@ -18,7 +18,7 @@ function checkUnknown(result){assert.equal(result.status,'unavailable');assert.d
 
 test('CommonJS and browser export the same sixteen independent definitions without source requests',()=>{
  assert.equal(typeof API.version,'string');assert.deepEqual(API.definitions.map(def=>def.id).sort(),expectedIds.slice().sort());assert.equal(new Set(API.definitions.map(def=>def.id)).size,16);
- const context={};vm.runInNewContext(fs.readFileSync(require.resolve('../screening/trend-patterns.js'),'utf8'),context);assert.equal(typeof context.BooksTrendPatterns.classify,'function');assert.equal(context.BooksTrendPatterns.version,API.version);
+ const context={};vm.runInNewContext(fs.readFileSync(require.resolve('../screening/trend-patterns.js'),'utf8'),context);for(const name of ['classify','deriveFacts','classifyFacts','definitionsFor'])assert.equal(typeof context.BooksTrendPatterns[name],'function');assert.equal(context.BooksTrendPatterns.version,API.version);
  assert.doesNotMatch(fs.readFileSync(require.resolve('../screening/trend-patterns.js'),'utf8'),/\bfetch\s*\(|XMLHttpRequest|WebSocket/);
 });
 test('default profile states the shared periods and explicit research boundaries',()=>{
@@ -104,4 +104,83 @@ test('classification does not mutate raw inputs or leak raw prices and moving-av
  const forbidden=new Set(['close','open','high','low','price','startclose','endclose','ma5','ma10','ma20','movingaverage','volumeavg5','volumeavgprevious20','bars']);
  function inspect(value){if(!value||typeof value!=='object')return;for(const [key,item]of Object.entries(value)){assert(!forbidden.has(key.toLowerCase()),'raw evidence key '+key);inspect(item);}}
  for(const label of result.labels){assert.equal(typeof label.label,'string');assert.equal(typeof label.group,'string');assert(label.evidence&&['string','object'].includes(typeof label.evidence));inspect(label.evidence);}
+});
+
+test('derived JSON facts reclassify like raw bars for every supported threshold and both periods',()=>{
+ const series=[bars(),bars(i=>100+i*.04),bars(i=>150-i*.08),tail(bars(),[99,101,101,101,101,101]),tail(bars(),[104,100,102,99,100])];
+ const parameters=[{}, {nearPct:.5,rangePct:1}, {nearPct:8,rangePct:12}, {crossWindow:1}, {crossWindow:7}, {crossWindow:20}, {pullbackMinPct:0,pullbackMaxPct:2}, {pullbackMinPct:3,pullbackMaxPct:12}, {volumeExpandRatio:1.05,volumeContractRatio:.95}];
+ const projected=result=>{const {facts,...classification}=result;return classification;};
+ for(const lookback of [20,60])for(const values of series){
+  for(const bar of values.slice(-5))bar.volume=110;
+  const input={bars:values,calendar:dates().map(date=>({date})),day,lookback},facts=JSON.parse(JSON.stringify(API.deriveFacts(input))),before=JSON.stringify(facts);
+  for(const p of parameters){
+   const classified=API.classifyFacts({facts,parameters:p,day,lookback});
+   assert.deepEqual(projected(classified),projected(API.classify({...input,parameters:p})),JSON.stringify({lookback,p}));
+   assert.equal(classified.facts,facts);assert.equal(JSON.stringify(facts),before);
+  }
+ }
+});
+test('stored observations can gain or lose labels when thresholds change without original prices or requests',()=>{
+ const values=tail(bars(),[99,101,101,101,101]);for(const bar of values.slice(-5))bar.volume=110;
+ const facts=API.deriveFacts({bars:values,calendar:dates().map(date=>({date})),day,lookback:20});
+ assert(!has(API.classifyFacts({facts}),'regain-ma-20'));
+ assert(has(API.classifyFacts({facts,parameters:{crossWindow:5}}),'regain-ma-20'));
+ assert(!has(API.classifyFacts({facts}),'volume-expand'));
+ assert(has(API.classifyFacts({facts,parameters:{volumeExpandRatio:1.1}}),'volume-expand'));
+ const drawdown=API.deriveFacts({bars:tail(bars(),[99]),calendar:dates().map(date=>({date})),day,lookback:20});
+ assert(!has(API.classifyFacts({facts:drawdown}),'close-pullback'));
+ assert(has(API.classifyFacts({facts:drawdown,parameters:{pullbackMinPct:1,pullbackMaxPct:3}}),'close-pullback'));
+});
+test('facts bind version, target day, selected period and available crossover support',()=>{
+ const input={bars:bars(),calendar:dates().map(date=>({date})),day,lookback:20},facts=API.deriveFacts(input);
+ assert.equal(API.version,'books.trend-patterns.2026-11-22.v2');assert.equal(facts.sampleCount,61);assert.equal(facts.crossings[20].maxWindow,41);
+ for(const options of [{day:'2026-11-19'},{lookback:60},{facts:{...facts,version:'books.trend-patterns.2026-11-22.v1'}},{facts:{...facts,day:'2026-11-23'},day}])checkUnknown(API.classifyFacts({facts,...options}));
+ const short=API.deriveFacts({...input,bars:input.bars.slice(-25)}),classified=API.classifyFacts({facts:short,parameters:{crossWindow:10}});
+ assert(missing(classified).includes('regain-ma-20'));assert(missing(classified).includes('lose-ma-20'));assert(has(classified,'near-ma-20'));
+ const broken=JSON.parse(JSON.stringify(facts));broken.crossings[20].maxWindow=60;
+ assert(missing(API.classifyFacts({facts:broken})).includes('regain-ma-20'));
+});
+test('original custom-window classify API still derives a bound profile and cannot be silently retuned from cached facts',()=>{
+ const parameters={fastPeriod:3,midPeriod:7,slowPeriod:15,slopeDays:4,maPeriods:[3,7,15],consolidationDays:4,volumeRecentDays:3,volumePreviousDays:17,crossWindow:5};
+ const input={bars:tail(bars(),[99,101]),calendar:dates().map(date=>({date})),day,lookback:20,parameters},result=API.classify(input);
+ assert.equal(result.facts.profile.fastPeriod,3);assert.deepEqual(result.facts.profile.maPeriods,[3,7,15]);assert(has(result,'regain-ma-15'));
+ assert.deepEqual(API.classifyFacts({facts:JSON.parse(JSON.stringify(result.facts))}),result);
+ for(const changed of [{maPeriods:[5,10,20]},{consolidationDays:3},{volumeRecentDays:5},{slowPeriod:20}])assert.throws(()=>API.classifyFacts({facts:result.facts,parameters:changed}),/重新提取/);
+ assert.throws(()=>API.classifyFacts({facts:result.facts,parameters:{crossWindow:21}}),/1至20/);
+ assert.equal(API.classify({...input,parameters:{...parameters,crossWindow:21}}).facts.profile.crossWindow,21);
+});
+test('missing observations stay unknown through JSON persistence and permissive thresholds',()=>{
+ const input={bars:bars(),calendar:dates().map(date=>({date})),day,lookback:20},invalid=API.deriveFacts({...input,bars:input.bars.filter((_,i)=>i!==30)});
+ checkUnknown(API.classifyFacts({facts:JSON.parse(JSON.stringify(invalid)),parameters:{nearPct:100,rangePct:100,pullbackMinPct:0,pullbackMaxPct:100,volumeExpandRatio:1,volumeContractRatio:0}}));
+ const facts=API.deriveFacts(input);facts.near[20]=null;facts.volume=null;facts.pullback=null;
+ const result=API.classifyFacts({facts,parameters:{nearPct:100,rangePct:100,pullbackMinPct:0,pullbackMaxPct:100}});
+ for(const id of ['near-ma-20','volume-expand','volume-contract','close-pullback']){assert(missing(result).includes(id));assert(!has(result,id));}
+});
+test('public facts contain fixed aggregates and event markers rather than reconstructable price or volume series',()=>{
+ const values=tail(bars(i=>100+i*.03),[99,101]),input={bars:values,calendar:dates().map(date=>({date})),day,lookback:60};
+ const facts=API.deriveFacts(input),copy=API.deriveFacts({...input,bars:values.map(bar=>({...bar,close:bar.close*2,volume:bar.volume*3}))});
+ const forbidden=new Set(['bars','prices','volumes','close','open','high','low','price','startclose','endclose','ma5','ma10','ma20','movingaverage','volumeavg5','volumeavgprevious20']);
+ function inspect(value,path='facts'){
+  if(!value||typeof value!=='object')return;
+  if(Array.isArray(value)){assert.equal(path,'facts.profile.maPeriods');assert.deepEqual(value,[5,10,20]);return;}
+  for(const [key,item]of Object.entries(value)){assert(!forbidden.has(key.toLowerCase()),'raw fact '+path+'.'+key);inspect(item,path+'.'+key);}
+ }
+ inspect(facts);assert.deepEqual(ids(API.classifyFacts({facts})),ids(API.classifyFacts({facts:copy})));assert.equal(facts.volume.ratio,copy.volume.ratio);
+ assert(!JSON.stringify(facts).includes('Infinity'));assert(!JSON.stringify(facts).includes('NaN'));
+});
+
+test('dynamic catalogue describes the same custom thresholds used by fact classification',()=>{
+ const p={nearPct:3,rangePct:6,crossWindow:7,pullbackMinPct:1,pullbackMaxPct:9,volumeExpandRatio:1.5,volumeContractRatio:.6},defs=API.definitionsFor(p),byId=new Map(defs.map(d=>[d.id,d]));
+ assert.deepEqual(defs.map(d=>d.id),API.definitions.map(d=>d.id));assert.match(byId.get('near-ma-20').rule,/±3%/);assert.match(byId.get('near-ma-20').rule,/不超过6%/);assert.match(byId.get('regain-ma-20').rule,/近7个/);assert.match(byId.get('close-pullback').rule,/1%至9%/);assert.match(byId.get('volume-expand').rule,/≥1.5/);assert.match(byId.get('volume-contract').rule,/≤0.6/);
+ assert.match(API.definitions.find(d=>d.id==='near-ma-20').rule,/±2%/);
+ const facts=API.deriveFacts({bars:bars(),calendar:dates().map(date=>({date})),day,lookback:20});
+ for(const profile of [undefined,{}, {...facts.profile,maPeriods:[]},{...facts.profile,slowPeriod:NaN}]){
+  const changed={...facts,profile};if(profile===undefined)delete changed.profile;
+  checkUnknown(API.classifyFacts({facts:changed}));
+ }
+});
+
+test('derived profile copies only known numeric settings and cannot echo unrelated parameter payloads',()=>{
+ const values=bars(),facts=API.deriveFacts({bars:values,calendar:dates().map(date=>({date})),day,lookback:20,parameters:{id:{bars:values},unused:{prices:[123,456]}}});
+ assert.equal(facts.profile.id,API.profile.id);assert.deepEqual(Object.keys(facts.profile),Object.keys(API.profile));assert(!JSON.stringify(facts).includes('unused'));assert(!JSON.stringify(facts).includes('123,456'));
 });
