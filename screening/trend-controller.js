@@ -1,6 +1,6 @@
 'use strict';
 (function(root,factory){
- const api=factory();
+ const api=factory(typeof module==='object'&&module.exports?require('./market-pool.js'):root.BooksMarketPool);
  if(typeof module==='object'&&module.exports)module.exports=api;
  else{
   root.BooksTrendController=api;
@@ -9,12 +9,12 @@
    if(root.BooksTrendControllerApp)root.dispatchEvent(new root.Event('books:trend-mounted'));
   }
  }
-})(globalThis,()=>{
+})(globalThis,defaultPool=>{
  const names={consensus:'市场共同走势',market:'跟随指数',strength:'初期转强'};
  const indexNames={'000300.SH':'沪深300','000001.SH':'上证指数','399001.SZ':'深证成指'};
  const fixedIndices=new Set(Object.keys(indexNames));
  function sortRecords(records,mode){
-  const priority=r=>r.result.status==='ready'?(r.result.matched?3:r.result.excluded?1:2):0;
+  const priority=r=>r.result.status==='ready'?(mode==='consensus'&&r.result.candidateMatched||r.result.matched?3:r.result.excluded?1:2):0;
   const metric=r=>{const m=r.result.metrics||{};return mode==='strength'?-Math.abs(m.ma20Deviation??Infinity):(m.correlation??-Infinity);};
   return records.slice().sort((a,b)=>priority(b)-priority(a)||metric(b)-metric(a)||a.stock.code.localeCompare(b.stock.code));
  }
@@ -120,7 +120,7 @@
   }
   return {run,cancel,exportDataset,getExportStatus,getState:()=>({...state,records:state.records.slice()}),clear(){cancel();dataset=null;state=initial();emit();},cacheSize:()=>cache.size};
  }
- function createCachedRunner({env,engine,model,publicFullMarket=false,onUpdate=()=>{}}){
+ function createCachedRunner({env,engine,model,pool=defaultPool,publicFullMarket=false,onUpdate=()=>{}}){
   const cache=new Map();let state=initial(),base=null,settings=null,desiredSettings=null,active=null,raw=null,rawRequest=null,metadata=null,lastCompleted=null,pollRequest=null,epoch=0;
   const emit=()=>onUpdate({...state,records:state.records.slice()});
   const key=s=>[s.cacheScope,s.mode,s.lookback,s.mode==='consensus'?s.sampleSize:'all',s.reference.code].join('/');
@@ -139,27 +139,38 @@
    const response=await env.fetch('/api/a-share-daily/'+path,{credentials:'same-origin',cache:'no-store',redirect:'error',signal});
    const value=await response.json();if(!response.ok)throw Error(value.message||value.error||'本站日终缓存暂不可用');return value;
   }
-  function view(){
-   if(!base)return;
-   const available=new Map(base.records.map(record=>[record.stock.code,record]));
-   const full=settings.mode==='consensus'||settings.stocks===null;
-   const intersection=base.scope==='historical-sample'||base.dataPolicy?.rawPublic===false;
-   let selected=base.records,uncovered=0;
+  function view(snapshot=base,localSettings=settings,preserve={}){
+   if(!snapshot)return;
+   const available=new Map(snapshot.records.map(record=>[record.stock.code,record]));
+   const full=localSettings.mode==='consensus'||localSettings.stocks===null;
+   const intersection=snapshot.scope==='historical-sample'||snapshot.dataPolicy?.rawPublic===false;
+   let selected=snapshot.records,uncovered=0;
    if(!full){
     selected=[];
-    for(const stock of settings.stocks){
+    for(const stock of localSettings.stocks){
      const record=available.get(stock.code);
      if(record)selected.push(record);
      else if(!intersection){
       uncovered++;
-      selected.push({stock,result:{status:'unavailable',matched:null,reason:'本批日终缓存尚未覆盖该股票。'},fetchedAt:null,referenceFetchedAt:base.referenceFetchedAt});
+      selected.push({stock,result:{status:'unavailable',matched:null,reason:'本批日终缓存尚未覆盖该股票。'},fetchedAt:null,referenceFetchedAt:snapshot.referenceFetchedAt});
      }
     }
    }
-   state={...base,origin:'daily-cache',phase:'evaluated',limits:{...settings.limits},records:selected.map(record=>({...record,result:engine.applyLimits(record.result,settings.limits,settings.lookback)})),total:selected.length,lastSuccess:metadata?.lastSuccess||null,attempt:metadata?.attempt||null,scopeUncovered:uncovered};
+   const minimumBreadth=localSettings.minimumBreadth??model.DEFAULT_CONFIG.settings.minimumBreadth;
+   const consensus=snapshot.consensus?{...snapshot.consensus,status:snapshot.consensus.status||(snapshot.status==='complete'?'ready':'unavailable'),day:snapshot.consensus.day??snapshot.day,lookback:snapshot.consensus.lookback??snapshot.lookback}:null;
+   const records=selected.map(record=>{
+    let result=engine.applyLimits(record.result,localSettings.limits,localSettings.lookback);
+    if(localSettings.mode==='consensus'){
+     const eligible=!pool.riskName(record.stock);
+     result=engine.applyConsensusThreshold(result,{consensus,minimumBreadth,eligible,eligibilityCodes:eligible?[]:['risk_name']});
+    }
+    return {...record,result};
+   });
+   const qualified=records.find(record=>typeof record.result.marketQualified==='boolean');
+   state={...snapshot,consensus,marketQualified:qualified?.result.marketQualified??null,origin:'daily-cache',phase:'evaluated',minimumBreadth,limits:{...localSettings.limits},records,total:selected.length,lastSuccess:metadata?.lastSuccess||null,attempt:metadata?.attempt||null,scopeUncovered:uncovered};
    if(uncovered){state.status='unavailable';state.reason='所选范围有 '+uncovered+' 只未被本批日终缓存覆盖，已单列为资料不足。';}
-   if(!selected.length&&settings.mode!=='consensus'){state.status='unavailable';state.reason='当前范围没有股票；可调整筛选条件或自选名单。';}
-   lastCompleted={base,settings,raw,state};
+   if(!selected.length&&localSettings.mode!=='consensus'){state.status='unavailable';state.reason='当前范围没有股票；可调整筛选条件或自选名单。';}
+   lastCompleted={base:snapshot,settings:localSettings,raw,state};state={...state,...preserve};
    emit();
   }
   async function run(options,knownMetadata){
@@ -209,9 +220,14 @@
   }
   function reapply(changes){
    if(!settings)return;desiredSettings={...desiredSettings,...changes};
-   if(state.cacheReadFailed)return run(desiredSettings);
+   const thresholdOnly=Object.keys(changes).every(key=>key==='minimumBreadth');
+   if(state.cacheReadFailed&&!thresholdOnly)return run(desiredSettings);
    settings=effectiveSettings(desiredSettings,metadata);
-   if(base&&!active){try{view();}catch(error){state={...state,status:'unavailable',records:[],reason:error.message};emit();}}
+   const snapshot=base||thresholdOnly&&lastCompleted?.base;
+   if(snapshot&&snapshot.mode===settings.mode&&snapshot.lookback===settings.lookback&&snapshot.reference.code===settings.reference.code){
+    const preserve=active?{status:'running'}:state.cacheReadFailed?{status:'unavailable',cacheReadFailed:true,reason:state.reason}:{};
+    try{view(snapshot,settings,preserve);}catch(error){state={...state,status:'unavailable',records:[],reason:error.message};emit();}
+   }
   }
   function getExportStatus(){
    if(active)return {available:false,reason:'正在读取本站结果，请等待完成。'};
@@ -247,26 +263,34 @@
   const charts=(options.charts||env.BooksStockCharts).create({document:doc,env});
   const buttons=[...host.querySelectorAll('[data-trend-mode]')],listeners=[],cards=new Map(),body=el('trend-results');
   let configuration=model.normalizeConfig(options.configuration||model.DEFAULT_CONFIG);
-  let state=initial(),page=0,selectedMode=configuration.settings.mode,selectedPattern='',displaySize='all',patternOptionsKey='',marketGeneration=null,contextKey='',interacted=false,configurationApplied=false,destroyed=false,displayed=null;
+  const preferenceKey='books.screening.minimumBreadth.v1';let localBreadth,storageFailed=false;
+  try{const saved=env.localStorage?.getItem(preferenceKey);if(saved!==null&&saved!==undefined)localBreadth=model.normalizeConfig({settings:{minimumBreadth:JSON.parse(saved)}}).settings.minimumBreadth;}catch{}
+  if(localBreadth!==undefined)configuration.settings.minimumBreadth=localBreadth;
+  let state=initial(),page=0,selectedMode=configuration.settings.mode,selectedPattern='',displaySize='all',qualifiedOnly=false,patternOptionsKey='',marketGeneration=null,contextKey='',interacted=false,configurationApplied=false,destroyed=false,displayed=null;
   const empty=doc.createElement('p');empty.className='trend-empty';body.replaceChildren(empty);
   el('trend-lookback').value=String(configuration.settings.lookback);
   el('trend-display').value=displaySize;
+  const breadthValue=()=>String(Number((configuration.settings.minimumBreadth*100).toPrecision(15)));
+  el('trend-breadth').value=breadthValue();el('trend-qualified-only').checked=false;
   const context=()=>((options.selection||env.BooksStockSelection)?.getContext?.()||{});
   const stocks=()=>{const c=context();return c.filtersActive===false?null:c.day?(c.rows||[]).slice():null;};
   const identity=()=>{const c=context();return JSON.stringify([c.day,c.asOf,c.filtersActive,(c.rows||[]).map(row=>row.code)]);};
   const percentage=value=>Number.isFinite(value)?(value>0?'+':'')+value.toLocaleString('zh-CN',{maximumFractionDigits:2})+'%':'—';
+  const ratio=value=>Number.isFinite(value)?(value*100).toLocaleString('zh-CN',{maximumFractionDigits:2})+'%':'—';
   function card(stock){
    const article=doc.createElement('article'),heading=doc.createElement('header'),title=doc.createElement('h4');
    const name=doc.createElement('a'),code=doc.createElement('span'),change=doc.createElement('div'),value=doc.createElement('span'),period=doc.createElement('span'),chart=doc.createElement('div');
    const patterns=doc.createElement('details'),patternSummary=doc.createElement('summary'),patternReasons=doc.createElement('div');
+   const qualification=doc.createElement('details'),qualificationSummary=doc.createElement('summary'),qualificationReasons=doc.createElement('div');
    article.className='trend-stock';article.dataset.code=stock.code;article.setAttribute('role','listitem');
    heading.className='trend-stock-heading';name.className='trend-stock-name';code.className='trend-stock-code';
    change.className='trend-stock-change';period.className='trend-stock-period';chart.className='trend-stock-chart';
    const symbol=/^(\d{6})\.(SH|SZ)$/.exec(stock.code);
    if(symbol)name.href='../chart.html?tvwidgetsymbol='+encodeURIComponent((symbol[2]==='SH'?'SSE:':'SZSE:')+symbol[1]);
    patterns.className='trend-stock-patterns';patterns.hidden=true;patterns.append(patternSummary,patternReasons);
-   title.append(name,code);change.append(value,period);heading.append(title,change);article.append(heading,patterns,chart);
-   return {article,name,code,value,period,patterns,patternSummary,patternReasons,chart};
+   qualification.className='trend-stock-qualification';qualification.hidden=true;qualification.append(qualificationSummary,qualificationReasons);
+   title.append(name,code);change.append(value,period);heading.append(title,change);article.append(heading,qualification,patterns,chart);
+   return {article,name,code,value,period,qualification,qualificationSummary,qualificationReasons,patterns,patternSummary,patternReasons,chart};
   }
   function labels(record){
    const patterns=record.patterns;
@@ -294,10 +318,19 @@
    const refreshing=state.status==='running'&&displayed?.mode===selectedMode&&displayed.lookback===lookback;
    let visible=[];
    if(completed){
-    visible=sortRecords(state.records.filter(record=>record.result.status==='ready'&&record.result.matched),selectedMode);
-    displayed={mode:selectedMode,lookback,day:state.day,scope:state.scope,sampleCount:state.sampleCount,marketUniverseCount:state.marketUniverseCount,fullMarket:state.fullMarket,consensus:state.consensus,attribution:state.dataPolicy?.attribution,patternVersion:state.patternVersion,patternDefinitions:state.patternDefinitions,records:visible};
-   }else if(refreshing)visible=displayed.records;
+    displayed={mode:selectedMode,lookback,day:state.day,scope:state.scope,sampleCount:state.sampleCount,marketUniverseCount:state.marketUniverseCount,fullMarket:state.fullMarket,consensus:state.consensus,marketQualified:state.marketQualified,minimumBreadth:state.minimumBreadth,attribution:state.dataPolicy?.attribution,patternVersion:state.patternVersion,patternDefinitions:state.patternDefinitions,records:state.records.filter(record=>record.result.status==='ready')};
+   }
    const show=completed||refreshing;
+   if(show)visible=sortRecords(displayed.records.filter(record=>selectedMode==='consensus'&&!qualifiedOnly?record.result.candidateMatched===true:record.result.matched===true),selectedMode);
+   el('trend-consensus-controls').hidden=selectedMode!=='consensus';
+   let consensusDescription='';
+   if(show&&selectedMode==='consensus'){
+    const consensus=displayed.consensus,candidates=displayed.records.filter(record=>record.result.candidateMatched===true).length,qualified=displayed.records.filter(record=>record.result.matched===true).length;
+    const overall=displayed.marketQualified===true?'整体达标':displayed.marketQualified===false?'整体未达':'整体资料不足';
+    consensusDescription='整体共性 '+ratio(consensus?.breadth)+'（'+(consensus?.commonCount??'—')+'/'+(consensus?.validCount??'—')+'） · 门槛 '+ratio(displayed.minimumBreadth)+' · '+overall+' · 观察候选 '+candidates+'只 · 严格达标 '+qualified+'只';
+    if(storageFailed)consensusDescription+=' · 本机设置未能保存';
+   }
+   el('trend-consensus-status').textContent=consensusDescription;
    patternOptions(visible);
    if(selectedPattern)visible=visible.filter(record=>labels(record).some(label=>label.id===selectedPattern));
    for(const button of buttons){button.disabled=false;button.setAttribute('aria-pressed',String(button.dataset.trendMode===selectedMode));}
@@ -317,10 +350,8 @@
    for(const [code,item]of cards)if(!wanted.has(code)){charts.dispose(item.chart);item.article.remove();cards.delete(code);}
    if(!records.length){
     empty.textContent=show?'没有符合条件的股票':'暂无已完成的筛选结果';
-    const consensus=displayed?.consensus;
-    if(show&&selectedMode==='consensus'&&consensus?.status==='ready'&&consensus.identified===false&&Number.isFinite(consensus.breadth)){
-     empty.textContent=lookback+'日市场走势分化：共性占比'+(consensus.breadth*100).toFixed(2)+'%（'+consensus.commonCount+'/'+consensus.validCount+'只），未达'+engine.RULES.consensusBreadth*100+'%的市场一致性门槛。';
-    }else if(show&&selectedPattern)empty.textContent='所选周期没有符合该技术形态的股票。';
+    if(show&&selectedPattern)empty.textContent='所选周期没有符合该技术形态的股票。';
+    else if(show&&selectedMode==='consensus'&&qualifiedOnly)empty.textContent='当前没有严格达标股票，可取消“仅看达标”查看观察候选。';
     if(body.children.length!==1||body.children[0]!==empty)body.replaceChildren(empty);
    }else{
     empty.remove();
@@ -331,6 +362,19 @@
      const value=record.result.metrics?.periodReturn;
      item.value.textContent=percentage(value);item.value.className=value>0?'change-up':value<0?'change-down':'';
      item.period.textContent=lookback+'日涨跌';
+     item.qualification.hidden=selectedMode!=='consensus';
+     if(selectedMode==='consensus'){
+      const result=record.result,failures=[];
+      if(result.marketQualified===false)failures.push('整体未达');
+      if(result.eligible===false)failures.push(result.eligibilityCodes?.includes('risk_name')?'风险名称排除':'资格未达');
+      if(result.excluded)failures.push('过热排除');
+      const description=result.matched?'严格达标':'观察候选'+(failures.length?' · '+failures.join(' · '):'');
+      const signature=JSON.stringify([description,result.reasons]);item.qualification.dataset.qualified=String(result.matched===true);
+      if(item.qualificationSignature!==signature){
+       item.qualificationSignature=signature;item.qualificationSummary.textContent=description;item.qualificationReasons.replaceChildren();
+       for(const text of result.reasons||[]){const reason=doc.createElement('p');reason.textContent=text;item.qualificationReasons.append(reason);}
+      }
+     }
      const patternLabels=labels(record),signature=JSON.stringify(patternLabels);
      item.patterns.hidden=!patternLabels.length;
      if(item.patternSignature!==signature){
@@ -345,7 +389,7 @@
    el('trend-pagination').hidden=pages<=1;el('trend-page').textContent=pages?(page+1)+' / '+pages:'';
    el('trend-prev').disabled=page===0;el('trend-next').disabled=(page+1)*size>=visible.length;
   }
-  const runner=createCachedRunner({env,engine,model,publicFullMarket:true,onUpdate:value=>{
+  const runner=createCachedRunner({env,engine,model,pool:options.pool||env.BooksMarketPool||defaultPool,publicFullMarket:true,onUpdate:value=>{
    const finished=state.status==='running'&&value.status!=='running';state=value;render();
    if(finished&&typeof env.CustomEvent==='function')env.dispatchEvent(new env.CustomEvent('books:trend-run-finished',{detail:{status:state.status,mode:state.mode,day:state.day,startedAt:state.startedAt,finishedAt:state.finishedAt||null}}));
    if(state.scope!=='historical-sample'&&state.dataPolicy?.rawPublic!==false&&state.generation&&state.phase==='evaluated'&&!state.cacheReadFailed&&state.generation!==marketGeneration&&typeof env.CustomEvent==='function'){
@@ -357,16 +401,26 @@
    selectedMode=mode;page=0;
    (options.selection||env.BooksStockSelection)?.stopTechnicalScan?.();
    const settings=configuration.settings;
-   return runner.run({mode,lookback:Number(el('trend-lookback').value),stocks:stocks(),sampleSize:settings.sampleSize,reference:{code:settings.benchmark},limits:settings.limits});
+   return runner.run({mode,lookback:Number(el('trend-lookback').value),stocks:stocks(),sampleSize:settings.sampleSize,minimumBreadth:settings.minimumBreadth,reference:{code:settings.benchmark},limits:settings.limits});
   }
   function applyConfiguration(value){
    if(interacted||configurationApplied||destroyed)return false;
    configuration=model.normalizeConfig(value);configurationApplied=true;
+   if(localBreadth!==undefined)configuration.settings.minimumBreadth=localBreadth;
+   el('trend-breadth').value=breadthValue();
    el('trend-lookback').value=String(configuration.settings.lookback);start(configuration.settings.mode);return true;
   }
   function listen(target,type,handler){target.addEventListener(type,handler);listeners.push([target,type,handler]);}
   for(const button of buttons)listen(button,'click',()=>{interacted=true;start(button.dataset.trendMode);});
   listen(el('trend-lookback'),'change',()=>{interacted=true;start(selectedMode);});
+  listen(el('trend-breadth'),'change',()=>{
+   const field=el('trend-breadth'),percent=Number(field.value);
+   if(!field.value.trim()||!Number.isFinite(percent)||percent<0||percent>100){field.value=breadthValue();return;}
+   interacted=true;localBreadth=percent/100;configuration.settings.minimumBreadth=localBreadth;page=0;
+   try{env.localStorage?.setItem(preferenceKey,JSON.stringify(localBreadth));storageFailed=false;}catch{storageFailed=true;}
+   runner.reapply({minimumBreadth:localBreadth});if(state.status==='idle')render();
+  });
+  listen(el('trend-qualified-only'),'change',()=>{interacted=true;qualifiedOnly=el('trend-qualified-only').checked;page=0;render();});
   listen(el('trend-display'),'change',()=>{interacted=true;displaySize=el('trend-display').value;page=0;render();});
   listen(el('trend-pattern'),'change',()=>{interacted=true;selectedPattern=el('trend-pattern').value;page=0;render();});
   listen(el('trend-prev'),'click',()=>{page--;render();});listen(el('trend-next'),'click',()=>{page++;render();});

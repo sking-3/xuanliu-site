@@ -136,3 +136,40 @@ test('leave-self-out even medians correctly average both middle peers and are no
 test('consensus evaluation requires a concrete candidate code for self-exclusion',()=>{
  const c=consensus(Array(40).fill(varied)),r=run({mode:'consensus',consensus:c,code:undefined});assert.equal(r.status,'unavailable');assert.match(r.reason,/排除自身/);
 });
+test('the adjustable market threshold changes qualification without changing the sampled denominator or candidate arithmetic',()=>{
+ const patterns=[...Array(24).fill(varied),...Array(16).fill(i=>-varied(i))];
+ const accepted=consensus(patterns,{minimumBreadth:.6}),observed=consensus(patterns,{minimumBreadth:.7});
+ assert.equal(accepted.identified,true);assert.equal(observed.identified,false);assert.equal(observed.minimumBreadth,.7);assert.equal(observed.breadth,.6);assert.equal(observed.commonCount,24);assert.equal(observed.validCount,40);assert.deepEqual(observed.perCode,accepted.perCode);
+ for(const value of [0,1])assert.equal(consensus(patterns,{minimumBreadth:value}).status,'ready');
+ for(const value of [null,'60',-.01,1.01,NaN,Infinity])assert.equal(consensus(patterns,{minimumBreadth:value}).status,'unavailable');
+});
+test('cached old false results regain a typed candidate from metrics rather than old display text or matched flags',()=>{
+ const c=consensus([...Array(24).fill(varied),...Array(16).fill(i=>-varied(i))],{minimumBreadth:.7});
+ const raw=run({mode:'consensus',consensus:c,code:c.memberCodes[0]}),legacy={status:raw.status,metrics:raw.metrics,matched:false,excluded:false,reasons:['THIS IS TRANSLATED OR ARBITRARY DISPLAY TEXT'],reason:'untrusted label'},before=JSON.stringify(legacy);
+ const observed=API.applyConsensusThreshold(legacy,{consensus:c,minimumBreadth:.7});assert.equal(observed.candidateMatched,true);assert.equal(observed.marketQualified,false);assert.equal(observed.matched,false);assert.equal(observed.eligible,true);
+ const accepted=API.applyConsensusThreshold(legacy,{consensus:c,minimumBreadth:.6});assert.equal(accepted.candidateMatched,true);assert.equal(accepted.marketQualified,true);assert.equal(accepted.matched,true);assert.doesNotMatch(accepted.reasons.join(' '),/ARBITRARY|TRANSLATED/);assert.equal(JSON.stringify(legacy),before);assert.deepEqual(accepted.metrics,legacy.metrics);assert.notEqual(accepted.metrics,legacy.metrics);
+});
+test('observation candidates preserve independent risk and heat annotations while strict matching requires every gate',()=>{
+ const c=consensus(Array(40).fill(varied)),base=run({mode:'consensus',consensus:c,code:c.memberCodes[0]});base.metrics.volumeRatio=3;
+ const heated=API.applyLimits(base,{enabled:true},20),risk=API.applyConsensusThreshold(heated,{consensus:c,minimumBreadth:0,eligible:false,eligibilityCodes:['risk_name']});
+ assert.equal(risk.candidateMatched,true);assert.equal(risk.marketQualified,true);assert.equal(risk.eligible,false);assert.equal(risk.excluded,true);assert.equal(risk.matched,false);assert.deepEqual(risk.eligibilityCodes,['risk_name']);
+ risk.reasons=['满足：伪造的展示文本'];
+ const cooler=API.applyLimits(risk,{enabled:false},20);assert.equal(cooler.excluded,false);assert.equal(cooler.matched,false);assert.equal(cooler.eligible,false);
+ const stillRisk=API.applyConsensusThreshold(cooler,{consensus:c,minimumBreadth:0});assert.equal(stillRisk.eligible,false);assert.equal(stillRisk.matched,false);
+ const qualified=API.applyConsensusThreshold(cooler,{consensus:c,minimumBreadth:0,eligible:true});assert.equal(qualified.matched,true);assert.deepEqual(qualified.eligibilityCodes,[]);
+});
+test('a zero market threshold cannot revive insufficient coverage, mismatched periods or unavailable stock metrics',()=>{
+ const c=consensus(Array(40).fill(varied)),base=run({mode:'consensus',consensus:c,code:c.memberCodes[0]});
+ for(const invalid of [{...c,status:'unavailable'},{...c,requestedCount:51,coverage:40/51},{...c,lookback:60},{...c,day:'2026-11-19'},{...c,commonCount:41}]){
+  const result=API.applyConsensusThreshold(base,{consensus:invalid,minimumBreadth:0});assert.equal(result.status,'unavailable');assert.equal(result.candidateMatched,null);assert.equal(result.marketQualified,null);assert.equal(result.matched,null);
+ }
+ const result=API.applyConsensusThreshold(run({bars:[]}),{consensus:c,minimumBreadth:0});assert.equal(result.status,'unavailable');assert.equal(result.candidateMatched,null);
+ for(const minimumBreadth of [null,-1,2,NaN,'0.6'])assert.throws(()=>API.applyConsensusThreshold(base,{consensus:c,minimumBreadth}));
+});
+test('typed heat toggles do not infer rule outcomes from Chinese or translated presentation strings',()=>{
+ const base=run({mode:'strength',bars:early(),limits:{enabled:false}});base.metrics.volumeRatio=3;const capped=API.applyLimits(base,{enabled:true});
+ capped.reasons=['未满足：任意文本'];capped.ruleReasons=['TRANSLATED DISPLAY ONLY'];
+ const restored=API.applyLimits(capped,{enabled:false});assert.equal(restored.matched,true);assert.equal(restored.excluded,false);assert.equal(restored.candidateMatched,true);
+ const blocked={...capped,candidateMatched:false,matched:true,baseMatched:true,reasons:['满足：任意文本']};assert.equal(API.applyLimits(blocked,{enabled:false}).matched,false);
+ const legacy={status:'ready',matched:true,excluded:false,metrics:base.metrics,reasons:['legacy rule label']};const oldCap=API.applyLimits(legacy,{enabled:true}),oldRestore=API.applyLimits(oldCap,{enabled:false});assert.equal(oldRestore.matched,true);assert.deepEqual(oldRestore.ruleReasons,['legacy rule label']);
+});

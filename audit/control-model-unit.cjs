@@ -21,6 +21,16 @@ test('config normalization merges known defaults without mutating or sharing def
  const c=model.normalizeConfig();assert.deepEqual(c,model.DEFAULT_CONFIG);c.settings.limits.maxReturn20=999;assert.equal(model.DEFAULT_CONFIG.settings.limits.maxReturn20,15);
  const partial=config({lookback:60,sampleSize:'240',mode:'market'});assert.equal(partial.settings.benchmark,'000300.SH');assert.equal(partial.settings.limits.maxVolumeRatio,2.5);
 });
+test('minimum breadth defaults preserve old configs and accept the inclusive zero-to-one boundaries',()=>{
+ assert.match(model.engineVersion,/2026-11-22\.v2$/);assert.equal(model.DEFAULT_CONFIG.settings.minimumBreadth,.6);assert.equal(model.normalizeConfig().settings.minimumBreadth,.6);
+ const legacy={name:'旧方案',settings:{lookback:60,sampleSize:'240',mode:'market',limits:{enabled:false,maxReturn20:15,maxReturn60:30,maxReturn5:8,maxDeviation:8,maxVolumeRatio:2.5}}},before=JSON.stringify(legacy),normalized=model.normalizeConfig(legacy);
+ assert.equal(normalized.settings.minimumBreadth,.6);assert.equal(JSON.stringify(legacy),before);assert.equal(normalized.name,'旧方案');assert.equal(normalized.settings.lookback,60);assert.equal(normalized.settings.limits.enabled,false);
+ for(const minimumBreadth of [0,.6,1])assert.equal(config({minimumBreadth}).settings.minimumBreadth,minimumBreadth);
+ normalized.settings.minimumBreadth=.7;assert.equal(model.DEFAULT_CONFIG.settings.minimumBreadth,.6);
+});
+test('minimum breadth rejects nonnumeric and out-of-range values rather than coercing percentages',()=>{
+ for(const minimumBreadth of [-.001,1.001,NaN,Infinity,-Infinity,'0.6','60%',null,true,false,[],{}])assert.throws(()=>config({minimumBreadth}),String(minimumBreadth));
+});
 test('configuration rejects unknown code, URLs, secrets and unsupported enums',()=>{
  for(const bad of [{url:'https://example.test'},{secret:'hidden'},{settings:{script:'alert(1)'}},{settings:{limits:{cookie:'hidden'}}},{name:'<script>x</script>'},{name:'https://example.test'},{module:'other'},{name:null},{settings:null},{settings:{limits:null}},{settings:{lookback:10}},{settings:{sampleSize:120}},{settings:{mode:'similar'}},{settings:{benchmark:'600519.SH'}}])assert.throws(()=>model.normalizeConfig(bad));
 });
@@ -82,6 +92,23 @@ test('missing sources retain the original denominator and insufficient coverage 
  for(const missing of [24,25]){const raw=dataset();for(let i=0;i<missing;i++)raw.records[i].source={status:'unavailable',reason:'测试缺失'};
   const r=await model.evaluateDataset(raw,model.DEFAULT_CONFIG,engine);assert.equal(r.summary.validCount,120-missing);near(r.summary.coverage,(120-missing)/120);assert.equal(r.status,missing===24?'complete':'unavailable');assert.equal(r.summary.identified,missing===24);assert.equal(r.records.length,120);
  }
+});
+test('one unchanged raw batch retains candidates and breadth while a higher global threshold removes strict matches',async()=>{
+ const raw=dataset();
+ for(let i=72;i<raw.records.length;i++){let price=100;raw.records[i].source.bars=bars().map((bar,index)=>({...bar,close:price*=1-[.003,-.002,.004,-.001,.002][index%5]}));}
+ const before=JSON.stringify(raw),low=await model.evaluateDataset(raw,config({minimumBreadth:.6,limits:{enabled:false}}),engine),high=await model.evaluateDataset(raw,config({minimumBreadth:.7,limits:{enabled:false}}),engine);
+ assert.equal(JSON.stringify(raw),before);
+ for(const [result,threshold,identified,strict]of [[low,.6,true,72],[high,.7,false,0]]){
+  assert.equal(result.status,'complete');assert.equal(result.summary.minimumBreadth,threshold);assert.equal(result.summary.requestedCount,120);assert.equal(result.summary.totalUniverseCount,120);assert.equal(result.summary.validCount,120);assert.equal(result.summary.coverage,1);assert.equal(result.summary.commonCount,72);near(result.summary.breadth,.6);assert.equal(result.summary.identified,identified);assert.equal(result.counts.total,120);assert.equal(result.counts.checked,120);assert.equal(result.counts.ready,120);assert.equal(result.counts.candidate,72);assert.equal(result.counts.matched,strict);
+  assert.equal(result.records.filter(record=>record.result.candidateMatched===true).length,72);assert.equal(result.records.filter(record=>record.result.matched===true).length,strict);
+ }
+ assert.deepEqual(low.records.map(record=>record.result.metrics),high.records.map(record=>record.result.metrics));
+ assert.deepEqual(low.records.map(record=>record.result.candidateMatched),high.records.map(record=>record.result.candidateMatched));
+});
+test('zero minimum breadth cannot revive a batch below the unchanged data-coverage requirement',async()=>{
+ const raw=dataset();for(let i=0;i<25;i++)raw.records[i].source={status:'unavailable',day,reason:'缺少本日真实数据'};const before=JSON.stringify(raw);
+ const result=await model.evaluateDataset(raw,config({minimumBreadth:0,limits:{enabled:false}}),engine);
+ assert.equal(JSON.stringify(raw),before);assert.equal(result.status,'unavailable');assert.equal(result.summary.minimumBreadth,0);assert.equal(result.summary.identified,false);assert.equal(result.summary.validCount,95);near(result.summary.coverage,95/120);assert.equal(result.summary.requestedCount,120);assert.equal(result.summary.totalUniverseCount,120);assert.equal(result.counts.total,120);assert.equal(result.counts.checked,120);assert.equal(result.counts.matched,0);assert.equal(result.counts.candidate,0);assert.equal(result.records.length,120);assert(result.records.every(record=>record.result.matched!==true&&record.result.candidateMatched!==true));
 });
 test('market and early-strength modes use the same normalized raw batch and shared engine',async()=>{
  for(const mode of ['market','strength']){const r=await model.evaluateDataset(dataset(),config({mode,limits:{enabled:false}}),engine);assert.equal(r.status,'complete');assert.equal(r.summary.identified,false);assert.equal(r.summary.breadth,null);assert.equal(r.counts.ready,120);assert.equal(r.summary.coverage,1);}

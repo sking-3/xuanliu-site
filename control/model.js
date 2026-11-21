@@ -4,11 +4,11 @@
  if(typeof module==='object'&&module.exports)module.exports=api;
  else root.BooksControlModel=api;
 })(globalThis,()=>{
- const engineVersion='books.trend-screen.2026-11-21.v1';
+ const engineVersion='books.trend-screen.2026-11-22.v2';
  const schema='books.research.dataset.v1',MAX_BYTES=24*1024*1024;
  const indexCodes=new Set(['000300.SH','000001.SH','399001.SZ']);
  const stockPattern=/^(?:6\d{5}\.SH|(?:00|30)\d{4}\.SZ)$/;
- const DEFAULT_CONFIG=Object.freeze({module:'a-share-consensus',name:'默认共性方案',settings:Object.freeze({lookback:20,sampleSize:'120',benchmark:'000300.SH',mode:'consensus',limits:Object.freeze({enabled:true,maxReturn20:15,maxReturn60:30,maxReturn5:8,maxDeviation:8,maxVolumeRatio:2.5})})});
+ const DEFAULT_CONFIG=Object.freeze({module:'a-share-consensus',name:'默认共性方案',settings:Object.freeze({lookback:20,sampleSize:'120',benchmark:'000300.SH',mode:'consensus',minimumBreadth:.6,limits:Object.freeze({enabled:true,maxReturn20:15,maxReturn60:30,maxReturn5:8,maxDeviation:8,maxVolumeRatio:2.5})})});
  const fail=message=>{throw new TypeError(message);};
  const own=(value,key)=>Object.prototype.hasOwnProperty.call(value,key);
  function plain(value){return !!value&&typeof value==='object'&&!Array.isArray(value)&&(Object.getPrototypeOf(value)===Object.prototype||Object.getPrototypeOf(value)===null);}
@@ -48,16 +48,17 @@
   if(value===undefined)value={};jsonInput(value,16384);known(value,['module','name','settings'],'配置');
   const moduleName=value.module===undefined?DEFAULT_CONFIG.module:value.module;if(moduleName!==DEFAULT_CONFIG.module)fail('不支持的研究模块');
   const name=text(value.name===undefined?DEFAULT_CONFIG.name:value.name,'方案名称',80);if(/(?:https?:\/\/|javascript:|data:)/i.test(name))fail('方案名称不能包含网址或代码');
-  const input=value.settings===undefined?{}:value.settings;known(input,['lookback','sampleSize','benchmark','mode','limits'],'研究设置');
+  const input=value.settings===undefined?{}:value.settings;known(input,['lookback','sampleSize','benchmark','mode','minimumBreadth','limits'],'研究设置');
   const settings={...DEFAULT_CONFIG.settings,...input};
   if(![20,60].includes(settings.lookback))fail('周期仅支持20或60个交易日');
   if(!['120','240','all'].includes(settings.sampleSize))fail('样本规模仅支持120、240或all');
   if(!indexCodes.has(settings.benchmark))fail('基准只能是已支持的指数');
   if(!['consensus','market','strength'].includes(settings.mode))fail('研究模式无效');
+  if(!Number.isFinite(settings.minimumBreadth)||settings.minimumBreadth<0||settings.minimumBreadth>1)fail('整体共性门槛须为0至1的有限数值');
   const inputLimits=input.limits===undefined?{}:input.limits;known(inputLimits,Object.keys(DEFAULT_CONFIG.settings.limits),'排除上限');
   const limits={...DEFAULT_CONFIG.settings.limits,...inputLimits};if(typeof limits.enabled!=='boolean')fail('排除开关须为布尔值');
   for(const key of Object.keys(limits).filter(k=>k!=='enabled'))if(!Number.isFinite(limits[key])||limits[key]<=0||limits[key]>(key==='maxVolumeRatio'?100:1000))fail('排除上限须为范围内的有限正数');
-  return {module:moduleName,name,settings:{lookback:settings.lookback,sampleSize:settings.sampleSize,benchmark:settings.benchmark,mode:settings.mode,limits}};
+  return {module:moduleName,name,settings:{lookback:settings.lookback,sampleSize:settings.sampleSize,benchmark:settings.benchmark,mode:settings.mode,minimumBreadth:settings.minimumBreadth,limits}};
  }
  function stock(value){
   object(value,'股票');if(typeof value.code!=='string'||!stockPattern.test(value.code))fail('股票代码须为沪深A股代码，不能使用指数');
@@ -104,10 +105,10 @@
   const dataset=normalizeDataset(input),config=normalizeConfig(configuration),settings=config.settings;
   if(!engine||typeof engine.evaluate!=='function'||typeof engine.buildConsensus!=='function'||typeof engine.selectMarketSample!=='function')fail('研究计算引擎不可用');
   const requested=settings.sampleSize==='all'?dataset.totalUniverseCount:Math.min(Number(settings.sampleSize),dataset.totalUniverseCount);
-  const counts={total:dataset.expectedCount,checked:0,ready:0,matched:0,excluded:0,missing:0},records=[];
+  const counts={total:dataset.expectedCount,checked:0,ready:0,candidate:0,matched:0,excluded:0,missing:0},records=[];
   const times=dataset.records.map(r=>r.source.fetchedAt).filter(Boolean).sort((a,b)=>Date.parse(a)-Date.parse(b));
   const sourceTimes={asOf:dataset.asOf,referenceFetchedAt:dataset.reference.fetchedAt,fetchedStart:times[0]??null,fetchedEnd:times.at(-1)??null};
-  const summary={mode:settings.mode,sampleSize:settings.sampleSize,fullMarket:dataset.expectedCount===dataset.totalUniverseCount,requestedCount:dataset.expectedCount,totalUniverseCount:dataset.totalUniverseCount,validCount:0,coverage:0,breadth:null,commonCount:null,identified:false,period:{lookback:settings.lookback,startAt:null,endAt:dataset.day},curveReturn:null};
+  const summary={status:'unavailable',day:dataset.day,lookback:settings.lookback,mode:settings.mode,sampleSize:settings.sampleSize,minimumBreadth:settings.minimumBreadth,fullMarket:dataset.expectedCount===dataset.totalUniverseCount,requestedCount:dataset.expectedCount,totalUniverseCount:dataset.totalUniverseCount,validCount:0,coverage:0,breadth:null,commonCount:null,identified:false,period:{lookback:settings.lookback,startAt:null,endAt:dataset.day},curveReturn:null};
   const result=(status,reason)=>({status,reason,summary,records,counts,day:dataset.day,sourceTimes,engineVersion});
   const stopped=()=>typeof shouldStop==='function'&&shouldStop();
   const progress=()=>{if(typeof onProgress==='function')onProgress({checked:counts.checked,total:counts.total,counts:{...counts},day:dataset.day});};
@@ -118,8 +119,8 @@
   if(settings.mode==='consensus'){
    const chosen=engine.selectMarketSample(dataset.universe,requested),actual=new Set(dataset.records.map(r=>r.stock.code));
    if(chosen.length!==requested||chosen.some(s=>!actual.has(s.code)))return result('unavailable','原始请求名单不符合完整市场池的固定分层取样规则');
-   consensus=engine.buildConsensus({records:dataset.records.filter(r=>r.source.status==='ready').map(r=>({stock:r.stock,bars:r.source.bars})),calendar:dataset.reference.bars,lookback:settings.lookback,day:dataset.day,expectedCount:dataset.expectedCount,totalUniverseCount:dataset.totalUniverseCount});
-   summary.validCount=consensus.validCount;summary.coverage=consensus.coverage;summary.breadth=consensus.breadth;summary.commonCount=consensus.commonCount;
+   consensus=engine.buildConsensus({records:dataset.records.filter(r=>r.source.status==='ready').map(r=>({stock:r.stock,bars:r.source.bars})),calendar:dataset.reference.bars,lookback:settings.lookback,minimumBreadth:settings.minimumBreadth,day:dataset.day,expectedCount:dataset.expectedCount,totalUniverseCount:dataset.totalUniverseCount});
+   summary.status=consensus.status;summary.validCount=consensus.validCount;summary.coverage=consensus.coverage;summary.breadth=consensus.breadth;summary.commonCount=consensus.commonCount;
    summary.period.startAt=consensus.dates?.[0]??null;
    if(consensus.status==='ready')summary.curveReturn=(consensus.medianReturns.reduce((value,r)=>value*(1+r),1)-1)*100;
   }
@@ -127,14 +128,14 @@
   for(const record of dataset.records){
    if(stopped())return result('stopped','研究已停止，部分计算结果保留，未生成完整结论');
    let evaluation;
-   if(record.source.status==='ready')evaluation=engine.evaluate({mode:settings.mode,bars:record.source.bars,referenceBars:dataset.reference.bars,lookback:settings.lookback,day:dataset.day,code:record.stock.code,consensus,limits:settings.limits});
+   if(record.source.status==='ready')evaluation=engine.evaluate({mode:settings.mode,bars:record.source.bars,referenceBars:dataset.reference.bars,lookback:settings.lookback,minimumBreadth:settings.minimumBreadth,day:dataset.day,code:record.stock.code,consensus,limits:settings.limits});
    else evaluation={status:'unavailable',matched:null,excluded:false,exclusionReasons:[],reason:record.source.reason,metrics:null,reasons:[]};
    records.push({stock:{...record.stock},result:evaluation});counts.checked++;
-   if(evaluation.status==='ready'){counts.ready++;if(evaluation.matched)counts.matched++;if(evaluation.excluded)counts.excluded++;if(!summary.period.startAt)summary.period.startAt=evaluation.metrics?.startAt??null;}else counts.missing++;
+   if(evaluation.status==='ready'){counts.ready++;if(evaluation.candidateMatched)counts.candidate++;if(evaluation.matched)counts.matched++;if(evaluation.excluded)counts.excluded++;if(!summary.period.startAt)summary.period.startAt=evaluation.metrics?.startAt??null;}else counts.missing++;
    if(counts.checked%20===0){progress();await yieldTurn();}
   }
   if(stopped())return result('stopped','研究已停止，未生成完整结论');
-  if(!consensus){summary.validCount=counts.ready;summary.coverage=counts.ready/dataset.expectedCount;}
+  if(!consensus){summary.status=counts.ready?'ready':'unavailable';summary.validCount=counts.ready;summary.coverage=counts.ready/dataset.expectedCount;}
   summary.identified=consensus?.status==='ready'&&consensus.identified===true;
   progress();return result(consensus&&consensus.status!=='ready'||!counts.ready?'unavailable':'complete',consensus?.reason||(counts.ready?'原始日线已按固定规则核验':'资料不足，无法生成有效结论'));
  }

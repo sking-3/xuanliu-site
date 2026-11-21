@@ -7,7 +7,11 @@
   const compare=(a,b)=>a<b?-1:a>b?1:0;
   const exceeds=(a,b)=>a-b>Number.EPSILON*64*Math.max(1,Math.abs(a),Math.abs(b));
   const emptyMetrics=()=>({correlation:null,curveCorrelation:null,directionAgreement:null,periodReturn:null,referenceReturn:null,return5:null,volumeRatio:null,volumeAvg5:null,volumeAvgPrevious20:null,ma5:null,ma20:null,ma20Deviation:null,startClose:null,endClose:null,startAt:null,endAt:null,sampleCount:0,crossedUpRecently:null});
-  function unavailable(reason){return {status:'unavailable',matched:null,excluded:false,exclusionReasons:[],reason,metrics:emptyMetrics(),reasons:[]};}
+  function unavailable(reason){return {status:'unavailable',matched:null,candidateMatched:null,marketQualified:null,eligible:true,eligibilityCodes:[],excluded:false,exclusionReasons:[],reason,metrics:emptyMetrics(),reasons:[]};}
+  function breadthThreshold(value=RULES.consensusBreadth){
+    if(!Number.isFinite(value)||value<0||value>1)throw Error('整体共性门槛须为0至1的有限数值');return value;
+  }
+  const percent=value=>(value*100).toFixed(2).replace(/\.00$/,'')+'%';
   function validDay(day){
     if(typeof day!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(day))return false;
     const time=Date.parse(day+'T00:00:00Z');return Number.isFinite(time)&&new Date(time).toISOString().slice(0,10)===day;
@@ -60,8 +64,9 @@
   }
   function buildConsensus(input={}){
     const {records,calendar,lookback,day}=input,expected=input.expectedCount??records?.length,totalUniverseCount=input.totalUniverseCount??expected;
-    const base={status:'unavailable',identified:false,reason:'',day,lookback,requestedCount:expected,validCount:0,coverage:0,breadth:0,commonCount:0,totalUniverseCount,dates:[],supportDates:[],memberCodes:[],medianReturns:[],perCode:{}};
+    const base={status:'unavailable',identified:false,reason:'',minimumBreadth:input.minimumBreadth===undefined?RULES.consensusBreadth:input.minimumBreadth,day,lookback,requestedCount:expected,validCount:0,coverage:0,breadth:0,commonCount:0,totalUniverseCount,dates:[],supportDates:[],memberCodes:[],medianReturns:[],perCode:{}};
     try{
+      base.minimumBreadth=breadthThreshold(base.minimumBreadth);
       if(![20,60].includes(lookback)||!validDay(day)||!Array.isArray(records)||!Number.isInteger(expected)||expected<30||!Number.isInteger(totalUniverseCount)||totalUniverseCount<expected)throw Error('至少需要30只独立市场样本，不能以单只股票或少量个股代表市场');
       const required=Math.max(lookback+1,26),anchor=readBars(calendar,day,'市场交易日历',true);
       if(anchor.length<required)throw Error('市场交易日历样本不足');
@@ -95,8 +100,8 @@
         base.perCode[member.code]=m;
         if(m.correlation!==null&&m.correlation>=RULES.consensusCorrelation&&m.directionAgreement>=RULES.directionAgreement)base.commonCount++;
       }
-      base.breadth=base.commonCount/count;base.identified=base.breadth>=RULES.consensusBreadth;base.status='ready';
-      base.reason=base.identified?'市场样本至少60%形成共同走势':'市场走势分化，尚未形成至少60%的主流共性';return base;
+      base.breadth=base.commonCount/count;base.identified=!exceeds(base.minimumBreadth,base.breadth);base.status='ready';
+      base.reason=base.identified?'市场样本至少'+percent(base.minimumBreadth)+'形成共同走势':'市场走势分化，尚未形成至少'+percent(base.minimumBreadth)+'的主流共性';return base;
     }catch(error){base.reason=error.message||'市场共性无法核验';return base;}
   }
   function limitsOf(input){
@@ -109,14 +114,34 @@
     const metrics=result.metrics?{...result.metrics}:result.metrics;
     if(result.status!=='ready')return {...result,metrics,reasons:[...(result.reasons||[])],exclusionReasons:[...(result.exclusionReasons||[])]};
     if(![20,60].includes(lookback))throw Error('排除条件周期无效');
-    const limits=limitsOf(input),reasons=(result.reasons||[]).filter(reason=>!reason.startsWith('排除：'));
-    const baseMatched=result.excluded?!reasons.some(reason=>reason.startsWith('未满足：')):result.matched;
+    const limits=limitsOf(input);
+    let ruleReasons=[];
+    if(Array.isArray(result.ruleReasons))ruleReasons=result.ruleReasons.slice();
+    else if(!result.excluded)ruleReasons=(result.reasons||[]).slice();
+    const baseMatched=typeof result.candidateMatched==='boolean'?result.candidateMatched&&result.eligible!==false&&result.marketQualified!==false:typeof result.baseMatched==='boolean'?result.baseMatched:result.matched;
     const exclusionReasons=[];
     if(limits.enabled){
       for(const [value,cap,label]of [[metrics.periodReturn,lookback===20?limits.maxReturn20:limits.maxReturn60,'所选周期涨幅'],[metrics.return5,limits.maxReturn5,'近5日涨幅'],[metrics.ma20Deviation,limits.maxDeviation,'相对MA20正乖离'],[metrics.volumeRatio,limits.maxVolumeRatio,'近5日/此前20日成交量比']])if(exceeds(value,cap))exclusionReasons.push(label+' '+value.toFixed(2)+(label.includes('成交量比')?'倍':'%')+' 超过上限 '+cap+(label.includes('成交量比')?'倍':'%'));
     }
     const excluded=exclusionReasons.length>0,matched=baseMatched&&!excluded;
-    return {...result,matched,excluded,exclusionReasons,reason:excluded?exclusionReasons[0]:matched?'满足所选研究条件':reasons.find(reason=>reason.startsWith('未满足：')),metrics,reasons:reasons.concat(exclusionReasons.map(reason=>'排除：'+reason))};
+    const ruleFailure=result.ruleFailure===undefined?(baseMatched?null:result.reason||null):result.ruleFailure;
+    return {...result,baseMatched,matched,excluded,exclusionReasons,ruleReasons,ruleFailure,reason:excluded?exclusionReasons[0]:matched?'满足所选研究条件':ruleFailure,metrics,reasons:ruleReasons.concat(exclusionReasons.map(reason=>'排除：'+reason))};
+  }
+  function applyConsensusThreshold(result,{consensus,minimumBreadth=RULES.consensusBreadth,eligible=result.eligible??true,eligibilityCodes=eligible?[]:(result.eligibilityCodes||['ineligible'])}={}){
+    const threshold=breadthThreshold(minimumBreadth),metrics=result.metrics?{...result.metrics}:result.metrics;
+    if(typeof eligible!=='boolean'||!Array.isArray(eligibilityCodes))throw Error('筛选资格须为布尔值及原因代码列表');
+    const codes=eligible?[]:(eligibilityCodes.length?eligibilityCodes.slice():['ineligible']);
+    const c=consensus,m=metrics;
+    const valid=c?.status==='ready'&&Number.isInteger(c.validCount)&&c.validCount>=RULES.minimumMembers&&Number.isInteger(c.requestedCount)&&c.requestedCount>=c.validCount&&Number.isFinite(c.coverage)&&c.coverage>=RULES.coverage&&c.coverage<=1&&Math.abs(c.coverage-c.validCount/c.requestedCount)<1e-12&&Number.isInteger(c.commonCount)&&c.commonCount>=0&&c.commonCount<=c.validCount&&Number.isFinite(c.breadth)&&Math.abs(c.breadth-c.commonCount/c.validCount)<1e-12;
+    if(result.status!=='ready'||!valid||!m||c.day!==m.endAt||c.lookback+1!==m.sampleCount||!Number.isFinite(m.correlation)||!Number.isFinite(m.directionAgreement)){
+      return {...result,status:'unavailable',candidateMatched:null,marketQualified:null,eligible,eligibilityCodes:codes,minimumBreadth:threshold,baseMatched:null,matched:null,metrics,ruleReasons:[],ruleFailure:c?.reason||result.reason||'市场覆盖或缓存指标不完整',reason:c?.reason||result.reason||'市场覆盖或缓存指标不完整',reasons:[]};
+    }
+    const candidateChecks=[[m.correlation>=RULES.consensusCorrelation,'与其余市场样本日收益相关性 ≥ 0.50'],[m.directionAgreement>=RULES.directionAgreement,'同向交易日占比 ≥ 60%']];
+    const candidateMatched=candidateChecks.every(([pass])=>pass),marketQualified=!exceeds(threshold,c.breadth);
+    const checks=[[marketQualified,'市场共性占比 '+percent(c.breadth)+' 达到所设门槛 '+percent(threshold)],...candidateChecks,[eligible,codes.includes('risk_name')?'风险名称不在筛选资格内':'筛选资格合格']];
+    const ruleReasons=checks.map(([pass,label])=>(pass?'满足：':'未满足：')+label),failed=checks.find(([pass])=>!pass),ruleFailure=failed?'未满足：'+failed[1]:null;
+    const baseMatched=candidateMatched&&marketQualified&&eligible,excluded=result.excluded===true,exclusionReasons=(result.exclusionReasons||[]).slice();
+    return {...result,candidateMatched,marketQualified,eligible,eligibilityCodes:codes,minimumBreadth:threshold,baseMatched,matched:baseMatched&&!excluded,metrics,ruleReasons,ruleFailure,exclusionReasons,reason:excluded?exclusionReasons[0]:baseMatched?'满足所选研究条件':ruleFailure,reasons:ruleReasons.concat(exclusionReasons.map(reason=>'排除：'+reason))};
   }
   function evaluate(input={}){
     const {mode,bars,referenceBars,lookback,day,code,consensus}=input;
@@ -146,7 +171,7 @@
         }else relative=consensus.perCode?.[code]||relativeMetrics(daily,consensus.medianReturns);
         Object.assign(metrics,relative);
         if(metrics.correlation===null||metrics.curveCorrelation===null)throw Error('所选周期波动不足，无法计算走势相关性');
-        checks=mode==='consensus'?[[consensus.identified,'市场样本至少60%有共同走势'],[metrics.correlation>=RULES.consensusCorrelation,'与其余市场样本日收益相关性 ≥ 0.50'],[metrics.directionAgreement>=RULES.directionAgreement,'同向交易日占比 ≥ 60%']]:[[metrics.correlation>=RULES.correlation,'日收益相关性 ≥ 0.65'],[metrics.directionAgreement>=RULES.directionAgreement,'同向交易日占比 ≥ 60%']];
+        checks=mode==='consensus'?[[metrics.correlation>=RULES.consensusCorrelation,'与其余市场样本日收益相关性 ≥ 0.50'],[metrics.directionAgreement>=RULES.directionAgreement,'同向交易日占比 ≥ 60%']]:[[metrics.correlation>=RULES.correlation,'日收益相关性 ≥ 0.65'],[metrics.directionAgreement>=RULES.directionAgreement,'同向交易日占比 ≥ 60%']];
       }else{
         metrics.crossedUpRecently=false;
         for(let t=prices.length-5;t<prices.length;t++){
@@ -157,9 +182,13 @@
       }
       if(Object.values(metrics).some(v=>typeof v==='number'&&!Number.isFinite(v)))throw Error('计算结果超出有效数值范围');
       const reasons=checks.map(([pass,label])=>(pass?'满足：':'未满足：')+label);
-      return applyLimits({status:'ready',matched:checks.every(([pass])=>pass),excluded:false,exclusionReasons:[],metrics,reasons},limits,lookback);
+      const candidateMatched=checks.every(([pass])=>pass),failed=checks.find(([pass])=>!pass);
+      const filtered=applyLimits({status:'ready',candidateMatched,marketQualified:null,eligible:true,eligibilityCodes:[],matched:candidateMatched,excluded:false,exclusionReasons:[],metrics,reasons,ruleReasons:reasons,ruleFailure:failed?'未满足：'+failed[1]:null},limits,lookback);
+      if(mode!=='consensus')return filtered;
+      const minimumBreadth=input.minimumBreadth===undefined?(consensus.minimumBreadth??RULES.consensusBreadth):input.minimumBreadth;
+      return applyConsensusThreshold(filtered,{consensus,minimumBreadth});
     }catch(error){return unavailable(error.message||'日线数据无法核验');}
   }
-  const api={RULES,DEFAULT_LIMITS,MODES,evaluate,applyLimits,selectMarketSample,buildConsensus};
+  const api={RULES,DEFAULT_LIMITS,MODES,evaluate,applyLimits,applyConsensusThreshold,selectMarketSample,buildConsensus};
   if(typeof module==='object'&&module.exports)module.exports=api;else root.BooksTrendScreen=api;
 })(typeof globalThis==='object'?globalThis:this);

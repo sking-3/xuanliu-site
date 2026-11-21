@@ -62,6 +62,13 @@
 .trend-controls label {display:flex;align-items:center;gap:6px;font-size:12px;color:var(--desk-muted);white-space:nowrap}
 .pick-desk .trend-controls select {min-height:44px;max-width:240px;font-variant-numeric:tabular-nums}
 .pick-desk .trend-period select {min-width:150px;min-height:44px;font-variant-numeric:tabular-nums}
+.trend-consensus-controls {display:flex;align-items:center;gap:8px 20px;flex-wrap:wrap;margin:0 0 8px;font-size:12px;color:var(--desk-muted)}
+.trend-consensus-controls label {display:inline-flex;align-items:center;gap:6px;min-height:44px;white-space:nowrap}
+.pick-desk #trend-breadth {width:78px;min-height:44px;font-variant-numeric:tabular-nums}
+.pick-desk #trend-qualified-only {width:18px;height:18px;min-height:0;flex:0 0 18px;padding:0;margin:0}
+.trend-consensus-controls small {font-size:11px}
+.pick-desk .trend-consensus-status {margin:0 0 8px;font-size:12px;color:var(--desk-muted)}
+.trend-consensus-status:empty {display:none}
 .trend-result-summary {display:flex;align-items:baseline;justify-content:space-between;gap:8px 16px;flex-wrap:wrap;margin:0 0 12px;color:var(--desk-muted);font-size:12px}
 .pick-desk #trend-status {margin:0;font-size:12px;color:var(--desk-muted);font-weight:400}
 .trend-result-summary :empty {display:none}
@@ -74,6 +81,10 @@
 .pick-desk .trend-stock-patterns {margin:0 0 6px}
 .pick-desk .trend-stock-patterns summary {max-width:100%;padding:4px 0;font-size:12px;line-height:20px;color:var(--desk-muted)}
 .pick-desk .trend-stock-patterns p {font-size:12px;line-height:1.6;margin:3px 0}
+.pick-desk .trend-stock-qualification {margin:0 0 4px}
+.pick-desk .trend-stock-qualification summary {padding:4px 0;max-width:100%;font-size:12px;line-height:20px;color:#775126}
+.pick-desk .trend-stock-qualification[data-qualified=true] summary {color:var(--desk-accent)}
+.pick-desk .trend-stock-qualification p {font-size:12px;line-height:1.6;margin:3px 0;color:var(--desk-muted)}
 .trend-stock-change {font-size:14px;line-height:1.5;font-weight:600;text-align:right;white-space:nowrap}
 .trend-stock-change .change-up {color:#a52f38}.trend-stock-change .change-down {color:#116b58}
 .trend-stock-period {display:block;font-size:11px;font-weight:400;color:var(--desk-muted)}

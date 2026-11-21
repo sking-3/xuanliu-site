@@ -130,6 +130,19 @@ test('a real pure-engine run persists actual results, settings and progress with
   const state=(await f.request('state')).body;assert.equal(state.job,null);assert.equal(state.runs[0].result,undefined);assert.equal(state.datasets[0].dataset,undefined);
   assert.deepEqual((await f.request('export?id='+r.body.run.id)).body,result);
 });
+test('a saved0.5 threshold survives activation, service restart and an actual replay without the unactivated0.8 draft taking effect',async t=>{
+  const f=fixture(t),raw=dataset();
+  for(const record of raw.records.slice(24)){let close=100;record.source.bars=record.source.bars.map((bar,i)=>({...bar,close:close*=1-[.002,-.001,.004,-.002,.003][i%5]}));}
+  const saved=await f.request('config',{expectedRevision:0,config:{name:'门槛50%',settings:{minimumBreadth:.5,limits:{enabled:false}}}});assert.equal(saved.status,201);
+  assert.equal((await f.request('activate',{revision:1,expectedActiveRevision:0})).status,200);
+  assert.equal((await f.request('config',{expectedRevision:1,config:{name:'未激活80%',settings:{minimumBreadth:.8,limits:{enabled:false}}}})).status,201);
+  f.replace();const state=(await f.request('state')).body;
+  assert.equal(state.activeRevision,1);assert.equal(state.activeConfig.settings.minimumBreadth,.5);assert.equal(state.config.settings.minimumBreadth,.8);assert.equal(state.versions.find(version=>version.revision===1).config.settings.minimumBreadth,.5);
+  const id=await f.importData(raw),run=(await f.request('run',{datasetId:id,revision:1})).body.run;await f.drain();const completed=(await f.request('runs?id='+run.id)).body;
+  assert.equal(completed.status,'complete');assert.equal(completed.settings.settings.minimumBreadth,.5);assert.equal(completed.result.summary.minimumBreadth,.5);assert.equal(completed.result.summary.breadth,.6);assert.equal(completed.result.summary.commonCount,24);assert.equal(completed.result.summary.identified,true);assert.equal(completed.result.counts.matched,24);
+  const exported=(await f.request('export?id='+run.id)).body;assert.equal(exported.settings.settings.minimumBreadth,.5);assert.equal(exported.result.summary.minimumBreadth,.5);
+  assert.equal((await f.request('state')).body.activeConfig.settings.minimumBreadth,.5);
+});
 test('an incompatible real archive reports unavailable instead of manufacturing a complete result',async t=>{
   const f=fixture(t),id=await f.importData();await f.request('config',{expectedRevision:0,config:{settings:{benchmark:'000001.SH'}}});
   const run=(await f.request('run',{datasetId:id,revision:1})).body.run;await f.drain();

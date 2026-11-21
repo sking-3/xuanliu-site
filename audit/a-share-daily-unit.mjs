@@ -181,23 +181,35 @@ test('batch transport diagnostics are preserved with zero fake progress or addit
   const status=JSON.parse(await readFile(join(dir,'status.json')));assert.deepEqual(status.attempt.errorDetails,details);await assert.rejects(readFile(join(dir,'current.json')),/ENOENT/);
 }));
 test('public precomputation contains derived metrics only while raw bars stay private and risk-name eligibility never shrinks the collected universe',async()=>fixture(async dir=>{
-  const raw=series(),bars=raw.timestamp.map((stamp,i)=>({date:new Date(stamp+8*3600000).toISOString().slice(0,10),close:raw.close[i],volume:raw.volume[i]}));
+  const raw=series(),bars=raw.timestamp.map(stamp=>({date:new Date(stamp+8*3600000).toISOString().slice(0,10),close:100,volume:100}));
+  [99,99,99,99,99,99.5,100,100.5,101,101.5].forEach((close,i)=>{bars[bars.length-10+i].close=close;});
   const universe=stocks.slice(0,40).map((stock,i)=>({...stock,name:i===0?'*ST测试':stock.name})),sources=new Map(universe.map(stock=>[stock.code,{status:'ready',sourceId,day:latest.date,adjustment:'qfq',adjustmentMethod:'比例前复权',volumeUnit:'手',bars,fetchedAt:new Date(now()).toISOString()}]));
   const references=new Map(INDICES.map((code,i)=>[code,{status:'ready',sourceId,adjustment:'index',bars:bars.map(bar=>({...bar,close:bar.close*(i+1)})),fetchedAt:new Date(now()).toISOString()}]));
-  const published=await precompute({dir,siteDir:resolve('.'),snapshot:{updatedAt:asOf,stocks:[{price:987654321}]},universe,sources,references,sourceId,dataPolicy,day:latest.date,asOf,startedAt:asOf,now});
+  const input={dir,siteDir:resolve('.'),snapshot:{updatedAt:asOf,stocks:[{price:987654321}]},universe,sources,references,sourceId,dataPolicy,day:latest.date,asOf,startedAt:asOf,now};
+  const published=await precompute(input);
   const location=join(dir,'generations',published.generation),files=await readdir(location);assert.equal(files.some(name=>name.startsWith('dataset-')||name.startsWith('market.')),false);
   assert.equal(published.dataPolicy.rawPublic,false);assert.equal(published.sourceId,sourceId);assert.equal(published.total,40);assert.equal(published.coverage,1);
   const privateData=JSON.parse(await readFile(join(dir,'private','generations',published.generation,'dataset-all-000300.SH.json')));assert.equal(privateData.records.length,40);assert.equal(privateData.records[0].source.bars[0].close,bars[0].close);
   assert.equal(Object.hasOwn(privateData,'dataPolicy'),false);assert.equal(Object.hasOwn(privateData,'sourceId'),false);
-  const model=(await import('../control/model.js')).default;assert.equal(model.normalizeDataset(privateData).records.length,40);
+  const model=(await import('../control/model.js')).default,engine=(await import('../screening/trend-screen.js')).default;assert.equal(model.normalizeDataset(privateData).records.length,40);
   for(const mode of ['consensus','market','strength'])for(const lookback of [20,60]){
     const value=JSON.parse(await readFile(join(location,'result-'+mode+'-'+lookback+'-all-000300.SH.json')));
     assert.equal(value.records.length,40);assert.equal(value.sourceId,sourceId);assert.equal(value.dataPolicy.rawPublic,false);assert.equal(value.records[0].result.matched,false);assert.match(value.records[0].result.reason,/风险名称/);assert.doesNotMatch(JSON.stringify(value),/startClose|endClose|987654321|"bars"/);
     assert(value.records.every(record=>record.result.status!=='ready'||record.result.metrics.endAt===latest.date));
     assert.equal(value.patternVersion,'books.trend-patterns.2026-11-22.v1');assert.equal(value.patternProfile.id,'daily-close-volume-v1');assert.equal(value.patternDefinitions.length,16);
     assert(value.records.every(record=>record.patterns.version===value.patternVersion&&record.patterns.day===latest.date&&record.patterns.lookback===lookback));
+    const risk=value.records[0].result,normal=value.records[1].result;
+    assert.equal(risk.candidateMatched,true);assert.equal(risk.eligible,false);assert.equal(risk.baseMatched,false);assert.deepEqual(risk.eligibilityCodes,['risk_name']);assert.equal(normal.candidateMatched,true);assert.equal(normal.eligible,true);assert.equal(normal.matched,true);assert.equal(risk.marketQualified,normal.marketQualified);
+    const heated=engine.applyLimits(risk,{enabled:true},lookback),restored=engine.applyLimits(heated,{enabled:false},lookback);
+    assert.equal(restored.candidateMatched,true);assert.equal(restored.matched,false);assert.equal(restored.eligible,false);assert.match(restored.reason,/风险名称/);assert.deepEqual(restored.eligibilityCodes,['risk_name']);assert.equal(engine.applyLimits(normal,{enabled:true},lookback).matched,true);
   }
   for(const code of INDICES){const raw=JSON.parse(await readFile(join(dir,'private','generations',published.generation,'dataset-all-'+code+'.json')));assert.equal(raw.reference.bars[0].close,references.get(code).bars[0].close);}
+  const next=await precompute({...input,now:()=>now()+1});
+  for(const mode of ['consensus','market','strength'])for(const lookback of [20,60]){
+    const value=JSON.parse(await readFile(join(dir,'generations',next.generation,'result-'+mode+'-'+lookback+'-all-000300.SH.json')));
+    const cached=engine.applyLimits(value.records[0].result,{enabled:false},lookback);
+    assert.equal(cached.candidateMatched,true);assert.equal(cached.eligible,false);assert.equal(cached.matched,false);assert.deepEqual(cached.eligibilityCodes,['risk_name']);
+  }
 }));
 
 async function privateReplay(dir){

@@ -94,7 +94,11 @@ export async function precompute({ dir, siteDir, snapshot, universe, sources, re
           const times = records.map(r => r.source.fetchedAt).filter(Boolean).sort();
           const resultRecords = records.map(({ stock, source }) => {
             let result=source.status==='ready'?engine.evaluate({mode,bars:source.bars,referenceBars:anchor.bars,lookback,day,code:stock.code,consensus,limits:{enabled:false}}):{status:'unavailable',matched:null,reason:source.reason};
-            if(result.status==='ready'&&riskName(stock))result={...result,matched:false,reason:'未满足：风险名称不在筛选资格内',reasons:[...(result.reasons||[]),'未满足：风险名称不在筛选资格内']};
+            if(result.status==='ready'&&riskName(stock)){
+              const ruleFailure='未满足：风险名称不在筛选资格内';
+              const ruleReasons=[...(result.ruleReasons||result.reasons||[]),ruleFailure];
+              result={...result,eligible:false,eligibilityCodes:['risk_name'],baseMatched:false,matched:false,ruleFailure,ruleReasons,reason:ruleFailure,reasons:ruleReasons};
+            }
             if(dataPolicy.rawPublic===false&&result.metrics){const {startClose,endClose,...metrics}=result.metrics;result={...result,metrics};}
             const key=lookback+'/'+stock.code;
             if(!classified.has(key))classified.set(key,patterns.classify({bars:source.status==='ready'?source.bars:[],calendar:anchor.bars,day,lookback}));

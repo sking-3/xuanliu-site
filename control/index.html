@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="zh-CN">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Books · 研究控制台</title><link rel="stylesheet" href="control.css?v=49ed035b"><script defer src="model.js?v=1c19d340"></script><script defer src="control.js?v=497f996c"></script></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Books · 研究控制台</title><link rel="stylesheet" href="control.css?v=49ed035b"><script defer src="model.js?v=98d7e6cb"></script><script defer src="control.js?v=d998d76b"></script></head>
 <body>
 <header class="top"><a class="brand" href="../index.html">Books</a><nav aria-label="研究导航"><a href="../screening/index.html#trend-screen">A股选股</a><a aria-current="page" href="index.html">研究控制台</a><a href="../account.html">账户</a></nav><span id="identity">正在核验权限</span></header>
 <main><h1>研究控制台</h1><p class="intro">保存你的方案，用已采集的数据反复调试，保留每轮依据。</p>
@@ -11,6 +11,7 @@
 <div class="workspace"><section class="editor"><div class="section-head"><h2>筛选方案</h2><span id="draft-status">未修改</span></div><p class="hint">保存后可跨设备读取；设为默认后用于新的归档重算。修改草稿不会影响正在运行的任务。</p>
 <form id="config-form"><label>方案名称<input id="cfg-name" maxlength="80" required autocomplete="off"></label>
 <div class="fields"><label>计算方式<select id="cfg-mode"><option value="consensus">市场共同走势</option><option value="market">跟随指数</option><option value="strength">初期转强</option></select></label><label>观察周期<select id="cfg-lookback"><option value="20">近20个交易日</option><option value="60">近60个交易日</option></select></label><label>市场共性覆盖<select id="cfg-sample"><option value="120">分层样本 · 120只</option><option value="240">分层样本 · 240只</option><option value="all">完整观察市场</option></select></label><label>指数与交易日历<select id="cfg-benchmark"><option value="000300.SH">沪深300</option><option value="000001.SH">上证指数</option><option value="399001.SZ">深证成指</option></select></label></div>
+<label>整体共性门槛（%）<input id="cfg-minimum-breadth" style="font-variant-numeric:tabular-nums" type="number" min="0" max="100" step="any" value="60" required inputmode="decimal"></label>
 <label class="check"><input id="cfg-heat" type="checkbox">排除过度拉升、偏离均线或异常放量</label><div class="fields limits"><label>20日涨幅上限（%）<input id="cfg-return20" type="number" min="0.1" max="1000" step="any" required></label><label>60日涨幅上限（%）<input id="cfg-return60" type="number" min="0.1" max="1000" step="any" required></label><label>近5日涨幅上限（%）<input id="cfg-five" type="number" min="0.1" max="1000" step="any" required></label><label>高于MA20上限（%）<input id="cfg-deviation" type="number" min="0.1" max="1000" step="any" required></label><label>成交量比上限（倍）<input id="cfg-volume" type="number" min="0.1" max="100" step="any" required></label></div>
 <p class="hint">上限只控制候选排除，不改写原始数值。成交量比不是资金净流入；这些参数是研究初值。</p><p id="config-compare" class="hint"></p>
 <div class="actions"><button class="primary" id="save-config" type="submit">保存新版本</button><button id="reset-config" type="button">恢复默认草稿</button><button id="export-config" type="button">导出配置</button><label class="file-button">导入配置<input id="import-config" type="file" accept="application/json,.json"></label></div></form>
