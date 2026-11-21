@@ -295,7 +295,7 @@
    let visible=[];
    if(completed){
     visible=sortRecords(state.records.filter(record=>record.result.status==='ready'&&record.result.matched),selectedMode);
-    displayed={mode:selectedMode,lookback,day:state.day,scope:state.scope,sampleCount:state.sampleCount,marketUniverseCount:state.marketUniverseCount,fullMarket:state.fullMarket,attribution:state.dataPolicy?.attribution,patternVersion:state.patternVersion,patternDefinitions:state.patternDefinitions,records:visible};
+    displayed={mode:selectedMode,lookback,day:state.day,scope:state.scope,sampleCount:state.sampleCount,marketUniverseCount:state.marketUniverseCount,fullMarket:state.fullMarket,consensus:state.consensus,attribution:state.dataPolicy?.attribution,patternVersion:state.patternVersion,patternDefinitions:state.patternDefinitions,records:visible};
    }else if(refreshing)visible=displayed.records;
    const show=completed||refreshing;
    patternOptions(visible);
@@ -317,6 +317,10 @@
    for(const [code,item]of cards)if(!wanted.has(code)){charts.dispose(item.chart);item.article.remove();cards.delete(code);}
    if(!records.length){
     empty.textContent=show?'没有符合条件的股票':'暂无已完成的筛选结果';
+    const consensus=displayed?.consensus;
+    if(show&&selectedMode==='consensus'&&consensus?.status==='ready'&&consensus.identified===false&&Number.isFinite(consensus.breadth)){
+     empty.textContent=lookback+'日市场走势分化：共性占比'+(consensus.breadth*100).toFixed(2)+'%（'+consensus.commonCount+'/'+consensus.validCount+'只），未达'+engine.RULES.consensusBreadth*100+'%的市场一致性门槛。';
+    }else if(show&&selectedPattern)empty.textContent='所选周期没有符合该技术形态的股票。';
     if(body.children.length!==1||body.children[0]!==empty)body.replaceChildren(empty);
    }else{
     empty.remove();

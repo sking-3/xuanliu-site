@@ -424,3 +424,17 @@ test('a chosen pattern or display size blocks a late server configuration from c
   assert.equal(s.app.getState().mode,'consensus');assert.equal(s.app.getState().lookback,20);assert.equal(s.ids[id].value,value);s.app.destroy();
  }
 });
+
+test('a complete60-day batch explains market dispersion with its actual breadth rather than pretending data is missing',async t=>{
+ const s=mounted(),value=cachedResult({lookback:60});t.after(()=>s.app.destroy());value.consensus={status:'ready',identified:false,validCount:3140,commonCount:1707,breadth:1707/3140,coverage:3140/3194};
+ for(const record of value.records)record.result.matched=false;
+ s.setResult(value);s.ids['trend-lookback'].value='60';await s.app.start('consensus');
+ assert.equal(s.ids['trend-count'].textContent,'0 只');assert.equal(articles(s).length,0);
+ assert.equal(s.ids['trend-results'].textContent,'60日市场走势分化：共性占比54.36%（1707/3140只），未达60%的市场一致性门槛。');
+ assert.equal(s.app.getState().consensus.identified,false);
+ s.setResult(cachedResult({mode:'market',lookback:60}));await s.app.start('market');assert.equal(s.app.getState().mode,'market');assert.equal(s.ids['trend-results'].textContent,'没有符合条件的股票');s.app.destroy();
+});
+test('a selected pattern with no matches is distinguished from overall market dispersion',async()=>{
+ const s=mounted(),value=withPatterns(cachedResult());value.records.forEach(record=>record.patterns.labels=[]);s.setResult(value);await s.app.start('consensus');
+ s.ids['trend-pattern'].value='volume-contract';s.ids['trend-pattern'].dispatchEvent({type:'change'});assert.equal(s.ids['trend-results'].textContent,'所选周期没有符合该技术形态的股票。');s.app.destroy();
+});

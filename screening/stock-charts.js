@@ -6,9 +6,9 @@
 })(globalThis,()=>{
   const source='https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js';
   function create({document,env=globalThis}){
-    const states=new Map();
+    const states=new Map(),loading=new Set(),retained=new Map();
     const margin=600;
-    let destroyed=false,pendingCheck=null;
+    let destroyed=false,pendingCheck=null,draining=false,drainScheduled=false;
     const alive=(state,epoch=state.epoch)=>!destroyed&&states.get(state.host)===state&&state.epoch===epoch;
     function phase(state,value,message){
       state.phase=value;
@@ -17,6 +17,7 @@
     }
     function cleanup(state){
       state.epoch++;
+      loading.delete(state);retained.delete(state);
       env.clearTimeout(state.timer);
       state.observer?.disconnect();
       if(state.frame){
@@ -35,6 +36,7 @@
       link.href='../chart.html?tvwidgetsymbol='+encodeURIComponent(state.symbol);
       link.textContent='查看完整日K';
       state.host.replaceChildren(state.status,link);
+      drain();
     }
     function unmount(state){
       if(!alive(state)||!['loading','frame-loaded'].includes(state.phase))return;
@@ -45,6 +47,7 @@
     function mount(state){
       if(!alive(state)||state.phase!=='waiting')return;
       const epoch=++state.epoch;
+      loading.add(state);
       phase(state,'loading','日K加载中…');
       const container=document.createElement('div'),slot=document.createElement('div');
       container.className='stock-chart-widget tradingview-widget-container';
@@ -59,7 +62,9 @@
       state.onLoad=()=>{
         if(!alive(state,epoch)||state.phase!=='loading')return;
         env.clearTimeout(state.timer);
+        state.timer=null;loading.delete(state);
         phase(state,'frame-loaded','');
+        drain();
       };
       state.onError=()=>unavailable(state,epoch);
       state.observer=new env.MutationObserver(()=>{
@@ -81,13 +86,41 @@
       state.timer=env.setTimeout(()=>unavailable(state,epoch),15000);
       container.append(script);
     }
+    function visibility(state,near){
+      const wasNear=state.near;state.near=near;
+      if(near){retained.delete(state);return;}
+      if(state.phase==='loading')unmount(state);
+      else if(wasNear&&state.phase==='frame-loaded'){
+        retained.delete(state);retained.set(state,true);
+        while(retained.size>4)unmount(retained.keys().next().value);
+      }
+    }
+    function drain(){
+      if(destroyed||draining||loading.size>=2)return;
+      draining=true;
+      const waiting=[];
+      for(const state of states.values()){
+        if(!state.near||state.phase!=='waiting')continue;
+        const rect=state.host.getBoundingClientRect(),visible=rect.bottom>0&&rect.top<env.innerHeight&&rect.right>0&&rect.left<env.innerWidth;
+        const distance=rect.bottom<0?-rect.bottom:rect.top>env.innerHeight?rect.top-env.innerHeight:0;
+        waiting.push({state,visible,distance});
+      }
+      waiting.sort((a,b)=>Number(b.visible)-Number(a.visible)||a.distance-b.distance);
+      for(const item of waiting){if(loading.size>=2)break;mount(item.state);}
+      draining=false;
+    }
+    function scheduleDrain(){
+      if(destroyed||drainScheduled)return;
+      drainScheduled=true;
+      Promise.resolve().then(()=>{drainScheduled=false;drain();});
+    }
     const viewport=env.IntersectionObserver?new env.IntersectionObserver(entries=>{
       for(const entry of entries){
         const state=states.get(entry.target);
         if(!state)continue;
-        if(entry.isIntersecting)mount(state);
-        else unmount(state);
+        visibility(state,entry.isIntersecting);
       }
+      drain();
     },{rootMargin:margin+'px 0px'}):null;
     function checkViewport(){
       pendingCheck=null;if(destroyed)return;
@@ -97,7 +130,8 @@
         const rect=state.host.getBoundingClientRect();
         visible.push([state,rect.bottom>rect.top&&rect.right>rect.left&&rect.bottom>=-margin&&rect.top<=env.innerHeight+margin&&rect.right>=0&&rect.left<=env.innerWidth]);
       }
-      for(const [state,near]of visible)if(near)mount(state);else unmount(state);
+      for(const [state,near]of visible)visibility(state,near);
+      drain();
     }
     function scheduleCheck(){
       if(destroyed||pendingCheck!==null)return;
@@ -112,7 +146,7 @@
       const status=document.createElement('p');
       status.className='stock-chart-status';status.setAttribute('role','status');
       const code=stock?.code,match=typeof code==='string'&&/^(\d{6})\.(SH|SZ)$/.exec(code);
-      const state={host,status,symbol:match?(match[2]==='SH'?'SSE:':'SZSE:')+match[1]:null,name:typeof stock?.name==='string'?stock.name:code,phase:'waiting',epoch:0,timer:null,observer:null,script:null,frame:null};
+      const state={host,status,symbol:match?(match[2]==='SH'?'SSE:':'SZSE:')+match[1]:null,name:typeof stock?.name==='string'?stock.name:code,phase:'waiting',near:false,epoch:0,timer:null,observer:null,script:null,frame:null};
       states.set(host,state);host.replaceChildren(status);
       if(!match){phase(state,'unavailable','日K暂不可用');return;}
       phase(state,'waiting','日K进入屏幕后加载');
@@ -123,11 +157,13 @@
       const state=states.get(host);if(!state)return;
       states.delete(host);viewport?.unobserve(host);cleanup(state);
       host.replaceChildren();delete host.dataset.chartState;
+      scheduleDrain();
     }
     function destroy(){
       if(destroyed)return;
+      destroyed=true;
       for(const host of [...states.keys()])dispose(host);
-      viewport?.disconnect();destroyed=true;
+      viewport?.disconnect();
       if(!viewport){
         env.removeEventListener('scroll',scheduleCheck,true);
         env.removeEventListener('resize',scheduleCheck);

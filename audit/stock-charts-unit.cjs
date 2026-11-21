@@ -34,7 +34,7 @@ function harness({lazy=true,animationFrame=true}={}){
     const scheduled=animationFrame?[...frames.entries()]:[...timers.entries()].filter(([,timer])=>timer.delay===16);
     for(const [id,callback]of scheduled){if(animationFrame){frames.delete(id);callback();}else{timers.delete(id);callback.fn();}}
   }
-  function frame(host,index=mutations.length-1){const element=new Element('iframe');host.querySelector('.tradingview-widget-container__widget').append(element);mutations[index].callback();return element;}
+  function frame(host,index){const element=new Element('iframe'),container=host.querySelector('.stock-chart-widget');host.querySelector('.tradingview-widget-container__widget').append(element);(index===undefined?mutations.findLast(observer=>observer.target===container):mutations[index]).callback();return element;}
   return {api,document,env,timers,frames,listeners,mutations,viewports,near,frame,flushViewport};
 }
 const stock={code:'600519.SH',name:'贵州茅台'};
@@ -69,10 +69,60 @@ test('offscreen hosts remain idle and repeated visibility or observe calls mount
   assert.equal(host.querySelector('script'),script);assert.equal(h.mutations.length,1);assert.equal(h.timers.size,1);assert.equal(h.viewports[0].targets.has(host),true);h.api.destroy();
 });
 
-test('leaving the near viewport releases an embed and returning mounts a new isolated instance',()=>{
+test('one IO batch starts at most two actual viewport charts before earlier-listed nearby charts',()=>{
+  const h=harness(),hosts=Array.from({length:4},()=>new Element());
+  hosts[0].rect={top:1200,bottom:1500,left:0,right:600};hosts[1].rect={top:-700,bottom:-400,left:0,right:600};hosts[2].rect={top:0,bottom:300,left:0,right:600};hosts[3].rect={top:400,bottom:700,left:0,right:600};
+  for(const host of hosts)h.api.observe(host,stock);h.viewports[0].callback(hosts.map(target=>({target,isIntersecting:true})));
+  assert.deepEqual(hosts.map(host=>host.dataset.chartState),['waiting','waiting','loading','loading']);assert.equal(h.timers.size,2);
+  h.frame(hosts[2]).events.load();assert.equal(hosts[0].dataset.chartState,'loading');assert.equal(hosts[1].dataset.chartState,'waiting');assert.equal(h.timers.size,2);
+  h.frame(hosts[3]).events.load();assert.equal(hosts[1].dataset.chartState,'loading');assert.equal(h.timers.size,2);h.api.destroy();
+});
+
+test('a batch that frees a slot still collects all visibility changes before choosing its next chart',()=>{
+  const h=harness(),hosts=Array.from({length:4},()=>new Element());hosts[2].rect={top:1200,bottom:1500,left:0,right:600};
+  for(const host of hosts)h.api.observe(host,stock);h.near(hosts[0]);h.near(hosts[1]);
+  h.viewports[0].callback([{target:hosts[2],isIntersecting:true},{target:hosts[0],isIntersecting:false},{target:hosts[3],isIntersecting:true}]);
+  assert.equal(hosts[2].dataset.chartState,'waiting');assert.equal(hosts[3].dataset.chartState,'loading');assert.equal(h.mutations.length,3);assert.equal(h.timers.size,2);h.api.destroy();
+});
+
+test('load error timeout leaving and dispose all release an initialization slot',async()=>{
+  for(const terminal of ['load','error','timeout','leave','dispose']){
+    const h=harness(),hosts=Array.from({length:3},()=>new Element());for(const host of hosts)h.api.observe(host,stock);h.viewports[0].callback(hosts.map(target=>({target,isIntersecting:true})));
+    const frame=h.frame(hosts[0]),load=frame.events.load,error=hosts[0].querySelector('script').onerror,timeout=[...h.timers.values()][0].fn;
+    assert.equal(hosts[2].dataset.chartState,'waiting');assert.equal(h.timers.size,2);
+    if(terminal==='load')load();else if(terminal==='error')error();else if(terminal==='timeout')timeout();else if(terminal==='leave')h.near(hosts[0],false);else{h.api.dispose(hosts[0]);await Promise.resolve();}
+    assert.equal(hosts[2].dataset.chartState,'loading',terminal);assert.equal(h.mutations.length,3);assert.equal(h.timers.size,2);load();error();timeout();assert.equal(h.mutations.length,3);assert.equal(h.timers.size,2);h.api.destroy();
+  }
+});
+
+test('queued charts that leave or are disposed never start and bulk disposal does not churn the queue',async()=>{
+  const h=harness(),hosts=Array.from({length:20},()=>new Element());for(const host of hosts)h.api.observe(host,stock);h.viewports[0].callback(hosts.map(target=>({target,isIntersecting:true})));
+  assert.equal(h.mutations.length,2);h.near(hosts[2],false);h.api.dispose(hosts[3]);
+  for(const host of hosts)h.api.dispose(host);assert.equal(h.mutations.length,2);await Promise.resolve();assert.equal(h.mutations.length,2);assert.equal(h.timers.size,0);h.api.destroy();
+});
+
+test('four offscreen loaded charts are retained on their original hosts and reused with LRU eviction',()=>{
+  const h=harness(),hosts=Array.from({length:6},()=>new Element()),frames=[];for(const host of hosts)h.api.observe(host,stock);
+  for(let index=0;index<4;index++){h.near(hosts[index]);frames[index]=h.frame(hosts[index]);frames[index].events.load();h.near(hosts[index],false);}
+  assert.equal(h.mutations.length,4);assert.equal(hosts.filter(host=>host.querySelector('iframe')).length,4);
+  h.near(hosts[0]);assert.equal(hosts[0].querySelector('iframe'),frames[0]);assert.equal(h.mutations.length,4);h.near(hosts[0],false);
+  h.near(hosts[4]);frames[4]=h.frame(hosts[4]);frames[4].events.load();h.near(hosts[4],false);
+  assert.equal(hosts[1].dataset.chartState,'waiting');assert.equal(hosts[1].querySelector('iframe'),null);assert.equal(frames[1].events.load,undefined);assert.equal(hosts[0].querySelector('iframe'),frames[0]);assert.equal(hosts.filter(host=>host.querySelector('iframe')).length,4);
+  h.near(hosts[1]);assert.equal(hosts[1].dataset.chartState,'loading');assert.equal(h.mutations.length,6);h.api.dispose(hosts[0]);assert.equal(hosts[0].children.length,0);h.api.destroy();assert.ok(hosts.every(host=>host.children.length===0));
+});
+
+test('geometry fallback uses the same two-slot visible-first queue and retains loaded charts for return visits',()=>{
+  const h=harness({lazy:false}),hosts=Array.from({length:4},()=>new Element());hosts[0].rect={top:1200,bottom:1500,left:0,right:600};hosts[1].rect={top:-700,bottom:-400,left:0,right:600};
+  for(const host of hosts)h.api.observe(host,stock);h.flushViewport();assert.deepEqual(hosts.map(host=>host.dataset.chartState),['waiting','waiting','loading','loading']);assert.equal(h.timers.size,2);
+  const frame=h.frame(hosts[2]);frame.events.load();assert.equal(hosts[0].dataset.chartState,'loading');assert.equal(h.timers.size,2);
+  hosts[2].rect={top:-1000,bottom:-700,left:0,right:600};h.listeners.get('scroll')();h.flushViewport();assert.equal(hosts[2].querySelector('iframe'),frame);const initialized=h.mutations.length;
+  hosts[2].rect={top:0,bottom:300,left:0,right:600};h.listeners.get('scroll')();h.flushViewport();assert.equal(hosts[2].querySelector('iframe'),frame);assert.equal(h.mutations.length,initialized);h.api.destroy();
+});
+
+test('leaving while loading releases an embed and returning mounts a new isolated instance',()=>{
   const h=harness(),host=new Element();h.api.observe(host,stock);h.near(host);
   const script=host.querySelector('script'),oldError=script.onerror,timeout=[...h.timers.values()][0].fn,observer=h.mutations[0],frame=h.frame(host),oldLoad=frame.events.load;
-  oldLoad();assert.equal(host.dataset.chartState,'frame-loaded');h.near(host,false);
+  assert.equal(host.dataset.chartState,'loading');h.near(host,false);
   assert.equal(host.dataset.chartState,'waiting');assert.equal(host.querySelector('iframe'),null);assert.equal(host.querySelector('script'),null);assert.equal(script.onerror,null);assert.equal(frame.events.load,undefined);assert.equal(frame.events.error,undefined);assert.equal(observer.disconnected,true);assert.equal(h.timers.size,0);assert.equal(h.viewports[0].targets.has(host),true);
   h.near(host);const nextScript=host.querySelector('script');assert.notEqual(nextScript,script);
   oldError();timeout();observer.callback();oldLoad();
@@ -86,9 +136,9 @@ test('scrolling through2009 chart hosts keeps only the nearby embeds and support
     if(index>=4)h.near(hosts[index-4],false);
     h.near(hosts[index]);h.frame(hosts[index]).events.load();
   }
-  assert.equal(hosts.filter(host=>host.querySelector('iframe')).length,4);assert.equal(hosts.filter(host=>host.dataset.chartState==='waiting').length,2005);assert.equal(h.timers.size,0);
+  assert.equal(hosts.filter(host=>host.querySelector('iframe')).length,8);assert.equal(hosts.filter(host=>host.dataset.chartState==='waiting').length,2001);assert.equal(h.timers.size,0);
   for(const host of hosts.slice(-4))h.near(host,false);h.near(hosts[0]);assert.equal(hosts[0].dataset.chartState,'loading');h.frame(hosts[0]).events.load();
-  assert.equal(hosts.filter(host=>host.querySelector('iframe')).length,1);h.api.destroy();assert.equal(h.viewports[0].targets.size,0);assert.ok(hosts.every(host=>host.children.length===0));
+  assert.equal(hosts.filter(host=>host.querySelector('iframe')).length,5);h.api.destroy();assert.equal(h.viewports[0].targets.size,0);assert.ok(hosts.every(host=>host.children.length===0));
 });
 
 test('geometry fallback batches2009 hosts and coalesces scroll and resize checks without mounting distant charts',()=>{
@@ -98,7 +148,7 @@ test('geometry fallback batches2009 hosts and coalesces scroll and resize checks
   assert.equal(h.mutations.length,1);const firstFrame=h.frame(hosts[0]);firstFrame.events.load();
   hosts[0].rect={top:-1000,bottom:-700,left:0,right:600};hosts[2008].rect={top:800,bottom:1100,left:0,right:600};
   for(let index=0;index<10;index++)h.listeners.get('scroll')();h.listeners.get('resize')();assert.equal(h.frames.size,1);assert.equal(h.mutations.length,1);h.flushViewport();
-  assert.equal(hosts[0].dataset.chartState,'waiting');assert.equal(firstFrame.events.load,undefined);assert.equal(hosts[2008].dataset.chartState,'loading');assert.equal(hosts.filter(host=>host.querySelector('script')).length,1);assert.equal(h.mutations.length,2);h.api.destroy();assert.equal(h.listeners.size,0);assert.equal(h.timers.size,0);
+  assert.equal(hosts[0].dataset.chartState,'frame-loaded');assert.equal(hosts[0].querySelector('iframe'),firstFrame);assert.equal(hosts[2008].dataset.chartState,'loading');assert.equal(hosts.filter(host=>host.querySelector('script')).length,2);assert.equal(h.mutations.length,2);h.api.destroy();assert.equal(h.listeners.size,0);assert.equal(h.timers.size,0);
 });
 
 test('geometry fallback follows the600px boundaries and ignores zero-size or horizontally hidden hosts',()=>{
