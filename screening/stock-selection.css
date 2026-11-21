@@ -52,12 +52,15 @@
 
 /* Matched stocks and their daily charts share one compact result surface. */
 .trend-screen {padding:8px 0 16px;margin:8px 0 14px;scroll-margin-top:80px;font-variant-numeric:tabular-nums}
-.trend-toolbar {display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}
+.trend-toolbar {display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px 20px;margin-bottom:10px}
 .trend-modes {display:grid;grid-template-columns:repeat(3,minmax(100px,1fr));gap:6px;min-width:0}
 .pick-desk .trend-modes button {min-height:44px;padding:8px 14px;background:#fff;border-color:var(--desk-border);font-size:14px;font-weight:600;white-space:nowrap}
 .pick-desk .trend-modes button:hover:not(:disabled) {background:#f4f6f5;border-color:#7b908b}
 .pick-desk .trend-modes button[aria-pressed=true] {background:#edf3f1;border-color:#526f66}
 .trend-period {flex:0 0 auto}
+.trend-controls {display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.trend-controls label {display:flex;align-items:center;gap:6px;font-size:12px;color:var(--desk-muted)}
+.pick-desk .trend-controls select {min-height:44px;max-width:240px;font-variant-numeric:tabular-nums}
 .pick-desk .trend-period select {min-width:150px;min-height:44px;font-variant-numeric:tabular-nums}
 .trend-result-summary {display:flex;align-items:baseline;justify-content:space-between;gap:8px 16px;flex-wrap:wrap;margin:0 0 12px;color:var(--desk-muted);font-size:12px}
 .pick-desk #trend-status {margin:0;font-size:12px;color:var(--desk-muted);font-weight:400}
@@ -68,6 +71,9 @@
 .trend-stock-heading h4 {margin:0;min-width:0;font-size:16px;line-height:1.4;font-weight:600}
 .pick-desk .trend-stock-name {color:var(--desk-ink);font-size:16px;font-weight:600;text-decoration:none}
 .trend-stock-code {display:block;font-size:12px;line-height:1.6;font-weight:400;color:var(--desk-muted)}
+.pick-desk .trend-stock-patterns {margin:0 0 6px}
+.pick-desk .trend-stock-patterns summary {max-width:100%;padding:4px 0;font-size:12px;line-height:20px;color:var(--desk-muted)}
+.pick-desk .trend-stock-patterns p {font-size:12px;line-height:1.6;margin:3px 0}
 .trend-stock-change {font-size:14px;line-height:1.5;font-weight:600;text-align:right;white-space:nowrap}
 .trend-stock-change .change-up {color:#a52f38}.trend-stock-change .change-down {color:#116b58}
 .trend-stock-period {display:block;font-size:11px;font-weight:400;color:var(--desk-muted)}
@@ -86,7 +92,11 @@
  .trend-toolbar {flex-wrap:wrap;gap:8px}
  .trend-modes {width:100%;grid-template-columns:repeat(3,minmax(0,1fr))}
  .pick-desk .trend-modes button {padding:8px 6px;font-size:13px}
- .trend-period {margin-left:auto}
+ .trend-controls {width:100%;gap:8px}
+ .trend-controls label:first-child {width:100%}
+ .trend-controls label:first-child select {flex:1;max-width:none;min-width:0}
+ .trend-controls .trend-period {flex:1}
+ .pick-desk .trend-period select {width:100%;min-width:0}
  .trend-results {grid-template-columns:minmax(0,1fr);gap:20px}
  .trend-stock-chart {height:300px}
 }

@@ -142,16 +142,39 @@ function cachedResult(query={}){
  const mode=query.mode||'consensus',lookback=Number(query.lookback||20),historical=query.scope==='historical-sample',data=dataset(query.benchmark,historical?120:32,historical?3052:32),consensus=mode==='consensus'?actualEngine.buildConsensus({records:data.records.map(r=>({stock:r.stock,bars:r.source.bars})),calendar:data.reference.bars,lookback,day,expectedCount:data.expectedCount,totalUniverseCount:data.totalUniverseCount}):null;
  return {mode,lookback,day,asOf,status:'complete',phase:'evaluated',limits:{enabled:false},reference:{code:data.reference.code,name:'沪深300'},records:data.records.map(r=>({stock:r.stock,result:actualEngine.evaluate({mode,bars:r.source.bars,referenceBars:data.reference.bars,code:r.stock.code,consensus,lookback,day,limits:{enabled:false}}),fetchedAt,referenceFetchedAt:fetchedAt})),consensus,total:data.expectedCount,marketUniverseCount:data.totalUniverseCount,fullMarket:!historical&&query.sampleSize==='all',...(historical?{scope:'historical-sample',sampleCount:120}:{}),requests:33,generation:'daily-generation-1',referenceFetchedAt:fetchedAt,poolFetchedStart:fetchedAt,poolFetchedEnd:fetchedAt,startedAt:fetchedAt,finishedAt:fetchedAt};
 }
-function cacheSetup(overrides={}){
- const calls=[],updates=[];let meta={available:true,lastSuccess:{generation:'daily-generation-1',day,asOf,finishedAt:fetchedAt,total:32,ready:32},attempt:{status:'complete'}},resultOverride=null,rawOverride=null;
+function cacheSetup(overrides={},runnerOptions={}){
+ const calls=[],updates=[];let meta={available:true,scope:'full-market',fullMarket:true,lastSuccess:{generation:'daily-generation-1',day,asOf,finishedAt:fetchedAt,total:32,ready:32},attempt:{status:'complete'}},resultOverride=null,rawOverride=null;
  const env={fetch:async(path,init)=>{calls.push({path,init});assert.ok(path.startsWith('/api/a-share-daily/'));const url=new URL(path,'https://books.test'),operation=url.pathname.split('/').at(-1);let value=operation==='state'?meta:operation==='dataset'?(rawOverride||dataset(url.searchParams.get('benchmark'))):(resultOverride||cachedResult(Object.fromEntries(url.searchParams)));return {ok:true,json:async()=>JSON.parse(JSON.stringify(value))};},...overrides};
- const runner=createCachedRunner({env,engine:actualEngine,model:controlModel,onUpdate:s=>updates.push(s)});
+ const runner=createCachedRunner({env,engine:actualEngine,model:controlModel,onUpdate:s=>updates.push(s),...runnerOptions});
  const input=extra=>({mode:'consensus',lookback:20,sampleSize:'120',reference:{code:'000300.SH'},stocks:marketRows.slice(0,2),limits:options().limits,...extra});
  return {env,calls,updates,runner,input,setMetadata:v=>meta=v,setResult:v=>resultOverride=v,setDataset:v=>rawOverride=v};
 }
 test('all three cached modes use only same-origin artifacts, and120 does not silently shrink market or strength scope',async()=>{
  const s=cacheSetup();for(const mode of ['consensus','market','strength']){const result=await s.runner.run(s.input({mode}));assert.equal(result.status,'complete');assert.equal(result.records.length,mode==='consensus'?32:2);assert.equal(result.origin,'daily-cache');}
  const urls=s.calls.filter(c=>c.path.includes('/result?')).map(c=>new URL(c.path,'https://books.test'));assert.deepEqual(urls.map(u=>u.searchParams.get('sampleSize')),['120','all','all']);assert.ok(s.calls.every(c=>c.init.credentials==='same-origin'));
+});
+test('public full-market policy requests all while research configurations retain their sample size',async()=>{
+ for(const sampleSize of ['120','240']){
+  const publicPage=cacheSetup({}, {publicFullMarket:true});await publicPage.runner.run(publicPage.input({sampleSize}));
+  let url=new URL(publicPage.calls.at(-1).path,'https://books.test');assert.equal(url.searchParams.get('sampleSize'),'all');assert.equal(publicPage.runner.getState().fullMarket,true);
+  await publicPage.runner.loadDataset();url=new URL(publicPage.calls.at(-1).path,'https://books.test');assert.equal(url.searchParams.get('sampleSize'),'all');
+  const research=cacheSetup();await research.runner.run(research.input({sampleSize}));url=new URL(research.calls.at(-1).path,'https://books.test');assert.equal(url.searchParams.get('sampleSize'),sampleSize);
+ }
+});
+test('public effective sample keys isolate historical and full scopes and preserve desired settings across refresh and failures',async()=>{
+ const s=cacheSetup({}, {publicFullMarket:true}),history=cachedResult({scope:'historical-sample'});
+ const historical={available:true,scope:'historical-sample',fullMarket:false,lastSuccess:{generation:'daily-generation-1',day,scope:'historical-sample',sampleCount:120}};
+ s.setMetadata(historical);s.setResult(history);await s.runner.run(s.input({sampleSize:'240'}));assert.equal(new URL(s.calls.at(-1).path,'https://books.test').searchParams.get('sampleSize'),'120');
+ s.runner.reapply({sampleSize:'120',stocks:[]});assert.equal(s.runner.getState().records.length,120);
+ const full={available:true,scope:'full-market',fullMarket:true,lastSuccess:{generation:'daily-generation-1',day}};
+ s.setMetadata(full);s.setResult(cachedResult({sampleSize:'all'}));await s.runner.refreshIfChanged();assert.equal(new URL(s.calls.at(-1).path,'https://books.test').searchParams.get('sampleSize'),'all');assert.equal(s.runner.getState().fullMarket,true);
+ const fetch=s.env.fetch;s.env.fetch=async(path,init)=>path.includes('mode=strength')?{ok:false,json:async()=>({error:'新模式暂缺'})}:fetch(path,init);await s.runner.run(s.input({mode:'strength',sampleSize:'240'}));assert.equal(s.runner.getState().mode,'consensus');assert.equal(s.runner.getState().fullMarket,true);
+ s.env.fetch=fetch;s.setMetadata({...full,lastSuccess:{generation:'daily-generation-2',day}});s.setResult({...cachedResult({mode:'strength',sampleSize:'all'}),generation:'daily-generation-2'});await s.runner.refreshIfChanged();const url=new URL(s.calls.at(-1).path,'https://books.test');assert.equal(url.searchParams.get('mode'),'strength');assert.equal(url.searchParams.get('sampleSize'),'all');
+});
+test('derived-only full results intersect explicit filters and never request a raw dataset',async()=>{
+ const s=cacheSetup({}, {publicFullMarket:true}),result={...cachedResult({mode:'market',sampleSize:'all'}),sourceId:'tickflow-free',dataPolicy:{rawPublic:false,derivedPublic:true}},inside=result.records[0].stock,outside={code:'000001.SZ',name:'结果之外'};
+ s.setResult(result);await s.runner.run(s.input({mode:'market',stocks:[inside,outside]}));assert.deepEqual(s.runner.getState().records.map(record=>record.stock.code),[inside.code]);assert.equal(s.runner.getState().scopeUncovered,0);
+ const requests=s.calls.length;s.runner.reapply({stocks:null});assert.equal(s.runner.getState().records.length,32);s.runner.reapply({stocks:[]});assert.equal(s.runner.getState().records.length,0);assert.equal(s.runner.getExportStatus().available,false);await assert.rejects(()=>s.runner.loadDataset(),/不公开原始日线/);assert.equal(s.calls.length,requests);
 });
 test('heat caps reapply to cached baseline without a request or clipping raw metrics',async()=>{
  const s=cacheSetup(),base=cachedResult();base.records[0].result.metrics.periodReturn=43.76;s.setResult(base);await s.runner.run(s.input());const n=s.calls.length;
@@ -209,24 +232,24 @@ test('failed mode changes preserve the previous labeled results and raw archive 
  const result=await s.runner.run(s.input({mode:'strength'}));assert.equal(result.status,'unavailable');assert.equal(result.mode,'consensus');assert.equal(result.attemptedMode,'strength');assert.equal(result.records.length,32);assert.match(result.reason,/初期转强.*失败.*保留市场共同走势/);assert.equal(s.runner.getExportStatus().available,true);assert.equal(s.runner.exportDataset().day,day);
 });
 test('same-generation cached modes are reused but a new generation loads new completed artifacts',async()=>{
- const s=cacheSetup();await s.runner.run(s.input());await s.runner.run(s.input());assert.equal(s.calls.filter(c=>c.path.includes('/result?')).length,1);s.setMetadata({available:true,lastSuccess:{generation:'daily-generation-2',day,finishedAt:fetchedAt}});s.setResult({...cachedResult(),generation:'daily-generation-2'});await s.runner.run(s.input());assert.equal(s.calls.filter(c=>c.path.includes('/result?')).length,2);assert.equal(s.runner.getState().generation,'daily-generation-2');
+ const s=cacheSetup();await s.runner.run(s.input());await s.runner.run(s.input());assert.equal(s.calls.filter(c=>c.path.includes('/result?')).length,1);s.setMetadata({available:true,scope:'full-market',fullMarket:true,lastSuccess:{generation:'daily-generation-2',day,finishedAt:fetchedAt}});s.setResult({...cachedResult(),generation:'daily-generation-2'});await s.runner.run(s.input());assert.equal(s.calls.filter(c=>c.path.includes('/result?')).length,2);assert.equal(s.runner.getState().generation,'daily-generation-2');
 });
 test('an initially unavailable page automatically gains its first completed generation without another state download',async()=>{
  const s=cacheSetup();s.setMetadata({available:false,attempt:{status:'running',checked:10,total:32}});await s.runner.run(s.input());assert.equal(s.runner.getState().status,'unavailable');
- s.setMetadata({available:true,lastSuccess:{generation:'daily-generation-1',day,asOf,finishedAt:fetchedAt},attempt:{status:'complete'}});await s.runner.refreshIfChanged();assert.equal(s.runner.getState().status,'complete');assert.equal(s.runner.getState().records.length,32);assert.equal(s.calls.length,3);assert.equal(s.calls.filter(c=>c.path.includes('/result?')).length,1);
+ s.setMetadata({available:true,scope:'full-market',fullMarket:true,lastSuccess:{generation:'daily-generation-1',day,asOf,finishedAt:fetchedAt},attempt:{status:'complete'}});await s.runner.refreshIfChanged();assert.equal(s.runner.getState().status,'complete');assert.equal(s.runner.getState().records.length,32);assert.equal(s.calls.length,3);assert.equal(s.calls.filter(c=>c.path.includes('/result?')).length,1);
 });
 test('same-generation polling only updates job progress while generation changes retain local settings and scope',async()=>{
  const s=cacheSetup();await s.runner.run(s.input({mode:'market'}));s.runner.reapply({stocks:[marketRows[2]],limits:{...options().limits,maxReturn20:1}});const resultReads=()=>s.calls.filter(c=>c.path.includes('/result?')).length;
- s.setMetadata({available:true,lastSuccess:{generation:'daily-generation-1',day,finishedAt:fetchedAt},attempt:{status:'running',checked:100,total:3052}});await s.runner.refreshIfChanged();assert.equal(resultReads(),1);assert.equal(s.runner.getState().attempt.checked,100);
- s.setMetadata({available:true,lastSuccess:{generation:'daily-generation-2',day,finishedAt:fetchedAt},attempt:{status:'complete'}});s.setResult({...cachedResult({mode:'market'}),generation:'daily-generation-2'});await s.runner.refreshIfChanged();const state=s.runner.getState();assert.equal(resultReads(),2);assert.equal(state.mode,'market');assert.equal(state.limits.maxReturn20,1);assert.deepEqual(state.records.map(r=>r.stock.code),[marketRows[2].code]);assert.equal(state.records[0].result.excluded,true);
+ s.setMetadata({available:true,scope:'full-market',fullMarket:true,lastSuccess:{generation:'daily-generation-1',day,finishedAt:fetchedAt},attempt:{status:'running',checked:100,total:3052}});await s.runner.refreshIfChanged();assert.equal(resultReads(),1);assert.equal(s.runner.getState().attempt.checked,100);
+ s.setMetadata({available:true,scope:'full-market',fullMarket:true,lastSuccess:{generation:'daily-generation-2',day,finishedAt:fetchedAt},attempt:{status:'complete'}});s.setResult({...cachedResult({mode:'market'}),generation:'daily-generation-2'});await s.runner.refreshIfChanged();const state=s.runner.getState();assert.equal(resultReads(),2);assert.equal(state.mode,'market');assert.equal(state.limits.maxReturn20,1);assert.deepEqual(state.records.map(r=>r.stock.code),[marketRows[2].code]);assert.equal(state.records[0].result.excluded,true);
 });
 test('a late polling response cannot replace a newer explicit mode selection',async()=>{
- const s=cacheSetup();await s.runner.run(s.input());const fetch=s.env.fetch;let release;s.env.fetch=async(path,init)=>path.endsWith('/state')?{ok:true,json:()=>new Promise(resolve=>release=()=>resolve({available:true,lastSuccess:{generation:'stale-generation'}}))}:fetch(path,init);
+ const s=cacheSetup();await s.runner.run(s.input());const fetch=s.env.fetch;let release;s.env.fetch=async(path,init)=>path.endsWith('/state')?{ok:true,json:()=>new Promise(resolve=>release=()=>resolve({available:true,scope:'full-market',fullMarket:true,lastSuccess:{generation:'stale-generation'}}))}:fetch(path,init);
  const poll=s.runner.refreshIfChanged();await new Promise(setImmediate);s.env.fetch=fetch;await s.runner.run(s.input({mode:'market'}));release();await poll;assert.equal(s.runner.getState().mode,'market');assert.equal(s.runner.getState().generation,'daily-generation-1');
 });
 test('after a failed parameter read the next completed generation uses the requested period rather than the retained old result period',async()=>{
  const s=cacheSetup();await s.runner.run(s.input());const fetch=s.env.fetch;s.env.fetch=async(path,init)=>path.includes('lookback=60')?{ok:false,json:async()=>({error:'60日缓存暂不可用'})}:fetch(path,init);await s.runner.run(s.input({lookback:60}));assert.equal(s.runner.getState().lookback,20);
- s.env.fetch=fetch;s.setMetadata({available:true,lastSuccess:{generation:'daily-generation-2',day,finishedAt:fetchedAt}});s.setResult({...cachedResult({lookback:60}),generation:'daily-generation-2'});await s.runner.refreshIfChanged();assert.equal(s.runner.getState().lookback,60);assert.equal(s.runner.getState().generation,'daily-generation-2');
+ s.env.fetch=fetch;s.setMetadata({available:true,scope:'full-market',fullMarket:true,lastSuccess:{generation:'daily-generation-2',day,finishedAt:fetchedAt}});s.setResult({...cachedResult({lookback:60}),generation:'daily-generation-2'});await s.runner.refreshIfChanged();assert.equal(s.runner.getState().lookback,60);assert.equal(s.runner.getState().generation,'daily-generation-2');
 });
 class Target{
  constructor(){this.events={};}
@@ -250,7 +273,7 @@ function dom(){
  const env=new Target(),ids={},doc={defaultView:env,getElementById:id=>ids[id],createElement:tag=>new Element(tag)};
  env.setInterval=setInterval;env.clearInterval=clearInterval;
  env.CustomEvent=class{constructor(type,options){this.type=type;this.detail=options.detail;}};
- for(const id of ['trend-screen','trend-lookback','trend-status','trend-count','trend-results','trend-pagination','trend-prev','trend-next','trend-page'])ids[id]=new Element();
+ for(const id of ['trend-screen','trend-lookback','trend-pattern','trend-display','trend-status','trend-count','trend-results','trend-pagination','trend-prev','trend-next','trend-page'])ids[id]=new Element();
  for(const mode of ['consensus','market','strength']){const button=new Element('button');button.dataset.trendMode=mode;ids['trend-screen'].append(button);}
  ids['trend-lookback'].value='20';return {env,ids,doc};
 }
@@ -266,11 +289,11 @@ function mounted(extra={}){
  return {...s,...d,charts,app};
 }
 const articles=s=>s.ids['trend-results'].children.filter(node=>node.tagName==='article');
-test('the frozen compact DOM automatically loads four real result cards without old parameter nodes',async()=>{
+test('the frozen compact DOM automatically loads all cached result cards without old parameter nodes',async()=>{
  const d=dom(),s=cacheSetup(),charts=chartSpy();d.env.fetch=s.env.fetch;d.env.BooksTechnicalScreen={sourceState:()=>({status:'restricted',reason:'旧来源停止'}),history:()=>{throw Error('must not request upstream');}};
  const app=mount(d.doc,{selection:{getContext:()=>context()},engine:actualEngine,model:controlModel,charts:charts.api});await settle();
- assert.equal(app.getState().status,'complete');assert.equal(articles(d).length,4);assert.equal(charts.observed.length,4);assert.match(d.ids['trend-status'].textContent,/数据日 2026-11-20/);assert.equal(d.ids['trend-count'].textContent,'32 只');
- const item=articles(d)[0];assert.equal(item.className,'trend-stock');assert.equal(item.attrs.role,'listitem');assert.match(item.children[0].children[0].children[0].href,/\.\.\/chart\.html\?tvwidgetsymbol=SSE%3A/);assert.doesNotMatch(item.textContent,/HTTP|回撤|复算|盈亏|请求/);app.destroy();
+ assert.equal(app.getState().status,'complete');assert.equal(articles(d).length,32);assert.equal(charts.observed.length,32);assert.equal(d.ids['trend-status'].textContent,'沪深主板 32只 · 数据日2026-11-20');assert.equal(d.ids['trend-count'].textContent,'32 只');
+ const item=articles(d)[0];assert.equal(item.className,'trend-stock');assert.equal(item.attrs.role,'listitem');assert.match(item.children[0].children[0].children[0].href,/\.\.\/chart\.html\?tvwidgetsymbol=SSE%3A/);assert.doesNotMatch(item.textContent,/HTTP|回撤|复算|盈亏|请求/);assert.equal(new URL(s.calls.at(-1).path,'https://books.test').searchParams.get('sampleSize'),'all');app.destroy();
 });
 test('no completed generation shows one short empty sentence and never turns430 partial histories into cards',async()=>{
  const s=mounted();s.setMetadata({available:false,attempt:{status:'failed',checked:430,ready:430,total:3052,error:'HTTP501 上游已暂停'}});await s.app.start('consensus');
@@ -281,31 +304,38 @@ test('cards only contain matched ready stocks and zero matches have their own sh
  const filtered=mounted(),base=cachedResult();base.records[0].result.matched=false;base.records[1].result={status:'unavailable',matched:null,reason:'HTTP测试不回显'};filtered.setResult(base);await filtered.app.start('consensus');assert.equal(articles(filtered)[0].dataset.code,marketRows[2].code);assert.equal(filtered.ids['trend-count'].textContent,'30 只');filtered.app.destroy();
 });
 test('four-card pagination disposes leaving hosts and observes only new current-page hosts',async()=>{
- const s=mounted();await s.app.start('consensus');const first=articles(s).map(node=>node.dataset.code);assert.equal(s.ids['trend-page'].textContent,'1 / 8');s.ids['trend-next'].dispatchEvent({type:'click'});
+ const s=mounted();s.ids['trend-display'].value='4';s.ids['trend-display'].dispatchEvent({type:'change'});await s.app.start('consensus');const first=articles(s).map(node=>node.dataset.code);assert.equal(s.ids['trend-page'].textContent,'1 / 8');s.ids['trend-next'].dispatchEvent({type:'click'});
  assert.equal(articles(s).length,4);assert.equal(s.charts.disposed.length,4);assert.equal(s.charts.observed.length,8);assert.equal(s.ids['trend-page'].textContent,'2 / 8');assert.ok(articles(s).every(node=>!first.includes(node.dataset.code)));s.app.destroy();
 });
 test('ordinary renders and same-generation progress polling keep chart hosts and frames intact',async()=>{
- const s=mounted();await s.app.start('consensus');const nodes=articles(s).slice(),frames=s.charts.observed.map(item=>item.host.children[0]);s.app.render();s.setMetadata({available:true,lastSuccess:{generation:'daily-generation-1',day,finishedAt:fetchedAt},attempt:{status:'running',checked:430,total:3052}});await s.app.runner.refreshIfChanged();
- assert.deepEqual(articles(s),nodes);assert.equal(s.charts.observed.length,4);assert.equal(s.charts.disposed.length,0);assert.deepEqual(s.charts.observed.map(item=>item.host.children[0]),frames);assert.doesNotMatch(s.ids['trend-status'].textContent,/430|3052|请求/);s.app.destroy();
+ const s=mounted();await s.app.start('consensus');const nodes=articles(s).slice(),frames=s.charts.observed.map(item=>item.host.children[0]);s.app.render();s.setMetadata({available:true,scope:'full-market',fullMarket:true,lastSuccess:{generation:'daily-generation-1',day,finishedAt:fetchedAt},attempt:{status:'running',checked:430,total:3052}});await s.app.runner.refreshIfChanged();
+ assert.deepEqual(articles(s),nodes);assert.equal(s.charts.observed.length,32);assert.equal(s.charts.disposed.length,0);assert.deepEqual(s.charts.observed.map(item=>item.host.children[0]),frames);assert.doesNotMatch(s.ids['trend-status'].textContent,/430|3052|请求/);s.app.destroy();
 });
 test('a new generation with the same selected codes updates data without reloading current charts',async()=>{
- const s=mounted();await s.app.start('consensus');const nodes=articles(s).slice();s.setMetadata({available:true,lastSuccess:{generation:'daily-generation-2',day,finishedAt:fetchedAt}});s.setResult({...cachedResult(),generation:'daily-generation-2'});await s.app.runner.refreshIfChanged();assert.deepEqual(articles(s),nodes);assert.equal(s.charts.observed.length,4);assert.equal(s.charts.disposed.length,0);s.app.destroy();
+ const s=mounted();await s.app.start('consensus');const nodes=articles(s).slice();s.setMetadata({available:true,scope:'full-market',fullMarket:true,lastSuccess:{generation:'daily-generation-2',day,finishedAt:fetchedAt}});s.setResult({...cachedResult(),generation:'daily-generation-2'});await s.app.runner.refreshIfChanged();assert.deepEqual(articles(s),nodes);assert.equal(s.charts.observed.length,32);assert.equal(s.charts.disposed.length,0);s.app.destroy();
 });
 test('no prepared context uses cached full market while a prepared empty filter must stay empty',async()=>{
- const full=mounted({selection:{getContext:()=>({day:'',rows:[]})}});await full.app.start('market');assert.equal(full.app.getState().records.length,32);assert.equal(articles(full).length,4);full.app.destroy();
+ const full=mounted({selection:{getContext:()=>({day:'',rows:[]})}});await full.app.start('market');assert.equal(full.app.getState().records.length,32);assert.equal(articles(full).length,32);full.app.destroy();
  const empty=mounted({selection:{getContext:()=>context([])}});await empty.app.start('market');assert.equal(empty.app.getState().records.length,0);assert.equal(articles(empty).length,0);assert.equal(empty.ids['trend-results'].textContent,'没有符合条件的股票');empty.app.destroy();
 });
 test('existing selection changes update local cards without source calls or hidden scope parameters',async()=>{
  let current=context();const s=mounted({selection:{getContext:()=>current}});await s.app.start('market');const calls=s.calls.length;current=context([marketRows[5]]);s.env.dispatchEvent({type:'books:selection-changed'});assert.deepEqual(articles(s).map(node=>node.dataset.code),[marketRows[5].code]);assert.equal(s.calls.length,calls);s.app.destroy();
 });
+test('inactive filters use the whole completed result and flag-only changes reapply the explicit intersection',async()=>{
+ let current={...context([marketRows[0]]),filtersActive:false};const s=mounted({selection:{getContext:()=>current}});
+ s.setResult({...cachedResult({mode:'market',sampleSize:'all'}),sourceId:'tickflow-free',dataPolicy:{rawPublic:false,derivedPublic:true}});await s.app.start('market');assert.equal(s.app.getState().records.length,32);assert.equal(s.ids['trend-count'].textContent,'32 只');const requests=s.calls.length;
+ current={...current,filtersActive:true};s.env.dispatchEvent({type:'books:selection-changed'});assert.deepEqual(s.app.getState().records.map(record=>record.stock.code),[marketRows[0].code]);
+ current={...current,rows:[]};s.env.dispatchEvent({type:'books:selection-changed'});assert.equal(s.app.getState().records.length,0);
+ current={...current,filtersActive:false};s.env.dispatchEvent({type:'books:selection-changed'});assert.equal(s.app.getState().records.length,32);assert.equal(s.calls.length,requests);s.app.destroy();
+});
 test('a failed different-mode request keeps old state for diagnostics but never shows it under the new tab',async()=>{
- const s=mounted();await s.app.start('consensus');const fetch=s.env.fetch;s.env.fetch=async(path,init)=>path.includes('mode=strength')?{ok:false,json:async()=>({error:'HTTP501 诊断'})}:fetch(path,init);await s.app.start('strength');assert.equal(s.app.getState().mode,'consensus');assert.equal(articles(s).length,0);assert.equal(s.ids['trend-results'].textContent,'暂无已完成的筛选结果');assert.equal(s.ids['trend-status'].textContent,'');assert.equal(s.charts.disposed.length,4);s.app.destroy();
+ const s=mounted();await s.app.start('consensus');const fetch=s.env.fetch;s.env.fetch=async(path,init)=>path.includes('mode=strength')?{ok:false,json:async()=>({error:'HTTP501 诊断'})}:fetch(path,init);await s.app.start('strength');assert.equal(s.app.getState().mode,'consensus');assert.equal(articles(s).length,0);assert.equal(s.ids['trend-results'].textContent,'暂无已完成的筛选结果');assert.equal(s.ids['trend-status'].textContent,'');assert.equal(s.charts.disposed.length,32);s.app.destroy();
 });
 test('the selected period must match result state before any cards can be displayed',async()=>{
  const s=mounted();await s.app.start('consensus');const fetch=s.env.fetch;s.env.fetch=async(path,init)=>path.includes('lookback=60')?{ok:false,json:async()=>({error:'60日未就绪'})}:fetch(path,init);s.ids['trend-lookback'].value='60';s.ids['trend-lookback'].dispatchEvent({type:'change'});await settle();assert.equal(s.app.getState().lookback,20);assert.equal(articles(s).length,0);assert.equal(s.ids['trend-results'].textContent,'暂无已完成的筛选结果');s.app.destroy();
 });
 test('same-mode cache failures retain matching cards with only a short previous-success marker',async()=>{
- const s=mounted();await s.app.start('consensus');const nodes=articles(s).slice();s.env.fetch=async()=>{throw Error('HTTP501 private diagnostic');};await s.app.start('consensus');assert.deepEqual(articles(s),nodes);assert.equal(s.ids['trend-status'].textContent,'数据日 '+day+' · 上次成功结果');assert.doesNotMatch(s.ids['trend-results'].textContent,/HTTP501/);s.app.destroy();
+ const s=mounted();await s.app.start('consensus');const nodes=articles(s).slice();s.env.fetch=async()=>{throw Error('HTTP501 private diagnostic');};await s.app.start('consensus');assert.deepEqual(articles(s),nodes);assert.equal(s.ids['trend-status'].textContent,'沪深主板 32只 · 数据日'+day);assert.doesNotMatch(s.ids['trend-results'].textContent,/HTTP501/);s.app.destroy();
 });
 test('historical cards retain their sample label and count during same-mode loading and failure',async()=>{
  const s=mounted({selection:{getContext:()=>({day:'',rows:[]})}});s.setResult(cachedResult({scope:'historical-sample'}));s.setMetadata({available:true,scope:'historical-sample',sampleCount:120,marketUniverseCount:3052,fullMarket:false,lastSuccess:{generation:'daily-generation-1',day,scope:'historical-sample',sampleCount:120},attempt:{status:'failed',error:'HTTP501 全量未完成'}});
@@ -315,15 +345,20 @@ test('historical cards retain their sample label and count during same-mode load
 });
 test('historical selection changes filter only archived stocks without changing the sample scope',async()=>{
  const history=cachedResult({mode:'market',scope:'historical-sample'}),first=history.records[0].stock,second=history.records[1].stock;let current=context([first,{code:'000001.SZ',name:'样本之外'}]);
- const s=mounted({selection:{getContext:()=>current}});s.setResult(history);await s.app.start('market');assert.deepEqual(articles(s).map(node=>node.dataset.code),[first.code]);assert.equal(s.ids['trend-status'].textContent,'历史120只样本 · 数据日2026-11-20');const requests=s.calls.length;
+ const s=mounted({selection:{getContext:()=>current}});s.setMetadata({available:true,scope:'historical-sample',fullMarket:false,lastSuccess:{generation:'daily-generation-1',day}});s.setResult(history);await s.app.start('market');assert.deepEqual(articles(s).map(node=>node.dataset.code),[first.code]);assert.equal(s.ids['trend-status'].textContent,'历史120只样本 · 数据日2026-11-20');const requests=s.calls.length;
  current=context([]);s.env.dispatchEvent({type:'books:selection-changed'});assert.equal(articles(s).length,0);assert.equal(s.ids['trend-count'].textContent,'0 只');
  current=context([second]);s.env.dispatchEvent({type:'books:selection-changed'});assert.deepEqual(articles(s).map(node=>node.dataset.code),[second.code]);assert.equal(s.app.getState().sampleCount,120);assert.equal(s.calls.length,requests);s.app.destroy();
 });
 test('historical generations do not refresh the market roster and a future full generation resumes normal refresh',async()=>{
- const s=mounted({selection:{getContext:()=>({day:'',rows:[]})}}),events=[];s.env.addEventListener('books:refresh-selection',event=>events.push(event.detail.generation));s.setResult(cachedResult({scope:'historical-sample'}));
+ const s=mounted({selection:{getContext:()=>({day:'',rows:[]})}}),events=[];s.env.addEventListener('books:refresh-selection',event=>events.push(event.detail.generation));s.setMetadata({available:true,scope:'historical-sample',fullMarket:false,lastSuccess:{generation:'daily-generation-1',day}});s.setResult(cachedResult({scope:'historical-sample'}));
  await s.app.start('consensus');assert.deepEqual(events,[]);await s.app.runner.refreshIfChanged();assert.deepEqual(events,[]);assert.equal(s.app.getState().scope,'historical-sample');assert.equal(s.ids['trend-status'].textContent,'历史120只样本 · 数据日2026-11-20');
- s.setMetadata({available:true,lastSuccess:{generation:'daily-generation-2',day,finishedAt:fetchedAt},attempt:{status:'complete'}});s.setResult({...cachedResult({sampleSize:'all'}),generation:'daily-generation-2'});await s.app.runner.refreshIfChanged();
- assert.deepEqual(events,['daily-generation-2']);assert.equal(s.app.getState().scope,undefined);assert.equal(s.app.getState().fullMarket,true);assert.equal(s.ids['trend-status'].textContent,'数据日 2026-11-20');assert.equal(s.ids['trend-count'].textContent,'32 只');s.app.destroy();
+ s.setMetadata({available:true,scope:'full-market',fullMarket:true,lastSuccess:{generation:'daily-generation-2',day,finishedAt:fetchedAt},attempt:{status:'complete'}});s.setResult({...cachedResult({sampleSize:'all'}),generation:'daily-generation-2'});await s.app.runner.refreshIfChanged();
+ assert.deepEqual(events,['daily-generation-2']);assert.equal(s.app.getState().scope,undefined);assert.equal(s.app.getState().fullMarket,true);assert.equal(s.ids['trend-status'].textContent,'沪深主板 32只 · 数据日2026-11-20');assert.equal(s.ids['trend-count'].textContent,'32 只');s.app.destroy();
+});
+test('derived-only generations show full roster counts and never dispatch a raw-market refresh',async()=>{
+ const s=mounted({selection:{getContext:()=>({...context([]),filtersActive:false})}}),events=[];s.env.addEventListener('books:refresh-selection',event=>events.push(event.detail.generation));
+ const result={...cachedResult({sampleSize:'all'}),marketUniverseCount:3194,sourceId:'tickflow-free',dataPolicy:{rawPublic:false,derivedPublic:true}};s.setResult(result);await s.app.start('consensus');assert.equal(new URL(s.calls.at(-1).path,'https://books.test').searchParams.get('sampleSize'),'all');assert.equal(s.ids['trend-status'].textContent,'沪深主板 3194只 · 数据日2026-11-20');assert.deepEqual(events,[]);
+ s.setMetadata({available:true,scope:'full-market',fullMarket:true,lastSuccess:{generation:'daily-generation-2',day,sourceId:'tickflow-free',dataPolicy:{rawPublic:false,derivedPublic:true}}});s.setResult({...result,generation:'daily-generation-2'});await s.app.runner.refreshIfChanged();assert.deepEqual(events,[]);assert.equal(s.ids['trend-status'].textContent,'沪深主板 3194只 · 数据日2026-11-20');s.app.destroy();
 });
 test('unified configuration applies once before hand-selection and preserves raw export APIs',async()=>{
  const s=mounted(),config={module:'a-share-consensus',name:'服务器方案',settings:{...controlModel.DEFAULT_CONFIG.settings,mode:'market',sampleSize:'240',benchmark:'399001.SZ',limits:{...options().limits,maxReturn20:1}}};assert.equal(s.app.applyConfiguration(config),true);await settle();assert.equal(s.app.getState().mode,'market');assert.equal(s.app.getState().reference.code,'399001.SZ');assert.equal(s.app.getState().limits.maxReturn20,1);assert.equal(s.app.applyConfiguration(controlModel.DEFAULT_CONFIG),false);await s.app.loadDataset();assert.equal(s.app.getExportStatus().available,true);assert.equal(s.app.exportDataset().reference.code,'399001.SZ');s.app.destroy();
@@ -339,7 +374,7 @@ test('back-forward cache preserves charts and controls while explicit destroy st
  const d=dom(),s=cacheSetup(),charts=chartSpy(),cleared=[];d.env.fetch=s.env.fetch;d.env.setInterval=()=>17;d.env.clearInterval=id=>cleared.push(id);
  const app=mount(d.doc,{selection:{getContext:()=>context()},engine:actualEngine,model:controlModel,charts:charts.api,autoLoad:false});await app.start('consensus');const nodes=articles(d).slice();
  d.env.dispatchEvent({type:'pagehide',persisted:true});assert.equal(charts.destroyed,0);assert.deepEqual(cleared,[]);assert.deepEqual(articles(d),nodes);
- d.env.dispatchEvent({type:'pageshow',persisted:true});d.ids['trend-screen'].children.find(button=>button.dataset.trendMode==='market').dispatchEvent({type:'click'});await settle();assert.equal(app.getState().mode,'market');assert.equal(app.getState().status,'complete');assert.equal(articles(d).length,4);assert.equal(charts.destroyed,0);
+ d.env.dispatchEvent({type:'pageshow',persisted:true});d.ids['trend-screen'].children.find(button=>button.dataset.trendMode==='market').dispatchEvent({type:'click'});await settle();assert.equal(app.getState().mode,'market');assert.equal(app.getState().status,'complete');assert.equal(articles(d).length,32);assert.equal(charts.destroyed,0);
  app.destroy();assert.equal(charts.destroyed,1);assert.deepEqual(cleared,[17]);
 });
 test('browser mounting announces the app only after assigning its public instance',async()=>{
@@ -348,4 +383,44 @@ test('browser mounting announces the app only after assigning its public instanc
 test('early-turn sorting favors lower extension, not the largest period gain, and does not mutate input',()=>{
  const row=(code,matched,excluded,metrics)=>({stock:{code},result:{status:'ready',matched,excluded,metrics}}),records=[row('hot',false,true,{periodReturn:99,ma20Deviation:30}),row('raised',true,false,{periodReturn:14,ma20Deviation:7,correlation:.7}),row('early',true,false,{periodReturn:2,ma20Deviation:1,correlation:.9})];
  assert.deepEqual(sortRecords(records,'strength').map(r=>r.stock.code),['early','raised','hot']);assert.deepEqual(sortRecords(records,'consensus').map(r=>r.stock.code),['early','raised','hot']);assert.equal(records[0].stock.code,'hot');
+});
+
+const patternDefinition={id:'volume-contract',label:'缩量',group:'量价',rule:'近5日均量不超过此前20日均量的0.8倍'};
+function withPatterns(result){
+ result.patternVersion='test-v1';result.patternDefinitions=[patternDefinition];
+ result.records.forEach((record,index)=>record.patterns={version:'test-v1',day,lookback:result.lookback,status:'ready',labels:index<3?[{...patternDefinition,evidence:'均量比0.70；近5日涨跌+2%'}]:[]});
+ return result;
+}
+test('all display retains every stock, while20 and4 use local pages without another request',async()=>{
+ const s=mounted();await s.app.start('consensus');const requests=s.calls.length;
+ assert.equal(s.ids['trend-display'].value,'all');assert.equal(articles(s).length,32);assert.equal(s.ids['trend-pagination'].hidden,true);
+ s.ids['trend-display'].value='20';s.ids['trend-display'].dispatchEvent({type:'change'});assert.equal(articles(s).length,20);assert.equal(s.ids['trend-page'].textContent,'1 / 2');
+ s.ids['trend-next'].dispatchEvent({type:'click'});assert.equal(articles(s).length,12);
+ s.ids['trend-display'].value='all';s.ids['trend-display'].dispatchEvent({type:'change'});assert.equal(articles(s).length,32);assert.equal(s.ids['trend-pagination'].hidden,true);assert.equal(s.calls.length,requests);s.app.destroy();
+});
+test('uniform multi-label filtering uses same-day same-window versioned artifacts and is local',async()=>{
+ const s=mounted(),result=withPatterns(cachedResult());
+ result.records[1].patterns.day='2026-11-19';result.records[2].patterns.lookback=60;
+ s.setResult(result);await s.app.start('consensus');const requests=s.calls.length;
+ const item=articles(s)[0];assert.equal(item.children[1].hidden,false);assert.match(item.children[1].textContent,/缩量.*均量比0.70/);
+ assert.equal(articles(s)[1].children[1].hidden,true);assert.equal(articles(s)[2].children[1].hidden,true);
+ s.ids['trend-pattern'].value='volume-contract';s.ids['trend-pattern'].dispatchEvent({type:'change'});
+ assert.deepEqual(articles(s).map(node=>node.dataset.code),[result.records[0].stock.code]);assert.equal(s.ids['trend-count'].textContent,'1 只');assert.equal(s.calls.length,requests);
+ s.ids['trend-pattern'].value='';s.ids['trend-pattern'].dispatchEvent({type:'change'});assert.equal(articles(s).length,32);assert.equal(s.calls.length,requests);s.app.destroy();
+});
+test('pattern filter survives the loading state and switches to the new generation labels',async()=>{
+ const s=mounted();s.setResult(withPatterns(cachedResult()));await s.app.start('consensus');
+ s.ids['trend-pattern'].value='volume-contract';s.ids['trend-pattern'].dispatchEvent({type:'change'});assert.equal(articles(s).length,3);
+ s.setMetadata({available:true,scope:'full-market',lastSuccess:{generation:'daily-generation-2',day}});
+ const next=withPatterns({...cachedResult(),generation:'daily-generation-2'});next.records[0].patterns.labels=[];s.setResult(next);await s.app.runner.refreshIfChanged();
+ assert.equal(s.ids['trend-pattern'].value,'volume-contract');assert.equal(articles(s).length,2);assert.equal(s.app.getState().generation,'daily-generation-2');s.app.destroy();
+});
+
+test('a chosen pattern or display size blocks a late server configuration from changing the view',async()=>{
+ for(const [id,value]of [['trend-pattern','volume-contract'],['trend-display','20']]){
+  const s=mounted();s.setResult(withPatterns(cachedResult()));await s.app.start('consensus');
+  s.ids[id].value=value;s.ids[id].dispatchEvent({type:'change'});
+  assert.equal(s.app.applyConfiguration({...controlModel.DEFAULT_CONFIG,settings:{...controlModel.DEFAULT_CONFIG.settings,mode:'market',lookback:60}}),false);
+  assert.equal(s.app.getState().mode,'consensus');assert.equal(s.app.getState().lookback,20);assert.equal(s.ids[id].value,value);s.app.destroy();
+ }
 });

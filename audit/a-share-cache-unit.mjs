@@ -168,6 +168,18 @@ test('invalid pointer JSON or historical markers cannot hide a valid full result
   writeJson(marker,{...historical,completed:true});writeFileSync(join(f.cache,'current.json'),'invalid-json');
   const state=(await f.request('/api/a-share-daily/state')).json();assert.equal(state.lastFullSuccess,null);assert.equal(state.lastSuccess.generation,historical.generation);assert.equal(state.scope,'historical-sample');
 });
+test('derived-only source state retains provenance and rejects raw routes even if raw files exist, while old historical datasets remain readable',async t=>{
+  const f=await fixture(t),historical=f.publishHistorical();f.publish();
+  const policy={rawPublic:false,derivedPublic:true,provider:'TickFlow',attribution:'TickFlow'},publication={...lastSuccess,total:3194,ready:3160,missing:34,coverage:3160/3194,sourceId:'tickflow-free-forward-v1',dataPolicy:policy,fullMarket:true};
+  writeJson(join(f.cache,'current.json'),publication);writeJson(join(f.cache,'generations',generation,'complete.json'),{...publication,completed:true});
+  const state=(await f.request('/api/a-share-daily/state')).json();assert.equal(state.sourceId,publication.sourceId);assert.deepEqual(state.dataPolicy,policy);assert.equal(state.marketUniverseCount,3194);assert.equal(state.lastFullSuccess.coverage,publication.coverage);assert.equal(state.lastSuccess.missing,34);assert.equal(state.lastSuccess.sourceId,publication.sourceId);assert.deepEqual(state.lastSuccess.dataPolicy,policy);
+  for(const query of ['','?generation='+generation])for(const [route,error]of [['dataset','source_policy_raw_export_disabled'],['market','source_policy_raw_market_disabled']]){
+    const response=await f.request('/api/a-share-daily/'+route+query,{'accept-encoding':'gzip'});assert.equal(response.status,403);assert.deepEqual(response.json(),{error});
+  }
+  assert.equal((await f.request('/api/a-share-daily/result?generation='+generation)).status,200);
+  assert.equal((await f.request('/api/a-share-daily/dataset?generation='+historical.generation)).status,200);
+  assert.equal((await f.request('/api/a-share-daily/market?generation='+historical.generation)).status,503);
+});
 
 class Element{
   constructor(tag='div'){this.tagName=tag.toUpperCase();this.children=[];this.listeners={};this.dataset={};this.value='';this.textContent='';this.hidden=false;this.disabled=false;this.checked=false;}

@@ -1,13 +1,14 @@
 # A 股收盘任务
 
-`books-a-share-daily.timer` 在北京时间周一至周五 16:30 启动独立的 Node worker。
+`books-a-share-daily.timer` 在北京时间周一至周五 20:10 启动独立的 Node worker。
 worker 使用已核验的交易日历选择最近收盘日；断电后的补跑也处理这个日期。
 现有日历只核验至 2026 年，未知年份停止，不推断假期。
 
-采集范围为本站名册中的沪深主板、排除风险名称，北交所和创业板/科创板不在本任务内。
+采集范围为本站名册中的全部沪深主板，风险名称也保留采集记录，再单独排除筛选资格。北交所和创业板/科创板不在本任务内。
 三个筛选共享同一批前复权日线，预计算 20/60 个交易日、三个指数和 120/240/完整参考池。
-名册来源沿用项目已有的免费公开快照，日线沿用现有腾讯公开网页行情路径；没有新增付费服务或鉴权。
-1.5 秒是本站保守请求间隔，不代表来源提供了调用配额或可用性承诺。
+名册来源沿用项目已有的公开快照；日线使用 TickFlow 官方免费服务，不需要注册或 API Key。股票使用比例前复权，指数不复权，成交量单位为手。每批最多50个标的，串行请求间隔至少1.5秒，低于官方每IP每分钟60次上限；没有新增付费服务。
+官方允许本地保存、研究及公开派生统计，禁止重新封装原始行情API：[使用范围和频率](https://docs.tickflow.org/zh-Hans/faq)。公开站只提供衍生筛选结果，日K继续由官方图表组件独立显示。原始日线保存在服务器私有目录和SQLite，不公开分发。
+新来源使用独立缓存身份；原有腾讯记录不混入新批次。同一来源同一交易日冻结名册和来源批次时间，中断后复用同批已完成记录。拒绝或限流会持久暂停来源，保留Retry-After，不立即重试。
 
 ## 安装与查看
 
@@ -15,7 +16,10 @@ worker 使用已核验的交易日历选择最近收盘日；断电后的补跑�
 
 ```sh
 install -d -o books -g books -m 700 /var/lib/books/a-share-daily
+install -d -o books -g books /var/lib/books/a-share-daily/generations
 install -m 644 server/a-share-daily.mjs /opt/books/app/a-share-daily.mjs
+install -m 644 server/a-share-tickflow.mjs /opt/books/app/a-share-tickflow.mjs
+install -m 644 screening/trend-patterns.js /opt/books/site/screening/trend-patterns.js
 install -m 644 server/books-a-share-daily.service /etc/systemd/system/
 install -m 644 server/books-a-share-daily.timer /etc/systemd/system/
 systemd-analyze verify /etc/systemd/system/books-a-share-daily.{service,timer}
@@ -44,16 +48,26 @@ HTTP 5xx、连接失败或非 JSON 响应会结束整轮采集，失败原因保
 
 - `/api/a-share-daily/state`：任务进度、失败原因、上次成功日期。
 - `/api/a-share-daily/result?mode=consensus&lookback=20&sampleSize=120&benchmark=000300.SH`：已完成结果。
-- `/api/a-share-daily/market`：同批完整市场名册。
-- `/api/a-share-daily/dataset?sampleSize=120&benchmark=000300.SH&generation=批次号`：同批原始归档。
+- `/api/a-share-daily/market` 和 `/api/a-share-daily/dataset`：TickFlow批次依据来源使用范围返回403，不提供原始行情查询；旧来源与历史样本按自身规则处理。
+- 原始归档位于状态目录的 `private/generations/批次号/`，来源、覆盖数和读取时间记录在完成标记中。公共页面在完整批次可用后读取全量共性结果，历史样本仍明确标注120只。
 
 网站请求只读这些文件，绝不触发逐股采集。控制台 `/control/index.html` 自动更新任务状态。
 筛选参数的过热排除复用同一个引擎；参数变化只在已计算指标上过滤，不改变来源日期。
 
+形态标签由统一的 `screening/trend-patterns.js` 生成：均线趋势、均线附近整理、收盘重回/跌破均线、收盘区间突破/回撤和阶段放量/缩量。同一股票可以具有多个标签，依据只使用已存的收盘价与成交量，不判断盘中触线或依赖OHLC的形态。结果含 `patternVersion`、`patternProfile`、`patternDefinitions`，每条记录含 `patterns`；未知标签保留缺失原因。
+
+修改规则后，已有同日完整批次可直接离线重算：
+
+```sh
+sudo -u books env BOOKS_A_SHARE_DIR=/var/lib/books/a-share-daily BOOKS_SITE_DIR=/opt/books/site /usr/bin/node /opt/books/app/a-share-daily.mjs --recompute-cache
+```
+
+此分支沿用进程锁，仅读取当前完成代的三份私有原始归档，不进入采集、不请求外部。核对完整名册、来源、指数和日期后发布新代；原始 `day`、`asOf`、读取时间与 `status.json` 采集回执保持。完成标记写入规则版本、参数口径和 `recomputedFrom`；失败保留旧指针。后续正常收盘任务也自动生成同一套标签。
+
 ## 验证与回滚
 
 ```sh
-node --test audit/a-share-daily-unit.mjs audit/a-share-cache-unit.mjs
+node --test audit/trend-patterns-unit.cjs audit/a-share-daily-unit.mjs audit/a-share-cache-unit.mjs audit/a-share-tickflow-unit.mjs
 ```
 
 测试使用 mock 请求，不向外部来源发请求。可用 `BOOKS_TEST_DATASET` 指向已保存的真实日线文件，额外检查离线预计算。

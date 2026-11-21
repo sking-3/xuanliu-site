@@ -72,13 +72,15 @@ export function createAShareCache({directory}){
       if(route==='state'){
         const status=await readJson(join(directory,'status.json'));
         const summary=value=>value?{generation:value.generation,day:value.day,asOf:value.asOf,finishedAt:value.finishedAt,total:value.total,ready:value.ready,
+          ...(value.sourceId?{sourceId:value.sourceId,dataPolicy:value.dataPolicy,coverage:value.coverage,missing:value.missing}:{}),
           ...(value.scope==='historical-sample'?{scope:value.scope,archiveId:value.archiveId,publishedAt:value.publishedAt,sampleCount:value.sampleCount,marketUniverseCount:value.marketUniverseCount,fullMarket:false}:{})}:null;
         reply(200,{configured:status?.configured===true,schedule:status?.schedule??null,attempt:status?.attempt??null,lastSuccess:summary(published),lastFullSuccess:summary(full),historical:summary(historical),available:Boolean(published),
-          scope:published?(published.scope||'full-market'):null,sampleCount:published?(published.sampleCount??published.total):null,marketUniverseCount:published?(published.marketUniverseCount??published.total):null,fullMarket:Boolean(full)});return true;
+          sourceId:published?.sourceId||null,dataPolicy:published?.dataPolicy||null,scope:published?(published.scope||'full-market'):null,sampleCount:published?(published.sampleCount??published.total):null,marketUniverseCount:published?(published.marketUniverseCount??published.total):null,fullMarket:Boolean(full)});return true;
       }
       if(!published&&!requestedGeneration){reply(503,{error:'cache_unavailable'});return true;}
       const generation=requestedGeneration||published.generation,completed=await generationDirectory(generation);
       if(!completed){reply(requestedGeneration?404:503,{error:'generation_unavailable'});return true;}
+      if(completed.completion.dataPolicy?.rawPublic===false&&['dataset','market'].includes(route)){reply(403,{error:route==='dataset'?'source_policy_raw_export_disabled':'source_policy_raw_market_disabled'});return true;}
       if(route==='market'&&completed.completion.scope==='historical-sample'){reply(503,{error:'historical_market_unavailable'});return true;}
       const compressed=gzipAccepted(req.headers['accept-encoding']);
       let body;

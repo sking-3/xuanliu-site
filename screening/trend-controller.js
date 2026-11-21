@@ -120,10 +120,15 @@
   }
   return {run,cancel,exportDataset,getExportStatus,getState:()=>({...state,records:state.records.slice()}),clear(){cancel();dataset=null;state=initial();emit();},cacheSize:()=>cache.size};
  }
- function createCachedRunner({env,engine,model,onUpdate=()=>{}}){
+ function createCachedRunner({env,engine,model,publicFullMarket=false,onUpdate=()=>{}}){
   const cache=new Map();let state=initial(),base=null,settings=null,desiredSettings=null,active=null,raw=null,rawRequest=null,metadata=null,lastCompleted=null,pollRequest=null,epoch=0;
   const emit=()=>onUpdate({...state,records:state.records.slice()});
-  const key=s=>[s.mode,s.lookback,s.mode==='consensus'?s.sampleSize:'all',s.reference.code].join('/');
+  const key=s=>[s.cacheScope,s.mode,s.lookback,s.mode==='consensus'?s.sampleSize:'all',s.reference.code].join('/');
+  function effectiveSettings(options,meta){
+   const cacheScope=meta?.scope||meta?.lastSuccess?.scope||(meta?.fullMarket?'full-market':'');
+   const sampleSize=publicFullMarket?(cacheScope==='historical-sample'?'120':cacheScope==='full-market'?'all':options.sampleSize):options.sampleSize;
+   return {...options,sampleSize,cacheScope};
+  }
   function cancel(reason='已停止读取本站缓存。'){
    epoch++;
    if(pollRequest){pollRequest.abort();pollRequest=null;}
@@ -138,14 +143,14 @@
    if(!base)return;
    const available=new Map(base.records.map(record=>[record.stock.code,record]));
    const full=settings.mode==='consensus'||settings.stocks===null;
-   const historical=base.scope==='historical-sample';
+   const intersection=base.scope==='historical-sample'||base.dataPolicy?.rawPublic===false;
    let selected=base.records,uncovered=0;
    if(!full){
     selected=[];
     for(const stock of settings.stocks){
      const record=available.get(stock.code);
      if(record)selected.push(record);
-     else if(!historical){
+     else if(!intersection){
       uncovered++;
       selected.push({stock,result:{status:'unavailable',matched:null,reason:'本批日终缓存尚未覆盖该股票。'},fetchedAt:null,referenceFetchedAt:base.referenceFetchedAt});
      }
@@ -158,12 +163,13 @@
    emit();
   }
   async function run(options,knownMetadata){
-   cancel();base=null;raw=null;settings={...options,stocks:options.stocks===null?null:options.stocks.slice(),limits:{...options.limits}};desiredSettings=settings;
+   cancel();base=null;raw=null;desiredSettings={...options,stocks:options.stocks===null?null:options.stocks.slice(),limits:{...options.limits}};settings=desiredSettings;
    const control=new AbortController(),requestedMode=settings.mode;active=control;state={...initial(),origin:'daily-cache',mode:settings.mode,lookback:settings.lookback,status:'running',phase:'loading',reason:'正在读取本站已完成的日终缓存。',lastSuccess:metadata?.lastSuccess||null};emit();
    try{
     metadata=knownMetadata||await read('state',control.signal);if(active!==control)return state;
     if(!metadata.available)throw Error(metadata.attempt?.error||'本站尚无完整日终批次；后台完成后才能展示。');
     const generation=metadata.lastSuccess?.generation;if(!generation)throw Error('本站完整批次标识缺失。');
+    settings=effectiveSettings(desiredSettings,metadata);
     const cached=cache.get(key(settings));
     let next=cached&&cached.generation===metadata.lastSuccess?.generation?cached:null;
     if(!next){
@@ -192,7 +198,7 @@
     const next=await read('state',control.signal);
     if(pollRequest!==control||epoch!==startedEpoch)return state;
     metadata=next;pollRequest=null;
-    if(next.available&&next.lastSuccess?.generation&&base?.generation!==next.lastSuccess.generation)return run(desiredSettings,next);
+    if(next.available&&next.lastSuccess?.generation&&(base?.generation!==next.lastSuccess.generation||key(settings)!==key(effectiveSettings(desiredSettings,next))))return run(desiredSettings,next);
     state={...state,lastSuccess:next.lastSuccess||null,attempt:next.attempt||null};
     if(!base)state.reason=next.attempt?.error||'本站尚无完整日终批次；后台完成后自动显示。';
     emit();
@@ -204,19 +210,20 @@
   function reapply(changes){
    if(!settings)return;desiredSettings={...desiredSettings,...changes};
    if(state.cacheReadFailed)return run(desiredSettings);
-   settings={...settings,...changes};
+   settings=effectiveSettings(desiredSettings,metadata);
    if(base&&!active){try{view();}catch(error){state={...state,status:'unavailable',records:[],reason:error.message};emit();}}
   }
   function getExportStatus(){
    if(active)return {available:false,reason:'正在读取本站结果，请等待完成。'};
    if(!base||!['complete','unavailable'].includes(state.status))return {available:false,reason:state.reason||'尚无可导出的完整本站批次。'};
+   if(base.dataPolicy?.rawPublic===false)return {available:false,reason:'该数据源仅提供筛选结果，不公开原始日线。'};
    if(state.scopeUncovered)return {available:false,reason:'所选范围包含缓存之外的股票，请调整范围后再导出。'};
    if(rawRequest)return {available:false,reason:'正在读取同代原始归档。'};
    if(!raw)return {available:false,reason:'原始归档尚未载入，点击导出或保存后从本站读取。'};
    return {available:true,reason:''};
   }
   async function loadDataset(){
-   if(active||!base||state.status==='stopped'||state.scopeUncovered)throw Error(getExportStatus().reason);
+   if(active||!base||state.status==='stopped'||state.scopeUncovered||base.dataPolicy?.rawPublic===false)throw Error(getExportStatus().reason);
    if(raw)return raw;
    if(rawRequest)throw Error('原始归档正在读取，请等待完成。');
    const control=new AbortController(),generation=base.generation;rawRequest=control;
@@ -240,23 +247,46 @@
   const charts=(options.charts||env.BooksStockCharts).create({document:doc,env});
   const buttons=[...host.querySelectorAll('[data-trend-mode]')],listeners=[],cards=new Map(),body=el('trend-results');
   let configuration=model.normalizeConfig(options.configuration||model.DEFAULT_CONFIG);
-  let state=initial(),page=0,selectedMode=configuration.settings.mode,marketGeneration=null,contextKey='',interacted=false,configurationApplied=false,destroyed=false,displayed=null;
+  let state=initial(),page=0,selectedMode=configuration.settings.mode,selectedPattern='',displaySize='all',patternOptionsKey='',marketGeneration=null,contextKey='',interacted=false,configurationApplied=false,destroyed=false,displayed=null;
   const empty=doc.createElement('p');empty.className='trend-empty';body.replaceChildren(empty);
   el('trend-lookback').value=String(configuration.settings.lookback);
+  el('trend-display').value=displaySize;
   const context=()=>((options.selection||env.BooksStockSelection)?.getContext?.()||{});
-  const stocks=()=>{const c=context();return c.day?(c.rows||[]).slice():null;};
-  const identity=()=>{const c=context();return JSON.stringify([c.day,c.asOf,(c.rows||[]).map(row=>row.code)]);};
+  const stocks=()=>{const c=context();return c.filtersActive===false?null:c.day?(c.rows||[]).slice():null;};
+  const identity=()=>{const c=context();return JSON.stringify([c.day,c.asOf,c.filtersActive,(c.rows||[]).map(row=>row.code)]);};
   const percentage=value=>Number.isFinite(value)?(value>0?'+':'')+value.toLocaleString('zh-CN',{maximumFractionDigits:2})+'%':'—';
   function card(stock){
    const article=doc.createElement('article'),heading=doc.createElement('header'),title=doc.createElement('h4');
    const name=doc.createElement('a'),code=doc.createElement('span'),change=doc.createElement('div'),value=doc.createElement('span'),period=doc.createElement('span'),chart=doc.createElement('div');
+   const patterns=doc.createElement('details'),patternSummary=doc.createElement('summary'),patternReasons=doc.createElement('div');
    article.className='trend-stock';article.dataset.code=stock.code;article.setAttribute('role','listitem');
    heading.className='trend-stock-heading';name.className='trend-stock-name';code.className='trend-stock-code';
    change.className='trend-stock-change';period.className='trend-stock-period';chart.className='trend-stock-chart';
    const symbol=/^(\d{6})\.(SH|SZ)$/.exec(stock.code);
    if(symbol)name.href='../chart.html?tvwidgetsymbol='+encodeURIComponent((symbol[2]==='SH'?'SSE:':'SZSE:')+symbol[1]);
-   title.append(name,code);change.append(value,period);heading.append(title,change);article.append(heading,chart);
-   return {article,name,code,value,period,chart};
+   patterns.className='trend-stock-patterns';patterns.hidden=true;patterns.append(patternSummary,patternReasons);
+   title.append(name,code);change.append(value,period);heading.append(title,change);article.append(heading,patterns,chart);
+   return {article,name,code,value,period,patterns,patternSummary,patternReasons,chart};
+  }
+  function labels(record){
+   const patterns=record.patterns;
+   return patterns?.status==='ready'&&typeof displayed?.patternVersion==='string'&&patterns.version===displayed.patternVersion&&patterns.day===displayed.day&&patterns.lookback===displayed.lookback&&Array.isArray(patterns.labels)?patterns.labels:[];
+  }
+  function patternOptions(records){
+   const counts=new Map();
+   for(const record of records)for(const label of labels(record))counts.set(label.id,(counts.get(label.id)||0)+1);
+   const definitions=displayed?.patternDefinitions||[],key=JSON.stringify([definitions,[...counts]]);
+   if(key===patternOptionsKey)return;
+   patternOptionsKey=key;
+   const select=el('trend-pattern'),all=doc.createElement('option'),groups=new Map();
+   all.value='';all.textContent='全部形态';select.replaceChildren(all);
+   for(const definition of definitions){
+    let group=groups.get(definition.group);
+    if(!group){group=doc.createElement('optgroup');group.label=definition.group;groups.set(definition.group,group);select.append(group);}
+    const option=doc.createElement('option');option.value=definition.id;option.textContent=definition.label+' · '+(counts.get(definition.id)||0)+'只';option.title=definition.rule;group.append(option);
+   }
+   if(!definitions.some(definition=>definition.id===selectedPattern))selectedPattern='';
+   select.value=selectedPattern;
   }
   function render(){
    const lookback=Number(el('trend-lookback').value),matching=state.mode===selectedMode&&state.lookback===lookback;
@@ -265,9 +295,11 @@
    let visible=[];
    if(completed){
     visible=sortRecords(state.records.filter(record=>record.result.status==='ready'&&record.result.matched),selectedMode);
-    displayed={mode:selectedMode,lookback,day:state.day,scope:state.scope,sampleCount:state.sampleCount,marketUniverseCount:state.marketUniverseCount,fullMarket:state.fullMarket,records:visible};
+    displayed={mode:selectedMode,lookback,day:state.day,scope:state.scope,sampleCount:state.sampleCount,marketUniverseCount:state.marketUniverseCount,fullMarket:state.fullMarket,attribution:state.dataPolicy?.attribution,patternVersion:state.patternVersion,patternDefinitions:state.patternDefinitions,records:visible};
    }else if(refreshing)visible=displayed.records;
    const show=completed||refreshing;
+   patternOptions(visible);
+   if(selectedPattern)visible=visible.filter(record=>labels(record).some(label=>label.id===selectedPattern));
    for(const button of buttons){button.disabled=false;button.setAttribute('aria-pressed',String(button.dataset.trendMode===selectedMode));}
    host.setAttribute('aria-busy',String(state.status==='running'));
    const old=refreshing||state.cacheReadFailed||Boolean(state.attempt?.error);
@@ -275,11 +307,13 @@
    if(show){
     description='数据日 '+displayed.day+(old?' · 上次成功结果':'');
     if(displayed.scope==='historical-sample')description='历史'+displayed.sampleCount+'只样本 · 数据日'+displayed.day;
+    else if(displayed.fullMarket)description='沪深主板 '+displayed.marketUniverseCount+'只 · 数据日'+displayed.day;
+    if(displayed.attribution)description+=' · '+displayed.attribution;
    }
    el('trend-status').textContent=description;
    el('trend-count').textContent=show?visible.length+' 只':'';
-   const pages=Math.ceil(visible.length/4);page=Math.max(0,Math.min(page,pages-1));
-   const records=visible.slice(page*4,page*4+4),wanted=new Set(records.map(record=>record.stock.code));
+   const size=displaySize==='all'?visible.length||1:Number(displaySize),pages=Math.ceil(visible.length/size);page=Math.max(0,Math.min(page,pages-1));
+   const records=visible.slice(page*size,page*size+size),wanted=new Set(records.map(record=>record.stock.code));
    for(const [code,item]of cards)if(!wanted.has(code)){charts.dispose(item.chart);item.article.remove();cards.delete(code);}
    if(!records.length){
     empty.textContent=show?'没有符合条件的股票':'暂无已完成的筛选结果';
@@ -293,17 +327,24 @@
      const value=record.result.metrics?.periodReturn;
      item.value.textContent=percentage(value);item.value.className=value>0?'change-up':value<0?'change-down':'';
      item.period.textContent=lookback+'日涨跌';
+     const patternLabels=labels(record),signature=JSON.stringify(patternLabels);
+     item.patterns.hidden=!patternLabels.length;
+     if(item.patternSignature!==signature){
+      item.patternSignature=signature;item.patternSummary.textContent=patternLabels.map(label=>label.label).join(' · ');
+      item.patternReasons.replaceChildren();
+      for(const label of patternLabels){const reason=doc.createElement('p');reason.textContent=label.label+'：'+label.evidence;item.patternReasons.append(reason);}
+     }
      if(body.children[index]!==item.article)body.insertBefore(item.article,body.children[index]||null);
      if(created)charts.observe(item.chart,record.stock);
     });
    }
    el('trend-pagination').hidden=pages<=1;el('trend-page').textContent=pages?(page+1)+' / '+pages:'';
-   el('trend-prev').disabled=page===0;el('trend-next').disabled=(page+1)*4>=visible.length;
+   el('trend-prev').disabled=page===0;el('trend-next').disabled=(page+1)*size>=visible.length;
   }
-  const runner=createCachedRunner({env,engine,model,onUpdate:value=>{
+  const runner=createCachedRunner({env,engine,model,publicFullMarket:true,onUpdate:value=>{
    const finished=state.status==='running'&&value.status!=='running';state=value;render();
    if(finished&&typeof env.CustomEvent==='function')env.dispatchEvent(new env.CustomEvent('books:trend-run-finished',{detail:{status:state.status,mode:state.mode,day:state.day,startedAt:state.startedAt,finishedAt:state.finishedAt||null}}));
-   if(state.scope!=='historical-sample'&&state.generation&&state.phase==='evaluated'&&!state.cacheReadFailed&&state.generation!==marketGeneration&&typeof env.CustomEvent==='function'){
+   if(state.scope!=='historical-sample'&&state.dataPolicy?.rawPublic!==false&&state.generation&&state.phase==='evaluated'&&!state.cacheReadFailed&&state.generation!==marketGeneration&&typeof env.CustomEvent==='function'){
     marketGeneration=state.generation;env.dispatchEvent(new env.CustomEvent('books:refresh-selection',{detail:{generation:state.generation}}));
    }
   }});
@@ -322,6 +363,8 @@
   function listen(target,type,handler){target.addEventListener(type,handler);listeners.push([target,type,handler]);}
   for(const button of buttons)listen(button,'click',()=>{interacted=true;start(button.dataset.trendMode);});
   listen(el('trend-lookback'),'change',()=>{interacted=true;start(selectedMode);});
+  listen(el('trend-display'),'change',()=>{interacted=true;displaySize=el('trend-display').value;page=0;render();});
+  listen(el('trend-pattern'),'change',()=>{interacted=true;selectedPattern=el('trend-pattern').value;page=0;render();});
   listen(el('trend-prev'),'click',()=>{page--;render();});listen(el('trend-next'),'click',()=>{page++;render();});
   listen(env,'books:selection-changed',()=>{
    const next=identity();if(next!==contextKey){contextKey=next;page=0;runner.reapply({stocks:stocks()});}else render();

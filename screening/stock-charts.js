@@ -7,14 +7,16 @@
   const source='https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js';
   function create({document,env=globalThis}){
     const states=new Map();
-    let destroyed=false;
-    const alive=state=>!destroyed&&states.get(state.host)===state;
+    const margin=600;
+    let destroyed=false,pendingCheck=null;
+    const alive=(state,epoch=state.epoch)=>!destroyed&&states.get(state.host)===state&&state.epoch===epoch;
     function phase(state,value,message){
       state.phase=value;
       state.host.dataset.chartState=value;
       state.status.textContent=message;
     }
     function cleanup(state){
+      state.epoch++;
       env.clearTimeout(state.timer);
       state.observer?.disconnect();
       if(state.frame){
@@ -22,9 +24,10 @@
         state.frame.removeEventListener('error',state.onError);
       }
       if(state.script)state.script.onerror=null;
+      state.timer=null;state.observer=null;state.frame=null;state.script=null;
     }
-    function unavailable(state){
-      if(!alive(state)||state.phase!=='loading')return;
+    function unavailable(state,epoch){
+      if(!alive(state,epoch)||state.phase!=='loading')return;
       cleanup(state);
       phase(state,'unavailable','日K暂不可用');
       const link=document.createElement('a');
@@ -33,9 +36,15 @@
       link.textContent='查看完整日K';
       state.host.replaceChildren(state.status,link);
     }
+    function unmount(state){
+      if(!alive(state)||!['loading','frame-loaded'].includes(state.phase))return;
+      cleanup(state);
+      state.host.replaceChildren(state.status);
+      phase(state,'waiting','日K进入屏幕后加载');
+    }
     function mount(state){
       if(!alive(state)||state.phase!=='waiting')return;
-      viewport?.unobserve(state.host);
+      const epoch=++state.epoch;
       phase(state,'loading','日K加载中…');
       const container=document.createElement('div'),slot=document.createElement('div');
       container.className='stock-chart-widget tradingview-widget-container';
@@ -48,13 +57,13 @@
       credit.append(brand);container.append(slot,credit);
       state.host.replaceChildren(container,state.status);
       state.onLoad=()=>{
-        if(!alive(state)||state.phase!=='loading')return;
+        if(!alive(state,epoch)||state.phase!=='loading')return;
         env.clearTimeout(state.timer);
         phase(state,'frame-loaded','');
       };
-      state.onError=()=>unavailable(state);
+      state.onError=()=>unavailable(state,epoch);
       state.observer=new env.MutationObserver(()=>{
-        if(!alive(state)||state.phase!=='loading'||state.frame)return;
+        if(!alive(state,epoch)||state.phase!=='loading'||state.frame)return;
         const frame=container.querySelector('iframe');
         if(!frame)return;
         state.frame=frame;
@@ -69,26 +78,46 @@
       script.src=source;script.async=true;
       script.textContent=JSON.stringify({autosize:true,symbol:state.symbol,interval:'D',timezone:'Asia/Shanghai',theme:'light',style:'1',locale:'zh_CN',allow_symbol_change:false,calendar:false,hide_top_toolbar:true,hide_legend:false,support_host:'https://www.tradingview.com'});
       script.onerror=state.onError;
-      state.timer=env.setTimeout(()=>unavailable(state),15000);
+      state.timer=env.setTimeout(()=>unavailable(state,epoch),15000);
       container.append(script);
     }
     const viewport=env.IntersectionObserver?new env.IntersectionObserver(entries=>{
       for(const entry of entries){
         const state=states.get(entry.target);
-        if(entry.isIntersecting&&state)mount(state);
+        if(!state)continue;
+        if(entry.isIntersecting)mount(state);
+        else unmount(state);
       }
-    },{rootMargin:'200px 0px'}):null;
+    },{rootMargin:margin+'px 0px'}):null;
+    function checkViewport(){
+      pendingCheck=null;if(destroyed)return;
+      const visible=[];
+      for(const state of states.values()){
+        if(!state.symbol)continue;
+        const rect=state.host.getBoundingClientRect();
+        visible.push([state,rect.bottom>rect.top&&rect.right>rect.left&&rect.bottom>=-margin&&rect.top<=env.innerHeight+margin&&rect.right>=0&&rect.left<=env.innerWidth]);
+      }
+      for(const [state,near]of visible)if(near)mount(state);else unmount(state);
+    }
+    function scheduleCheck(){
+      if(destroyed||pendingCheck!==null)return;
+      pendingCheck=env.requestAnimationFrame?env.requestAnimationFrame(checkViewport):env.setTimeout(checkViewport,16);
+    }
+    if(!viewport){
+      env.addEventListener('scroll',scheduleCheck,{passive:true,capture:true});
+      env.addEventListener('resize',scheduleCheck);
+    }
     function observe(host,stock){
       if(destroyed||states.has(host))return;
       const status=document.createElement('p');
       status.className='stock-chart-status';status.setAttribute('role','status');
       const code=stock?.code,match=typeof code==='string'&&/^(\d{6})\.(SH|SZ)$/.exec(code);
-      const state={host,status,symbol:match?(match[2]==='SH'?'SSE:':'SZSE:')+match[1]:null,name:typeof stock?.name==='string'?stock.name:code,phase:'waiting',timer:null,observer:null,script:null,frame:null};
+      const state={host,status,symbol:match?(match[2]==='SH'?'SSE:':'SZSE:')+match[1]:null,name:typeof stock?.name==='string'?stock.name:code,phase:'waiting',epoch:0,timer:null,observer:null,script:null,frame:null};
       states.set(host,state);host.replaceChildren(status);
       if(!match){phase(state,'unavailable','日K暂不可用');return;}
       phase(state,'waiting','日K进入屏幕后加载');
       if(viewport)viewport.observe(host);
-      else mount(state);
+      else scheduleCheck();
     }
     function dispose(host){
       const state=states.get(host);if(!state)return;
@@ -99,6 +128,15 @@
       if(destroyed)return;
       for(const host of [...states.keys()])dispose(host);
       viewport?.disconnect();destroyed=true;
+      if(!viewport){
+        env.removeEventListener('scroll',scheduleCheck,true);
+        env.removeEventListener('resize',scheduleCheck);
+        if(pendingCheck!==null){
+          if(env.requestAnimationFrame)env.cancelAnimationFrame(pendingCheck);
+          else env.clearTimeout(pendingCheck);
+          pendingCheck=null;
+        }
+      }
     }
     return {observe,dispose,destroy};
   }
