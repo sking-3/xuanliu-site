@@ -138,8 +138,19 @@
    if(!base)return;
    const available=new Map(base.records.map(record=>[record.stock.code,record]));
    const full=settings.mode==='consensus'||settings.stocks===null;
-   const selected=full?base.records:settings.stocks.map(stock=>available.get(stock.code)||{stock,result:{status:'unavailable',matched:null,reason:'本批日终缓存尚未覆盖该股票。'},fetchedAt:null,referenceFetchedAt:base.referenceFetchedAt});
-   const uncovered=full?0:settings.stocks.filter(stock=>!available.has(stock.code)).length;
+   const historical=base.scope==='historical-sample';
+   let selected=base.records,uncovered=0;
+   if(!full){
+    selected=[];
+    for(const stock of settings.stocks){
+     const record=available.get(stock.code);
+     if(record)selected.push(record);
+     else if(!historical){
+      uncovered++;
+      selected.push({stock,result:{status:'unavailable',matched:null,reason:'本批日终缓存尚未覆盖该股票。'},fetchedAt:null,referenceFetchedAt:base.referenceFetchedAt});
+     }
+    }
+   }
    state={...base,origin:'daily-cache',phase:'evaluated',limits:{...settings.limits},records:selected.map(record=>({...record,result:engine.applyLimits(record.result,settings.limits,settings.lookback)})),total:selected.length,lastSuccess:metadata?.lastSuccess||null,attempt:metadata?.attempt||null,scopeUncovered:uncovered};
    if(uncovered){state.status='unavailable';state.reason='所选范围有 '+uncovered+' 只未被本批日终缓存覆盖，已单列为资料不足。';}
    if(!selected.length&&settings.mode!=='consensus'){state.status='unavailable';state.reason='当前范围没有股票；可调整筛选条件或自选名单。';}
@@ -254,13 +265,18 @@
    let visible=[];
    if(completed){
     visible=sortRecords(state.records.filter(record=>record.result.status==='ready'&&record.result.matched),selectedMode);
-    displayed={mode:selectedMode,lookback,day:state.day,records:visible};
+    displayed={mode:selectedMode,lookback,day:state.day,scope:state.scope,sampleCount:state.sampleCount,marketUniverseCount:state.marketUniverseCount,fullMarket:state.fullMarket,records:visible};
    }else if(refreshing)visible=displayed.records;
    const show=completed||refreshing;
    for(const button of buttons){button.disabled=false;button.setAttribute('aria-pressed',String(button.dataset.trendMode===selectedMode));}
    host.setAttribute('aria-busy',String(state.status==='running'));
    const old=refreshing||state.cacheReadFailed||Boolean(state.attempt?.error);
-   el('trend-status').textContent=show?'数据日 '+displayed.day+(old?' · 上次成功结果':''):'';
+   let description='';
+   if(show){
+    description='数据日 '+displayed.day+(old?' · 上次成功结果':'');
+    if(displayed.scope==='historical-sample')description='历史'+displayed.sampleCount+'只样本 · 数据日'+displayed.day;
+   }
+   el('trend-status').textContent=description;
    el('trend-count').textContent=show?visible.length+' 只':'';
    const pages=Math.ceil(visible.length/4);page=Math.max(0,Math.min(page,pages-1));
    const records=visible.slice(page*4,page*4+4),wanted=new Set(records.map(record=>record.stock.code));
@@ -287,7 +303,7 @@
   const runner=createCachedRunner({env,engine,model,onUpdate:value=>{
    const finished=state.status==='running'&&value.status!=='running';state=value;render();
    if(finished&&typeof env.CustomEvent==='function')env.dispatchEvent(new env.CustomEvent('books:trend-run-finished',{detail:{status:state.status,mode:state.mode,day:state.day,startedAt:state.startedAt,finishedAt:state.finishedAt||null}}));
-   if(state.generation&&state.phase==='evaluated'&&!state.cacheReadFailed&&state.generation!==marketGeneration&&typeof env.CustomEvent==='function'){
+   if(state.scope!=='historical-sample'&&state.generation&&state.phase==='evaluated'&&!state.cacheReadFailed&&state.generation!==marketGeneration&&typeof env.CustomEvent==='function'){
     marketGeneration=state.generation;env.dispatchEvent(new env.CustomEvent('books:refresh-selection',{detail:{generation:state.generation}}));
    }
   }});

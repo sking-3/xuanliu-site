@@ -130,13 +130,17 @@ test('exported raw dataset reproduces the actual consensus metrics without expor
 });
 const actualEngine=require('../screening/trend-screen.js'),controlModel=require('../control/model.js');
 const settle=()=>new Promise(setImmediate);
-function dataset(benchmark='000300.SH'){
- const universe=marketRows.map(({code,name,sector,exchange})=>({code,name,sector,exchange}));
- return {schema:'books.research.dataset.v1',day,asOf,completed:true,collectionStatus:'complete',expectedCount:universe.length,totalUniverseCount:universe.length,universe,reference:{code:benchmark,adjustment:'index',bars:bars().slice(-61),fetchedAt},records:universe.map(stock=>({stock,source:{status:'ready',day,adjustment:'qfq',bars:bars().slice(-61),fetchedAt}}))};
+function dataset(benchmark='000300.SH',count=marketRows.length,total=count){
+ const universe=Array.from({length:total},(_,i)=>{
+  const {code,name,sector,exchange}=marketRows[i]||{code:String(600000+i)+'.SH',name:'市场'+i,exchange:'SH',sector:i%2?'银行':'工业'};
+  return {code,name,sector,exchange};
+ });
+ const selected=count===total?universe:actualEngine.selectMarketSample(universe,count);
+ return {schema:'books.research.dataset.v1',day,asOf,completed:true,collectionStatus:'complete',expectedCount:count,totalUniverseCount:total,universe,reference:{code:benchmark,adjustment:'index',bars:bars().slice(-61),fetchedAt},records:selected.map(stock=>({stock,source:{status:'ready',day,adjustment:'qfq',bars:bars().slice(-61),fetchedAt}}))};
 }
 function cachedResult(query={}){
- const mode=query.mode||'consensus',lookback=Number(query.lookback||20),data=dataset(query.benchmark),consensus=mode==='consensus'?actualEngine.buildConsensus({records:data.records.map(r=>({stock:r.stock,bars:r.source.bars})),calendar:data.reference.bars,lookback,day,expectedCount:32,totalUniverseCount:32}):null;
- return {mode,lookback,day,asOf,status:'complete',phase:'evaluated',limits:{enabled:false},reference:{code:data.reference.code,name:'沪深300'},records:data.records.map(r=>({stock:r.stock,result:actualEngine.evaluate({mode,bars:r.source.bars,referenceBars:data.reference.bars,code:r.stock.code,consensus,lookback,day,limits:{enabled:false}}),fetchedAt,referenceFetchedAt:fetchedAt})),consensus,total:32,marketUniverseCount:32,fullMarket:query.sampleSize==='all',requests:33,generation:'daily-generation-1',referenceFetchedAt:fetchedAt,poolFetchedStart:fetchedAt,poolFetchedEnd:fetchedAt,startedAt:fetchedAt,finishedAt:fetchedAt};
+ const mode=query.mode||'consensus',lookback=Number(query.lookback||20),historical=query.scope==='historical-sample',data=dataset(query.benchmark,historical?120:32,historical?3052:32),consensus=mode==='consensus'?actualEngine.buildConsensus({records:data.records.map(r=>({stock:r.stock,bars:r.source.bars})),calendar:data.reference.bars,lookback,day,expectedCount:data.expectedCount,totalUniverseCount:data.totalUniverseCount}):null;
+ return {mode,lookback,day,asOf,status:'complete',phase:'evaluated',limits:{enabled:false},reference:{code:data.reference.code,name:'沪深300'},records:data.records.map(r=>({stock:r.stock,result:actualEngine.evaluate({mode,bars:r.source.bars,referenceBars:data.reference.bars,code:r.stock.code,consensus,lookback,day,limits:{enabled:false}}),fetchedAt,referenceFetchedAt:fetchedAt})),consensus,total:data.expectedCount,marketUniverseCount:data.totalUniverseCount,fullMarket:!historical&&query.sampleSize==='all',...(historical?{scope:'historical-sample',sampleCount:120}:{}),requests:33,generation:'daily-generation-1',referenceFetchedAt:fetchedAt,poolFetchedStart:fetchedAt,poolFetchedEnd:fetchedAt,startedAt:fetchedAt,finishedAt:fetchedAt};
 }
 function cacheSetup(overrides={}){
  const calls=[],updates=[];let meta={available:true,lastSuccess:{generation:'daily-generation-1',day,asOf,finishedAt:fetchedAt,total:32,ready:32},attempt:{status:'complete'}},resultOverride=null,rawOverride=null;
@@ -157,6 +161,27 @@ test('heat caps reapply to cached baseline without a request or clipping raw met
 test('cached consensus reference ignores local filters while market scopes retain unknown uncovered stocks',async()=>{
  const s=cacheSetup();await s.runner.run(s.input());const before=s.runner.getState().consensus.commonCount,n=s.calls.length;s.runner.reapply({stocks:[marketRows[0]]});assert.equal(s.runner.getState().records.length,32);assert.equal(s.runner.getState().consensus.commonCount,before);assert.equal(s.calls.length,n);
  await s.runner.run(s.input({mode:'market'}));const fetched=s.calls.length;s.runner.reapply({stocks:[marketRows[1],{code:'830001.BJ',name:'未覆盖'}]});const state=s.runner.getState();assert.equal(state.status,'unavailable');assert.equal(state.scopeUncovered,1);assert.equal(state.records.length,2);assert.equal(state.records[1].result.matched,null);assert.match(state.reason,/未被本批日终缓存覆盖/);assert.equal(s.calls.length,fetched);await assert.rejects(()=>s.runner.loadDataset(),/缓存之外/);
+});
+test('historical market and strength scopes intersect the120-stock archive without inventing uncovered rows',async()=>{
+ for(const mode of ['market','strength']){
+  const s=cacheSetup(),history=cachedResult({mode,scope:'historical-sample'}),inside=history.records[5].stock,outside={code:'000001.SZ',name:'样本之外'};
+  s.setResult(history);
+  const result=await s.runner.run(s.input({mode,stocks:[inside,outside]}));
+  assert.deepEqual(result.records.map(r=>r.stock.code),[inside.code]);assert.equal(result.scopeUncovered,0);assert.equal(result.scope,'historical-sample');assert.equal(result.sampleCount,120);assert.equal(result.marketUniverseCount,3052);assert.equal(result.fullMarket,false);
+  const requests=s.calls.length;
+  s.runner.reapply({stocks:null});assert.equal(s.runner.getState().records.length,120);
+  s.runner.reapply({stocks:[]});assert.equal(s.runner.getState().records.length,0);
+  s.runner.reapply({stocks:[outside]});assert.equal(s.runner.getState().records.length,0);assert.equal(s.runner.getState().scopeUncovered,0);
+  assert.equal(s.calls.length,requests);assert.equal(history.records.length,120);
+ }
+});
+test('historical consensus retains its fixed120 samples despite a local empty or unrelated filter',async()=>{
+ const s=cacheSetup();s.setResult(cachedResult({scope:'historical-sample'}));await s.runner.run(s.input({stocks:[]}));assert.equal(s.runner.getState().records.length,120);
+ const requests=s.calls.length;s.runner.reapply({stocks:[{code:'000001.SZ',name:'样本之外'}]});assert.equal(s.runner.getState().records.length,120);assert.equal(s.runner.getState().marketUniverseCount,3052);assert.equal(s.runner.getState().fullMarket,false);assert.equal(s.calls.length,requests);
+});
+test('historical raw export keeps120 requested records and the original3052-stock universe',async()=>{
+ const s=cacheSetup();s.setResult(cachedResult({mode:'market',scope:'historical-sample'}));s.setDataset(dataset('000300.SH',120,3052));await s.runner.run(s.input({mode:'market',stocks:null}));
+ await s.runner.loadDataset();const raw=s.runner.exportDataset();assert.equal(raw.expectedCount,120);assert.equal(raw.records.length,120);assert.equal(raw.totalUniverseCount,3052);assert.equal(raw.universe.length,3052);assert.equal(s.runner.getState().fullMarket,false);
 });
 test('raw dataset is lazy, generation-pinned, reused and independently exportable',async()=>{
  const s=cacheSetup();await s.runner.run(s.input());assert.equal(s.calls.length,2);assert.equal(s.runner.getExportStatus().available,false);assert.equal(s.runner.exportDataset(),null);
@@ -281,6 +306,24 @@ test('the selected period must match result state before any cards can be displa
 });
 test('same-mode cache failures retain matching cards with only a short previous-success marker',async()=>{
  const s=mounted();await s.app.start('consensus');const nodes=articles(s).slice();s.env.fetch=async()=>{throw Error('HTTP501 private diagnostic');};await s.app.start('consensus');assert.deepEqual(articles(s),nodes);assert.equal(s.ids['trend-status'].textContent,'数据日 '+day+' · 上次成功结果');assert.doesNotMatch(s.ids['trend-results'].textContent,/HTTP501/);s.app.destroy();
+});
+test('historical cards retain their sample label and count during same-mode loading and failure',async()=>{
+ const s=mounted({selection:{getContext:()=>({day:'',rows:[]})}});s.setResult(cachedResult({scope:'historical-sample'}));s.setMetadata({available:true,scope:'historical-sample',sampleCount:120,marketUniverseCount:3052,fullMarket:false,lastSuccess:{generation:'daily-generation-1',day,scope:'historical-sample',sampleCount:120},attempt:{status:'failed',error:'HTTP501 全量未完成'}});
+ await s.app.start('consensus');const nodes=articles(s).slice(),label='历史120只样本 · 数据日2026-11-20';assert.equal(s.ids['trend-status'].textContent,label);assert.equal(s.ids['trend-count'].textContent,'120 只');assert.equal(s.app.getState().fullMarket,false);
+ s.env.fetch=async()=>{throw Error('HTTP501 private diagnostic');};const pending=s.app.start('consensus');assert.equal(s.ids['trend-status'].textContent,label);assert.equal(s.ids['trend-count'].textContent,'120 只');assert.deepEqual(articles(s),nodes);
+ await pending;assert.equal(s.ids['trend-status'].textContent,label);assert.deepEqual(articles(s),nodes);assert.equal(s.app.getState().scope,'historical-sample');assert.doesNotMatch(s.ids['trend-status'].textContent,/HTTP|3052|全量/);s.app.destroy();
+});
+test('historical selection changes filter only archived stocks without changing the sample scope',async()=>{
+ const history=cachedResult({mode:'market',scope:'historical-sample'}),first=history.records[0].stock,second=history.records[1].stock;let current=context([first,{code:'000001.SZ',name:'样本之外'}]);
+ const s=mounted({selection:{getContext:()=>current}});s.setResult(history);await s.app.start('market');assert.deepEqual(articles(s).map(node=>node.dataset.code),[first.code]);assert.equal(s.ids['trend-status'].textContent,'历史120只样本 · 数据日2026-11-20');const requests=s.calls.length;
+ current=context([]);s.env.dispatchEvent({type:'books:selection-changed'});assert.equal(articles(s).length,0);assert.equal(s.ids['trend-count'].textContent,'0 只');
+ current=context([second]);s.env.dispatchEvent({type:'books:selection-changed'});assert.deepEqual(articles(s).map(node=>node.dataset.code),[second.code]);assert.equal(s.app.getState().sampleCount,120);assert.equal(s.calls.length,requests);s.app.destroy();
+});
+test('historical generations do not refresh the market roster and a future full generation resumes normal refresh',async()=>{
+ const s=mounted({selection:{getContext:()=>({day:'',rows:[]})}}),events=[];s.env.addEventListener('books:refresh-selection',event=>events.push(event.detail.generation));s.setResult(cachedResult({scope:'historical-sample'}));
+ await s.app.start('consensus');assert.deepEqual(events,[]);await s.app.runner.refreshIfChanged();assert.deepEqual(events,[]);assert.equal(s.app.getState().scope,'historical-sample');assert.equal(s.ids['trend-status'].textContent,'历史120只样本 · 数据日2026-11-20');
+ s.setMetadata({available:true,lastSuccess:{generation:'daily-generation-2',day,finishedAt:fetchedAt},attempt:{status:'complete'}});s.setResult({...cachedResult({sampleSize:'all'}),generation:'daily-generation-2'});await s.app.runner.refreshIfChanged();
+ assert.deepEqual(events,['daily-generation-2']);assert.equal(s.app.getState().scope,undefined);assert.equal(s.app.getState().fullMarket,true);assert.equal(s.ids['trend-status'].textContent,'数据日 2026-11-20');assert.equal(s.ids['trend-count'].textContent,'32 只');s.app.destroy();
 });
 test('unified configuration applies once before hand-selection and preserves raw export APIs',async()=>{
  const s=mounted(),config={module:'a-share-consensus',name:'服务器方案',settings:{...controlModel.DEFAULT_CONFIG.settings,mode:'market',sampleSize:'240',benchmark:'399001.SZ',limits:{...options().limits,maxReturn20:1}}};assert.equal(s.app.applyConfiguration(config),true);await settle();assert.equal(s.app.getState().mode,'market');assert.equal(s.app.getState().reference.code,'399001.SZ');assert.equal(s.app.getState().limits.maxReturn20,1);assert.equal(s.app.applyConfiguration(controlModel.DEFAULT_CONFIG),false);await s.app.loadDataset();assert.equal(s.app.getExportStatus().available,true);assert.equal(s.app.exportDataset().reference.code,'399001.SZ');s.app.destroy();

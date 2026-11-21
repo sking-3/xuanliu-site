@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,renameSync,rmSync} from 'node:fs';
+import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,renameSync,rmSync,unlinkSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {dirname,join} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -33,7 +33,16 @@ async function fixture(t){
     writeJson(join(location,'complete.json'),{...lastSuccess,generation:name,completed:true});
     writeJson(join(cache,'current.json'),{...lastSuccess,generation:name});writeJson(join(cache,'status.json'),status);
   }
-  return {app,cache,request,publish};
+  function publishHistorical(){
+    const value={...lastSuccess,generation:generation+'-120',scope:'historical-sample',sampleCount:120,marketUniverseCount:3052,fullMarket:false,archiveId:'completed-archive',publishedAt:'2026-11-21T00:00:00Z'};
+    const location=join(cache,'generations',value.generation);
+    for(const filename of ['result-consensus-20-120-000300.SH.json','result-market-20-all-000300.SH.json','dataset-120-000300.SH.json','dataset-all-000300.SH.json','market.json']){
+      writeJson(join(location,filename),value);writeFileSync(join(location,filename+'.gz'),gzipSync(JSON.stringify(value)));
+    }
+    writeJson(join(location,'complete.json'),{...value,completed:true});writeJson(join(cache,'historical-current.json'),value);
+    return value;
+  }
+  return {app,cache,request,publish,publishHistorical};
 }
 test('public cache state observes first collection while missing results return503 without any source request',async t=>{
   const f=await fixture(t),originalFetch=globalThis.fetch;let sourceCalls=0;
@@ -105,6 +114,59 @@ test('malformed worker files produce bounded cache errors without changing the l
   writeFileSync(join(f.cache,'status.json'),'not-json secret diagnostics');
   const response=await f.request('/api/a-share-daily/state');assert.equal(response.status,503);assert.deepEqual(response.json(),{error:'cache_read_failed'});
   assert.equal(readFileSync(join(f.cache,'current.json'),'utf8'),before);assert.equal((await f.request('/api/a-share-daily/market')).status,200);
+});
+test('completed historical sample remains separate from failed full collection and exposes only archived coverage',async t=>{
+  const f=await fixture(t),historical=f.publishHistorical();
+  const attempt={...status.attempt,status:'failed',total:3052,checked:430,ready:430,error:'HTTP 501'};
+  writeJson(join(f.cache,'status.json'),{...status,attempt});
+  const state=(await f.request('/api/a-share-daily/state')).json();
+  assert.equal(state.available,true);assert.equal(state.lastFullSuccess,null);assert.deepEqual(state.lastSuccess,historical);assert.deepEqual(state.historical,historical);assert.deepEqual(state.attempt,attempt);
+  assert.equal(state.scope,'historical-sample');assert.equal(state.sampleCount,120);assert.equal(state.marketUniverseCount,3052);assert.equal(state.fullMarket,false);
+  assert.equal((await f.request('/api/a-share-daily/result')).json().scope,'historical-sample');
+  assert.equal((await f.request('/api/a-share-daily/result?mode=market')).json().total,120);
+  for(const sample of ['120','all'])assert.equal((await f.request('/api/a-share-daily/dataset?sampleSize='+sample)).status,200);
+  for(const query of ['sampleSize=240','sampleSize=all','benchmark=000001.SH'])assert.equal((await f.request('/api/a-share-daily/result?'+query)).status,503);
+});
+test('only valid complete full generations supersede the historical sample, independently of publication time',async t=>{
+  const f=await fixture(t),historical=f.publishHistorical();f.publish();
+  let state=(await f.request('/api/a-share-daily/state')).json();
+  assert.equal(state.lastSuccess.generation,generation);assert.equal(state.lastFullSuccess.generation,generation);assert.equal(state.historical.generation,historical.generation);assert.equal(state.fullMarket,true);
+  const partial='2026-11-23-1';writeJson(join(f.cache,'current.json'),{...lastSuccess,generation:partial});
+  for(const completion of [null,{generation:partial,completed:false},{generation,completed:true}]){
+    if(completion)writeJson(join(f.cache,'generations',partial,'complete.json'),completion);
+    state=(await f.request('/api/a-share-daily/state')).json();
+    assert.equal(state.lastFullSuccess,null);assert.equal(state.lastSuccess.generation,historical.generation);assert.equal(state.fullMarket,false);
+    assert.equal((await f.request('/api/a-share-daily/result')).json().scope,'historical-sample');
+  }
+});
+test('historical market requests stay unavailable even when fake quote files exist and full publication supersedes its pointer',async t=>{
+  const f=await fixture(t),historical=f.publishHistorical();
+  assert.equal((await f.request('/api/a-share-daily/market')).status,503);
+  f.publish();unlinkSync(join(f.cache,'historical-current.json'));
+  assert.equal((await f.request('/api/a-share-daily/market')).status,200);
+  for(const headers of [{},{'accept-encoding':'gzip'}]){
+    const response=await f.request('/api/a-share-daily/market?generation='+historical.generation,headers);
+    assert.equal(response.status,503);assert.deepEqual(response.json(),{error:'historical_market_unavailable'});
+  }
+  assert.equal((await f.request('/api/a-share-daily/result?generation='+historical.generation)).json().scope,'historical-sample');
+});
+test('unfinished historical pointers never become available or masquerade as full generations',async t=>{
+  const f=await fixture(t),historical=f.publishHistorical(),marker=join(f.cache,'generations',historical.generation,'complete.json');
+  for(const completion of [{...historical,completed:false},{...historical,completed:true,scope:undefined},{...historical,completed:true,generation}]){
+    writeJson(marker,completion);assert.equal((await f.request('/api/a-share-daily/state')).json().available,false);
+    assert.equal((await f.request('/api/a-share-daily/result')).status,503);
+  }
+  writeJson(marker,{...historical,completed:true});writeJson(join(f.cache,'current.json'),historical);unlinkSync(join(f.cache,'historical-current.json'));
+  const state=(await f.request('/api/a-share-daily/state')).json();assert.equal(state.available,false);assert.equal(state.lastFullSuccess,null);
+});
+test('invalid pointer JSON or historical markers cannot hide a valid full result and invalid full JSON falls back to history',async t=>{
+  const f=await fixture(t);f.publish();const historical=f.publishHistorical(),pointer=join(f.cache,'historical-current.json');
+  writeFileSync(pointer,'invalid-json');
+  assert.equal((await f.request('/api/a-share-daily/state')).json().lastFullSuccess.generation,generation);assert.equal((await f.request('/api/a-share-daily/market')).status,200);
+  writeJson(pointer,historical);const marker=join(f.cache,'generations',historical.generation,'complete.json');writeFileSync(marker,'invalid-json');
+  assert.equal((await f.request('/api/a-share-daily/state')).json().lastFullSuccess.generation,generation);
+  writeJson(marker,{...historical,completed:true});writeFileSync(join(f.cache,'current.json'),'invalid-json');
+  const state=(await f.request('/api/a-share-daily/state')).json();assert.equal(state.lastFullSuccess,null);assert.equal(state.lastSuccess.generation,historical.generation);assert.equal(state.scope,'historical-sample');
 });
 
 class Element{
