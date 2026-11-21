@@ -59,7 +59,7 @@
 .pick-desk .trend-modes button[aria-pressed=true] {background:#edf3f1;border-color:#526f66}
 .trend-period {flex:0 0 auto}
 .trend-controls {display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.trend-controls label {display:flex;align-items:center;gap:6px;font-size:12px;color:var(--desk-muted)}
+.trend-controls label {display:flex;align-items:center;gap:6px;font-size:12px;color:var(--desk-muted);white-space:nowrap}
 .pick-desk .trend-controls select {min-height:44px;max-width:240px;font-variant-numeric:tabular-nums}
 .pick-desk .trend-period select {min-width:150px;min-height:44px;font-variant-numeric:tabular-nums}
 .trend-result-summary {display:flex;align-items:baseline;justify-content:space-between;gap:8px 16px;flex-wrap:wrap;margin:0 0 12px;color:var(--desk-muted);font-size:12px}
