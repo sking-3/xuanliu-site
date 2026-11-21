@@ -43,6 +43,7 @@ async function main(){
     }
     if(route==='screening/index.html'){
      await page.locator('[data-selection][data-state=ready]').waitFor();
+     await page.locator('details.pick-advanced > summary').click();
      await page.locator('#pick-query').fill('600519');
      await page.waitForFunction(()=>document.querySelectorAll('#pick-rows tr[data-code]').length===1);
      await page.locator('#pick-query').fill('NO-MATCH-TEST');

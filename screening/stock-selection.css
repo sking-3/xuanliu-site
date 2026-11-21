@@ -50,36 +50,43 @@
 
 .pick-run-actions{display:flex;gap:6px;flex-wrap:wrap}.pick-desk [hidden]{display:none!important}
 
-/* One shared surface for the three dated, read-only trend screens. */
-.trend-screen {padding:18px 0 16px;margin:14px 0 18px;border-block:1px solid var(--desk-border);scroll-margin-top:80px}
-.trend-options {display:grid;grid-template-columns:repeat(3,minmax(0,1fr)) minmax(200px,1.3fr);gap:12px;margin:14px 0}
-.trend-options label {font-size:12px;font-weight:550;min-width:0}
-.trend-options :is(select,input) {display:block;width:100%;margin-top:5px}
-.trend-modes {display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}
-.pick-desk .trend-modes button {flex:1 1 180px;min-height:62px;text-align:left;padding:10px 12px;background:#f4f7fa;border-color:#b8c8d4}
-.trend-modes strong,.trend-modes span {display:block;line-height:1.6}
-.trend-modes strong {font-size:14px}.trend-modes span {font-size:12px;color:#526575}
-.pick-desk .trend-modes button[aria-pressed=true] {background:#e8f0f7;border-color:#234e70}
-.pick-desk #trend-status {color:#234e70;font-weight:550;margin-top:12px}
-.trend-table {table-layout:fixed}.trend-table th:first-child{width:18%}.trend-table th:last-child{width:34%}
-.trend-table td {overflow-wrap:anywhere}.trend-table td:last-child {text-align:left;line-height:1.6}
-.trend-table time {display:block;font-size:11px;color:#526575}
-.trend-rule-note,.trend-method p {max-width:100ch}
-@media(max-width:850px){.trend-options{grid-template-columns:repeat(2,minmax(0,1fr))}}
+/* Matched stocks and their daily charts share one compact result surface. */
+.trend-screen {padding:8px 0 16px;margin:8px 0 14px;scroll-margin-top:80px;font-variant-numeric:tabular-nums}
+.trend-toolbar {display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}
+.trend-modes {display:grid;grid-template-columns:repeat(3,minmax(100px,1fr));gap:6px;min-width:0}
+.pick-desk .trend-modes button {min-height:44px;padding:8px 14px;background:#fff;border-color:var(--desk-border);font-size:14px;font-weight:600;white-space:nowrap}
+.pick-desk .trend-modes button:hover:not(:disabled) {background:#f4f6f5;border-color:#7b908b}
+.pick-desk .trend-modes button[aria-pressed=true] {background:#edf3f1;border-color:#526f66}
+.trend-period {flex:0 0 auto}
+.pick-desk .trend-period select {min-width:150px;min-height:44px;font-variant-numeric:tabular-nums}
+.trend-result-summary {display:flex;align-items:baseline;justify-content:space-between;gap:8px 16px;flex-wrap:wrap;margin:0 0 12px;color:var(--desk-muted);font-size:12px}
+.pick-desk #trend-status {margin:0;font-size:12px;color:var(--desk-muted);font-weight:400}
+.trend-result-summary :empty {display:none}
+.trend-results {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px;min-width:0}
+.trend-stock {min-width:0;margin:0;padding-top:12px;border-top:1px solid var(--desk-border);background:#fff;font-variant-numeric:tabular-nums}
+.trend-stock-heading {display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:8px}
+.trend-stock-heading h4 {margin:0;min-width:0;font-size:16px;line-height:1.4;font-weight:600}
+.pick-desk .trend-stock-name {color:var(--desk-ink);font-size:16px;font-weight:600;text-decoration:none}
+.trend-stock-code {display:block;font-size:12px;line-height:1.6;font-weight:400;color:var(--desk-muted)}
+.trend-stock-change {font-size:14px;line-height:1.5;font-weight:600;text-align:right;white-space:nowrap}
+.trend-stock-change .change-up {color:#a52f38}.trend-stock-change .change-down {color:#116b58}
+.trend-stock-period {display:block;font-size:11px;font-weight:400;color:var(--desk-muted)}
+.trend-stock-chart {display:flex;flex-direction:column;justify-content:center;height:300px;min-width:0;position:relative;overflow:hidden;background:#fff}
+.trend-stock-chart iframe {display:block;width:100%;height:100%;border:0}
+.trend-stock-chart>.stock-chart-widget {display:flex;flex-direction:column;flex:1;min-height:0;width:100%;height:100%}
+.trend-stock-chart .stock-chart-widget>.tradingview-widget-container__widget {flex:1;min-height:0;width:100%;height:auto}
+.trend-stock-chart .stock-chart-widget>.tradingview-widget-copyright {display:flex;align-items:center;flex:0 0 24px;min-height:24px;font-size:11px;line-height:18px}
+.pick-desk .stock-chart-status {flex:0 0 auto;margin:0;font-size:12px;line-height:20px;color:var(--desk-muted)}
+.stock-chart-status:empty {display:none}
+.stock-chart-link {font-size:12px;line-height:20px}
+.pick-desk .trend-stock-meta {margin:6px 0 0;font-size:11px;color:var(--desk-muted)}
+.pick-desk .trend-empty {grid-column:1/-1;margin:12px 0 16px;font-size:13px;color:var(--desk-muted)}
+#trend-pagination {margin:16px 0 0}
 @media(max-width:650px){
- .trend-screen{padding-top:14px}.trend-options{gap:12px 10px}
- .trend-options label:last-child{grid-column:1/-1}
- .pick-desk .trend-modes button{flex-basis:100%;min-height:58px}
- .trend-table{table-layout:auto}.trend-table tr td:last-child{grid-column:1/-1;justify-content:flex-start;display:block}
- .trend-table td[colspan]{grid-column:1/-1;display:block}
+ .trend-toolbar {flex-wrap:wrap;gap:8px}
+ .trend-modes {width:100%;grid-template-columns:repeat(3,minmax(0,1fr))}
+ .pick-desk .trend-modes button {padding:8px 6px;font-size:13px}
+ .trend-period {margin-left:auto}
+ .trend-results {grid-template-columns:minmax(0,1fr);gap:20px}
+ .trend-stock-chart {height:300px}
 }
-.trend-screen .pick-toolbar label {flex:0 0 auto;width:auto;white-space:nowrap;gap:6px;min-height:44px}
-.pick-desk .trend-screen input[type=checkbox] {appearance:auto;box-sizing:border-box;width:17px;height:17px;min-height:0;padding:0;margin:0;flex:0 0 17px;accent-color:var(--desk-accent)}
-
-.trend-limits {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:10px 0}
-.trend-limits label {min-width:0;font-size:12px;font-weight:550}
-.trend-limits input {display:block;width:100%;margin-top:5px}
-.trend-heat-toggle {display:inline-flex;align-items:center;gap:7px;min-height:44px}
-.pick-desk .trend-modes button[data-trend-mode=consensus] {border-color:#5b7c96}
-.pick-desk #trend-market-summary {font-size:12px;color:#526575;line-height:1.7}
-@media(max-width:850px){.trend-limits{grid-template-columns:repeat(2,minmax(0,1fr))}}

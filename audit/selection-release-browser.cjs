@@ -88,12 +88,14 @@ async function openWorkspace(page){
   let daily=0;const requestedHosts=[];
   c=await context(async(r,u)=>{if(u.pathname.endsWith('/appstock/app/fqkline/get')&&r.request().frame()===r.request().frame().page().mainFrame()){daily++;requestedHosts.push(u.hostname);await r.fulfill({status:429,json:{}});return true;}});
   page=await c.newPage();await page.goto(base+'screening/index.html',{waitUntil:'domcontentloaded'});await page.locator('[data-selection][data-state=ready]').waitFor();
+  await page.locator('details.pick-advanced > summary').click();
   await page.locator('#pick-query').fill('600519');await page.waitForFunction(()=>document.querySelectorAll('#pick-rows tr[data-code]').length===1);
   await page.locator('#pick-run').click();await page.locator('#pick-tech-access:not([hidden])').waitFor();
   assert.equal(daily,1);assert.ok(await page.locator('#pick-run').isDisabled());assert.ok(await page.locator('#pick-run-all').isDisabled());
   const again=await page.evaluate(()=>BooksTechnicalScreen.run({code:'600519.SH',asOf:'2026-11-13T08:15:00Z'},'2026-11-13'));
   assert.equal(again.sourceStopped,true);assert.equal(daily,1);
   await page.reload({waitUntil:'domcontentloaded'});await page.locator('[data-selection][data-state=ready]').waitFor();assert.ok(await page.locator('#pick-run').isDisabled());assert.equal(daily,1);
+  await page.locator('details.pick-advanced > summary').click();
   await page.locator('#pick-tech-access a').click();assert.ok(await page.locator('#research-file').isVisible());assert.equal(daily,1);
   record.checks.push({name:'Tencent stop survives repeat calls/reload and offers local-file recovery',dailyRequests:daily,requestedHosts,localFileVisible:true});await c.close();
   // Calendar boundary changes without reloading or receiving a new market batch.
