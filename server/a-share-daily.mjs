@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import { gzipSync } from 'node:zlib';
 import { setTimeout as sleep } from 'node:timers/promises';
-import {createTickflowSource,sourceId as tickflowSourceId,dataPolicy as tickflowPolicy} from './a-share-tickflow.mjs';
+import {createTickflowSource,sourceId as tickflowSourceId,dataPolicy as tickflowPolicy,barSchema,hasOHLC} from './a-share-tickflow.mjs';
 
 const require = createRequire(import.meta.url);
 export const MARKET_URL = 'https://raw.githubusercontent.com/wenyuanw/a-share-heatmap/main/src/lib/data/market-heatmap-fallback.json';
@@ -65,6 +65,8 @@ export async function precompute({ dir, siteDir, snapshot, universe, sources, re
   const engine = require(join(siteDir, 'screening/trend-screen.js'));
   const patterns=require(join(siteDir,'screening/trend-patterns.js'));
   const {riskName}=require(join(siteDir,'screening/market-pool.js'));
+  const completeOHLC=[...sources.values()].filter(source=>source.status==='ready').every(source=>hasOHLC(source.bars))&&INDICES.every(code=>hasOHLC(references.get(code)?.bars));
+  const storedBarSchema=completeOHLC?barSchema:'close-volume-v1';
   const generation = day + '-' + now();
   const target = join(dir, 'generations', generation);
   await mkdir(join(dir,'generations'),{recursive:true});
@@ -84,16 +86,22 @@ export async function precompute({ dir, siteDir, snapshot, universe, sources, re
     for (const sampleSize of ['120', '240', 'all']) {
       const selected = engine.selectMarketSample(universe, sampleSize === 'all' ? Infinity : Number(sampleSize));
       const records = selected.map(stock => ({ stock, source: sources.get(stock.code) }));
-      const dataset = { schema: 'books.research.dataset.v1',day, asOf, completed: true, collectionStatus: 'complete', expectedCount: records.length, totalUniverseCount: universe.length, universe, reference: { code: benchmark, adjustment: 'index', bars: anchor.bars, fetchedAt: anchor.fetchedAt }, records, startedAt, finishedAt };
+      const dataset = { schema: 'books.research.dataset.v1',barSchema:storedBarSchema,day, asOf, completed: true, collectionStatus: 'complete', expectedCount: records.length, totalUniverseCount: universe.length, universe, reference: { code: benchmark, adjustment: 'index', bars: anchor.bars, fetchedAt: anchor.fetchedAt }, records, startedAt, finishedAt };
       await save('dataset-' + sampleSize + '-' + benchmark, dataset,rawTarget);
       for (const lookback of [20, 60]) {
+        const relativePool=engine.buildConsensus({records:records.filter(r=>r.source.status==='ready').map(r=>({stock:r.stock,bars:r.source.bars})),calendar:anchor.bars,lookback,day,expectedCount:records.length,totalUniverseCount:universe.length});
         const modes = sampleSize === 'all' ? ['consensus', 'market', 'strength'] : ['consensus'];
         for (const mode of modes) {
           onProgress({ stage: 'precomputing', currentCode: mode + '/' + lookback + '/' + sampleSize + '/' + benchmark });
-          const consensus = mode === 'consensus' ? engine.buildConsensus({ records: records.filter(r => r.source.status === 'ready').map(r => ({ stock: r.stock, bars: r.source.bars })), calendar: anchor.bars, lookback, day, expectedCount: records.length, totalUniverseCount: universe.length }) : null;
+          const consensus = mode === 'consensus' ? relativePool : null;
           const times = records.map(r => r.source.fetchedAt).filter(Boolean).sort();
           const resultRecords = records.map(({ stock, source }) => {
             let result=source.status==='ready'?engine.evaluate({mode,bars:source.bars,referenceBars:anchor.bars,lookback,day,code:stock.code,consensus,limits:{enabled:false}}):{status:'unavailable',matched:null,reason:source.reason};
+            if(result.status==='ready'){
+              const relative=relativePool.perCode?.[stock.code];
+              if(relative)for(const key of ['relativeBaseline','excessReturn','recentExcessReturn','relativeStrengthChange','downsideExcess','downsideDays'])result.metrics[key]=relative[key];
+              result.structure=engine.deriveSupportResistance({bars:source.bars,calendar:anchor.bars,day});
+            }
             if(result.status==='ready'&&riskName(stock)){
               const ruleFailure='未满足：风险名称不在筛选资格内';
               const ruleReasons=[...(result.ruleReasons||result.reasons||[]),ruleFailure];
@@ -112,7 +120,7 @@ export async function precompute({ dir, siteDir, snapshot, universe, sources, re
     }
   }
   const ready = universe.filter(stock => sources.get(stock.code)?.status === 'ready').length;
-  const completed = { generation,sourceId,dataPolicy,patternVersion:patterns.version,patternProfile:patterns.profile, day, asOf, startedAt, finishedAt: new Date(now()).toISOString(), total: universe.length, ready,missing:universe.length-ready,coverage:ready/universe.length,fullMarket:true };
+  const completed = { generation,sourceId,dataPolicy,barSchema:storedBarSchema,patternVersion:patterns.version,patternProfile:patterns.profile, day, asOf, startedAt, finishedAt: new Date(now()).toISOString(), total: universe.length, ready,missing:universe.length-ready,coverage:ready/universe.length,fullMarket:true };
   await atomicJson(join(target, 'complete.json'), { ...completed, completed: true });
   return completed;
 }
@@ -124,7 +132,7 @@ async function optionalJson(path){
 async function completedManifest(dir,value){
   if(!value||typeof value.generation!=='string'||!/^[0-9TZ-]{1,80}$/.test(value.generation))return null;
   const marker=await optionalJson(join(dir,'generations',value.generation,'complete.json'));
-  if(marker?.completed!==true||marker.generation!==value.generation||marker.day!==value.day||marker.asOf!==value.asOf||!Number.isFinite(Date.parse(marker.asOf))||marker.total!==value.total||marker.ready!==value.ready||marker.fullMarket===false||!Number.isInteger(marker.total)||!Number.isInteger(marker.ready)||marker.total<1000||marker.ready>marker.total||marker.ready/marker.total<.8||(marker.sourceId||legacySourceId)!==(value.sourceId||legacySourceId))return null;
+  if(marker?.completed!==true||marker.generation!==value.generation||marker.day!==value.day||marker.asOf!==value.asOf||!Number.isFinite(Date.parse(marker.asOf))||marker.total!==value.total||marker.ready!==value.ready||marker.barSchema!==value.barSchema||marker.fullMarket===false||!Number.isInteger(marker.total)||!Number.isInteger(marker.ready)||marker.total<1000||marker.ready>marker.total||marker.ready/marker.total<.8||(marker.sourceId||legacySourceId)!==(value.sourceId||legacySourceId))return null;
   const required=[];
   for(const code of INDICES)for(const mode of ['consensus','market','strength'])for(const lookback of [20,60])for(const suffix of ['.json','.json.gz'])required.push(join(dir,'generations',value.generation,'result-'+mode+'-'+lookback+'-all-'+code+suffix));
   try{await Promise.all(required.map(path=>access(path)));}
@@ -177,7 +185,7 @@ export async function collect({ dir, siteDir, fetch: request = globalThis.fetch,
     const latest = calendar.latestClosed('CN', now());
     if (!latest) throw Error('交易日历未核验，不能推断目标收盘日期。');
     const previous=await completedManifest(dir,await optionalJson(join(dir,'current.json')));
-    if (previous?.day === latest.date &&(previous.sourceId||legacySourceId)===sourceId&&Date.parse(previous.asOf) >= Date.parse(latest.closeTime)) {
+    if (previous?.day === latest.date &&(previous.sourceId||legacySourceId)===sourceId&&(technicalFactory||previous.barSchema===barSchema)&&Date.parse(previous.asOf) >= Date.parse(latest.closeTime)) {
       progress({ status: 'no_new_day', stage: 'waiting', day: latest.date, total: previous.total, finishedAt: new Date(now()).toISOString() });
       await pending;
       return { attempt, lastSuccess: previous };
@@ -214,6 +222,7 @@ export async function collect({ dir, siteDir, fetch: request = globalThis.fetch,
       }
       if(record.transportError)throw Error('日线传输失败（'+stock.code+'）：'+record.reason+'；本轮已停止，已成功记录留待续跑。');
       if(!['ready','unavailable'].includes(record.status)||!technicalFactory&&(record.sourceId!==sourceId||record.day!==latest.date||record.status==='ready'&&record.adjustment!==(index?'index':'qfq')))throw Error('日线来源身份、日期或复权口径不符：'+stock.code);
+      if(!technicalFactory&&record.status==='ready'&&!hasOHLC(record.bars))throw Error('日线开高低收不完整或无效：'+stock.code+'；未发布本轮结果。');
       const clean={status:record.status,sourceId,day:latest.date,adjustment:record.adjustment||null,adjustmentMethod:record.adjustmentMethod||null,volumeUnit:record.volumeUnit||null,bars:record.bars?.slice(-61)||[],fetchedAt:record.fetchedAt||null,reason:record.reason||null};
       if(!cached)save.run(sourceId,latest.date,stock.code,asOf,JSON.stringify(clean));
       else attempt.resumed++;
@@ -222,7 +231,7 @@ export async function collect({ dir, siteDir, fetch: request = globalThis.fetch,
     }
     async function readGroup(stocks,index){
       const pending=[];
-      for(const stock of stocks){const cached=read.get(sourceId,latest.date,stock.code,asOf);if(cached&&JSON.parse(cached.source_json).status==='ready')accept(stock,JSON.parse(cached.source_json),index,true);else pending.push(stock);}
+      for(const stock of stocks){const cached=read.get(sourceId,latest.date,stock.code,asOf),record=cached&&JSON.parse(cached.source_json);if(record?.status==='ready'&&(technicalFactory||hasOHLC(record.bars)))accept(stock,record,index,true);else pending.push(stock);}
       if(!pending.length)return;
       progress({currentCode:pending[0].code});
       if(technicalFactory){for(const stock of pending)accept(stock,await source.history({...stock,asOf},latest.date,signal||new AbortController().signal,{minBars:61,index}),index);return;}

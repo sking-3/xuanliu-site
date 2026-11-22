@@ -1,4 +1,5 @@
 export const sourceId='tickflow-free-forward-v1';
+export const barSchema='ohlcv-v1';
 export const dataPolicy=Object.freeze({rawPublic:false,derivedPublic:true,provider:'TickFlow',attribution:'TickFlow',documentation:'https://docs.tickflow.org/zh-Hans/faq',maxRequestsPerMinute:60});
 
 const endpoint='https://free-api.tickflow.org/v1/klines/batch';
@@ -7,6 +8,11 @@ const indices=new Set(['000300.SH','000001.SH','399001.SZ']);
 const offset=8*60*60*1000;
 const count=100,minimum=61;
 const object=value=>value!==null&&typeof value==='object'&&!Array.isArray(value);
+export function hasOHLC(bars){
+  return Array.isArray(bars)&&bars.length===minimum&&bars.every(bar=>bar&&
+    ['open','high','low','close','volume'].every(field=>typeof bar[field]==='number'&&Number.isFinite(bar[field])&&bar[field]>0)&&
+    bar.high>=Math.max(bar.open,bar.close)&&bar.low<=Math.min(bar.open,bar.close));
+}
 function transport(message){return Object.assign(new Error('TickFlow '+message),{transportError:true});}
 function responseError(response,url,body,message){
   const responseSummary=body.replace(/\b(Bearer|Basic)\s+[^\s"'<>]+/gi,'$1 [redacted]')
@@ -36,12 +42,12 @@ function readSeries(series,day){
     const [open,high,low,close,volume]=fields.slice(1).map(field=>series[field][i]);
     if(![open,high,low,close,volume].every(value=>typeof value==='number'&&Number.isFinite(value)&&value>=0))throw transport('日线数值格式异常');
     if(high<Math.max(open,close)||low>Math.min(open,close))throw transport('日线价格范围异常');
-    bars.push({date,close,volume});
+    bars.push({date,open,high,low,close,volume});
   }
   if(size<minimum)return {reason:'不足61个交易日日线'};
   if(bars.at(-1).date!==day)return {reason:'缺少目标交易日日线'};
   const selected=bars.slice(-minimum);
-  if(selected.some(bar=>bar.close<=0||bar.volume<=0))return {reason:'所需日线存在无成交或无有效价格的交易日'};
+  if(!hasOHLC(selected))return {reason:'所需日线存在无成交或无有效开高低收的交易日'};
   return {bars:selected};
 }
 

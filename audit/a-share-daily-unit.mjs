@@ -4,7 +4,7 @@ import { mkdtemp, readFile, writeFile, rm, mkdir, readdir } from 'node:fs/promis
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { collect, createGuard, openStore, precompute, recomputeFromCache, retryAfter, INDICES } from '../server/a-share-daily.mjs';
-import {sourceId,dataPolicy} from '../server/a-share-tickflow.mjs';
+import {sourceId,dataPolicy,barSchema,hasOHLC} from '../server/a-share-tickflow.mjs';
 import {gzipSync} from 'node:zlib';
 import patterns from '../screening/trend-patterns.js';
 
@@ -20,7 +20,8 @@ function options(dir, changes = {}) {
   const input={ dir, siteDir: resolve('.'), now, wait: async () => {}, calendar: { latestClosed: () => latest }, pool: { build: value => ({ day: value.updatedAt.slice(0, 10), rows: stocks }), select: rows => rows }, fetch: async () => Response.json({ updatedAt: asOf }), technicalFactory: () => ({ history: async (stock, day, signal, settings) => ({ status: 'ready', adjustment: settings.index ? 'index' : 'qfq', bars: [{ date: day, close: 1, volume: 1 }], fetchedAt: new Date(now()).toISOString() }) }), compute: async value => ({ generation: '2026-11-20-1', day: value.day, asOf: value.asOf, total: value.universe.length, ready: [...value.sources.values()].filter(source=>source.status==='ready').length }), ...changes };
   const compute=input.compute;
   input.compute=async value=>{
-    const result={...await compute(value),sourceId:value.sourceId,dataPolicy:value.dataPolicy,fullMarket:true};
+    const completeOHLC=value.sources&&value.references&&[...value.sources.values()].filter(source=>source.status==='ready').every(source=>hasOHLC(source.bars))&&INDICES.every(code=>hasOHLC(value.references.get(code)?.bars));
+    const result={...await compute(value),sourceId:value.sourceId,dataPolicy:value.dataPolicy,barSchema:completeOHLC?barSchema:'close-volume-v1',fullMarket:true};
     const directory=join(dir,'generations',result.generation);await mkdir(directory,{recursive:true});
     for(const code of INDICES)for(const mode of ['consensus','market','strength'])for(const lookback of [20,60]){const body=JSON.stringify({generation:result.generation,mode,lookback,reference:{code},records:[]}),path=join(directory,'result-'+mode+'-'+lookback+'-all-'+code+'.json');await writeFile(path,body);await writeFile(path+'.gz',gzipSync(body));}
     await writeFile(join(directory,'complete.json'),JSON.stringify({...result,completed:true}));
@@ -145,11 +146,35 @@ test('default source batches all main-board records including risk names through
     return {generation:'2026-11-20-2',day:value.day,asOf:value.asOf,total:value.universe.length,ready:value.sources.size};
   }});
   const result=await collect(input);assert.equal(result.attempt.status,'complete');assert.equal(result.attempt.checked,1000);assert.equal(result.attempt.resumed,0);assert.equal(result.attempt.requests,22);
+  assert.equal(result.lastSuccess.barSchema,barSchema);
   assert.equal(requests.filter(url=>url.includes('tickflow')).length,21);assert(requests.every(url=>!url.includes('gtimg')&&!url.includes('finance.qq')));assert.equal(waits.length,21);assert(waits.every(ms=>ms===1500));
   const check=openStore(join(dir,'collector.sqlite'));assert.equal(check.prepare('SELECT count(*) AS n FROM history').get().n,1);assert.equal(check.prepare('SELECT count(*) AS n FROM history_v2 WHERE source_id=?').get(sourceId).n,1003);check.close();
   assert.equal((await collect(input)).attempt.status,'no_new_day');assert.equal(requests.length,22);
   await rm(join(dir,'generations','2026-11-20-2','result-strength-60-all-399001.SZ.json.gz'));
   const rebuilt=await collect(input);assert.equal(rebuilt.attempt.status,'complete');assert.equal(rebuilt.attempt.resumed,1003);assert.equal(computes,2);assert.equal(requests.length,22);
+}));
+test('same-day close-only caches are upgraded through the existing guarded source without erasing the last completed result on failure',async()=>fixture(async dir=>{
+  const input=options(dir,{technicalFactory:undefined,fetch:tickflowResponse});
+  const first=await collect(input);assert.equal(first.attempt.status,'complete');assert.equal(first.lastSuccess.barSchema,barSchema);
+  const pointer={...first.lastSuccess};delete pointer.barSchema;
+  const markerPath=join(dir,'generations',pointer.generation,'complete.json'),marker=JSON.parse(await readFile(markerPath));delete marker.barSchema;
+  await writeFile(join(dir,'current.json'),JSON.stringify(pointer));await writeFile(markerPath,JSON.stringify(marker));
+  const db=openStore(join(dir,'collector.sqlite'));
+  const rows=db.prepare('SELECT code,source_json FROM history_v2 WHERE source_id=?').all(sourceId);
+  for(const row of rows){const record=JSON.parse(row.source_json);record.bars=record.bars.map(({date,close,volume})=>({date,close,volume}));db.prepare('UPDATE history_v2 SET source_json=? WHERE source_id=? AND code=?').run(JSON.stringify(record),sourceId,row.code);}
+  db.close();
+  let calls=0;const failed=await collect({...input,fetch:async()=>{calls++;return new Response('',{status:501});}});
+  assert.equal(failed.attempt.status,'failed');assert.equal(calls,1);assert.equal(failed.attempt.resumed,0);assert.deepEqual(JSON.parse(await readFile(join(dir,'current.json'))),pointer);
+  const upgraded=await collect(input);assert.equal(upgraded.attempt.status,'complete');assert.equal(upgraded.attempt.requests,21);assert.equal(upgraded.attempt.resumed,0);assert.equal(upgraded.lastSuccess.barSchema,barSchema);
+  const check=openStore(join(dir,'collector.sqlite'));assert.equal(check.prepare('SELECT count(*) AS n FROM history_v2 WHERE source_id=?').get(sourceId).n,1003);
+  for(const row of check.prepare('SELECT source_json FROM history_v2 WHERE source_id=?').all(sourceId))assert.equal(hasOHLC(JSON.parse(row.source_json).bars),true);
+  check.close();assert.equal((await collect(input)).attempt.status,'no_new_day');
+}));
+test('an injected ready source with incomplete OHLC cannot be published or overwrite the prior pointer',async()=>fixture(async dir=>{
+  const old={generation:'2026-11-19-1',day:'2026-11-19'};await writeFile(join(dir,'current.json'),JSON.stringify(old));
+  const sourceFactory=()=>({historyBatch:async(rows,day,{index})=>new Map(rows.map(stock=>[stock.code,{status:'ready',sourceId,day,adjustment:index?'index':'qfq',bars:[{date:day,close:1,volume:1}],fetchedAt:new Date(now()).toISOString()}]))});
+  const result=await collect(options(dir,{technicalFactory:undefined,sourceFactory,fetch:tickflowResponse}));
+  assert.equal(result.attempt.status,'failed');assert.match(result.attempt.error,/开高低收/);assert.equal(result.attempt.checked,0);assert.deepEqual(JSON.parse(await readFile(join(dir,'current.json'))),old);
 }));
 test('a failed batch preserves exact successful codes and frozen snapshot for source-aware continuation without inventing remaining missing rows',async()=>fixture(async dir=>{
   let calls=0,failed=true;
@@ -184,13 +209,14 @@ test('batch transport diagnostics are preserved with zero fake progress or addit
 test('public precomputation contains derived metrics only while raw bars stay private and risk-name eligibility never shrinks the collected universe',async()=>fixture(async dir=>{
   const raw=series(),bars=raw.timestamp.map(stamp=>({date:new Date(stamp+8*3600000).toISOString().slice(0,10),close:100,volume:100}));
   [99,99,99,99,99,99.5,100,100.5,101,101.5].forEach((close,i)=>{bars[bars.length-10+i].close=close;});
+  for(const bar of bars)Object.assign(bar,{open:bar.close-.1,high:bar.close+.2,low:bar.close-.2});
   const universe=stocks.slice(0,40).map((stock,i)=>({...stock,name:i===0?'*ST测试':stock.name})),sources=new Map(universe.map(stock=>[stock.code,{status:'ready',sourceId,day:latest.date,adjustment:'qfq',adjustmentMethod:'比例前复权',volumeUnit:'手',bars,fetchedAt:new Date(now()).toISOString()}]));
-  const references=new Map(INDICES.map((code,i)=>[code,{status:'ready',sourceId,adjustment:'index',bars:bars.map(bar=>({...bar,close:bar.close*(i+1)})),fetchedAt:new Date(now()).toISOString()}]));
+  const references=new Map(INDICES.map((code,i)=>[code,{status:'ready',sourceId,adjustment:'index',bars:bars.map(bar=>({...bar,open:bar.open*(i+1),high:bar.high*(i+1),low:bar.low*(i+1),close:bar.close*(i+1)})),fetchedAt:new Date(now()).toISOString()}]));
   const input={dir,siteDir:resolve('.'),snapshot:{updatedAt:asOf,stocks:[{price:987654321}]},universe,sources,references,sourceId,dataPolicy,day:latest.date,asOf,startedAt:asOf,now};
   const published=await precompute(input);
   const location=join(dir,'generations',published.generation),files=await readdir(location);assert.equal(files.some(name=>name.startsWith('dataset-')||name.startsWith('market.')),false);
-  assert.equal(published.dataPolicy.rawPublic,false);assert.equal(published.sourceId,sourceId);assert.equal(published.total,40);assert.equal(published.coverage,1);
-  const privateData=JSON.parse(await readFile(join(dir,'private','generations',published.generation,'dataset-all-000300.SH.json')));assert.equal(privateData.records.length,40);assert.equal(privateData.records[0].source.bars[0].close,bars[0].close);
+  assert.equal(published.dataPolicy.rawPublic,false);assert.equal(published.sourceId,sourceId);assert.equal(published.barSchema,barSchema);assert.equal(published.total,40);assert.equal(published.coverage,1);
+  const privateData=JSON.parse(await readFile(join(dir,'private','generations',published.generation,'dataset-all-000300.SH.json')));assert.equal(privateData.records.length,40);assert.deepEqual(privateData.records[0].source.bars,bars);assert.equal(privateData.barSchema,barSchema);
   assert.equal(Object.hasOwn(privateData,'dataPolicy'),false);assert.equal(Object.hasOwn(privateData,'sourceId'),false);
   const model=(await import('../control/model.js')).default,engine=(await import('../screening/trend-screen.js')).default;assert.equal(model.normalizeDataset(privateData).records.length,40);
   for(const mode of ['consensus','market','strength'])for(const lookback of [20,60]){
@@ -238,6 +264,7 @@ test('offline replay bypasses same-day collection skip, publishes complete deriv
   t.mock.method(globalThis,'fetch',()=>{throw Error('offline replay must not request external data');});
   const replay=await recomputeFromCache({dir,siteDir:resolve('.'),now:()=>now()+1000});
   assert.equal(replay.attempt.jobType,'recompute');assert.equal(replay.attempt.status,'complete');assert.equal(replay.attempt.requests,0);assert.equal(replay.lastSuccess.recomputedFrom,f.previous.generation);assert.equal(replay.lastSuccess.patternVersion,patterns.version);assert.equal(replay.lastSuccess.patternProfile.id,'daily-close-volume-v1');
+  assert.equal(replay.lastSuccess.barSchema,'close-volume-v1');
   assert.equal(replay.lastSuccess.day,latest.date);assert.equal(replay.lastSuccess.asOf,asOf);assert.equal(replay.lastSuccess.total,1000);assert.equal(replay.lastSuccess.ready,999);
   assert.equal(await readFile(join(dir,'status.json'),'utf8'),'中止或完成的原始采集回执保持不变');assert.equal(await readFile(join(f.location,'dataset-all-000300.SH.json'),'utf8'),before);
   assert.equal(JSON.parse(await readFile(join(dir,'current.json'))).generation,replay.lastSuccess.generation);

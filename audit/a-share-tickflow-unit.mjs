@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {createTickflowSource,sourceId,dataPolicy} from '../server/a-share-tickflow.mjs';
+import {createTickflowSource,sourceId,dataPolicy,barSchema,hasOHLC} from '../server/a-share-tickflow.mjs';
 
 const day='2026-11-20',now=()=>Date.parse('2026-11-21T01:00:00Z');
 const stocks=[{code:'600519.SH'},{code:'000333.SZ'}];
@@ -23,9 +23,19 @@ test('one injected request maps all requested symbols and preserves actual close
   assert.equal(url.searchParams.get('period'),'1d');assert.equal(url.searchParams.get('adjust'),'forward');assert.equal(url.searchParams.get('count'),'100');assert.equal(url.searchParams.get('end_time'),'1795190400000');assert.equal(options.redirect,'error');
   for(const source of result.values()){
     assert.equal(source.status,'ready');assert.equal(source.bars.length,61);assert.equal(source.bars.at(-1).date,day);assert.equal(source.bars[0].close,raw.close.at(-61));assert.equal(source.bars.at(-1).volume,raw.volume.at(-1));
+    assert.deepEqual(source.bars[0],{date:source.bars[0].date,open:raw.open.at(-61),high:raw.high.at(-61),low:raw.low.at(-61),close:raw.close.at(-61),volume:raw.volume.at(-61)});
+    assert.deepEqual(source.bars.at(-1),{date:day,open:raw.open.at(-1),high:raw.high.at(-1),low:raw.low.at(-1),close:raw.close.at(-1),volume:raw.volume.at(-1)});assert.equal(hasOHLC(source.bars),true);
     assert.equal(source.sourceId,sourceId);assert.equal(source.adjustment,'qfq');assert.equal(source.adjustmentMethod,'比例前复权');assert.equal(source.volumeUnit,'手');assert.equal(source.fetchedAt,new Date(now()).toISOString());
   }
-  assert.equal(sourceId,'tickflow-free-forward-v1');assert.equal(dataPolicy.rawPublic,false);assert.equal(dataPolicy.derivedPublic,true);assert.equal(dataPolicy.maxRequestsPerMinute,60);
+  assert.equal(sourceId,'tickflow-free-forward-v1');assert.equal(barSchema,'ohlcv-v1');assert.equal(dataPolicy.rawPublic,false);assert.equal(dataPolicy.derivedPublic,true);assert.equal(dataPolicy.maxRequestsPerMinute,60);
+});
+test('close-only histories cannot claim OHLC coverage and invalid positive-price ranges are rejected',async()=>{
+  const raw=series(),h=fixture({'600519.SH':raw}),source=(await h.api.historyBatch([stocks[0]],day)).get('600519.SH');
+  const closeOnly=source.bars.map(({date,close,volume})=>({date,close,volume}));assert.equal(hasOHLC(closeOnly),false);assert.equal(hasOHLC([]),false);
+  for(const mutate of [bar=>{delete bar.open;},bar=>{bar.low=bar.high+1;},bar=>{bar.high=bar.close-1;},bar=>{bar.open=0;},bar=>{bar.volume=NaN;}]){
+    const bars=copy(source.bars);mutate(bars.at(-1));assert.equal(hasOHLC(bars),false);
+  }
+  raw.open[raw.open.length-1]=0;const zero=fixture({'600519.SH':raw});await assert.rejects(zero.api.historyBatch([stocks[0]],day),error=>error.transportError===true);
 });
 test('the three index symbols share one unadjusted batch and retain index provenance',async()=>{
   const indices=['000300.SH','000001.SH','399001.SZ'],h=fixture(Object.fromEntries(indices.map(code=>[code,series()])));
