@@ -78,3 +78,12 @@ test('direction, early strength and pattern thresholds survive the actual consol
  f.elements.get('cfg-pattern-pullback-min').value='7';await f.emit('config-form','submit');assert.equal(f.requests.filter(request=>request.method==='POST').length,posts);
  f.elements.get('cfg-pattern-pullback-min').value='1';f.elements.get('cfg-cross-days').value='';await f.emit('config-form','submit');assert.equal(f.requests.filter(request=>request.method==='POST').length,posts);
 });
+
+test('editing an existing console draft preserves every saved peer rule through save export and import',async()=>{
+ const peer={enabled:true,groupTopPercent:25,minPeers:8,minExcessReturn:1,minRecentExcess:.2,minImprovement:.1,minDownsideExcess:.3,maxSupportDistance:4,minResistanceSpace:6,sectorTopPercent:40};
+ const f=await fixture([{name:'含强弱条件',settings:{peer}}]);
+ f.elements.get('cfg-name').value='只改名字保留强弱';await f.emit('config-form','input');await f.emit('config-form','submit');
+ assert.deepEqual(f.state.config.settings.peer,peer);assert.deepEqual((await f.exported()).settings.peer,peer);
+ const text=JSON.stringify({name:'旧方案导入',settings:{}});f.elements.get('import-config').files=[{size:text.length,text:async()=>text}];await f.emit('import-config','change');
+ assert.equal((await f.exported()).settings.peer.enabled,false);assert.equal((await f.exported()).settings.peer.maxSupportDistance,null);
+});
