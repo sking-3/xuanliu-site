@@ -40,11 +40,42 @@ test('selection strictly preserves pattern, qualification and deduplicated scope
   for(const name of ['', 'x'.repeat(81),'<script>'])assert.throws(()=>save(store,{name}));
   for(const config of [null,[],{settings:{mode:'other'}},{settings:{strength:{crossWithinDays:21}}}])assert.throws(()=>save(store,{config}),error=>error.status===400);
 });
-test('same scheme revision and source day complete exactly once regardless of generation or engine changes',t=>{
+test('the same scheme revision, day and method complete once regardless of generation',t=>{
   const {store}=fixture(t),scheme=save(store),run=begin(store,scheme);
   assert.equal(run.status,'running');assert.equal(run.id,store.get(scheme.id).attempt.id);assert.throws(()=>begin(store,scheme),error=>error.status===409);
-  const finished=complete(store,run),before=JSON.stringify(finished),again=begin(store,scheme,{generation:day+'-offline-2',engineVersion:'next-engine'});assert.equal(again.skipped,true);assert.equal(again.run.id,run.id);assert.equal(JSON.stringify(again.run),before);assert.equal(store.runs(scheme.id).length,1);assert.equal(store.latestRun(scheme.id).id,run.id);
+  const finished=complete(store,run),before=JSON.stringify(finished),again=begin(store,scheme,{generation:day+'-offline-2'});assert.equal(again.skipped,true);assert.equal(again.run.id,run.id);assert.equal(JSON.stringify(again.run),before);assert.equal(store.runs(scheme.id).length,1);assert.equal(store.latestRun(scheme.id).id,run.id);
   assert.deepEqual(complete(store,run,{records:[record('000001.SZ')]}),finished);assert.equal(store.failRun(run.id,'late error').status,'complete');
+});
+test('same-day source, engine and pattern changes create independent method results while running work still blocks other methods',t=>{
+  const {store,db}=fixture(t),scheme=save(store),first=begin(store,scheme);
+  assert.throws(()=>begin(store,scheme,{engineVersion:'next-engine'}),error=>error.code==='run_in_progress');
+  complete(store,first);const original=store.getRun(first.id);
+  for(const method of [{sourceId:'next-provider'},{engineVersion:'next-engine'},{patternVersion:'next-pattern'}]){
+    const run=begin(store,scheme,{...method,kind:'baseline'});assert.equal(run.skipped,undefined);complete(store,run,{records:[],summary:{isBaseline:true,new:0}});
+    const again=begin(store,scheme,{...method,generation:day+'-another-generation'});assert.equal(again.skipped,true);assert.equal(again.run.id,run.id);
+  }
+  assert.equal(store.runs(scheme.id).length,4);assert.deepEqual(store.getRun(first.id),original);
+  const changed=store.runs(scheme.id).find(run=>run.engineVersion==='next-engine');
+  assert.throws(()=>db.prepare('UPDATE screening_scheme_run SET engine_version=? WHERE id=?').run(model.engineVersion,changed.id),/UNIQUE/);
+  assert.equal(store.getRun(changed.id).engineVersion,'next-engine');
+});
+test('legacy completed-day index migrates atomically without changing stored runs or episodes',t=>{
+  const {store,db,reopen}=fixture(t),scheme=save(store),run=begin(store,scheme),episode=track(scheme,run);complete(store,run,{tracks:[episode]});
+  db.exec("DROP INDEX screening_scheme_completed_method; CREATE UNIQUE INDEX screening_scheme_completed_day ON screening_scheme_run(scheme_id,revision,day) WHERE status='complete'");
+  const runs=db.prepare('SELECT * FROM screening_scheme_run').all(),tracks=db.prepare('SELECT * FROM screening_scheme_track').all(),second=reopen();
+  const names=db.prepare("SELECT name FROM sqlite_master WHERE type='index'").all().map(row=>row.name);
+  assert(names.includes('screening_scheme_completed_method'));assert(!names.includes('screening_scheme_completed_day'));
+  assert.deepEqual(db.prepare('SELECT * FROM screening_scheme_run').all(),runs);assert.deepEqual(db.prepare('SELECT * FROM screening_scheme_track').all(),tracks);
+  const upgraded=begin(second,scheme,{engineVersion:'upgraded-engine',kind:'baseline'});complete(second,upgraded,{records:[],summary:{new:0}});
+  assert.equal(second.runs(scheme.id).length,2);assert.deepEqual(second.getRun(run.id),store.getRun(run.id));assert.deepEqual(second.tracks(scheme.id),[episode]);
+  assert.equal(begin(reopen(),scheme,{engineVersion:'upgraded-engine'}).skipped,true);
+});
+test('a failed index migration rolls back and can be retried without dropping old uniqueness or data',t=>{
+  const {store,db,reopen}=fixture(t),scheme=save(store),run=begin(store,scheme);complete(store,run);
+  db.exec("DROP INDEX screening_scheme_completed_method; CREATE UNIQUE INDEX screening_scheme_completed_day ON screening_scheme_run(scheme_id,revision,day) WHERE status='complete'; CREATE TABLE screening_scheme_completed_method(value TEXT)");
+  const before=db.prepare('SELECT * FROM screening_scheme_run').all();assert.throws(()=>reopen());
+  assert(db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='screening_scheme_completed_day'").get());assert.deepEqual(db.prepare('SELECT * FROM screening_scheme_run').all(),before);
+  db.exec('DROP TABLE screening_scheme_completed_method');assert.equal(begin(reopen(),scheme).skipped,true);assert.deepEqual(db.prepare('SELECT * FROM screening_scheme_run').all(),before);
 });
 test('failed attempts retain previous success and retry the same day without manufacturing exits',t=>{
   const {store}=fixture(t),scheme=save(store),first=begin(store,scheme);complete(store,first);

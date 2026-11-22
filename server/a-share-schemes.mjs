@@ -55,8 +55,6 @@ export function createSchemeStore({db,model,patterns,now=Date.now}){
       status TEXT NOT NULL,started_at TEXT NOT NULL,finished_at TEXT,error TEXT,
       records_json TEXT NOT NULL DEFAULT '[]',summary_json TEXT
     );
-    CREATE UNIQUE INDEX IF NOT EXISTS screening_scheme_completed_day
-      ON screening_scheme_run(scheme_id,revision,day) WHERE status='complete';
     CREATE TABLE IF NOT EXISTS screening_scheme_track (
       id TEXT PRIMARY KEY,scheme_id TEXT NOT NULL,revision INTEGER NOT NULL,code TEXT NOT NULL,
       entry_day TEXT NOT NULL,episode_json TEXT NOT NULL,updated_at TEXT NOT NULL
@@ -67,6 +65,11 @@ export function createSchemeStore({db,model,patterns,now=Date.now}){
     db.exec('BEGIN IMMEDIATE');
     try{const result=fn();db.exec('COMMIT');return result;}catch(error){db.exec('ROLLBACK');throw error;}
   }
+  transaction(()=>db.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS screening_scheme_completed_method
+      ON screening_scheme_run(scheme_id,revision,day,source_id,engine_version,pattern_version) WHERE status='complete';
+    DROP INDEX IF EXISTS screening_scheme_completed_day;
+  `));
   function owner(value){if(!identifier(value))reject(400,'invalid_owner','方案归属无效');return value;}
   function row(id){return identifier(id)?q('SELECT * FROM screening_scheme WHERE id=?').get(id):null;}
   function owned(ownerId,id){const result=row(id);if(!result||result.owner_id!==owner(ownerId))reject(404,'scheme_not_found','找不到该方案');return result;}
@@ -116,7 +119,7 @@ export function createSchemeStore({db,model,patterns,now=Date.now}){
     if(!row(schemeId)||!Number.isSafeInteger(revision)||revision<1||!version(schemeId,revision))reject(404,'scheme_version_not_found','找不到该方案版本');
     day(sourceDay);timestamp(asOf);for(const value of [generation,sourceId,engineVersion,patternVersion,kind])text(value,'运行来源',160);
     return transaction(()=>{
-      const completed=q("SELECT * FROM screening_scheme_run WHERE scheme_id=? AND revision=? AND day=? AND status='complete'").get(schemeId,revision,sourceDay);
+      const completed=q("SELECT * FROM screening_scheme_run WHERE scheme_id=? AND revision=? AND day=? AND source_id=? AND engine_version=? AND pattern_version=? AND status='complete'").get(schemeId,revision,sourceDay,sourceId,engineVersion,patternVersion);
       if(completed)return {skipped:true,run:runView(completed,true)};
       const previous=q("SELECT day FROM screening_scheme_run WHERE scheme_id=? AND revision=? AND status='complete' ORDER BY day DESC LIMIT 1").get(schemeId,revision);
       if(previous&&sourceDay<previous.day)reject(409,'data_day_regression','数据日不能回退');

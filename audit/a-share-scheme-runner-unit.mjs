@@ -59,6 +59,21 @@ test('saved revisions and engine changes establish explicit baselines instead of
   f.db.prepare("UPDATE screening_scheme_run SET engine_version='older-engine' WHERE id=?").run(run.id);
   await f.batch('2026-11-04');await f.run();run=f.store.latestRun(scheme.id);assert.equal(run.summary.baselineReason,'engine_changed');assert.equal(run.summary.new,0);assert.equal(run.summary.baseline,2);assert.equal(run.revision,revised.revision);
 });
+test('a same-day engine upgrade creates a new baseline without rewriting old results or entry identities and then skips the same method',async t=>{
+  const f=await fixture(t),scheme=f.save();await f.batch('2026-11-02');const currentVersion=model.engineVersion;
+  model.engineVersion=currentVersion+'-previous';
+  try{assert.equal((await f.run()).status,'complete');}finally{model.engineVersion=currentVersion;}
+  const old=f.store.latestRun(scheme.id),oldRecords=JSON.stringify(old.records),entries=f.store.tracks(scheme.id).map(track=>({id:track.id,engineVersion:track.engineVersion,enteredRunId:track.enteredRunId,entryDay:track.entryDay,knownAt:track.knownAt,observations:track.observations}));
+  f.setNow(f.now()+1000);const result=await f.run();assert.equal(result.status,'complete');const run=f.store.latestRun(scheme.id);
+  assert.notEqual(run.id,old.id);assert.equal(run.day,old.day);assert.equal(run.kind,'baseline');assert.equal(run.summary.baselineReason,'engine_changed');assert.equal(run.summary.new,0);assert.equal(run.summary.baseline,2);assert.equal(run.summary.exited,0);assert.equal(run.engineVersion,currentVersion);
+  assert.equal(JSON.stringify(f.store.getRun(old.id).records),oldRecords);assert.equal(f.store.getRun(old.id).engineVersion,currentVersion+'-previous');
+  for(const entry of entries){
+    const kept=f.store.tracks(scheme.id).find(track=>track.id===entry.id);for(const key of ['engineVersion','enteredRunId','entryDay','knownAt'])assert.equal(kept[key],entry[key]);
+    for(const [horizon,observation]of Object.entries(entry.observations))if(['ready','not_observable'].includes(observation.status))assert.deepEqual(kept.observations[horizon],observation);
+  }
+  assert.equal(f.store.tracks(scheme.id).length,4);assert.equal(f.store.runs(scheme.id).length,2);
+  const repeat=await f.run();assert.equal(repeat.schemes[0].status,'skipped');assert.equal(repeat.schemes[0].runId,run.id);assert.equal(f.store.runs(scheme.id).length,2);
+});
 test('same-batch qfq observations use verified market sessions, retain blank gaps and never backfill a move known before scheme creation',async t=>{
   const f=await fixture(t),scheme=f.save({selection:{patternId:'',qualification:'strict',scopeCodes:[scopeCodes[0]]}});const first=await f.batch('2026-11-06');await f.run();
   const originalAnchor=first.dataset.records[0].source.bars.at(-1).close;
