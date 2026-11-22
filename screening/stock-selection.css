@@ -127,7 +127,11 @@
 .trend-scheme-review-controls {display:flex;gap:12px;flex-wrap:wrap;margin:8px 0 12px}
 .pick-desk .trend-scheme-note {font-size:11px;line-height:1.6;color:var(--desk-muted);margin:8px 0}
 .trend-scheme-table-wrap {max-width:100%;overflow-x:auto}
-.trend-scheme-table {min-width:620px;width:100%;font-size:12px;font-variant-numeric:tabular-nums}
+.trend-scheme-table {table-layout:fixed;min-width:620px;width:100%;font-size:12px;font-variant-numeric:tabular-nums}
+.trend-scheme-table th:first-child {text-align:left;width:200px}
+.trend-scheme-table th:nth-child(2) {width:70px}
+.trend-scheme-table td {padding:8px 4px;border-top:1px solid var(--desk-border);vertical-align:top}
+.trend-scheme-table a {display:block;min-height:24px;align-content:center}
 .trend-scheme-table th:not(:first-child),.trend-scheme-table td:not(:first-child) {text-align:right;white-space:nowrap}
 .trend-scheme-table td:first-child {min-width:140px}
 .trend-scheme-table small {display:block;font-size:11px;color:var(--desk-muted)}

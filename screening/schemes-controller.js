@@ -14,6 +14,8 @@
  const statuses={running:'运行中',complete:'已完成',error:'失败'};
  const horizons=[1,3,5,10,20];
  const percent=value=>(value>0?'+':'')+value.toLocaleString('zh-CN',{maximumFractionDigits:2})+'%';
+ const beijingTime=new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'});
+ const stamp=value=>typeof value==='string'&&Number.isFinite(Date.parse(value))?beijingTime.format(new Date(value))+'（北京）':'未提供';
  function mount(doc,options={}){
   const el=id=>doc.getElementById('trend-scheme-'+id),host=el('select');if(!host)return null;
   const env=doc.defaultView||globalThis,app=options.app||env.BooksTrendControllerApp;
@@ -62,7 +64,8 @@
     name.textContent=record.stock.name+' '+record.stock.code;
     const symbol=/^(\d{6})\.(SH|SZ)$/.exec(record.stock.code);
     if(symbol)name.href='../chart.html?tvwidgetsymbol='+encodeURIComponent((symbol[2]==='SH'?'SSE:':'SZSE:')+symbol[1]);
-    date.textContent=track?'入选 '+track.entryDay:'未确认入选';stock.append(name,date);
+    date.textContent=track?'观察起点 '+track.entryDay:'未确认入选';
+    if(track){date.title='首次确认 '+stamp(track.knownAt);date.setAttribute('aria-label',date.textContent+' · '+date.title);}stock.append(name,date);
     const change=cell(row,changes[record.change]);
     if(record.change==='unknown'){const reason=doc.createElement('small');reason.textContent=record.reason;change.append(reason);}
     for(const days of horizons){
@@ -96,6 +99,11 @@
    const collection=state.collection?.attempt;
    if(collection?.status==='failed')status='收盘采集失败：'+collection.error+'；'+(run?'保留数据日 '+run.day+' 上次结果。':'尚无已完成方案结果。');
    else if(collection?.status==='running')status='收盘采集中 · '+collection.stage+' '+collection.checked+'/'+collection.total+'；'+(run?'保留数据日 '+run.day+' 上次结果。':'完成后更新方案。');
+   if(run){
+    const baseline=run.summary?.isBaseline;
+    status+=' · 来源 '+stamp(run.asOf)+' · '+(baseline?'建档 ':'执行 ')+stamp(run.startedAt);
+    if(baseline)status+=' · '+(run.summary.baselineReason==='first_run'?'首次':'本次')+'基准，不回填旧信号。';
+   }
    el('run-status').textContent=state.id?status:'';renderRows();
   }
   function queuePoll(){
