@@ -302,10 +302,10 @@ function dom(){
  const env=new Target(),ids={},doc={defaultView:env,getElementById:id=>ids[id],createElement:tag=>new Element(tag)};
  env.setInterval=setInterval;env.clearInterval=clearInterval;
  env.CustomEvent=class{constructor(type,options){this.type=type;this.detail=options.detail;}};
- for(const id of ['trend-screen','trend-lookback','trend-pattern','trend-display','trend-breadth','trend-consensus-controls','trend-qualified-only','trend-consensus-status','trend-status','trend-count','trend-results','trend-pagination','trend-prev','trend-next','trend-page','trend-direction-controls','trend-direction-settings','trend-strength-controls','trend-heat-enabled','trend-settings-error','trend-reset-settings','trend-strategy-status'])ids[id]=new Element();
+ for(const id of ['trend-screen','trend-lookback','trend-pattern','trend-display','trend-breadth','trend-consensus-controls','trend-qualified-only','trend-consensus-status','trend-status','trend-count','trend-results','trend-pagination','trend-prev','trend-next','trend-page','trend-direction-controls','trend-direction-settings','trend-strength-controls','trend-heat-enabled','trend-settings-error','trend-reset-settings','trend-strategy-status','trend-peer-enabled','trend-peer-status'])ids[id]=new Element();
  for(const mode of ['consensus','market','strength']){const button=new Element('button');button.dataset.trendMode=mode;ids['trend-screen'].append(button);}
  for(const direction of ['up','down','sideways','all']){const button=new Element('button');button.dataset.trendDirection=direction;ids['trend-screen'].append(button);}
- for(const [data,keys]of Object.entries({trendDirectionRule:['minimumReturnPercent','maximumSidewaysRangePercent'],trendStrength:['crossWithinDays','minReturn5'],trendLimit:['maxReturn20','maxReturn60','maxReturn5','maxDeviation','maxVolumeRatio'],trendPatternParam:['nearPct','rangePct','crossWindow','pullbackMinPct','pullbackMaxPct','volumeExpandRatio','volumeContractRatio']}))for(const key of keys){const field=new Element('input');field.dataset[data]=key;ids['trend-screen'].append(field);}
+ for(const [data,keys]of Object.entries({trendDirectionRule:['minimumReturnPercent','maximumSidewaysRangePercent'],trendStrength:['crossWithinDays','minReturn5'],trendPeer:['groupTopPercent','minPeers','minExcessReturn','minRecentExcess','minImprovement','minDownsideExcess','maxSupportDistance','minResistanceSpace','sectorTopPercent'],trendLimit:['maxReturn20','maxReturn60','maxReturn5','maxDeviation','maxVolumeRatio'],trendPatternParam:['nearPct','rangePct','crossWindow','pullbackMinPct','pullbackMaxPct','volumeExpandRatio','volumeContractRatio']}))for(const key of keys){const field=new Element('input');field.dataset[data]=key;ids['trend-screen'].append(field);}
  ids['trend-lookback'].value='20';return {env,ids,doc};
 }
 function chartSpy(){
@@ -510,7 +510,7 @@ function earlyStrengthResult(){
 test('public landing is early strength with five-day main return and a separately labeled negative20-day return',async t=>{
  const s=mounted({configuration:undefined});t.after(()=>s.app.destroy());s.setResult(earlyStrengthResult());await s.app.start('strength');
  assert.equal(s.app.getState().mode,'strength');assert.equal(s.app.getState().direction,'up');assert.equal(s.app.getState().limits.maxReturn20,10);assert.equal(s.app.getState().limits.maxReturn60,20);
- const item=articles(s)[0],change=item.children[0].children[1],qualification=item.children[1];
+ const item=articles(s)[0],change=item.children[0].children[1],qualification=item.children.find(node=>node.className==='trend-stock-qualification');
  assert.equal(articles(s).length,1);assert.equal(change.children[0].textContent,'+1.43%');assert.equal(change.children[1].textContent,'近5日涨跌');assert.equal(change.children[2].textContent,'20日 -2.47%');
  assert.equal(qualification.children[0].textContent,'初期转强条件已满足');assert.match(qualification.textContent,/上穿MA20距今 1 个交易日/);assert.equal(qualification.open,undefined);
  assert.equal(s.ids['trend-direction-controls'].hidden,true);assert.equal(s.ids['trend-direction-settings'].hidden,true);assert.equal(s.ids['trend-strength-controls'].hidden,false);
@@ -558,4 +558,58 @@ test('new parameters persist through failed and nextcompleted generations withou
  const s=cacheSetup(),first=earlyStrengthResult();s.setResult(first);await s.runner.run(s.input({mode:'strength',stocks:null}));const fetch=s.env.fetch;
  s.env.fetch=async()=>{throw Error('cache offline');};await s.runner.run(s.input({mode:'strength',stocks:null}));const requests=s.calls.length;s.runner.reapply({strength:{crossWithinDays:10},patterns:{nearPct:5},direction:'down'});assert.equal(s.runner.getState().cacheReadFailed,true);assert.equal(s.runner.getState().records.filter(record=>record.result.matched).length,2);assert.equal(s.calls.length,requests);
  s.env.fetch=fetch;s.setMetadata({available:true,scope:'full-market',lastSuccess:{generation:'daily-generation-2',day}});s.setResult({...earlyStrengthResult(),generation:'daily-generation-2'});await s.runner.refreshIfChanged();const state=s.runner.getState();assert.equal(state.generation,'daily-generation-2');assert.equal(state.strength.crossWithinDays,10);assert.equal(state.patterns.nearPct,5);assert.equal(state.direction,'down');assert.equal(state.directionSummary.direction,'all');assert.equal(state.records.filter(record=>record.result.matched).length,2);
+});
+
+function peerResult(){
+ const calendar=bars(),records=marketRows.map((stock,index)=>{
+  let close=100;const history=calendar.map((bar,i)=>{
+   const open=close,tilt=index<16?-.0035+index*.0001:.0018+(index-16)*.00012;
+   if(i)close*=1+(i%2?.006:-.006)+tilt+(i>=60?(index<16?-.0002:.0002+(index-16)*.00004):0);
+   return {date:bar.date,open,high:Math.max(open,close)*1.03,low:Math.min(open,close)*.97,close,volume:i>=60&&index%2===0?700:1000};
+  });return {stock,bars:history};
+ });
+ const consensus=actualEngine.buildConsensus({records,calendar,day,lookback:20,expectedCount:records.length,totalUniverseCount:records.length});
+ assert.equal(consensus.status,'ready');
+ const value=cachedResult({sampleSize:'all'});value.consensus=consensus;value.patternVersion=actualPatterns.version;value.patternDefinitions=actualPatterns.definitionsFor();
+ value.records=records.map(record=>({stock:record.stock,result:{...actualEngine.evaluate({mode:'consensus',bars:record.bars,referenceBars:calendar,consensus,day,lookback:20,code:record.stock.code,limits:{enabled:false}}),structure:actualEngine.deriveSupportResistance({bars:record.bars,calendar,day})},patterns:actualPatterns.classify({bars:record.bars,calendar,day,lookback:20}),fetchedAt,referenceFetchedAt:fetchedAt}));
+ return value;
+}
+function peerMounted(storage){
+ const s=mounted({configuration:controlModel.normalizeConfig({settings:{limits:{enabled:false}}})},storage),value=peerResult();s.setResult(value);return {...s,value};
+}
+function enablePeers(s,value=true){s.ids['trend-peer-enabled'].checked=value;s.ids['trend-peer-enabled'].dispatchEvent({type:'change'});}
+test('peer ranking follows the chosen direction and shape before pagination, using real fixed-market facts without another read',async t=>{
+ const s=peerMounted();t.after(()=>s.app.destroy());await s.app.start('consensus');assert.equal(articles(s).length,32);
+ const requests=s.calls.length,before=JSON.stringify(s.value);edit(s,'trendDirectionRule','minimumReturnPercent',0);chooseDirection(s,'up');assert.equal(articles(s).length,16);
+ s.ids['trend-pattern'].value='volume-contract';s.ids['trend-pattern'].dispatchEvent({type:'change'});assert.equal(articles(s).length,8);
+ for(const [key,value]of Object.entries({groupTopPercent:50,minExcessReturn:-1000,minRecentExcess:-1000,minImprovement:-1000}))edit(s,'trendPeer',key,value);
+ enablePeers(s);assert.equal(articles(s).length,4);assert.match(s.ids['trend-peer-status'].textContent,/同组有效 8 只.*入选 4 只/);
+ assert.ok(articles(s).every(article=>Number(article.dataset.code.slice(0,6))>=600016&&Number(article.dataset.code.slice(0,6))%2===0));
+ s.ids['trend-pattern'].value='';s.ids['trend-pattern'].dispatchEvent({type:'change'});assert.equal(articles(s).length,8);assert.match(s.ids['trend-peer-status'].textContent,/同组有效 16 只/);
+ const all=articles(s).map(article=>article.dataset.code);s.ids['trend-display'].value='4';s.ids['trend-display'].dispatchEvent({type:'change'});assert.equal(s.ids['trend-page'].textContent,'1 / 2');assert.deepEqual(articles(s).map(article=>article.dataset.code),all.slice(0,4));
+ s.ids['trend-next'].dispatchEvent({type:'click'});assert.equal(s.ids['trend-page'].textContent,'2 / 2');assert.deepEqual(articles(s).map(article=>article.dataset.code),all.slice(4));assert.match(s.ids['trend-peer-status'].textContent,/同组有效 16 只/);
+ s.ids['trend-display'].value='all';s.ids['trend-display'].dispatchEvent({type:'change'});enablePeers(s,false);assert.equal(articles(s).length,16);assert.equal(s.ids['trend-peer-status'].textContent,'');assert.equal(s.calls.length,requests);assert.equal(JSON.stringify(s.value),before);
+ assert.ok(s.calls.every(call=>call.path.startsWith('/api/a-share-daily/')));
+});
+test('nullable peer inputs clear to null and invalid edits retain the saved configuration and existing cards',async t=>{
+ const storage=memoryStorage(),s=peerMounted(storage);t.after(()=>s.app.destroy());await s.app.start('consensus');const requests=s.calls.length;
+ for(const key of ['minDownsideExcess','maxSupportDistance','minResistanceSpace','sectorTopPercent']){
+  assert.equal(field(s,'trendPeer',key).value,'');edit(s,'trendPeer',key,key==='sectorTopPercent'?50:2);assert.equal(s.app.getSchemeDraft().config.settings.peer[key],key==='sectorTopPercent'?50:2);
+  edit(s,'trendPeer',key,'');assert.equal(s.app.getSchemeDraft().config.settings.peer[key],null);assert.equal(field(s,'trendPeer',key).value,'');assert.equal(JSON.parse(storage.values.get('books.screening.settings.v1')).peer[key],null);
+ }
+ edit(s,'trendPeer','groupTopPercent',45);const saved=storage.values.get('books.screening.settings.v1'),draft=JSON.stringify(s.app.getSchemeDraft()),nodes=articles(s).slice();
+ for(const [key,value]of [['groupTopPercent',''],['groupTopPercent',101],['minPeers',1],['minPeers',6001],['minExcessReturn','not-a-number'],['maxSupportDistance',-1],['sectorTopPercent',0]]){
+  edit(s,'trendPeer',key,value);assert.equal(storage.values.get('books.screening.settings.v1'),saved);assert.equal(JSON.stringify(s.app.getSchemeDraft()),draft);assert.deepEqual(articles(s),nodes);assert.equal(s.ids['trend-settings-error'].hidden,false);
+ }
+ const unknown=JSON.parse(draft);unknown.config.settings.peer.unrecognized=true;assert.throws(()=>s.app.applyScheme(unknown));assert.equal(JSON.stringify(s.app.getSchemeDraft()),draft);assert.equal(s.calls.length,requests);
+});
+test('peer card facts use the captured same-period baseline and matching OHLC structure, with old structure left unknown',async t=>{
+ const s=peerMounted();t.after(()=>s.app.destroy());s.value.records[0].result.structure={...s.value.records[0].result.structure,endAt:'2026-11-19',supportDistancePct:777,resistanceSpacePct:888};await s.app.start('consensus');
+ const first=articles(s).find(article=>article.dataset.code===s.value.records[0].stock.code);assert.match(first.textContent,/支撑压力资料不足/);assert.doesNotMatch(first.textContent,/777|888/);
+ const capture=s.value.records[16],item=articles(s).find(article=>article.dataset.code===capture.stock.code),m=capture.result.metrics,structure=capture.result.structure;
+ const point=value=>(value>0?'+':'')+value.toFixed(2)+'个百分点';
+ assert.equal(m.relativeBaseline,'full_market_leave_one_out_equal_stock_daily_median');assert.equal(m.endAt,day);assert.equal(m.sampleCount,21);
+ assert.ok(item.textContent.includes('同期领先 '+point(m.excessReturn)));assert.ok(item.textContent.includes('近5日领先 '+point(m.recentExcessReturn)));assert.ok(item.textContent.includes('抗跌 '+point(m.downsideExcess)));
+ assert.equal(structure.endAt,day);assert.equal(structure.status,'ready');assert.ok(item.textContent.includes('距20日支撑 '+structure.supportDistancePct.toFixed(2)+'%'));assert.ok(item.textContent.includes('上方压力空间 '+structure.resistanceSpacePct.toFixed(2)+'%'));assert.match(item.textContent,/工业 · 盘后行业第 [12]/);
+ assert.equal(s.ids['trend-status'].textContent,'沪深主板 32只 · 数据日'+day);
 });

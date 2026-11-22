@@ -1,6 +1,6 @@
 'use strict';
 (function(root,factory){
- const api=factory(typeof module==='object'&&module.exports?require('./market-pool.js'):root.BooksMarketPool,typeof module==='object'&&module.exports?require('./trend-patterns.js'):root.BooksTrendPatterns);
+ const api=factory(typeof module==='object'&&module.exports?require('./market-pool.js'):root.BooksMarketPool,typeof module==='object'&&module.exports?require('./trend-patterns.js'):root.BooksTrendPatterns,typeof module==='object'&&module.exports?require('./strength-selection.js'):root.BooksStrengthSelection);
  if(typeof module==='object'&&module.exports)module.exports=api;
  else{
   root.BooksTrendController=api;
@@ -9,7 +9,7 @@
    if(root.BooksTrendControllerApp)root.dispatchEvent(new root.Event('books:trend-mounted'));
   }
  }
-})(globalThis,(defaultPool,defaultPatterns)=>{
+})(globalThis,(defaultPool,defaultPatterns,defaultStrengthSelection)=>{
  const names={consensus:'市场共同走势',market:'跟随指数',strength:'初期转强'};
  const indexNames={'000300.SH':'沪深300','000001.SH':'上证指数','399001.SZ':'深证成指'};
  const fixedIndices=new Set(Object.keys(indexNames));
@@ -126,7 +126,7 @@
   const key=s=>[s.cacheScope,s.mode,s.lookback,s.mode==='consensus'?s.sampleSize:'all',s.reference.code].join('/');
   function copySettings(options){
    const defaults=model.DEFAULT_CONFIG.settings;
-   return {...options,direction:options.direction??defaults.direction,stocks:options.stocks===null?null:options.stocks.slice(),limits:{...defaults.limits,...options.limits},directionRules:{...defaults.directionRules,...options.directionRules},strength:{...defaults.strength,...options.strength},patterns:{...defaults.patterns,...options.patterns}};
+   return {...options,direction:options.direction??defaults.direction,stocks:options.stocks===null?null:options.stocks.slice(),limits:{...defaults.limits,...options.limits},directionRules:{...defaults.directionRules,...options.directionRules},strength:{...defaults.strength,...options.strength},peer:{...defaults.peer,...options.peer},patterns:{...defaults.patterns,...options.patterns}};
   }
   function effectiveSettings(options,meta){
    const cacheScope=meta?.scope||meta?.lastSuccess?.scope||(meta?.fullMarket?'full-market':'');
@@ -173,7 +173,7 @@
     return {...record,result,patterns:classification};
    });
    const directed=engine.applyDirection(records,{direction:localSettings.mode==='consensus'?localSettings.direction:'all',directionRules:localSettings.directionRules,consensus:localSettings.mode==='consensus'?consensus:null,minimumBreadth});
-   state={...snapshot,consensus,directionSummary:directed.summary,marketQualified:directed.summary.marketQualified,patternVersion:patterns.version,patternDefinitions:patterns.definitionsFor(localSettings.patterns),patternProfile:{...patterns.profile,...localSettings.patterns},origin:'daily-cache',phase:'evaluated',minimumBreadth,direction:localSettings.direction,directionRules:{...localSettings.directionRules},strength:{...localSettings.strength},patterns:{...localSettings.patterns},limits:{...localSettings.limits},records:directed.records,total:selected.length,lastSuccess:metadata?.lastSuccess||null,attempt:metadata?.attempt||null,scopeUncovered:uncovered};
+   state={...snapshot,sectorRecords:snapshot.records,consensus,directionSummary:directed.summary,marketQualified:directed.summary.marketQualified,patternVersion:patterns.version,patternDefinitions:patterns.definitionsFor(localSettings.patterns),patternProfile:{...patterns.profile,...localSettings.patterns},origin:'daily-cache',phase:'evaluated',minimumBreadth,direction:localSettings.direction,directionRules:{...localSettings.directionRules},strength:{...localSettings.strength},peer:{...localSettings.peer},patterns:{...localSettings.patterns},limits:{...localSettings.limits},records:directed.records,total:selected.length,lastSuccess:metadata?.lastSuccess||null,attempt:metadata?.attempt||null,scopeUncovered:uncovered};
    if(uncovered){state.status='unavailable';state.reason='所选范围有 '+uncovered+' 只未被本批日终缓存覆盖，已单列为资料不足。';}
    if(!selected.length&&localSettings.mode!=='consensus'){state.status='unavailable';state.reason='当前范围没有股票；可调整筛选条件或自选名单。';}
    lastCompleted={base:snapshot,settings:localSettings,raw,state};state={...state,...preserve};
@@ -226,8 +226,8 @@
   }
   function reapply(changes){
    if(!settings)return;
-   const next={...desiredSettings,...changes};for(const key of ['limits','directionRules','strength','patterns'])next[key]={...desiredSettings[key],...changes[key]};desiredSettings=copySettings(next);
-   const localOnly=Object.keys(changes).every(key=>['minimumBreadth','direction','directionRules','strength','patterns','limits'].includes(key));
+   const next={...desiredSettings,...changes};for(const key of ['limits','directionRules','strength','peer','patterns'])next[key]={...desiredSettings[key],...changes[key]};desiredSettings=copySettings(next);
+   const localOnly=Object.keys(changes).every(key=>['minimumBreadth','direction','directionRules','strength','peer','patterns','limits'].includes(key));
    if(state.cacheReadFailed&&!localOnly)return run(desiredSettings);
    settings=effectiveSettings(desiredSettings,metadata);
    const snapshot=base||localOnly&&lastCompleted?.base;
@@ -269,7 +269,7 @@
   if(!engine||!model)return null;
   const charts=(options.charts||env.BooksStockCharts).create({document:doc,env});
   const buttons=[...host.querySelectorAll('[data-trend-mode]')],directionButtons=[...host.querySelectorAll('[data-trend-direction]')],listeners=[],cards=new Map(),body=el('trend-results');
-  const groups={directionRules:['data-trend-direction-rule','trendDirectionRule'],strength:['data-trend-strength','trendStrength'],limits:['data-trend-limit','trendLimit'],patterns:['data-trend-pattern-param','trendPatternParam']};
+  const groups={directionRules:['data-trend-direction-rule','trendDirectionRule'],strength:['data-trend-strength','trendStrength'],peer:['data-trend-peer','trendPeer'],limits:['data-trend-limit','trendLimit'],patterns:['data-trend-pattern-param','trendPatternParam']};
   const fields=Object.fromEntries(Object.entries(groups).map(([key,[attribute]])=>[key,[...host.querySelectorAll('['+attribute+']')]]));
   const publicLanding=options.configuration===undefined,preferenceKey='books.screening.settings.v1',breadthKey='books.screening.minimumBreadth.v1';
   const defaults=model.normalizeConfig(publicLanding?{settings:{mode:'strength',direction:'up',limits:{enabled:true,maxReturn20:10,maxReturn60:20,maxReturn5:5,maxDeviation:5,maxVolumeRatio:2.5}}}:options.configuration);
@@ -295,7 +295,8 @@
   function fillControls(){
    el('trend-lookback').value=String(configuration.settings.lookback);el('trend-breadth').value=breadthValue();
    el('trend-heat-enabled').checked=configuration.settings.limits.enabled;
-   for(const [group,nodes]of Object.entries(fields))for(const field of nodes)field.value=String(configuration.settings[group][field.dataset[groups[group][1]]]);
+   el('trend-peer-enabled').checked=configuration.settings.peer.enabled;
+   for(const [group,nodes]of Object.entries(fields))for(const field of nodes){const value=configuration.settings[group][field.dataset[groups[group][1]]];field.value=value===null?'':String(value);}
   }
   fillControls();el('trend-qualified-only').checked=false;
   const context=()=>((options.selection||env.BooksStockSelection)?.getContext?.()||{});
@@ -307,7 +308,7 @@
    const article=doc.createElement('article'),heading=doc.createElement('header'),title=doc.createElement('h4');
    const name=doc.createElement('a'),code=doc.createElement('span'),change=doc.createElement('div'),value=doc.createElement('span'),period=doc.createElement('span'),windowReturn=doc.createElement('span'),chart=doc.createElement('div');
    const patterns=doc.createElement('details'),patternSummary=doc.createElement('summary'),patternReasons=doc.createElement('div');
-   const qualification=doc.createElement('details'),qualificationSummary=doc.createElement('summary'),qualificationReasons=doc.createElement('div');
+   const qualification=doc.createElement('details'),qualificationSummary=doc.createElement('summary'),qualificationReasons=doc.createElement('div'),facts=doc.createElement('p');
    article.className='trend-stock';article.dataset.code=stock.code;article.setAttribute('role','listitem');
    heading.className='trend-stock-heading';name.className='trend-stock-name';code.className='trend-stock-code';
    change.className='trend-stock-change';period.className='trend-stock-period';windowReturn.className='trend-stock-period';chart.className='trend-stock-chart';
@@ -315,8 +316,9 @@
    if(symbol)name.href='../chart.html?tvwidgetsymbol='+encodeURIComponent((symbol[2]==='SH'?'SSE:':'SZSE:')+symbol[1]);
    patterns.className='trend-stock-patterns';patterns.hidden=true;patterns.append(patternSummary,patternReasons);
    qualification.className='trend-stock-qualification';qualification.hidden=true;qualification.append(qualificationSummary,qualificationReasons);
-   title.append(name,code);change.append(value,period,windowReturn);heading.append(title,change);article.append(heading,qualification,patterns,chart);
-   return {article,name,code,value,period,windowReturn,qualification,qualificationSummary,qualificationReasons,patterns,patternSummary,patternReasons,chart};
+   facts.className='trend-stock-meta';
+   title.append(name,code);change.append(value,period,windowReturn);heading.append(title,change);article.append(heading,facts,qualification,patterns,chart);
+   return {article,name,code,value,period,windowReturn,facts,qualification,qualificationSummary,qualificationReasons,patterns,patternSummary,patternReasons,chart};
   }
   function labels(record){
    const patterns=record.patterns;
@@ -344,7 +346,7 @@
    const refreshing=state.status==='running'&&displayed?.mode===selectedMode&&displayed.lookback===lookback;
    let visible=[];
    if(completed){
-    displayed={mode:selectedMode,lookback,day:state.day,scope:state.scope,sampleCount:state.sampleCount,marketUniverseCount:state.marketUniverseCount,fullMarket:state.fullMarket,consensus:state.consensus,directionSummary:state.directionSummary,marketQualified:state.marketQualified,minimumBreadth:state.minimumBreadth,strength:state.strength,attribution:state.dataPolicy?.attribution,patternVersion:state.patternVersion,patternDefinitions:state.patternDefinitions,records:state.records.filter(record=>record.result.status==='ready')};
+    displayed={mode:selectedMode,lookback,day:state.day,scope:state.scope,sampleCount:state.sampleCount,marketUniverseCount:state.marketUniverseCount,fullMarket:state.fullMarket,consensus:state.consensus,directionSummary:state.directionSummary,marketQualified:state.marketQualified,minimumBreadth:state.minimumBreadth,strength:state.strength,attribution:state.dataPolicy?.attribution,patternVersion:state.patternVersion,patternDefinitions:state.patternDefinitions,sectorRecords:state.sectorRecords,records:state.records.filter(record=>record.result.status==='ready')};
    }
    const show=completed||refreshing;
    if(show)visible=sortRecords(displayed.records.filter(record=>selectedMode==='consensus'&&!qualifiedOnly?record.result.candidateMatched===true&&record.result.directionMatched===true:record.result.matched===true),selectedMode);
@@ -363,7 +365,12 @@
    const settings=configuration.settings;
    el('trend-strategy-status').textContent=(selectedMode==='strength'?'近'+settings.strength.crossWithinDays+'日上穿MA20 · 5日涨幅 > '+settings.strength.minReturn5+'% · ':'')+(settings.limits.enabled?'已启用拉升排除':'未启用拉升排除')+(storageFailed?' · 本机设置未能保存':'');
    patternOptions(visible);
-   if(selectedPattern)visible=visible.filter(record=>labels(record).some(label=>label.id===selectedPattern));
+   let peerSelection=null;
+   if(show){
+    peerSelection=defaultStrengthSelection.select(displayed.records,{day:displayed.day,lookback:displayed.lookback,mode:selectedMode,qualification:selectedMode==='consensus'&&!qualifiedOnly?'observation':'strict',patternId:selectedPattern,peer:settings.peer,sectorRecords:displayed.sectorRecords});
+    visible=settings.peer.enabled?peerSelection.selectedRecords.slice().sort((a,b)=>a.result.relativeStrength.rank-b.result.relativeStrength.rank||a.stock.code.localeCompare(b.stock.code)):sortRecords(peerSelection.selectedRecords,selectedMode);
+   }
+   el('trend-peer-status').textContent=settings.peer.enabled&&peerSelection?'同组有效 '+peerSelection.groupSummary.groupCount+' 只 · '+peerSelection.groupSummary.reason+' · 入选 '+visible.length+' 只':'';
    for(const button of buttons){button.disabled=false;button.setAttribute('aria-pressed',String(button.dataset.trendMode===selectedMode));}
    host.setAttribute('aria-busy',String(state.status==='running'));
    const old=refreshing||state.cacheReadFailed||Boolean(state.attempt?.error);
@@ -387,6 +394,7 @@
      const direction=displayed.directionSummary.direction,label={up:'共同上涨',down:'共同下跌',sideways:'横盘整理'}[direction];
      empty.textContent='所选'+lookback+'日没有符合'+label+'条件的共性候选，可调整涨跌分界'+(direction==='sideways'?'和横盘区间幅度':'')+'，或切换全部方向。';
     }
+    if(show&&settings.peer.enabled)empty.textContent=peerSelection.groupSummary.status!=='ready'?peerSelection.groupSummary.reason+'；关闭“仅看同组强势”可查看原候选。':'当前没有同时满足强弱及空间门槛的股票，可调整条件或关闭“仅看同组强势”。';
     if(body.children.length!==1||body.children[0]!==empty)body.replaceChildren(empty);
    }else{
     empty.remove();
@@ -398,6 +406,15 @@
      item.value.textContent=percentage(value);item.value.className=value>0?'change-up':value<0?'change-down':'';
      item.period.textContent=selectedMode==='strength'?'近5日涨跌':lookback+'日涨跌';
      item.windowReturn.textContent=selectedMode==='strength'?lookback+'日 '+percentage(record.result.metrics?.periodReturn):'';item.windowReturn.hidden=selectedMode!=='strength';
+     const m=record.result.metrics,s=record.result.structure,rank=record.result.relativeStrength,sector=peerSelection.sectors.find(group=>group.sector===record.stock.sector);
+     const points=value=>Number.isFinite(value)?(value>0?'+':'')+value.toFixed(2)+'个百分点':'—';
+     const facts=[];
+     if(m.relativeBaseline==='full_market_leave_one_out_equal_stock_daily_median'&&m.endAt===displayed.day&&m.sampleCount===displayed.lookback+1)facts.push('同期领先 '+points(m.excessReturn),'近5日领先 '+points(m.recentExcessReturn),'抗跌 '+points(m.downsideExcess));
+     else facts.push('市场相对强弱待核验');
+     if(rank?.rank)facts.unshift('同组第 '+rank.rank+'/'+peerSelection.groupSummary.groupCount);
+     if(s?.status==='ready'&&s.endAt===displayed.day&&s.window===20&&s.method==='confirmed_pivots_and_prior_ohlc_range')facts.push('距20日支撑 '+(s.supportDistancePct===null?'未识别':s.supportDistancePct.toFixed(2)+'%'),'上方压力空间 '+(s.resistanceSpacePct===null?'未识别':s.resistanceSpacePct.toFixed(2)+'%'));else facts.push('支撑压力资料不足');
+     if(sector?.status==='ready')facts.push(sector.sector+' · 盘后行业第 '+sector.stats.rank);
+     item.facts.textContent=facts.join(' · ');
      item.qualification.hidden=selectedMode==='market';
      if(selectedMode!=='market'){
       const result=record.result,failures=[];
@@ -480,7 +497,11 @@
    const field=el('trend-breadth'),percent=Number(field.value);
    change({minimumBreadth:field.value.trim()?percent/100:NaN});
   });
-  for(const [group,nodes]of Object.entries(fields))for(const field of nodes)listen(field,'change',()=>change({[group]:{[field.dataset[groups[group][1]]]:field.value.trim()?Number(field.value):NaN}}));
+  for(const [group,nodes]of Object.entries(fields))for(const field of nodes)listen(field,'change',()=>{
+   const key=field.dataset[groups[group][1]],nullable=group==='peer'&&['minDownsideExcess','maxSupportDistance','minResistanceSpace','sectorTopPercent'].includes(key);
+   change({[group]:{[key]:field.value.trim()?Number(field.value):nullable?null:NaN}});
+  });
+  listen(el('trend-peer-enabled'),'change',()=>change({peer:{enabled:el('trend-peer-enabled').checked}}));
   listen(el('trend-heat-enabled'),'change',()=>change({limits:{enabled:el('trend-heat-enabled').checked}}));
   listen(el('trend-reset-settings'),'click',()=>{
    const changes={};for(const key of ['minimumBreadth',...Object.keys(groups)]){delete localPatch[key];changes[key]=defaults.settings[key];}

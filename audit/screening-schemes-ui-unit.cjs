@@ -149,3 +149,27 @@ test('the actual controller exports every condition and exactscope, and loading 
  saved.selection.scopeCodes=null;await f.app.applyScheme(saved);assert.equal(f.app.getState().records.length,32);assert.equal(f.app.getSchemeDraft().selection.scopeCodes,null);assert.equal(f.app.getSchemeDraft().selection.patternId,'volume-contract');assert.equal(f.ids.get('trend-pattern').value,'volume-contract');
  const before=clone(f.app.getSchemeDraft());assert.throws(()=>f.app.applyScheme({...saved,selection:{...saved.selection,patternId:'not-a-pattern'}}));assert.deepEqual(f.app.getSchemeDraft(),before);
 });
+test('the actual trend and scheme controllers save and reload every peer condition with nullable values intact',async t=>{
+ const f=mainFixture(),cachedFetch=f.env.fetch,posts=[];let stored=null;
+ f.env.fetch=async(path,init)=>{
+  if(path==='/api/research-control/schemes'){
+   const body=JSON.parse(init.body);posts.push(clone(body));stored=schemeValue({id:'peer-scheme',name:body.name,config:clone(body.config),selection:clone(body.selection)});
+   return {ok:true,status:201,json:async()=>({scheme:clone(stored)})};
+  }
+  if(path==='/api/a-share-daily/schemes')return {ok:true,status:200,json:async()=>({schemes:stored?[clone(stored)]:[]})};
+  if(path.startsWith('/api/a-share-daily/schemes?id='))return {ok:true,status:200,json:async()=>({scheme:clone(stored),runs:[],latestRun:null,tracks:[]})};
+  return cachedFetch(path,init);
+ };
+ const ui=schemesUI.mount(f.doc,{app:f.app,autoLoad:false});t.after(()=>{ui.destroy();f.app.destroy();});await f.app.start('strength');
+ const peer={enabled:true,groupTopPercent:45,minPeers:6,minExcessReturn:1.2,minRecentExcess:.4,minImprovement:.2,minDownsideExcess:null,maxSupportDistance:3.5,minResistanceSpace:4,sectorTopPercent:50};
+ const input=key=>f.ids.get('trend-screen').children.find(node=>node.dataset.trendPeer===key);
+ for(const [key,value]of Object.entries(peer).filter(([key])=>key!=='enabled')){const node=input(key);assert.ok(node,'real HTML field '+key);node.value=value===null?'':String(value);await node.emit('change');}
+ f.ids.get('trend-peer-enabled').checked=true;await f.ids.get('trend-peer-enabled').emit('change');
+ assert.deepEqual(f.app.getSchemeDraft().config.settings.peer,peer);const original=clone(f.app.getSchemeDraft());
+ f.el('name').value='同走势选强与空间';await f.el('name').emit('input');await f.el('save').emit('click');
+ assert.equal(posts.length,1);assert.deepEqual(posts[0].config.settings.peer,peer);assert.deepEqual(posts[0].selection,original.selection);assert.equal(posts[0].enabled,true);assert.match(f.el('status').textContent,/已保存到服务器/);
+ input('groupTopPercent').value='90';await input('groupTopPercent').emit('change');input('minResistanceSpace').value='';await input('minResistanceSpace').emit('change');f.ids.get('trend-peer-enabled').checked=false;await f.ids.get('trend-peer-enabled').emit('change');
+ assert.equal(f.app.getSchemeDraft().config.settings.peer.groupTopPercent,90);assert.equal(f.app.getSchemeDraft().config.settings.peer.minResistanceSpace,null);
+ await f.el('load').emit('click');assert.deepEqual(f.app.getSchemeDraft().config.settings.peer,peer);assert.equal(input('groupTopPercent').value,'45');assert.equal(input('minDownsideExcess').value,'');assert.equal(input('maxSupportDistance').value,'3.5');assert.equal(input('minResistanceSpace').value,'4');assert.equal(input('sectorTopPercent').value,'50');assert.equal(f.ids.get('trend-peer-enabled').checked,true);
+ assert.equal(posts.length,1,'loading never writes a second scheme revision');
+});

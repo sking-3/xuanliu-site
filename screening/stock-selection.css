@@ -69,6 +69,10 @@
 .trend-consensus-controls small {font-size:11px}
 .pick-desk .trend-consensus-status {margin:0 0 8px;font-size:12px;color:var(--desk-muted)}
 .trend-consensus-status:empty {display:none}
+.trend-peer-bar {display:flex;align-items:center;gap:6px 16px;flex-wrap:wrap;margin:0 0 8px;font-size:12px;color:var(--desk-muted)}
+.trend-peer-bar label {display:inline-flex;align-items:center;gap:7px;min-height:44px;color:var(--desk-ink)}
+.pick-desk #trend-peer-enabled {width:18px;height:18px;min-height:0;flex:0 0 18px;margin:0;padding:0}
+#trend-peer-status {font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
 .trend-directions {display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px}
 .pick-desk .trend-directions button {min-height:44px;font-size:12px;padding:6px 12px}
 .pick-desk .trend-directions button[aria-pressed=true] {border-color:#526f66;background:#edf3f1}
@@ -135,7 +139,18 @@
 .trend-scheme-table th:not(:first-child),.trend-scheme-table td:not(:first-child) {text-align:right;white-space:nowrap}
 .trend-scheme-table td:first-child {min-width:140px}
 .trend-scheme-table small {display:block;font-size:11px;color:var(--desk-muted)}
+.short-term-leader {font-variant-numeric:tabular-nums}
+.pick-desk.short-term-leader details {margin:0}
+.pick-desk.short-term-leader summary {display:list-item;list-style-position:inside;align-content:center;width:100%;min-height:44px;padding:0;font-size:17px;font-weight:600;color:var(--desk-ink)}
+.short-term-status {margin-inline-start:12px;font-size:12px;font-weight:400;color:var(--desk-muted)}
+.pick-desk.short-term-leader p {margin:8px 0;font-size:12px}
+.short-term-facts {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px 20px;margin:16px 0}
+.short-term-facts>div {min-width:0;padding-top:8px;border-top:1px solid var(--desk-border)}
+.short-term-facts dt {font-size:12px;color:var(--desk-muted)}
+.short-term-facts dd {margin:4px 0 0;font-size:16px;color:var(--desk-ink)}
+.pick-desk .short-term-sources {font-size:11px}
 @media(max-width:650px){
+ .short-term-facts {grid-template-columns:repeat(2,minmax(0,1fr))}
  .trend-scheme-bar {display:grid;grid-template-columns:minmax(0,1fr) auto}
  .trend-scheme-bar select,.trend-scheme-name {max-width:100%;width:100%}
  #trend-scheme-toggle {grid-column:1/-1}
