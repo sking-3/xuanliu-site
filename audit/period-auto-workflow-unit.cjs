@@ -38,11 +38,11 @@ async function setup(t){
   git('add','.');git('commit','-m','initial');git('push','-u','origin','main');
   const before=git('rev-parse','HEAD'),output=path.join(temp,'output'),runner=path.join(temp,'runner'),githubEnv=path.join(temp,'env');
   await fs.mkdir(runner);
-  const run=outcome=>execFileSync('bash',['-c',saveShell],{cwd:work,env:{...env,PERIODS_OUTCOME:outcome,GITHUB_OUTPUT:output,RUNNER_TEMP:runner,GITHUB_ENV:githubEnv},
+  const run=(outcome,extraEnv={})=>execFileSync('bash',['-c',saveShell],{cwd:work,env:{...env,PERIODS_OUTCOME:outcome,GITHUB_OUTPUT:output,RUNNER_TEMP:runner,GITHUB_ENV:githubEnv,...extraEnv},
     encoding:'utf8',stdio:['ignore','pipe','pipe']});
   const runGuard=()=>execFileSync('bash',['-c',guardShell],{cwd:work,env:{...env,GITHUB_OUTPUT:output,RUNNER_TEMP:runner,GITHUB_ENV:githubEnv},
     encoding:'utf8',stdio:['ignore','pipe','pipe']});
-  return {write,run,runGuard,git,before,feed,work,output,remote,env,githubEnv};
+  return {write,run,runGuard,git,before,feed,work,output,remote,env,githubEnv,runner};
 }
 test('only the new bounded HL batch runs, with durable stop handling after failure',()=>{
   assert.match(workflow,/if: always\(\) && steps\.guard\.outcome == 'success'/);
@@ -72,19 +72,45 @@ test('a failed batch persists its source stop without the partial feed or sample
 });
 test('a successful batch commits the feed, sample bundle and observation archive together',async t=>{
   const f=await setup(t);await f.write('trader/feed.json',{...f.feed,changed:true});
-  await f.write('trader/period-samples.json',{complete:true});await f.write('trader/position-history/README.md','new observation');
+  await f.write('trader/period-samples.json',{complete:true});
+  await fs.rm(path.join(f.work,'trader/position-history/README.md'));
+  await f.write('trader/position-history/new-account/observation.json',{complete:true});
   await f.write('trader/hyperliquid-fills.json',{fresh:true});
   f.run('success');assert.deepEqual(f.git('diff-tree','--no-commit-id','--name-only','-r','HEAD').split('\n'),[
-    'trader/feed.json','trader/hyperliquid-fills.json','trader/period-samples.json','trader/position-history/README.md']);
+    'trader/feed.json','trader/hyperliquid-fills.json','trader/period-samples.json','trader/position-history/README.md',
+    'trader/position-history/new-account/observation.json']);
   assert.match(await fs.readFile(f.output,'utf8'),/updated=true/);
 });
-async function concurrentMain(f){
+async function concurrentCheckout(f){
   const other=path.join(path.dirname(f.work),'other');
   execFileSync('git',['clone','--quiet',f.remote,other],{env:f.env,stdio:'pipe'});
   const git=(...args)=>execFileSync('git',['-C',other,...args],{env:f.env,encoding:'utf8',stdio:'pipe'}).trim();
   git('config','user.name','concurrent test');git('config','user.email','test@example.invalid');
-  await fs.writeFile(path.join(other,'unrelated.txt'),'a concurrent main change');git('add','unrelated.txt');git('commit','-m','concurrent main');git('push','origin','main');
+  return {other,git};
+}
+async function concurrentMain(f,file='unrelated.txt',content='a concurrent main change'){
+  const {other,git}=await concurrentCheckout(f),target=path.join(other,file);
+  if(content===null)await fs.rm(target);
+  else {await fs.mkdir(path.dirname(target),{recursive:true});await fs.writeFile(target,content);}
+  git('add','--',file);git('commit','-m','concurrent main');git('push','origin','main');
   return git('rev-parse','HEAD');
+}
+async function pushRaces(f,count){
+  const {other}=await concurrentCheckout(f),counter=path.join(path.dirname(f.work),'push-attempts');
+  const hook=`#!/usr/bin/env node
+'use strict';
+const fs=require('node:fs'),{execFileSync}=require('node:child_process');
+const other=${JSON.stringify(other)},counter=${JSON.stringify(counter)};
+const attempt=fs.existsSync(counter)?Number(fs.readFileSync(counter,'utf8'))+1:1;
+fs.writeFileSync(counter,String(attempt));
+if(attempt>${count})process.exit(0);
+const git=(...args)=>execFileSync('git',['-C',other,...args],{stdio:'pipe'});
+git('fetch','origin','main');git('reset','--hard','origin/main');
+fs.writeFileSync(other+'/unrelated.txt','concurrent push '+attempt);
+git('add','unrelated.txt');git('commit','-m','concurrent push '+attempt);git('push','origin','main');
+`;
+  await fs.writeFile(path.join(f.work,'.git/hooks/pre-push'),hook,{mode:0o755});
+  return counter;
 }
 test('main advancing during collection cannot discard the independent durable refusal',async t=>{
   const f=await setup(t),advanced=await concurrentMain(f);
@@ -94,12 +120,59 @@ test('main advancing during collection cannot discard the independent durable re
   assert.match(execFileSync('git',['--git-dir',f.remote,'show','hyperliquid-period-source-stop:trader/period-samples-stop.json'],{encoding:'utf8'}),/http_418/);
   assert.equal(execFileSync('git',['--git-dir',f.remote,'show','main:trader/period-samples.json'],{encoding:'utf8'}),'{"old":true}');
 });
-test('a complete bundle still refuses to overwrite a concurrent main update',async t=>{
+test('a complete bundle publishes on unrelated main advances without losing either change',async t=>{
   const f=await setup(t),advanced=await concurrentMain(f);
   await f.write('trader/feed.json',{...f.feed,changed:true});await f.write('trader/period-samples.json',{complete:true});
+  await f.write('trader/hyperliquid-fills.json',{fresh:true});
+  f.run('success');
+  assert.equal(f.git('rev-parse','HEAD^'),advanced);
+  assert.equal(f.git('show','HEAD:unrelated.txt'),'a concurrent main change');
+  assert.equal(f.git('show','HEAD:trader/period-samples.json'),'{"complete":true}');
+  assert.equal(execFileSync('git',['--git-dir',f.remote,'rev-parse','main'],{encoding:'utf8'}).trim(),f.git('rev-parse','HEAD'));
+  assert.match(await fs.readFile(f.output,'utf8'),new RegExp('sha='+f.git('rev-parse','HEAD')+'\\nupdated=true'));
+});
+test('concurrent changes to a bundle file or archive membership refuse publication',async t=>{
+  for(const [file,content]of [['trader/feed.json','{"concurrent":true}'],
+    ['trader/position-history/new-account.json','{"concurrent":true}'],['trader/position-history/README.md',null]]){
+    await t.test(file,async t=>{
+      const f=await setup(t),advanced=await concurrentMain(f,file,content);
+      await f.write('trader/feed.json',{...f.feed,changed:true});await f.write('trader/period-samples.json',{complete:true});
+      assert.throws(()=>f.run('success'),/Hyperliquid bundle changed during collection/);
+      assert.equal(execFileSync('git',['--git-dir',f.remote,'rev-parse','main'],{encoding:'utf8'}).trim(),advanced);
+      assert.equal(execFileSync('git',['--git-dir',f.remote,'show','main:trader/period-samples.json'],{encoding:'utf8'}),'{"old":true}');
+      assert.equal((await fs.readdir(f.runner)).filter(file=>file.startsWith('hyperliquid-period-bundle.')).length,1);
+    });
+  }
+});
+test('a push race restores the complete preserved bundle and retries on the new main',async t=>{
+  const f=await setup(t),counter=await pushRaces(f,1);
+  await f.write('trader/feed.json',{...f.feed,changed:true});await f.write('trader/period-samples.json',{complete:true});
+  await f.write('trader/hyperliquid-fills.json',{fresh:true});await f.write('trader/position-history/README.md','new observation');
+  f.run('success');
+  assert.equal(await fs.readFile(counter,'utf8'),'2');
+  assert.equal(f.git('show','HEAD:unrelated.txt'),'concurrent push 1');
+  assert.equal(f.git('show','HEAD:trader/period-samples.json'),'{"complete":true}');
+  assert.equal(f.git('show','HEAD:trader/hyperliquid-fills.json'),'{"fresh":true}');
+  assert.equal(f.git('show','HEAD:trader/position-history/README.md'),'new observation');
+  assert.match(await fs.readFile(f.output,'utf8'),/updated=true/);
+});
+test('three push races fail without force-pushing or replacing the remote bundle',async t=>{
+  const f=await setup(t),counter=await pushRaces(f,3);
+  await f.write('trader/feed.json',{...f.feed,changed:true});await f.write('trader/period-samples.json',{complete:true});
   assert.throws(()=>f.run('success'));
-  assert.equal(execFileSync('git',['--git-dir',f.remote,'rev-parse','main'],{encoding:'utf8'}).trim(),advanced);
+  assert.equal(await fs.readFile(counter,'utf8'),'3');
+  assert.equal(execFileSync('git',['--git-dir',f.remote,'show','main:unrelated.txt'],{encoding:'utf8'}),'concurrent push 3');
   assert.equal(execFileSync('git',['--git-dir',f.remote,'show','main:trader/period-samples.json'],{encoding:'utf8'}),'{"old":true}');
+  await assert.rejects(fs.readFile(f.output,'utf8'),{code:'ENOENT'});
+});
+test('a restored durable stop prevents publication even with a modified local bundle',async t=>{
+  const f=await setup(t);await f.write('trader/feed.json',{...f.feed,changed:true});
+  await f.write('trader/period-samples.json',{partial:true});
+  await f.write('trader/period-samples-stop.json',{status:'stopped',errorCode:'http_429'});
+  f.run('success',{BOOKS_PERIOD_STOP_PERSISTED:'true'});
+  assert.equal(f.git('rev-parse','HEAD'),f.before);
+  assert.equal(execFileSync('git',['--git-dir',f.remote,'rev-parse','main'],{encoding:'utf8'}).trim(),f.before);
+  assert.match(await fs.readFile(f.output,'utf8'),/updated=false/);
 });
 test('the next checkout restores the refusal before permitting any collection',async t=>{
   const f=await setup(t);await f.write('trader/period-samples-stop.json',{status:'stopped',errorCode:'http_429'});f.run('failure');

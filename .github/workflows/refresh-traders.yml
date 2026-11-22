@@ -50,6 +50,7 @@ jobs:
           node --test audit/period-refresh-ui-unit.cjs
           node --test audit/hyperliquid-fills-unit.cjs
           node audit/hyperliquid-run-guard-unit.cjs
+          node --test audit/period-auto-workflow-unit.cjs
           python3 audit/hyperliquid-collector-test.py
 
       - name: Check durable source stops before any public request
@@ -112,16 +113,33 @@ jobs:
             printf 'sha=%s\nupdated=false\n' "$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          git add -- trader/feed.json trader/period-samples.json trader/hyperliquid-fills.json trader/position-history
+          bundle=(trader/feed.json trader/period-samples.json trader/hyperliquid-fills.json trader/position-history)
+          original=$(git rev-parse HEAD)
+          git add -- "${bundle[@]}"
           changed=false
           if ! git diff --cached --quiet; then
-            git fetch --no-tags --depth=1 origin main
-            test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
+            # Keep the complete collected bundle outside the checkout before retrying.
+            collected_tree=$(git write-tree)
+            bundle_archive=$(mktemp "$RUNNER_TEMP/hyperliquid-period-bundle.XXXXXX")
+            git archive "$collected_tree" -- "${bundle[@]}" > "$bundle_archive"
             git config user.name 'github-actions[bot]'
             git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-            git commit -m 'data: refresh verified Hyperliquid period bundle [skip ci]'
-            git push origin HEAD:main
-            changed=true
+            for attempt in 1 2 3; do
+              git fetch --no-tags --depth=1 origin main
+              latest=$(git rev-parse FETCH_HEAD)
+              # The archive directory path also detects concurrent additions/deletions.
+              if ! git diff --quiet "$original" "$latest" -- "${bundle[@]}"; then
+                echo '::error::The Hyperliquid bundle changed during collection; refusing to overwrite it.'
+                exit 1
+              fi
+              git reset --hard "$latest"
+              rm -rf -- "${bundle[@]}"
+              tar -xf "$bundle_archive"
+              git add -- "${bundle[@]}"
+              git commit -m 'data: refresh verified Hyperliquid period bundle [skip ci]'
+              if git push origin HEAD:main; then changed=true; break; fi
+              if [[ $attempt == 3 ]]; then exit 1; fi
+            done
           fi
           printf 'sha=%s\nupdated=%s\n' "$(git rev-parse HEAD)" "$changed" >> "$GITHUB_OUTPUT"
 
