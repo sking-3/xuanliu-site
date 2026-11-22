@@ -38,7 +38,7 @@ function compareMembership(current,previous,isBaseline,scheme,patterns,day){
   for(const record of current){
     const code=record.stock.code;seen.add(code);
     const last=old.get(code),before=isBaseline?null:last?(typeof last.confirmedSelected==='boolean'?last.confirmedSelected:null):previous?false:null;
-    const {selected,reason}=selectionState(record,scheme),confirmedSelected=selected===null?before:selected;
+    const {selected,reason}=record.selection||selectionState(record,scheme),confirmedSelected=selected===null?before:selected;
     let change;
     if(selected===null)change='unknown';
     else if(selected)change=isBaseline||before===null?'baseline':before?'continued':'new';
@@ -106,7 +106,7 @@ async function observeTracks(episodes,manifest,loadDataset,now){
 
 export async function runSavedSchemes({dbFile,dir,siteDir,now=Date.now,schemeIds}={}){
   if(!dbFile||!dir||!siteDir)throw Error('命名方案任务需要明确的数据库、行情缓存和代码目录');
-  const model=require(join(siteDir,'control/model.js')),engine=require(join(siteDir,'screening/trend-screen.js')),patterns=require(join(siteDir,'screening/trend-patterns.js')),pool=require(join(siteDir,'screening/market-pool.js'));
+  const model=require(join(siteDir,'control/model.js')),engine=require(join(siteDir,'screening/trend-screen.js')),patterns=require(join(siteDir,'screening/trend-patterns.js')),pool=require(join(siteDir,'screening/market-pool.js')),selection=require(join(siteDir,'screening/strength-selection.js'));
   const db=new DatabaseSync(dbFile);db.exec('PRAGMA busy_timeout=5000');
   try{
     const store=createSchemeStore({db,model,patterns,now}),schemes=store.list().filter(scheme=>!schemeIds||schemeIds.includes(scheme.id));
@@ -147,14 +147,17 @@ export async function runSavedSchemes({dbFile,dir,siteDir,now=Date.now,schemeIds
         const evaluated=await model.evaluateDataset(dataset,config,engine,{onProgress:value=>{if(value.checked%200===0||value.checked===value.total)store.updateProgress(run.id,{stage:'evaluating',checked:value.checked,total:value.total});}});
         if(evaluated.status!=='complete')throw Error(evaluated.reason||'方案所需完整周期数据不足');
         const sourceByCode=new Map(dataset.records.map(record=>[record.stock.code,record.source])),scope=scheme.selection.scopeCodes===null?null:new Set(scheme.selection.scopeCodes);
-        const current=evaluated.records.filter(record=>config.settings.mode==='consensus'||scope===null||scope.has(record.stock.code)).map(record=>{
+        const candidates=evaluated.records.map(record=>{
           let result=record.result;
           if(result.status==='ready'&&pool.riskName(record.stock))result={...result,eligible:false,eligibilityCodes:['risk_name'],baseMatched:false,matched:false,reason:'风险名称不在筛选资格内'};
           return {stock:record.stock,result:derivedResult(result),patterns:patterns.classify({bars:sourceByCode.get(record.stock.code)?.bars||[],calendar:dataset.reference.bars,day:dataset.day,lookback:config.settings.lookback,parameters:config.settings.patterns})};
         });
+        const scoped=candidates.filter(record=>config.settings.mode==='consensus'||scope===null||scope.has(record.stock.code));
+        const selected=selection.select(scoped,{day:manifest.day,lookback:config.settings.lookback,mode:config.settings.mode,qualification:scheme.selection.qualification,patternId:scheme.selection.patternId,peer:config.settings.peer,sectorRecords:candidates});
+        const current=selected.records;
         store.updateProgress(run.id,{stage:'tracking',checked:dataset.expectedCount,total:dataset.expectedCount});
         const compared=compareMembership(current,previous,Boolean(reason),scheme,patterns,manifest.day),members=trackMembership(episodes,compared.records,scheme,run,manifest,model.engineVersion,patterns.version,now),tracking=await observeTracks(members,manifest,loadDataset,now);
-        const summary={...compared.summary,isBaseline:Boolean(reason),baselineReason:reason,selection:scheme.selection,dataDay:manifest.day,generation:manifest.generation,sourceStatus:evaluated.status,market:evaluated.summary,tracking:tracking.summary,observationLabel:'入选后收盘走势，非交易收益'};
+        const summary={...compared.summary,isBaseline:Boolean(reason),baselineReason:reason,selection:scheme.selection,relativeStrength:selected.groupSummary,dataDay:manifest.day,generation:manifest.generation,sourceStatus:evaluated.status,market:evaluated.summary,tracking:tracking.summary,observationLabel:'入选后收盘走势，非交易收益'};
         store.finishRun({runId:run.id,records:compared.records,summary,tracks:tracking.tracks});outcomes.push({schemeId:scheme.id,status:'complete',runId:run.id,summary});
       }catch(error){
         if(run?.id)store.failRun(run.id,error);

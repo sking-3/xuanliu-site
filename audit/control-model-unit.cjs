@@ -22,7 +22,7 @@ test('config normalization merges known defaults without mutating or sharing def
  const partial=config({lookback:60,sampleSize:'240',mode:'market'});assert.equal(partial.settings.benchmark,'000300.SH');assert.equal(partial.settings.limits.maxVolumeRatio,2.5);
 });
 test('minimum breadth defaults preserve old configs and accept the inclusive zero-to-one boundaries',()=>{
- assert.match(model.engineVersion,/2026-11-22\.v3$/);assert.equal(model.DEFAULT_CONFIG.settings.minimumBreadth,.6);assert.equal(model.normalizeConfig().settings.minimumBreadth,.6);
+ assert.match(model.engineVersion,/2026-11-22\.v4$/);assert.equal(model.DEFAULT_CONFIG.settings.minimumBreadth,.6);assert.equal(model.normalizeConfig().settings.minimumBreadth,.6);
  const legacy={name:'旧方案',settings:{lookback:60,sampleSize:'240',mode:'market',limits:{enabled:false,maxReturn20:15,maxReturn60:30,maxReturn5:8,maxDeviation:8,maxVolumeRatio:2.5}}},before=JSON.stringify(legacy),normalized=model.normalizeConfig(legacy);
  assert.equal(normalized.settings.minimumBreadth,.6);assert.equal(JSON.stringify(legacy),before);assert.equal(normalized.name,'旧方案');assert.equal(normalized.settings.lookback,60);assert.equal(normalized.settings.limits.enabled,false);
  for(const minimumBreadth of [0,.6,1])assert.equal(config({minimumBreadth}).settings.minimumBreadth,minimumBreadth);
@@ -43,6 +43,24 @@ test('all limit values are finite positive bounded numbers including when disabl
 test('normalization preserves actual prices, volumes and provenance while dropping extra display fields',()=>{
  const raw=dataset();raw.records[0].stock.price=999;raw.records[0].source.url='https://public.example.test/';raw.records[0].source.bars[0].close=143.76;raw.records[0].source.bars[0].volume=250.25;
  const before=JSON.stringify(raw),clean=model.normalizeDataset(raw);assert.equal(JSON.stringify(raw),before);assert.equal(clean.records[0].source.bars[0].close,143.76);assert.equal(clean.records[0].source.bars[0].volume,250.25);assert.equal(clean.reference.fetchedAt,fetchedAt);assert.equal(clean.records[0].stock.price,undefined);assert.equal(clean.records[0].source.url,undefined);
+});
+test('normalization preserves complete actual OHLC in private archives without inventing it for legacy close-only bars',()=>{
+ const legacy=dataset(),old=model.normalizeDataset(legacy);
+ assert.deepEqual(old.records[0].source.bars,legacy.records[0].source.bars);assert.deepEqual(Object.keys(old.records[0].source.bars[0]),['date','close','volume']);
+ const raw=dataset();
+ for(const series of [raw.reference.bars,...raw.records.map(record=>record.source.bars)])for(const bar of series)Object.assign(bar,{open:bar.close-.2,high:bar.close+.5,low:bar.close-.5});
+ const before=JSON.stringify(raw),clean=model.normalizeDataset(raw);assert.equal(JSON.stringify(raw),before);
+ assert.deepEqual(clean.reference.bars,raw.reference.bars);assert.deepEqual(clean.records[0].source.bars,raw.records[0].source.bars);
+ assert.equal(clean.records[0].source.fetchedAt,fetchedAt);
+});
+test('partial OHLC histories, nonfinite values and invalid price ranges cannot enter archive replay',()=>{
+ for(const mutate of [series=>{series[0].open=series[0].high+1;},series=>{delete series[0].open;},series=>{delete series[0].open;delete series[0].high;delete series[0].low;},series=>{series[0].high=series[0].close-.1;},series=>{series[0].low=series[0].close+.1;},series=>{series[0].open=NaN;},series=>{series[0].low=0;},series=>{series[0].high='100';}]){
+  for(const reference of [false,true]){
+   const raw=dataset(),series=reference?raw.reference.bars:raw.records[0].source.bars;
+   for(const bar of series)Object.assign(bar,{open:bar.close-.2,high:bar.close+.5,low:bar.close-.5});
+   mutate(series);assert.throws(()=>model.normalizeDataset(raw));
+  }
+ }
 });
 test('timestamp validation binds asOf to Beijing day while allowing later collection times',()=>{
  const raw=dataset();raw.asOf='2026-11-19T16:00:00Z';assert.equal(model.normalizeDataset(raw).day,day);
@@ -65,7 +83,7 @@ test('prototype keys, accessors, sparse arrays, unsafe text and oversized JSON a
  const accessor=dataset();Object.defineProperty(accessor,'other',{get(){throw Error('getter executed');},enumerable:true});assert.throws(()=>model.normalizeDataset(accessor),/动态访问器/);
  const sparse=dataset();delete sparse.records[0];assert.throws(()=>model.normalizeDataset(sparse),/空缺/);
  const html=dataset();html.records[0].stock.name='<img src=x>';assert.throws(()=>model.normalizeDataset(html));
- const large=dataset();large.note='x'.repeat(24*1024*1024);assert.throws(()=>model.normalizeDataset(large),/大小/);
+ const large=dataset();large.note='x'.repeat(64*1024*1024);assert.throws(()=>model.normalizeDataset(large),/大小/);
 });
 test('a finished batch may include unavailable sources without inventing bars',()=>{
  const raw=dataset();raw.records[0].source={status:'unavailable',day,bars:[],adjustment:null,fetchedAt:null,reason:'来源没有该日期'};
