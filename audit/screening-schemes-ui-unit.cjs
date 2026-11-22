@@ -105,7 +105,23 @@ test('visible periodicrefresh advances the latest review but never replaces a ma
  f.doc.hidden=true;await f.tick();assert.equal(f.calls.length,before);f.doc.hidden=false;
  f.setRun(completedRun('run2',1,'2026-11-23'));await f.tick();assert.equal(f.appUI.getState().run.id,'run2');assert.match(f.el('run-summary').textContent,/2026-11-23/);
  f.setRun(completedRun('run1',1,day));f.el('runs').value='run1';await f.el('runs').emit('change');f.el('name').value='未保存的新名称';await f.el('name').emit('input');
- f.setRun(completedRun('run3',1,'2026-11-24'));await f.tick();assert.equal(f.appUI.getState().run.id,'run1');assert.equal(f.el('runs').value,'run1');assert.equal(f.el('name').value,'未保存的新名称');assert.match(f.el('run-summary').textContent,/2026-11-20/);assert.equal(f.applied.length,0);
+ f.setRun(completedRun('run3',1,'2026-11-24'));await f.tick();f.el('review').open=false;await f.el('review').emit('toggle');f.el('review').open=true;await f.el('review').emit('toggle');assert.equal(f.appUI.getState().run.id,'run1');assert.equal(f.el('runs').value,'run1');assert.equal(f.el('name').value,'未保存的新名称');assert.match(f.el('run-summary').textContent,/2026-11-20/);assert.equal(f.applied.length,0);
+});
+test('periodic read failures retain the successful result and clear their own Chineseerror after recovery',async t=>{
+ let failure=null;const f=fixture({fetch:async path=>{if(path.includes('?id=')&&failure)throw failure;}});t.after(()=>f.appUI.destroy());await f.appUI.refresh();const before=clone(f.appUI.getState().run);
+ failure=new TypeError('Failed to fetch');await f.tick();assert.deepEqual(f.appUI.getState().run,before);assert.equal(f.appUI.getState().readError.id,'scheme1');assert.equal(f.el('status').dataset.error,'true');assert.match(f.el('status').textContent,/方案数据读取暂时失败.*保留上次成功结果/);assert.doesNotMatch(f.el('status').textContent,/Failed to fetch/);
+ failure=null;await f.tick();assert.equal(f.appUI.getState().readError,null);assert.equal(f.el('status').dataset.error,'false');assert.doesNotMatch(f.el('status').textContent,/读取暂时失败|Failed to fetch/);assert.deepEqual(f.appUI.getState().run,before);
+ failure=Object.assign(Error('aborted'),{name:'AbortError'});await f.tick();assert.match(f.el('status').textContent,/读取方案请求已超时.*保留上次成功结果/);failure=null;await f.tick();assert.equal(f.el('status').dataset.error,'false');
+});
+test('read recovery never hides an unconfirmed401 or409 writefailure',async t=>{
+ for(const status of [401,409]){
+  let failRead=false;const f=fixture({fetch:async path=>{
+   if(path==='/api/research-control/schemes')return {ok:false,status,json:async()=>({error:status===409?'revision_conflict':'sign_in_required',message:'拒绝写入'})};
+   if(path.includes('?id=')&&failRead)throw new TypeError('Failed to fetch');
+  }});t.after(()=>f.appUI.destroy());await f.appUI.refresh();await f.el('save').emit('click');const message=f.el('status').textContent;
+  failRead=true;await f.tick();assert.notEqual(f.appUI.getState().readError,null);assert.equal(f.el('status').textContent,message);
+  failRead=false;await f.tick();assert.equal(f.appUI.getState().readError,null);assert.equal(f.appUI.getState().error,true);assert.equal(f.el('status').dataset.error,'true');assert.equal(f.el('status').textContent,message);assert.equal(f.calls.filter(call=>call.init.method==='POST').length,1);
+ }
 });
 test('local schemeid is only a review preference and collectionprogress or failure keeps the prior successfuldate',async t=>{
  let collection={attempt:{status:'running',stage:'collecting',checked:430,total:3194}},f=fixture({fetch:async(path)=>{

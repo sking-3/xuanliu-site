@@ -20,7 +20,7 @@
   const el=id=>doc.getElementById('trend-scheme-'+id),host=el('select');if(!host)return null;
   const env=doc.defaultView||globalThis,app=options.app||env.BooksTrendControllerApp;
   if(!app)return null;
-  let state={schemes:[],id:'',name:'',detail:null,run:null,runId:'',history:false,collection:null,filter:'all',busy:false,loading:false,message:'',error:false,authRequired:false};
+  let state={schemes:[],id:'',name:'',detail:null,run:null,runId:'',history:false,collection:null,filter:'all',busy:false,loading:false,message:'',error:false,authRequired:false,readError:null};
   let sequence=0,pollTimer=null,pollRemaining=0,destroyed=false,schemeOptions='',runOptions='';
   const listeners=[],requests=new Set();
   async function request(path,body){
@@ -34,10 +34,14 @@
    }finally{env.clearTimeout(timer);requests.delete(controller);}
   }
   function notice(message,error=false,authRequired=false){state={...state,message,error,authRequired};}
-  function failed(error){
+  function failed(error,source='write',id=state.id){
    const auth=error.status===401;
-   notice(auth?'请登录现有账户后保存或管理自己的方案。':error.status===403?'没有此方案的修改权限；可新建自己的方案。':error.status===409?'方案版本已变化，当前条件保留；请重新选择该方案，核对后再保存。':error.name==='AbortError'?'请求超时；请重新选择方案核对服务器状态。':error.message,true,auth);
+   let message=auth?'请登录现有账户后保存或管理自己的方案。':error.status===403?'没有此方案的修改权限；可新建自己的方案。':error.status===409?'方案版本已变化，当前条件保留；请重新选择该方案，核对后再保存。':error.message;
+   if(error.name==='TypeError')message=source==='read'?'方案数据读取暂时失败；'+(state.run?'保留上次成功结果，稍后自动检查。':'请稍后重试。'):'网络请求未完成，操作结果尚未确认；请先核对服务器记录。';
+   else if(error.name==='AbortError')message=source==='read'?'读取方案请求已超时；'+(state.run?'保留上次成功结果。':'请稍后重试。'):'操作请求已超时，结果尚未确认；请先核对服务器记录。';
+   if(source==='read')state={...state,readError:{id,message,error:true,authRequired:auth}};else notice(message,true,auth);
   }
+  function readSucceeded(id){if(state.readError?.id===id)state={...state,readError:null};}
   function stopPoll(){if(pollTimer!==null){env.clearTimeout(pollTimer);pollTimer=null;}pollRemaining=0;}
   function upsert(scheme){
    const index=state.schemes.findIndex(item=>item.id===scheme.id),schemes=state.schemes.slice();
@@ -84,8 +88,9 @@
    host.value=state.id;el('name').value=state.name;host.disabled=state.busy;el('name').disabled=state.busy;
    el('save').disabled=state.busy||state.loading;el('load').disabled=state.busy||state.loading||!state.detail;el('toggle').hidden=!state.id;el('toggle').disabled=state.busy||state.loading||!state.detail;
    el('toggle').textContent=state.detail?.scheme.enabled?'暂停每日筛选':'恢复每日筛选';
-   el('status').textContent=state.message;el('status').dataset.error=String(state.error);
-   if(state.authRequired){const link=doc.createElement('a');link.textContent='登录账户';link.href='../auth.html?next=screening/index.html';el('status').append(link);}
+   const noticeState=state.error?state:state.readError?.id===state.id?state.readError:state;
+   el('status').textContent=noticeState.message;el('status').dataset.error=String(noticeState.error);
+   if(noticeState.authRequired){const link=doc.createElement('a');link.textContent='登录账户';link.href='../auth.html?next=screening/index.html';el('status').append(link);}
    let runs=state.detail?.runs||[];if(state.run&&!runs.some(run=>run.id===state.run.id))runs=[state.run,...runs];
    const nextOptions=JSON.stringify(runs.map(run=>[run.id,run.day,run.revision,run.status]));
    if(nextOptions!==runOptions){runOptions=nextOptions;el('runs').replaceChildren(...(runs.length?runs.map(run=>option(run.id,run.day+' · v'+run.revision+' · '+statuses[run.status])):[option('','暂无运行')]));}
@@ -118,21 +123,23 @@
    state={...state,id,history:polling?state.history:false,loading:true,detail:polling?state.detail:null,run:polling?state.run:null,runId:polling?state.runId:''};render();
    try{
     const detail=await request(publicApi+'?id='+encodeURIComponent(id));if(destroyed||token!==sequence)return;
+    readSucceeded(id);
     upsert(detail.scheme);const run=polling&&state.history?state.run:detail.latestRun;
     state={...state,detail,collection:detail.collection||null,name:polling?state.name:detail.scheme.name,run,runId:run?.id||'',loading:false};
     if(follow&&!polling)pollRemaining=3;
     render();if(follow)queuePoll();
-   }catch(error){if(!destroyed&&token===sequence){state={...state,loading:false};failed(error);render();}}
+   }catch(error){if(!destroyed&&token===sequence){state={...state,loading:false};failed(error,'read',id);render();}}
   }
   async function refresh(){
    state={...state,busy:true};render();
    try{const value=await request(publicApi);if(!destroyed){
+    readSucceeded(state.id);
     state={...state,schemes:value.schemes,collection:value.collection||null};if(!state.message)notice(value.schemes.length?'复盘显示已保存方案；主筛选条件保持当前选择。':'尚无已保存方案，可将当前条件保存并每日运行。');
     let preferred=state.id;try{preferred=preferred||env.localStorage?.getItem('books.screening.schemeId.v1');}catch{}
     const selected=value.schemes.find(item=>item.id===preferred)||value.schemes.find(item=>item.enabled)||value.schemes[0];
     if(selected)await loadScheme(selected.id);
    }}
-   catch(error){if(!destroyed)failed(error);}
+   catch(error){if(!destroyed)failed(error,'read');}
    finally{if(!destroyed){state={...state,busy:false};render();}}
   }
   async function write(action){
@@ -164,11 +171,11 @@
   }));
   listen(el('runs'),'change',async()=>{
    const id=el('runs').value;if(!id)return;const token=++sequence;stopPoll();state={...state,history:true,runId:id,run:null,loading:true};render();
-   try{const {run}=await request(publicApi+'?run='+encodeURIComponent(id));if(!destroyed&&token===sequence){if(run.schemeId!==state.id)throw Error('运行记录与当前方案不一致。');state={...state,run,loading:false};render();}}
-   catch(error){if(!destroyed&&token===sequence){state={...state,loading:false};failed(error);render();}}
+   try{const {run}=await request(publicApi+'?run='+encodeURIComponent(id));if(!destroyed&&token===sequence){if(run.schemeId!==state.id)throw Error('运行记录与当前方案不一致。');readSucceeded(state.id);state={...state,run,loading:false};render();}}
+   catch(error){if(!destroyed&&token===sequence){state={...state,loading:false};failed(error,'read');render();}}
   });
   listen(el('change'),'change',()=>{state={...state,filter:el('change').value};render();});
-  listen(el('review'),'toggle',()=>{if(el('review').open&&state.id&&!state.loading&&!state.busy)loadScheme(state.id);});
+  listen(el('review'),'toggle',()=>{if(el('review').open&&state.id&&!state.loading&&!state.busy)loadScheme(state.id,{polling:true});});
   const refreshTimer=env.setInterval(()=>{if(!doc.hidden&&state.id&&!state.busy&&!state.loading)loadScheme(state.id,{polling:true});},60000);
   function destroy(){if(destroyed)return;destroyed=true;sequence++;stopPoll();env.clearInterval(refreshTimer);for(const controller of requests)controller.abort();for(const [target,event,handler]of listeners)target.removeEventListener(event,handler);}
   listen(env,'pagehide',event=>{if(!event.persisted)destroy();});
