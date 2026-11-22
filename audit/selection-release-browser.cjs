@@ -27,7 +27,7 @@ function waitWorkspaceState(page,state){
 }
 async function openWorkspace(page){
  const disclosure=page.locator('details.stock-custom-results');
- if(!await disclosure.evaluate(node=>node.open))await disclosure.locator('summary').click();
+ if(!await disclosure.evaluate(node=>node.open))await disclosure.locator(':scope > summary').click();
  await disclosure.locator('[data-stock-workspace]').waitFor({state:'visible'});
 }
 (async()=>{

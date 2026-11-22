@@ -38,6 +38,7 @@ jobs:
           SNAPSHOT_DIGEST: ${{ inputs.digest }}
         run: node scripts/approve-research-publication.cjs --path "$SNAPSHOT_PATH" --revision "$SNAPSHOT_REVISION" --digest "$SNAPSHOT_DIGEST"
       - name: Verify the exact approved snapshot on the formal VPS
+        shell: bash
         env:
           SNAPSHOT_PATH: ${{ inputs.snapshot_path }}
           SNAPSHOT_DIGEST: ${{ inputs.digest }}
