@@ -115,7 +115,27 @@
 .pick-desk .trend-stock-meta {margin:6px 0 0;font-size:11px;color:var(--desk-muted)}
 .pick-desk .trend-empty {grid-column:1/-1;margin:12px 0 16px;font-size:13px;color:var(--desk-muted)}
 #trend-pagination {margin:16px 0 0}
+.trend-scheme-bar {display:flex;align-items:end;flex-wrap:wrap;gap:8px 12px;padding:12px 0;border-top:1px solid var(--desk-border)}
+.trend-scheme-bar label,.trend-scheme-review-controls label {display:grid;gap:4px;min-width:0;font-size:12px;color:var(--desk-muted)}
+.trend-scheme-bar select {max-width:240px}
+.trend-scheme-name {flex:1;max-width:320px}
+.pick-desk .trend-scheme-bar input,.pick-desk .trend-scheme-bar select,.pick-desk .trend-scheme-bar button,.pick-desk .trend-scheme-review select {min-height:44px;font-size:12px;font-variant-numeric:tabular-nums}
+.pick-desk .trend-scheme-status {font-size:12px;line-height:1.6;color:var(--desk-muted);margin:0 0 12px;overflow-wrap:anywhere}
+.pick-desk .trend-scheme-review {margin:0 0 16px;border-bottom:1px solid var(--desk-border);padding-bottom:8px}
+.pick-desk .trend-scheme-review>summary {display:flex;gap:12px;flex-wrap:wrap;align-items:center;min-height:44px;font-size:13px}
+#trend-scheme-run-summary {font-size:12px;font-weight:400;color:var(--desk-muted)}
+.trend-scheme-review-controls {display:flex;gap:12px;flex-wrap:wrap;margin:8px 0 12px}
+.pick-desk .trend-scheme-note {font-size:11px;line-height:1.6;color:var(--desk-muted);margin:8px 0}
+.trend-scheme-table-wrap {max-width:100%;overflow-x:auto}
+.trend-scheme-table {min-width:620px;width:100%;font-size:12px;font-variant-numeric:tabular-nums}
+.trend-scheme-table th:not(:first-child),.trend-scheme-table td:not(:first-child) {text-align:right;white-space:nowrap}
+.trend-scheme-table td:first-child {min-width:140px}
+.trend-scheme-table small {display:block;font-size:11px;color:var(--desk-muted)}
 @media(max-width:650px){
+ .trend-scheme-bar {display:grid;grid-template-columns:minmax(0,1fr) auto}
+ .trend-scheme-bar select,.trend-scheme-name {max-width:100%;width:100%}
+ #trend-scheme-toggle {grid-column:1/-1}
+ .trend-scheme-review-controls label {flex:1;min-width:120px}
  .trend-settings-grid {grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
  .trend-directions {display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
  .trend-toolbar {flex-wrap:wrap;gap:8px}

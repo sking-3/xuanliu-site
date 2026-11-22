@@ -9,6 +9,9 @@ import { DatabaseSync } from 'node:sqlite';
 import { createRequire } from 'node:module';
 import { createControlService } from './control-service.mjs';
 import { createAShareCache } from './a-share-cache.mjs';
+import { createSchemeStore } from './a-share-schemes.mjs';
+import { createSchemeApi } from './a-share-schemes-api.mjs';
+import { spawn } from 'node:child_process';
 
 const scrypt = promisify(scryptCb);
 const ROOT = dirname(fileURLToPath(import.meta.url));
@@ -287,6 +290,26 @@ export function createApp({ dbFile = ':memory:', siteDir = DEFAULT_SITE_DIR, aSh
   const db = new DatabaseSync(dbFile);
   initDb(db);
   let researchControl = null;
+  let schemeApi = null, schemeWorker = null;
+  const pendingSchemes = new Set();
+  function scheduleScheme(id) {
+    if (dbFile === ':memory:') return;
+    pendingSchemes.add(id);
+    if (schemeWorker) return;
+    const next = pendingSchemes.values().next().value;
+    pendingSchemes.delete(next);
+    schemeWorker = spawn(process.execPath, [join(ROOT, 'a-share-scheme-runner.mjs'), next], {
+      env: {...process.env, BOOKS_DB: resolve(dbFile), BOOKS_SITE_DIR: resolve(siteDir), BOOKS_A_SHARE_DIR: resolve(aShareDir)},
+      stdio: 'ignore',
+    });
+    const finish = () => { schemeWorker = null; if (pendingSchemes.size) scheduleScheme(pendingSchemes.values().next().value); };
+    schemeWorker.once('error', () => {});
+    schemeWorker.once('close', finish);
+  }
+  function schemes() {
+    if (!schemeApi) schemeApi = createSchemeApi({store: createSchemeStore({db, model: requireModule(join(siteDir, 'control/model.js')), patterns: requireModule(join(siteDir, 'screening/trend-patterns.js'))}), directory: aShareDir, schedule: scheduleScheme});
+    return schemeApi;
+  }
   const aShareCache = createAShareCache({directory:aShareDir});
   const attempts = new Map();
   const corsOrigins = allowedOriginSet(allowedOrigins);
@@ -354,14 +377,21 @@ export function createApp({ dbFile = ':memory:', siteDir = DEFAULT_SITE_DIR, aSh
         res.setHeader('vary', 'Origin');
       }
       if (req.method === 'OPTIONS') return res.writeHead(204).end();
+      if (path === '/api/a-share-daily/schemes') {
+        await schemes().handle(req, res, {path, url, json}); return;
+      }
       if (await aShareCache.handle(req, res, {path,url,json})) return;
       if (path.startsWith('/api/research-control/')) {
-        const user = requireAdmin(req, res); if (!user) return;
+        const schemeRoute = path === '/api/research-control/schemes' || path === '/api/research-control/schemes/enabled';
+        const user = schemeRoute ? requireUser(req, res) : requireAdmin(req, res); if (!user) return;
         if (req.method !== 'GET' && req.method !== 'POST') return json(res, 405, { error: 'method_not_allowed' });
         if (req.method === 'POST') {
           let expected; try { expected = new URL(req.headers.origin); } catch {}
           const protocol = String(req.headers['x-forwarded-proto'] || (req.socket.encrypted ? 'https' : 'http')).split(',')[0].trim();
           if (!expected || expected.host !== req.headers.host || expected.protocol !== protocol + ':' || String(req.headers['content-type'] || '').split(';')[0].trim() !== 'application/json') return json(res, 403, { error: 'invalid_origin' });
+        }
+        if (schemeRoute) {
+          await schemes().handle(req, res, {path, url, user, readJson: readControlJson, json}); return;
         }
         const modelPath = join(siteDir, 'control/model.js'), enginePath = join(siteDir, 'screening/trend-screen.js');
         if (!existsSync(modelPath) || !existsSync(enginePath)) return json(res, 503, { error: 'control_not_configured' });
@@ -586,7 +616,7 @@ export function createApp({ dbFile = ':memory:', siteDir = DEFAULT_SITE_DIR, aSh
     }
   }
 
-  return { db, handle, server: createServer(handle), close: () => { researchControl?.close(); db.close(); } };
+  return { db, handle, server: createServer(handle), close: () => { schemeWorker?.kill(); researchControl?.close(); db.close(); } };
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

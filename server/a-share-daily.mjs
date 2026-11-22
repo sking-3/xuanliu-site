@@ -267,6 +267,11 @@ async function main() {
     for (const event of ['SIGTERM', 'SIGINT']) process.once(event, () => control.abort(Error('任务被停止，已完成日线留待续跑；正式结果保持不变。')));
     const run=process.argv.includes('--recompute-cache')?recomputeFromCache:collect;
     const result = await run({ dir, siteDir, signal: control.signal });
+    if(process.env.BOOKS_DB&&['complete','no_new_day'].includes(result.attempt.status)){
+      const {runSavedSchemes}=await import('./a-share-scheme-runner.mjs');
+      result.schemes=await runSavedSchemes({dbFile:process.env.BOOKS_DB,dir,siteDir});
+      if(result.schemes.status==='failed')process.exitCode=1;
+    }
     console.log(JSON.stringify(result));
     if (!['complete', 'no_new_day'].includes(result.attempt.status)) process.exitCode = 1;
   } finally { await unlink(lock); }

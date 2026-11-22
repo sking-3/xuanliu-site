@@ -288,7 +288,7 @@
    if(saved!==null&&saved!==undefined)localPatch.minimumBreadth=model.normalizeConfig({settings:{minimumBreadth:JSON.parse(saved)}}).settings.minimumBreadth;
   }catch{}
   let baseConfiguration=defaults,configuration=merge(baseConfiguration,localPatch);
-  let state=initial(),page=0,selectedMode=configuration.settings.mode,selectedPattern='',displaySize='all',qualifiedOnly=false,patternOptionsKey='',marketGeneration=null,contextKey='',configurationApplied=false,destroyed=false,displayed=null;
+  let state=initial(),page=0,selectedMode=configuration.settings.mode,selectedPattern='',displaySize='all',qualifiedOnly=false,patternOptionsKey='',marketGeneration=null,contextKey='',schemeScopeCodes,configurationApplied=false,destroyed=false,displayed=null;
   const empty=doc.createElement('p');empty.className='trend-empty';body.replaceChildren(empty);
   el('trend-display').value=displaySize;
   const breadthValue=()=>String(Number((configuration.settings.minimumBreadth*100).toPrecision(15)));
@@ -299,7 +299,7 @@
   }
   fillControls();el('trend-qualified-only').checked=false;
   const context=()=>((options.selection||env.BooksStockSelection)?.getContext?.()||{});
-  const stocks=()=>{const c=context();return c.filtersActive===false?null:c.day?(c.rows||[]).slice():null;};
+  const stocks=()=>{if(schemeScopeCodes!==undefined)return schemeScopeCodes===null?null:schemeScopeCodes.map(code=>({code}));const c=context();return c.filtersActive===false?null:c.day?(c.rows||[]).slice():null;};
   const identity=()=>{const c=context();return JSON.stringify([c.day,c.asOf,c.filtersActive,(c.rows||[]).map(row=>row.code)]);};
   const percentage=value=>Number.isFinite(value)?(value>0?'+':'')+value.toLocaleString('zh-CN',{maximumFractionDigits:2})+'%':'—';
   const ratio=value=>Number.isFinite(value)?(value*100).toLocaleString('zh-CN',{maximumFractionDigits:2})+'%':'—';
@@ -325,7 +325,7 @@
   function patternOptions(records){
    const counts=new Map();
    for(const record of records)for(const label of labels(record))counts.set(label.id,(counts.get(label.id)||0)+1);
-   const definitions=displayed?.patternDefinitions||[],key=JSON.stringify([definitions,[...counts]]);
+   const definitions=displayed?.patternDefinitions||(options.patterns||env.BooksTrendPatterns||defaultPatterns).definitionsFor(configuration.settings.patterns),key=JSON.stringify([definitions,[...counts]]);
    if(key===patternOptionsKey)return;
    patternOptionsKey=key;
    const select=el('trend-pattern'),all=doc.createElement('option'),groups=new Map();
@@ -451,6 +451,18 @@
    if(publicLanding){baseConfiguration.settings.mode='strength';baseConfiguration.settings.direction='up';}
    configuration=merge(baseConfiguration,localPatch);configurationApplied=true;fillControls();start(configuration.settings.mode);return true;
   }
+  function getSchemeDraft(){
+   const config=model.normalizeConfig({...configuration,settings:{...configuration.settings,mode:selectedMode,sampleSize:'all'}});
+   const scoped=selectedMode!=='consensus'&&(schemeScopeCodes!==undefined?schemeScopeCodes:context().filtersActive===true?(stocks()||[]).map(stock=>stock.code):null);
+   return {config,selection:{patternId:selectedPattern,qualification:selectedMode==='consensus'&&!qualifiedOnly?'observation':'strict',scopeCodes:Array.isArray(scoped)?scoped.slice():null}};
+  }
+  function applyScheme({config,selection}){
+   const normalized=model.normalizeConfig({...config,settings:{...config.settings,sampleSize:'all'}}),patternIds=(options.patterns||env.BooksTrendPatterns||defaultPatterns).definitionsFor(normalized.settings.patterns).map(item=>item.id);
+   if(!selection||!['strict','observation'].includes(selection.qualification)||typeof selection.patternId!=='string'||selection.patternId&&!patternIds.includes(selection.patternId)||selection.scopeCodes!==null&&(!Array.isArray(selection.scopeCodes)||selection.scopeCodes.some(code=>typeof code!=='string'||!/^(?:6\d{5}\.SH|(?:00|30)\d{4}\.SZ)$/.test(code))))throw Error('方案形态、达标口径或股票范围无效。');
+   baseConfiguration=normalized;configuration=model.normalizeConfig(normalized);localPatch=configuration.settings;configurationApplied=true;schemeScopeCodes=selection.scopeCodes===null?null:[...new Set(selection.scopeCodes)];
+   selectedPattern=selection.patternId;qualifiedOnly=normalized.settings.mode!=='consensus'||selection.qualification==='strict';el('trend-qualified-only').checked=qualifiedOnly;
+   patternOptionsKey='';savePatch();fillControls();el('trend-settings-error').hidden=true;el('trend-settings-error').textContent='';return start(normalized.settings.mode);
+  }
   function listen(target,type,handler){target.addEventListener(type,handler);listeners.push([target,type,handler]);}
   function savePatch(){
    try{env.localStorage?.setItem(preferenceKey,JSON.stringify(localPatch));storageFailed=false;}catch{storageFailed=true;}
@@ -489,7 +501,7 @@
   }
   listen(env,'pagehide',event=>{if(!event.persisted)cleanup();});contextKey=identity();render();
   if(options.autoLoad!==false)start(selectedMode);
-  return {start,render,runner,applyConfiguration,loadDataset:()=>runner.loadDataset(),exportDataset:()=>runner.exportDataset(),getExportStatus:()=>runner.getExportStatus(),getState:()=>runner.getState(),isRunning:()=>state.status==='running',destroy(){cleanup();for(const [target,type,handler]of listeners)target.removeEventListener(type,handler);}};
+  return {start,render,runner,applyConfiguration,getSchemeDraft,applyScheme,loadDataset:()=>runner.loadDataset(),exportDataset:()=>runner.exportDataset(),getExportStatus:()=>runner.getExportStatus(),getState:()=>runner.getState(),isRunning:()=>state.status==='running',destroy(){cleanup();for(const [target,type,handler]of listeners)target.removeEventListener(type,handler);}};
  }
  return {createRunner,createCachedRunner,mount,sortRecords,names};
 });
