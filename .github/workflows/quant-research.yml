@@ -5,6 +5,12 @@ on:
     # Check several times daily so schedule delays don't miss the 24-hour gate.
     - cron: '17 1,7,13,19 * * *'
   workflow_dispatch:
+    inputs:
+      refresh_now:
+        description: 'Read once now; persisted source stops still prevent requests'
+        type: boolean
+        default: false
+        required: true
   push:
     branches: [main, ui/quant-web-research]
     paths:
@@ -46,6 +52,7 @@ jobs:
     outputs:
       digest: ${{ steps.publish.outputs.digest }}
       changed: ${{ steps.publish.outputs.changed }}
+      revision: ${{ steps.publish.outputs.revision }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -55,6 +62,8 @@ jobs:
         with:
           node-version: '22'
       - name: Collect public data and calculate research
+        env:
+          REFRESH_NOW: ${{ github.event_name == 'workflow_dispatch' && inputs.refresh_now }}
         shell: bash
         run: |
           set -euo pipefail
@@ -62,7 +71,9 @@ jobs:
           if [[ -f quant-research/data/latest.json ]]; then
             cp quant-research/data/latest.json "$RUNNER_TEMP/quant-research/latest.json"
           fi
-          node quant-research/collect-public.mjs --output-dir "$RUNNER_TEMP/quant-research"
+          args=(--output-dir "$RUNNER_TEMP/quant-research")
+          if [[ "$REFRESH_NOW" == true ]]; then args+=(--refresh-now); fi
+          node quant-research/collect-public.mjs "${args[@]}"
           test -s "$RUNNER_TEMP/quant-research/latest.json"
       - name: Save only the public research snapshot
         id: publish
@@ -92,33 +103,14 @@ jobs:
           done
           echo "digest=$(sha256sum "$snapshot" | cut -d ' ' -f1)" >> "$GITHUB_OUTPUT"
           echo "changed=$changed" >> "$GITHUB_OUTPUT"
+          echo "revision=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           node -e 'const d=require("./quant-research/data/latest.json");console.log(`研究状态: ${d.status}; 最近尝试: ${d.lastAttempt||"无"}; 最新完成日线: ${d.latestClosedAt||"无"}`)' >> "$GITHUB_STEP_SUMMARY"
-  deploy:
+  publication:
     needs: research
-    if: needs.research.outputs.changed == 'true'
-    uses: ./.github/workflows/deploy-static-pages.yml
+    uses: ./.github/workflows/verify-vps-publication.yml
     permissions:
-      contents: read
-      pages: write
-      id-token: write
-  verify:
-    needs: [research, deploy]
-    if: needs.research.outputs.changed == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Verify the snapshot served by Pages
-        env:
-          EXPECTED: ${{ needs.research.outputs.digest }}
-        run: |
-          set -euo pipefail
-          url="https://sking-3.github.io/xuanliu-site/quant-research/data/latest.json?v=$EXPECTED"
-          for attempt in {1..12}; do
-            if curl --silent --show-error --fail --max-time 8 "$url" -o public.json &&
-                echo "$EXPECTED  public.json" | sha256sum --check --status; then
-              exit 0
-            fi
-            sleep 10
-          done
-          echo '::error::The research snapshot was not available from Pages.'
-          exit 1
+      contents: write
+    with:
+      snapshot_path: quant-research/data/latest.json
+      digest: ${{ needs.research.outputs.digest }}
+      revision: ${{ needs.research.outputs.revision }}

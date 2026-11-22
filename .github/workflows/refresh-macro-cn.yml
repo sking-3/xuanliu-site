@@ -25,6 +25,7 @@ jobs:
       contents: write
     outputs:
       digest: ${{ steps.publish.outputs.digest }}
+      revision: ${{ steps.publish.outputs.revision }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -72,33 +73,14 @@ jobs:
             if [[ $attempt == 3 ]]; then exit 1; fi
           done
           echo "digest=$(sha256sum macro-cn.json | cut -d ' ' -f1)" >> "$GITHUB_OUTPUT"
+          echo "revision=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
-  deploy:
+  publication:
     needs: refresh
-    uses: ./.github/workflows/deploy-static-pages.yml
+    uses: ./.github/workflows/verify-vps-publication.yml
     permissions:
-      contents: read
-      pages: write
-      id-token: write
-
-  verify:
-    needs: [refresh, deploy]
-    runs-on: ubuntu-latest
-    timeout-minutes: 7
-    steps:
-      - name: Verify the snapshot served by GitHub Pages
-        env:
-          EXPECTED: ${{ needs.refresh.outputs.digest }}
-        run: |
-          set -euo pipefail
-          url="https://sking-3.github.io/xuanliu-site/macro-cn.json?v=$EXPECTED"
-          for attempt in {1..15}; do
-            if curl --silent --show-error --fail --max-time 8 "$url" -o public.json &&
-                echo "$EXPECTED  public.json" | sha256sum --check --status; then
-              jq -r '.card | "Published: \(.data.latest.title) · \(.asOf)"' public.json >> "$GITHUB_STEP_SUMMARY"
-              exit 0
-            fi
-            sleep 10
-          done
-          echo "::error::GitHub Pages did not serve the validated snapshot."
-          exit 1
+      contents: write
+    with:
+      snapshot_path: macro-cn.json
+      digest: ${{ needs.refresh.outputs.digest }}
+      revision: ${{ needs.refresh.outputs.revision }}

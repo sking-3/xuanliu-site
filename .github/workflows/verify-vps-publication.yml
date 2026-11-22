@@ -1,0 +1,51 @@
+name: Gate and verify research publication on VPS
+
+on:
+  workflow_call:
+    inputs:
+      snapshot_path:
+        type: string
+        required: true
+      digest:
+        type: string
+        required: true
+      revision:
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Gate exact public release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.revision }}
+          fetch-depth: 1
+      - uses: ./.github/actions/setup-public-release
+      - name: Gate this exact checkout on offline unit, static and browser checks
+        run: node scripts/verify_public_release.cjs
+      - name: Approve only the gated snapshot for the VPS pull publisher
+        env:
+          SNAPSHOT_PATH: ${{ inputs.snapshot_path }}
+          SNAPSHOT_REVISION: ${{ inputs.revision }}
+          SNAPSHOT_DIGEST: ${{ inputs.digest }}
+        run: node scripts/approve-research-publication.cjs --path "$SNAPSHOT_PATH" --revision "$SNAPSHOT_REVISION" --digest "$SNAPSHOT_DIGEST"
+      - name: Verify the exact approved snapshot on the formal VPS
+        env:
+          SNAPSHOT_PATH: ${{ inputs.snapshot_path }}
+          SNAPSHOT_DIGEST: ${{ inputs.digest }}
+        run: node scripts/verify-vps-snapshot.cjs --path "$SNAPSHOT_PATH" --digest "$SNAPSHOT_DIGEST" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Preserve failed release evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-release-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: audit/browser-output/release/
+          retention-days: 7

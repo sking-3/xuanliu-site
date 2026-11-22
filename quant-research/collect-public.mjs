@@ -63,7 +63,7 @@ async function atomicJSON(file,value){
 const empty=()=>({schemaVersion:1,source:SOURCE,retrievedAt:null,latestClosedAt:null,dataHash:null,bars:null,report:null,reportHash:null,runAt:null,status:'error',lastAttempt:null,error:null});
 
 // Pass a fixture fetch in tests; normal invocation always uses the fixed public URL.
-export async function collectPublic({outputDir,fetchImpl=fetch,now=Date.now}={}){
+export async function collectPublic({outputDir,fetchImpl=fetch,now=Date.now,refreshNow=false}={}){
   if(typeof outputDir!=='string'||!outputDir)throw new TypeError('outputDir required');
   const time=now();if(!Number.isFinite(time))throw new TypeError('invalid time');
   await mkdir(outputDir,{recursive:true});const file=path.join(outputDir,'latest.json');let previous;
@@ -71,7 +71,7 @@ export async function collectPublic({outputDir,fetchImpl=fetch,now=Date.now}={})
   // The stop is persisted in the published state and does not silently reset on a new runner.
   if(previous.status==='stopped'||previous.status==='blocked')return previous;
   // Scheduled runs, manual dispatches and UI-only pushes share the last attempt.
-  if(previous.lastAttempt&&time<Date.parse(previous.lastAttempt)+DAY)return previous;
+  if(!refreshNow&&previous.lastAttempt&&time<Date.parse(previous.lastAttempt)+DAY)return previous;
   const lastAttempt=iso(time);
   try{
     let response;
@@ -92,8 +92,8 @@ export async function collectPublic({outputDir,fetchImpl=fetch,now=Date.now}={})
   }
 }
 async function main(){
-  const args=process.argv.slice(2);if(args.length!==2||args[0]!=='--output-dir')throw new Error('Usage: node collect-public.mjs --output-dir <directory>');
-  const result=await collectPublic({outputDir:path.resolve(args[1])});
+  const args=process.argv.slice(2);if(![2,3].includes(args.length)||args[0]!=='--output-dir'||args.length===3&&args[2]!=='--refresh-now')throw new Error('Usage: node collect-public.mjs --output-dir <directory> [--refresh-now]');
+  const result=await collectPublic({outputDir:path.resolve(args[1]),refreshNow:args.length===3});
   process.stdout.write(JSON.stringify({status:result.status,lastAttempt:result.lastAttempt,latestClosedAt:result.latestClosedAt,error:result.error?.code||null})+'\n');
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(path.resolve(process.argv[1])).href)main().catch(e=>{process.stderr.write((e.code||'error')+': '+e.message+'\n');process.exitCode=1;});

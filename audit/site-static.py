@@ -15,7 +15,7 @@ def check(ok,msg):
 pages=list(root.rglob('*.html'))
 nav_destinations=[('市场总览','index.html'),('A股选股','screening/index.html'),('美股选股','us.html'),('带单员广场','trader/index.html'),('公司研究','research.html'),('历史研究','screening/history.html'),('研究工具','tools.html')]
 shared_versions={name:hashlib.sha256((root/name).read_bytes()).hexdigest()[:8] for name in ('books-shell.js','books-ui.css')}
-attribution_counts={'index.html':5,'a-shares.html':1,'screening/index.html':1,'chart.html':1}
+attribution_counts={'index.html':4,'a-shares.html':1,'screening/index.html':1,'chart.html':1}
 for p in pages:
  tree=html.fromstring(p.read_text())
  ids=tree.xpath('//@id')
@@ -30,6 +30,9 @@ for p in pages:
    targettree=html.fromstring(target.read_text());check(bool(targettree.xpath('//*[@id=$id]',id=unquote(u.fragment))),f'{p}: missing fragment {ref}')
  attributions=tree.xpath('//*[@data-books-attribution or contains(concat(" ",normalize-space(@class)," ")," tradingview-widget-copyright ") or contains(concat(" ",normalize-space(@class)," ")," books-market-credit ")]')
  check(len(attributions)==attribution_counts.get(str(p.relative_to(root)),0),f'{p}: original attribution nodes retained')
+ if p==root/'index.html':
+  for container,url in [('//article[@data-pulse="macro"]','https://www.tradingview.com/news/top-providers/tradingview/'),('//section[@aria-labelledby="market-a"]','https://www.tradingview.com/markets/stocks-china/'),('//section[@aria-labelledby="market-us"]','https://www.tradingview.com/markets/stocks-usa/'),('//section[@aria-labelledby="market-crypto"]','https://www.tradingview.com/markets/cryptocurrencies/')]:
+   check(len(tree.xpath(container+'//*[@data-books-attribution]//a[@href=$url]',url=url))==1,f'{p}: current market module retains its original attribution {url}')
  if p==root/'us.html':
   check(len(tree.xpath('//*[@id="us-market-source" and not(@hidden) and @href="https://www.tradingview.com/markets/stocks-usa/"]'))==1,'US market source credit is visible and linkable')
  for node in attributions:
@@ -164,7 +167,7 @@ trader_page=html.fromstring((root/'trader/index.html').read_text())
 # Binance account observations use the saved checkpoint; direct reads are only public market candles.
 csp=trader_page.xpath('//meta[@http-equiv="Content-Security-Policy"]/@content')[0]
 connect=next((part.strip().split()[1:] for part in csp.split(';') if part.strip().startswith('connect-src ')),[])
-check(set(connect)=={"'self'",'https://api.hyperliquid.xyz','wss://api.hyperliquid.xyz','https://fapi.binance.com/fapi/v1/klines','https://www.okx.com/api/v5/market/history-candles','https://api.bitget.com/api/v2/mix/market/history-candles','https://raw.githubusercontent.com/sking-3/xuanliu-site/binance-public-orders-state/monitor-state/5075281354358777856.json'}, 'CSP limits market reads to official paths and the exact Binance checkpoint')
+check(set(connect)=={"'self'",'https://api.hyperliquid.xyz','wss://api.hyperliquid.xyz','https://fapi.binance.com/fapi/v1/klines','https://www.okx.com/api/v5/market/history-candles','https://www.okx.com/api/v5/market/candles','https://api.bitget.com/api/v2/mix/market/history-candles','https://api.bitget.com/api/v2/mix/market/candles','https://raw.githubusercontent.com/sking-3/xuanliu-site/binance-public-orders-state/monitor-state/5075281354358777856.json','https://raw.githubusercontent.com/sking-3/xuanliu-site/main/trader/hyperliquid-fills.json'}, 'CSP limits market reads to official paths and the exact Binance checkpoint')
 live_scripts=trader_page.xpath('//script[starts-with(@src,"account-live.js")]')
 check(len(live_scripts)==1 and 'defer' in live_scripts[0].attrib, 'public live-data module loaded exactly once without blocking page')
 live_ref=live_scripts[0].get('src')
@@ -182,10 +185,10 @@ plaza_source=(root/'trader/plaza.js').read_text()
 check("state.publicRows.filter(r=>qualifiedPosition(r))" in plaza_source and "!state.source?.positionVerification||!check" in plaza_source, 'legacy unqualified public snapshots are gated from visible rows')
 check('now-checked<=3600000' in plaza_source and 'setInterval(()=>{reevaluatePositions();' in plaza_source, 'qualification expires independently of the collection workflow')
 check("startVisibleAnalytics(analyticsRows)" in plaza_source and "visibleRows.filter(r=>Number.isFinite(sortValue(r,p,'roi')))" in plaza_source and 'client?.setPortfolioTargets(accounts)' in plaza_source and 'ensureWinRate(' not in plaza_source, 'browser account requests are limited to visible ranked curves; win rates come from the public cache')
-check("'采样盈亏回撤'" in plaza_source and "'平仓片段胜率'" in plaza_source, 'calculated metrics distinguish sampled drawdown and closing-fill rate')
+check("publicAccount?'采样回撤':'最大回撤'" in plaza_source and "publicAccount?'片段胜率':'逐笔胜率'" in plaza_source, 'calculated metrics distinguish sampled drawdown and closing-fill rate')
 check("cachedWin(r)" in plaza_source and "fetch('analytics.json'" in plaza_source and "button('计算'" not in plaza_source, 'closing-fill rate reads persistent aggregates without a calculate button')
 check("'performance-body'" in plaza_source and "'performance-stats'" in plaza_source and "'performance-chart'" in plaza_source and 'compactMoney(w?.pnl,currency)' in plaza_source, 'compact card separates its return and numeric metrics from the source curve')
-check("chart({curve:w.points},'pnl')" in plaza_source, 'public sparkline uses fetched portfolio points rather than a placeholder curve')
+check("const w=publicPerformance(r,period),points=w?.alignedCurve?.points;" in plaza_source and "chart({curve:points},'pnl')" in plaza_source, 'public sparkline uses verified selected-period points rather than a placeholder curve')
 check((root/'audit/account-analytics-unit.cjs').is_file(), 'analytics edge cases have dedicated offline regression coverage')
 check(len(trader_page.xpath('//*[@id="tabs"]//button[@data-tab="live"][@hidden]'))==1, 'live tab is initially hidden until an eligible public account is selected')
 check(not trader_page.xpath('//input[@type="password"]'), 'public account reads do not introduce credential collection')

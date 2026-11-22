@@ -1,0 +1,19 @@
+[Unit]
+Description=Publish Books macro and quantitative snapshots approved by release gates
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/flock -n /var/lib/books-research-publish/publish.lock /usr/bin/node /opt/books/research-publisher/publish-books-research-snapshots.cjs
+Environment=BOOKS_SITE_DIR=/opt/books/site
+Environment=BOOKS_RESEARCH_PUBLISH_STATE=/var/lib/books-research-publish/state.json
+StateDirectory=books-research-publish
+TimeoutStartSec=120
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ReadWritePaths=/opt/books/site
+MemoryMax=256M

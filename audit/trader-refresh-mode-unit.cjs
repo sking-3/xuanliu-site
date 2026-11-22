@@ -18,72 +18,81 @@ test('CLI reads the event file from environment and emits only the allowed scope
 test('missing, oversized, and malformed event files never emit a mode',()=>{const output=[],log=x=>output.push(x),env={GITHUB_EVENT_NAME:'push',GITHUB_EVENT_PATH:'/event',BOOKS_CHECKOUT_SHA:SHA};assert.throws(()=>main({...env,GITHUB_EVENT_PATH:''},{io:{},log}),/invalid_refresh_event/);assert.throws(()=>main(env,{io:{statSync:()=>({size:2*1024*1024+1})},log}),/invalid_refresh_event/);assert.throws(()=>main(env,{io:{statSync:()=>({size:2}),readFileSync:()=>'{!'},log}),SyntaxError);assert.throws(()=>main(env,{io:{statSync:()=>({size:2}),readFileSync:()=> ' '.repeat(2*1024*1024+1)},log}),/invalid_refresh_event/);assert.deepEqual(output,[]);});
 const root=path.join(__dirname,'..'),workflow=fs.readFileSync(path.join(root,'.github/workflows/refresh-traders.yml'),'utf8');
 const step=name=>{const start=workflow.indexOf('      - name: '+name+'\n');assert.ok(start>=0,'missing step '+name);const end=workflow.indexOf('\n      - name:',start+1);return workflow.slice(start,end<0?workflow.length:end);};
-test('workflow schedules and collection stages use the one resolved scope',()=>{
- assert.deepEqual([...workflow.matchAll(/- cron: '([^']+)'/g)].map(m=>m[1]),['27,57 * * * *','12 */6 * * *']);
- assert.match(step('Resolve Hyperliquid refresh scope'),/BOOKS_CHECKOUT_SHA:.*steps.checkout.outputs.commit/);
- assert.match(step('Resolve Hyperliquid refresh scope'),/node scripts\/resolve_trader_refresh_mode\.cjs/);
- assert.doesNotMatch(workflow,/^  push:|github\.event\.head_commit\.message/m);
- assert.match(step('Check out the latest main branch'),/ref: main/);
- for(const name of ['Record this collection start','Collect one public Hyperliquid snapshot'])assert.match(step(name),/if: steps.refresh-mode.outputs.mode != 'skip'/);
- for(const name of ['Precompute native and 90/180/365-day portfolio windows','Separate shared API rate windows','Precompute closing-fill win rates with persistent last-good cache','Reverify holdings after the long analytics batch'])assert.match(step(name),/if: steps.refresh-mode.outputs.mode == 'full'/);
+test('half-hour workflow refreshes one complete period bundle without the retired scope resolver',()=>{
+ assert.deepEqual([...workflow.matchAll(/- cron: '([^']+)'/g)].map(m=>m[1]),['27,57 * * * *']);
+ assert.match(workflow,/group: hyperliquid-period-bundle\n  cancel-in-progress: false/);
+ assert.doesNotMatch(workflow,/^  push:|resolve_trader_refresh_mode|refresh-mode|12 \*\/6/m);
+ assert.match(workflow,/ref: main\n          fetch-depth: 1/);
+ assert.match(step('Collect all current accounts with the same period rules'),/node scripts\/collect_period_samples\.cjs --feed trader\/feed\.json --out trader\/period-samples\.json/);
+ assert.doesNotMatch(workflow,/if:.*refresh_scope|collect_trader_analytics|collect_trader_portfolios|refresh_trader_positions/);
 });
-test('Production collection serializes and retains peer source guards',()=>{
- assert.match(workflow,/concurrency:\n  group: trader-production\n  queue: max\n  cancel-in-progress: false/);
- assert.match(workflow,/    concurrency:\n      group: binance-public-source\n      queue: max\n      cancel-in-progress: false/);
- const watch=fs.readFileSync(path.join(root,'.github/workflows/binance-python-watch.yml'),'utf8');
- assert.match(watch,/    concurrency:\n      group: binance-public-records-source\n      queue: max\n      cancel-in-progress: false/);
- assert.match(step('Reverify holdings after the long analytics batch'),/sleep 60\n.*refresh_trader_positions\.cjs --not-before "\$BOOKS_COLLECTION_STARTED_AT"/);
- assert.match(step('Verify the preceding Binance run was safely committed'),/^        if: steps.refresh-mode.outputs.mode != 'skip' && steps.binance-peer-validate.outputs.allowed == 'true'$/m);
- for(const name of ['Collect Aoying official public reference','Refresh verified public 90-day and 365-day returns','Collect the public Binance lead sample']) {
-  const section=step(name);
-  for(const id of ['binance-policy','binance-peer-validate','binance-guard']) assert.ok(section.includes(`steps.${id}.outputs.allowed == 'true'`));
-  assert.ok(workflow.indexOf('      - name: Verify the preceding Binance run was safely committed') < workflow.indexOf('      - name: '+name));
+test('durable source stops are loaded before either public request stage',()=>{
+ const guard=step('Check durable source stops before any public request');
+ assert.ok(workflow.indexOf(guard)<workflow.indexOf(step('Read the current official public directory and verify holdings')));
+ for(const command of ['git ls-remote --heads origin hyperliquid-period-source-stop','git show FETCH_HEAD:trader/period-samples-stop.json','BOOKS_PERIOD_STOP_PERSISTED=true','node scripts/hyperliquid_run_guard.cjs','node scripts/collect_hyperliquid_fills.cjs --gate','if [[ -f trader/period-samples-stop.json ]]; then gate=allowed=false; fi','case "$gate" in allowed=true|allowed=false) ;; *) exit 1 ;; esac'])assert.ok(guard.includes(command),command);
+ assert.doesNotMatch(guard,/continue-on-error/);
+ for(const name of ['Read the current official public directory and verify holdings','Collect all current accounts with the same period rules']){
+  assert.match(step(name),/if: steps.guard.outputs.allowed == 'true'/);
+  assert.doesNotMatch(step(name),/continue-on-error|always\(\)/);
  }
- assert.match(step('Save the snapshot without overwriting concurrent edits'),/git push origin HEAD:main/);
+ assert.match(step('Collect all current accounts with the same period rules'),/steps.directory.outcome == 'success'/);
+ assert.match(step('Collect all current accounts with the same period rules'),/BOOKS_PERIOD_SOURCE_STOP_FILE: trader\/period-samples-stop\.json/);
+ assert.match(step('Collect all current accounts with the same period rules'),/sleep 60/);
 });
-test('peer checkpoint failures skip Binance without rewriting existing source state',()=>{
- const names=['Select the latest Python Binance source checkpoint','Restore the exact Python Binance source checkpoint','Validate the Python Binance global source-stop state'];
- for(const name of names){assert.match(step(name),/if: steps.refresh-mode.outputs.mode != 'skip'/);assert.match(step(name),/continue-on-error: true/);}
- assert.match(step(names[0]),/actions_state\.py select-peer/);
- assert.match(step(names[1]),/artifact-ids:.*restore_artifact_id/);
- assert.match(step(names[1]),/run-id:.*restore_run_id/);
- assert.match(step(names[2]),/actions_state\.py validate-peer/);
- assert.ok(workflow.indexOf('      - name: '+names[2])<workflow.indexOf('      - name: Verify the preceding Binance run was safely committed'));
- const report=step('Report blocked Binance collection without changing its snapshots');
- assert.match(report,/BINANCE_PEER_ALLOWED:.*steps.binance-peer-validate.outputs.allowed/);
- assert.doesNotMatch(report,/GITHUB_ENV|collect_binance|BINANCE_PREVIOUS_RUN_UNVERIFIED/);
- const nonblocking=workflow.split(/^      - name: /m).slice(1).filter(block=>/^        continue-on-error: true$/m.test(block)).map(block=>block.split('\n')[0]);
- assert.deepEqual(nonblocking.sort(),[...names,'Restore exchange checkpoint from this run','Verify the preceding Binance run was safely committed','Refresh verified public 90-day and 365-day returns','Refresh verified OKX public trader returns','Archive Aoying public execution history','Refresh verified OKX public position history','Refresh verified Bitget public trader records'].sort());
+test('an incomplete or stopped batch persists only its source stop and never stages the public bundle',()=>{
+ const save=step('Persist source stops or the complete verified bundle');
+ assert.match(save,/if: always\(\) && steps.guard.outcome == 'success'/);
+ assert.match(save,/PERIODS_OUTCOME: \$\{\{ steps.periods.outcome \}\}/);
+ const persisted=save.slice(save.indexOf('if [[ ${BOOKS_PERIOD_STOP_PERSISTED-false} == true ]]'),save.indexOf('if [[ "$PERIODS_OUTCOME" != success ]]'));
+ assert.match(persisted,/updated=false/);assert.match(persisted,/exit 0/);assert.doesNotMatch(persisted,/git (?:add|push)/);
+ const stopped=save.slice(save.indexOf('if [[ "$PERIODS_OUTCOME" != success ]]'),save.indexOf('          bundle=('));
+ assert.match(stopped,/source-policy\.js/);
+ assert.match(stopped,/git add -- trader\/period-samples-stop\.json/);
+ assert.match(stopped,/git push origin HEAD:refs\/heads\/hyperliquid-period-source-stop/);
+ assert.match(stopped,/updated=false/);assert.match(stopped,/exit 0/);
+ assert.doesNotMatch(stopped,/git push origin HEAD:main|git add -- trader\/feed\.json/);
 });
-test('the trader refresh retains Binance execution history without collecting or staging the retired third-party archive',()=>{
- const archive=step('Archive Aoying public execution history');
- assert.match(archive,/binance-public-orders-state\/monitor-state\/5075281354358777856\.json/);
- assert.match(archive,/node scripts\/archive_aoying_records\.cjs/);
- assert.doesNotMatch(workflow,/collect_aoying_public_archive\.cjs|trader\/binance\/aoying-public-archive\.json/);
+test('successful publication retains the complete bundle and normal push protection',()=>{
+ const save=step('Persist source stops or the complete verified bundle');
+ assert.match(save,/bundle=\(trader\/feed\.json trader\/period-samples\.json trader\/hyperliquid-fills\.json trader\/position-history\)/);
+ assert.match(save,/git diff --quiet[^\n]*-- "\$\{bundle\[@\]\}"/);
+ assert.match(save,/for attempt in 1 2 3/);
+ assert.match(save,/git push origin HEAD:main/);
+ assert.doesNotMatch(save,/--force|git reset --hard origin\/main/);
+ assert.match(save,/updated=%s/);
 });
-test('exchange checkpoint verifies formal publication after a failed batch',()=>{
- const checkpoint=step('Checkpoint exchange snapshots before Hyperliquid');
- assert.ok(workflow.indexOf('      - name: Checkpoint exchange snapshots before Hyperliquid') < workflow.indexOf('      - name: Collect one public Hyperliquid snapshot'));
- assert.match(checkpoint,/git add -- trader\/okx trader\/bitget trader\/refresh-health\.json/);
- assert.match(checkpoint,/HYPERLIQUID_OUTCOME: unknown/);
- assert.match(checkpoint,/git rev-parse HEAD.*exchange-checkpoint\/sha/);
- assert.match(checkpoint,/git push origin HEAD:main/);
- assert.match(step('Preserve exchange checkpoint for recovery'),/actions\/upload-artifact@v4/);
- const recovery=workflow.split('  recover-exchange:\n')[1];
- assert.ok(recovery);
- assert.ok(recovery.includes("if: ${{ !cancelled() && (needs.collect-build.result == 'failure' || needs.collect-build.result == 'cancelled') }}"));
- for(const command of ['actions/download-artifact@v4','actions/checkout@v6','bash scripts/verify-trader-vps-publication.sh --exchange-only']) assert.ok(recovery.includes(command),command);
- assert.match(recovery,/ref: \$\{\{ steps.recovery.outputs.sha \}\}/);
- assert.match(recovery,/name: Verify the formal site received the exchange checkpoint\n        if: steps.recovery.outputs.ready == 'true'/);
+test('formal-site verification reads the exact published commit with read-only credentials',()=>{
+ const verify=workflow.split('  verify-production:\n')[1];assert.ok(verify);
+ assert.match(verify,/needs: collect/);
+ assert.match(verify,/if: needs.collect.outputs.updated == 'true' && needs.collect.result == 'success'/);
+ assert.match(verify,/ref: \$\{\{ needs.collect.outputs.published_sha \}\}/);
+ assert.match(verify,/persist-credentials: false/);
+ assert.match(verify,/run: bash scripts\/verify-trader-vps-publication.sh --period-bundle/);
+ assert.doesNotMatch(verify,/contents: write|continue-on-error|collect_hyperliquid|git push/);
+ assert.match(workflow,/permissions:\n  contents: read/);
+ assert.doesNotMatch(workflow,/actions\/(?:configure-pages|deploy-pages|upload-pages-artifact)@|github\.io/);
 });
-test('mode resolution failure cannot emit a mode or allow downstream always-run collectors',()=>{
- const output=[],raw=JSON.stringify(push('[ui-only]',OTHER));
- assert.throws(()=>main({GITHUB_EVENT_NAME:'push',GITHUB_EVENT_PATH:'/event',BOOKS_CHECKOUT_SHA:SHA},{io:{statSync:()=>({size:Buffer.byteLength(raw)}),readFileSync:()=>raw},log:x=>output.push(x)}),/invalid_refresh_event/);
- assert.deepEqual(output,[]);
- assert.ok(workflow.indexOf('      - name: Resolve Hyperliquid refresh scope')<workflow.indexOf('      - name: Collect one public Hyperliquid snapshot'));
- assert.doesNotMatch(workflow,/always\(\)/);
- for(const name of ['Resolve Hyperliquid refresh scope','Collect one public Hyperliquid snapshot','Precompute native and 90/180/365-day portfolio windows','Precompute closing-fill win rates with persistent last-good cache','Collect the public Binance lead sample'])assert.doesNotMatch(step(name),/continue-on-error/);
+test('Hyperliquid schedules cannot invoke Binance and retired observers have no schedule',()=>{
+ assert.doesNotMatch(workflow,/collect_binance|collect_aoying|archive_aoying|binance_watch|public_orders\.py|binance-public-source/);
+ for(const filename of ['binance-python-watch.yml','binance-public-orders.yml']){
+  const watch=fs.readFileSync(path.join(root,'.github/workflows',filename),'utf8');
+  assert.doesNotMatch(watch,/^  schedule:|^    - cron:/m);
+  assert.match(watch,/group: binance-public-records-source\n      queue: max\n      cancel-in-progress: false/);
+  if(filename==='binance-python-watch.yml')assert.match(watch,/if: \$\{\{ false && github.event_name != 'pull_request'/);
+  else assert.match(watch,/if: github.event_name == 'workflow_dispatch'/);
+ }
 });
-test('pull-request CI covers the resolver, collectors, and their offline tests',()=>{const ci=fs.readFileSync(path.join(root,'.github/workflows/verify-binance.yml'),'utf8');for(const name of ['scripts/resolve_trader_refresh_mode.cjs','scripts/collect_trader_analytics.cjs','scripts/collect_trader_portfolios.cjs','audit/trader-refresh-mode-unit.cjs','audit/trader-analytics-collector-unit.cjs','audit/trader-portfolio-collector-unit.cjs']){assert.ok(ci.includes("- '"+name+"'"),'missing PR path '+name);assert.ok(ci.includes((name.startsWith('scripts/')?'node --check ':'node ')+name),'missing PR check '+name);}});
-test('persisted source guard precedes and gates every Hyperliquid stage',()=>{const name='Check persisted Hyperliquid source refusals';assert.ok(workflow.indexOf('      - name: '+name)<workflow.indexOf('      - name: Collect one public Hyperliquid snapshot'));assert.match(step(name),/node scripts\/hyperliquid_run_guard\.cjs/);assert.match(step(name),/set -euo pipefail/);for(const name of ['Record this collection start','Collect one public Hyperliquid snapshot','Precompute native and 90/180/365-day portfolio windows','Separate shared API rate windows','Precompute closing-fill win rates with persistent last-good cache','Reverify holdings after the long analytics batch'])assert.ok(step(name).includes("steps.hyperliquid-guard.outputs.allowed == 'true'"),name);const ci=fs.readFileSync(path.join(root,'.github/workflows/verify-binance.yml'),'utf8');for(const file of ['scripts/hyperliquid_run_guard.cjs','audit/hyperliquid-run-guard-unit.cjs'])assert.ok(ci.includes("- '"+file+"'"));assert.ok(ci.includes('node audit/hyperliquid-run-guard-unit.cjs'));});
+test('evidence storage is bounded and only manual runs retain raw evidence',()=>{
+ const receipts=step('Record bounded source receipts without recurring artifact storage');
+ assert.match(receipts,/if: always\(\)/);assert.match(receipts,/\[:400\]/);
+ const evidence=step('Keep one manually verified raw evidence batch');
+ assert.match(evidence,/if: always\(\) && github.event_name == 'workflow_dispatch'/);
+ assert.match(evidence,/retention-days: 1/);
+ const uploads=(workflow.match(/uses: actions\/upload-artifact@/g)||[]).length;assert.equal(uploads,1);
+});
+test('pull-request CI retains offline resolver and collector regression coverage',()=>{
+ const ci=fs.readFileSync(path.join(root,'.github/workflows/verify-binance.yml'),'utf8');
+ for(const name of ['scripts/resolve_trader_refresh_mode.cjs','scripts/collect_trader_analytics.cjs','scripts/collect_trader_portfolios.cjs','audit/trader-refresh-mode-unit.cjs','audit/trader-analytics-collector-unit.cjs','audit/trader-portfolio-collector-unit.cjs','scripts/hyperliquid_run_guard.cjs','audit/hyperliquid-run-guard-unit.cjs'])assert.ok(ci.includes("- '"+name+"'"),'missing PR path '+name);
+ for(const file of ['audit/trader-refresh-mode-unit.cjs','audit/hyperliquid-run-guard-unit.cjs'])assert.ok(ci.includes('node '+file),'missing offline check '+file);
+});
 console.log('PASS '+count+' offline refresh-scope tests');

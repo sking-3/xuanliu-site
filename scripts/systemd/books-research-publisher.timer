@@ -1,0 +1,10 @@
+[Unit]
+Description=Check approved Books research snapshots every minute
+
+[Timer]
+OnBootSec=45s
+OnUnitInactiveSec=60s
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target

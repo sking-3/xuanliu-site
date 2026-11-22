@@ -71,6 +71,15 @@ test('failed collection is also throttled for 24 hours without rewriting its err
   const due=await collectPublic({outputDir:d,now:()=>NOW+DAY,fetchImpl:async()=>{calls++;return response(fixture());}});
   assert.equal(calls,1);assert.equal(due.status,'ready');
 });
+test('explicit manual refresh reads once inside the daily cache window while durable source stops still win',async t=>{
+  const d=await dir(t);await collectPublic({outputDir:d,now:()=>NOW,fetchImpl:async()=>response(fixture())});let calls=0;
+  const refreshed=await collectPublic({outputDir:d,refreshNow:true,now:()=>NOW+1000,fetchImpl:async()=>{calls++;return response(fixture());}});
+  assert.equal(calls,1);assert.equal(refreshed.status,'ready');assert.equal(refreshed.lastAttempt,new Date(NOW+1000).toISOString());
+  const stopped=await collectPublic({outputDir:d,refreshNow:true,now:()=>NOW+2000,fetchImpl:async()=>{calls++;return response('',429);}});
+  assert.equal(stopped.status,'stopped');
+  const again=await collectPublic({outputDir:d,refreshNow:true,now:()=>NOW+3000,fetchImpl:async()=>assert.fail('a source stop cannot be bypassed by manual refresh')});
+  assert.deepEqual(again,stopped);assert.equal(calls,2);
+});
 test('older source snapshot is refused without replacing the saved data',async t=>{
   const d=await dir(t),good=await collectPublic({outputDir:d,now:()=>NOW,fetchImpl:async()=>response(fixture())});
   const older=await collectPublic({outputDir:d,now:()=>NOW+DAY,fetchImpl:async()=>response(fixture({shift:-DAY}))});

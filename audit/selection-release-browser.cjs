@@ -4,6 +4,21 @@ const path=require('node:path'),playwright=require('playwright');
 const engine=process.env.RELEASE_BROWSER||'chromium';
 const output=path.join(process.env.RELEASE_OUTPUT||path.join(__dirname,'browser-output/release'),engine);fs.mkdirSync(output,{recursive:true});
 const snapshot=require('./release-fixtures.cjs');
+const trendEngine=require('../screening/trend-screen.js');
+const cacheGeneration='synthetic-release-cache-v1',cacheDay=snapshot.updatedAt.slice(0,10);
+const cacheStocks=snapshot.stocks.filter(stock=>stock.exchange!=='BJ');
+const cacheBars=Array.from({length:65},(_,i)=>({date:new Date(Date.parse(cacheDay+'T00:00:00Z')-(64-i)*86400000).toISOString().slice(0,10),close:i<60?100-i*.02:98.8+(i-59)*.35,volume:1000}));
+function cachedTrend(url){
+ if(url.pathname==='/api/a-share-daily/state')return {available:true,scope:'full-market',fullMarket:true,lastSuccess:{generation:cacheGeneration,day:cacheDay,asOf:snapshot.updatedAt},attempt:{status:'complete'}};
+ if(url.pathname!=='/api/a-share-daily/result')return null;
+ const mode=url.searchParams.get('mode'),lookback=Number(url.searchParams.get('lookback')),reference={code:url.searchParams.get('benchmark')};
+ assert.equal(mode,'strength');assert.equal(lookback,20);assert.equal(url.searchParams.get('generation'),cacheGeneration);
+ assert.equal(url.searchParams.get('sampleSize'),'all');assert.equal(reference.code,'000300.SH');
+ const input={mode,lookback,day:cacheDay,referenceBars:cacheBars,limits:{enabled:false}};
+ const match=trendEngine.evaluate({...input,bars:cacheBars}),miss=trendEngine.evaluate({...input,bars:cacheBars.map((bar,i)=>({...bar,close:100-i*.02}))});
+ assert.equal(match.matched,true);assert.equal(miss.matched,false);
+ return {status:'complete',mode,lookback,reference,generation:cacheGeneration,day:cacheDay,asOf:snapshot.updatedAt,scope:'full-market',fullMarket:true,marketUniverseCount:cacheStocks.length,sampleCount:cacheStocks.length,limits:{enabled:false},records:cacheStocks.map((stock,i)=>({stock:{...stock,sector:stock.boardName},result:i===0?match:miss,fetchedAt:snapshot.updatedAt,referenceFetchedAt:snapshot.updatedAt}))};
+}
 const batch=JSON.parse(fs.readFileSync(path.join(__dirname,'../research-data/snapshot.json'),'utf8'));
 const record={at:new Date().toISOString(),network:'Synthetic fixtures; all external HTTP and WebSocket traffic blocked; no denied source contacted',checks:[],screens:[]};
 const base=process.env.RELEASE_BASE_URL;assert.ok(base,'test server required');
@@ -23,6 +38,12 @@ async function openWorkspace(page){
   await c.addInitScript(stamp=>{window.testNow=Date.parse(stamp);Date.now=()=>window.testNow;},now);
   await c.route('**/*',async r=>{
    const url=new URL(r.request().url());if(await handler?.(r,url))return;
+   if(url.origin===new URL(base).origin){
+    const cached=cachedTrend(url);if(cached)return r.fulfill({json:cached});
+    if(url.pathname==='/api/a-share-daily/schemes')return r.fulfill({json:{schemes:[]}});
+    if(url.pathname==='/api/research-control/state')return r.fulfill({status:401,json:{error:'authentication_required'}});
+   }
+
    if(url.href.includes('market-heatmap-fallback.json')||url.origin===new URL(base).origin&&url.pathname==='/api/a-share-daily/market')return r.fulfill({json:snapshot});
    if(url.origin===new URL(base).origin&&url.pathname.startsWith(new URL(base).pathname))return r.continue();return r.abort();
   });return c;
@@ -88,6 +109,8 @@ async function openWorkspace(page){
   let daily=0;const requestedHosts=[];
   c=await context(async(r,u)=>{if(u.pathname.endsWith('/appstock/app/fqkline/get')&&r.request().frame()===r.request().frame().page().mainFrame()){daily++;requestedHosts.push(u.hostname);await r.fulfill({status:429,json:{}});return true;}});
   page=await c.newPage();await page.goto(base+'screening/index.html',{waitUntil:'domcontentloaded'});await page.locator('[data-selection][data-state=ready]').waitFor();
+  await page.waitForFunction(()=>window.BooksTrendControllerApp?.getState().status==='complete');assert.equal(daily,0);
+  assert.equal(await page.locator('[data-trend-limit="maxVolumeRatio"]').inputValue(),'2.5');
   await page.locator('details.pick-advanced > summary').click();
   await page.locator('#pick-query').fill('600519');await page.waitForFunction(()=>document.querySelectorAll('#pick-rows tr[data-code]').length===1);
   await page.locator('#pick-run').click();await page.locator('#pick-tech-access:not([hidden])').waitFor();
