@@ -123,6 +123,7 @@ async function openWorkspace(page){
   record.checks.push({name:'Tencent stop survives repeat calls/reload and offers local-file recovery',dailyRequests:daily,requestedHosts,localFileVisible:true});await c.close();
   // Calendar boundary changes without reloading or receiving a new market batch.
   c=await context(undefined,'2026-11-16T06:59:00Z');page=await c.newPage();await page.goto(base+'screening/index.html',{waitUntil:'domcontentloaded'});await page.locator('[data-selection][data-state=ready]').waitFor();
+  await page.locator('details.pick-advanced > summary').click();
   assert.equal(await page.locator('[data-selection]').getAttribute('data-freshness'),'dated');assert.match(await page.locator('#pick-freshness').innerText(),/2026-11-13.*逐股/);
   await page.evaluate(()=>{window.testNow=Date.parse('2026-11-16T07:00:00Z');document.dispatchEvent(new Event('visibilitychange'));});
   assert.equal(await page.locator('[data-selection]').getAttribute('data-freshness'),'historical');assert.match(await page.locator('#pick-freshness').innerText(),/缺少.*2026-11-16/);
