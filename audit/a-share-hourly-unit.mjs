@@ -31,6 +31,36 @@ test('one authenticated guarded request publishes only validated derived changes
   const published=await readFile(join(dir,'hourly.json'),'utf8');assert.doesNotMatch(published,/mock-key|last_price|prev_close|"price"|"timestamp"|"data"/);
   const db=openStore(join(dir,'collector.sqlite'));assert.equal(db.prepare('SELECT COUNT(*) AS n FROM history_v2').get().n,0);db.close();
 });
+test('optional or null quote sessions use the verified intraday calendar and source timestamp',async t=>{
+  for(const session of [null,undefined]){
+    const dir=await fixture(t),payload=quote();payload.data.forEach(q=>{if(session===undefined)delete q.session;else q.session=session;});
+    const result=await collectHourly(options(dir,{fetch:async()=>Response.json(payload)}));assert.equal(result.attempt.status,'complete');assert.equal(result.attempt.requestCount,1);assert.deepEqual(publicHourly(result),result);
+  }
+  for(const session of ['closed','halted','lunch_break','pre_market','after_hours','foreign_session']){
+    const dir=await fixture(t),payload=quote();payload.data[0].session=session;
+    const result=await collectHourly(options(dir,{fetch:async()=>Response.json(payload)}));assert.equal(result.attempt.status,'stale');assert.equal(result.lastSuccess,null);
+  }
+  for(const stamp of ['2026-11-23T09:29:59+08:00','2026-11-23T12:59:59+08:00']){
+    const dir=await fixture(t),payload=quote(Date.parse(stamp));payload.data.forEach(q=>{q.session=null;});
+    const result=await collectHourly(options(dir,{now:()=>Date.parse(stamp)+1000,fetch:async()=>Response.json(payload)}));assert.equal(result.attempt.status,'stale');assert.equal(result.lastSuccess,null);
+  }
+});
+test('closing ticks within 15:00 accept documented optional sessions while 15:01 and wrong sessions are rejected',async t=>{
+  const closeTime=Date.parse('2026-11-23T15:05:00+08:00');
+  for(const session of [null,undefined,'regular','closed','after_hours']){
+    const dir=await fixture(t),payload=quote(Date.parse('2026-11-23T15:00:06+08:00'));
+    payload.data.forEach((q,i)=>{if(session===undefined)delete q.session;else q.session=session;if(i===2)q.timestamp-=3000;});
+    const result=await collectHourly(options(dir,{now:()=>closeTime,fetch:async()=>Response.json(payload)}));assert.equal(result.attempt.status,'complete');assert.equal(result.lastSuccess.asOf,'2026-11-23T07:00:03.000Z');assert.equal(result.lastSuccess.indices[0].sourceAt,'2026-11-23T07:00:06.000Z');
+    const late=quote(Date.parse('2026-11-23T15:01:00+08:00'));late.data.forEach(q=>{if(session===undefined)delete q.session;else q.session=session;});
+    const rejected=await collectHourly(options(dir,{now:()=>closeTime+1000,fetch:async()=>Response.json(late)}));assert.equal(rejected.attempt.status,'stale');assert.deepEqual(rejected.lastSuccess,result.lastSuccess);
+  }
+  for(const session of ['halted','lunch_break','pre_market','foreign_session']){
+    const dir=await fixture(t),payload=quote(Date.parse('2026-11-23T15:00:06+08:00'));payload.data[0].session=session;
+    const result=await collectHourly(options(dir,{now:()=>closeTime,fetch:async()=>Response.json(payload)}));assert.equal(result.attempt.status,'stale');assert.equal(result.lastSuccess,null);
+  }
+  const dir=await fixture(t);let requests=0;
+  const closed=await collectHourly(options(dir,{now:()=>Date.parse('2026-11-23T15:10:01+08:00'),fetch:()=>{requests++;throw Error('capture window must remain closed');}}));assert.equal(closed.attempt.status,'closed');assert.equal(requests,0);
+});
 test('partial, stale, repeated, nonfinite, foreign-session and future quotes keep the exact last success and do not replay old data as new',async t=>{
   const dir=await fixture(t),first=await collectHourly(options(dir));
   const mutations=[p=>p.data.pop(),p=>p.data.forEach(q=>q.timestamp-=3600000),p=>{},p=>p.data[0].last_price=NaN,p=>p.data[0].session='lunch_break',p=>p.data[0].timestamp=time+10000,p=>p.data[0].region='US',p=>p.data[0].symbol=p.data[1].symbol];

@@ -50,8 +50,9 @@ function deriveQuotes(payload,calendar,time,previous){
     const rows=payload.data.filter(row=>object(row)&&row.symbol===code),quote=rows[0];
     if(rows.length!==1||quote.region!=='CN'||!Number.isSafeInteger(quote.timestamp)||typeof quote.last_price!=='number'||typeof quote.prev_close!=='number'||!Number.isFinite(quote.last_price)||!Number.isFinite(quote.prev_close)||quote.last_price<=0||quote.prev_close<=0)throw Error('invalid');
     const source=calendar.clock('CN',quote.timestamp),old=previous?.indices.find(row=>row.code===code);
-    const close=source?.time==='150000'&&local.time>='150000'&&['regular','closed','after_hours'].includes(quote.session);
-    if(!source||source.date!==local.date||quote.timestamp>time||time-quote.timestamp>maxAge||old&&quote.timestamp<=Date.parse(old.sourceAt)||!close&&(!calendar.inSession('CN',source)||quote.session!=='regular'))throw Error('stale');
+    const regular=quote.session==null||quote.session==='regular';
+    const close=source?.time>='150000'&&source.time<'150100'&&local.time>='150000'&&(regular||['closed','after_hours'].includes(quote.session));
+    if(!source||source.date!==local.date||quote.timestamp>time||time-quote.timestamp>maxAge||old&&quote.timestamp<=Date.parse(old.sourceAt)||!close&&(!calendar.inSession('CN',source)||!regular))throw Error('stale');
     const changePercent=(quote.last_price/quote.prev_close-1)*100;
     if(!Number.isFinite(changePercent))throw Error('invalid');
     indices.push({code,name:names[code],changePercent,sourceAt:new Date(quote.timestamp).toISOString()});
