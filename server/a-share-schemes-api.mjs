@@ -1,5 +1,6 @@
 import {readFile} from 'node:fs/promises';
 import {join} from 'node:path';
+import {publicHourly} from './a-share-hourly.mjs';
 const PUBLIC = '/api/a-share-daily/schemes';
 const PRIVATE = '/api/research-control/schemes';
 
@@ -11,6 +12,11 @@ export function createSchemeApi({store, directory, schedule = () => {}}) {
       if (error.code === 'ENOENT') return null;
       return {attempt: {status: 'failed', error: '采集状态文件暂不可读；保留已完成方案结果。'}};
     }
+  }
+  async function hourlyStatus() {
+    if (!directory) return null;
+    try { return publicHourly(JSON.parse(await readFile(join(directory, 'hourly.json'), 'utf8'))); }
+    catch { return null; }
   }
   async function handle(req, res, {path, url, user, readJson, json}) {
     if (path !== PUBLIC && path !== PRIVATE && path !== PRIVATE + '/enabled') return false;
@@ -27,7 +33,7 @@ export function createSchemeApi({store, directory, schedule = () => {}}) {
         if (!id) { json(res, 200, {schemes: store.list()}); return true; }
         const scheme = store.get(id);
         if (!scheme) { json(res, 404, {error: 'scheme_not_found'}); return true; }
-        json(res, 200, {scheme, runs: store.runs(id), latestRun: store.latestRun(id), tracks: store.tracks(id), collection: await collectionStatus()});
+        json(res, 200, {scheme, runs: store.runs(id), latestRun: store.latestRun(id), tracks: store.tracks(id), monitor: store.monitor(id), collection: await collectionStatus(), hourly: await hourlyStatus()});
         return true;
       }
       if (req.method !== 'POST' || path === PUBLIC) {

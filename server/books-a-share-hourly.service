@@ -1,0 +1,17 @@
+[Unit]
+Description=Books hourly A-share market overview and saved scheme monitoring
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=books
+Group=books
+WorkingDirectory=/opt/books/app
+Environment=BOOKS_SITE_DIR=/opt/books/site
+Environment=BOOKS_A_SHARE_DIR=/var/lib/books/a-share-daily
+Environment=BOOKS_DB=/var/lib/books/books.sqlite
+EnvironmentFile=-/etc/books/a-share-hourly.env
+ExecStart=/usr/bin/node /opt/books/app/a-share-hourly.mjs
+TimeoutStartSec=50min
+Nice=10
