@@ -40,95 +40,101 @@ const draft=()=>({config:clone(config),selection:{patternId:'near-ma-20',qualifi
 function record(index,change){return {stock:{code:String(600000+index)+'.SH',name:'股票'+index},result:{metrics:{periodReturn:2}},selected:change==='unknown'?null:change!=='exited',confirmedSelected:change!=='exited',change,reason:change==='unknown'?'本日数据不足':''};}
 function completedRun(id='run1',revision=1,runDay=day){return {id,schemeId:'scheme1',revision,day:runDay,asOf:runDay+'T08:10:00Z',startedAt:'2026-11-22T02:30:45Z',generation:'g1',status:'complete',error:null,summary:{isBaseline:true,baselineReason:'first_run',baseline:1,new:1,continued:1,exited:1,unknown:1,selected:3,total:5,ready:4},records:['baseline','new','continued','exited','unknown'].map((change,index)=>record(index,change))};}
 function schemeValue(extra={}){return {id:'scheme1',name:'已存方案',revision:1,enabled:true,config:clone(config),selection:draft().selection,attempt:null,lastSuccess:null,...extra};}
+function monitorValue(extra={}){return {schema:'books.screening.monitor.v1',schemeId:'scheme1',scope:'scheme',revision:1,mode:'strength',lookback:20,benchmark:'000300.SH',policy:{horizon:15,minimumReturnPercent:5},sourceId:'tickflow-eod',engineVersion:model.engineVersion,patternVersion:patterns.version,day,generation:'g1',active:[],eliminated:[],...extra};}
 function fixture(options={}){
- const f=documentFixture(),calls=[],applied=[];let scheme=schemeValue(),run=completedRun(),tracks=[];
- const app={getSchemeDraft:draft,applyScheme:async value=>applied.push(value)},custom=options.fetch;
+ const f=documentFixture(),calls=[],applied=[],monitors=[];let scheme=schemeValue(),run=completedRun(),tracks=[],monitor=monitorValue(),hourly=null;
+ const app={getSchemeDraft:draft,applyScheme:async value=>applied.push(value),setMonitor:value=>monitors.push(clone(value))},custom=options.fetch;
  f.env.fetch=async(path,init)=>{
-  assert.ok(path.startsWith('/api/a-share-daily/schemes')||path.startsWith('/api/research-control/schemes'));const body=init.body?JSON.parse(init.body):undefined;calls.push({path,init,body});
-  if(custom){const response=await custom(path,init,body,calls.length);if(response)return response;}
+  assert.ok(path.startsWith('/api/a-share-daily/schemes'));assert.equal(init.method,'GET');assert.equal(init.body,undefined);calls.push({path,init});
+  if(custom){const response=await custom(path,init,calls.length);if(response)return response;}
   let value;
   if(path==='/api/a-share-daily/schemes')value={schemes:[scheme]};
-  else if(path.startsWith('/api/a-share-daily/schemes?id='))value={scheme,runs:[run],latestRun:run.status==='complete'?run:null,tracks};
+  else if(path.startsWith('/api/a-share-daily/schemes?id='))value={scheme,runs:[run],latestRun:run.status==='complete'?run:null,tracks,monitor,hourly};
   else if(path.startsWith('/api/a-share-daily/schemes?run='))value={run};
-  else if(path==='/api/research-control/schemes'){scheme={...scheme,id:body.id||'scheme1',name:body.name,revision:body.id?scheme.revision+1:1,config:body.config,selection:body.selection,enabled:body.enabled};value={scheme};}
-  else{scheme={...scheme,enabled:body.enabled};value={scheme};}
+  else throw Error('unexpected request '+path);
   return {ok:true,status:200,json:async()=>clone(value)};
  };
  const appUI=schemesUI.mount(f.doc,{app,autoLoad:false});
- return {...f,calls,applied,appUI,setScheme:value=>scheme=value,setRun:value=>run=value,setTracks:value=>tracks=value};
+ return {...f,calls,applied,monitors,appUI,setScheme:value=>scheme=value,setRun:value=>run=value,setTracks:value=>tracks=value,setMonitor:value=>monitor=value,setHourly:value=>hourly=value};
 }
-test('public list is read-only and saving current conditions reports success only after the serverreply',async t=>{
- let reply;const f=fixture({fetch:async(path)=>path==='/api/research-control/schemes'?new Promise(resolve=>reply=resolve):null});t.after(()=>f.appUI.destroy());await f.appUI.refresh();
- assert.equal(f.calls.length,2);assert.equal(f.calls[0].init.method,'GET');assert.equal(f.applied.length,0);assert.equal(f.el('select').value,'scheme1');f.el('select').value='';await f.el('select').emit('change');
- f.el('name').value='我的每日方案';await f.el('name').emit('input');const saving=f.el('save').emit('click');await settle();
- assert.equal(f.el('save').disabled,true);assert.doesNotMatch(f.el('status').textContent,/已保存到服务器/);const post=f.calls.at(-1);assert.equal(post.body.name,'我的每日方案');assert.equal(post.body.config.settings.sampleSize,'all');assert.equal(post.body.selection.patternId,'near-ma-20');assert.equal(post.body.enabled,true);assert.equal(post.body.id,undefined);
- reply({ok:true,status:201,json:async()=>({scheme:schemeValue({name:'我的每日方案'})})});await saving;assert.match(f.el('status').textContent,/已保存到服务器/);assert.equal(f.el('select').value,'scheme1');assert.deepEqual([...f.storage.keys()],['books.screening.schemeId.v1']);assert.ok(f.calls.every(call=>call.init.credentials==='same-origin'&&call.init.redirect==='error'));
+test('the main page has no manual scheme bar and reads the first enabled monitor without changing current conditions',async t=>{
+ const f=fixture({fetch:async path=>path==='/api/a-share-daily/schemes'?{ok:true,status:200,json:async()=>({schemes:[schemeValue({id:'paused',enabled:false}),schemeValue(),schemeValue({id:'remembered'})]})}:null});t.after(()=>f.appUI.destroy());
+ f.storage.set('books.screening.schemeId.v1','remembered');await f.appUI.refresh();
+ for(const id of ['select','name','load','save','toggle'])assert.equal(f.el(id),undefined);
+ assert.doesNotMatch(html,/trend-scheme-bar|保存并每日运行|载入条件|暂停每日筛选/);
+ assert.equal(f.calls.length,2);assert.equal(f.calls[1].path,'/api/a-share-daily/schemes?id=scheme1');assert.equal(f.appUI.getState().id,'scheme1');assert.equal(f.applied.length,0);assert.deepEqual(f.monitors,[monitorValue()]);
+ assert.match(f.el('status').textContent,/每日自动筛选.*每小时检查：盘中来源状态待核.*15个交易日涨幅不足5%自动剔除.*活跃 0 只/);
+ assert.match(f.el('source').textContent,/已存方案.*数据日 2026-11-20.*日线来源 tickflow-eod.*页面读取.*（北京）/);
+ assert.ok(f.calls.every(call=>call.init.credentials==='same-origin'&&call.init.redirect==='error'&&call.init.cache==='no-store'));
+ assert.equal(f.storage.get('books.screening.schemeId.v1'),'remembered');assert.equal(f.timers.size,0);assert.deepEqual([...f.intervals.values()].map(timer=>timer.ms),[60000]);
 });
-test('an existing scheme loads explicitly, saves with its revision, and can pause or resume',async t=>{
- const f=fixture();t.after(()=>f.appUI.destroy());await f.appUI.refresh();f.el('select').value='scheme1';await f.el('select').emit('change');assert.equal(f.applied.length,0);
- await f.el('load').emit('click');assert.deepEqual(f.applied,[{config,selection:draft().selection}]);assert.match(f.el('status').textContent,/已载入/);
- await f.el('save').emit('click');const saved=f.calls.find(call=>call.path==='/api/research-control/schemes');assert.equal(saved.body.id,'scheme1');assert.equal(saved.body.expectedRevision,1);
- await f.el('toggle').emit('click');assert.equal(f.calls.filter(call=>call.path.endsWith('/enabled')).at(-1).body.enabled,false);assert.match(f.el('status').textContent,/暂停每日新增筛选.*继续观察/);assert.equal(f.el('toggle').textContent,'恢复每日筛选');
- await f.el('toggle').emit('click');assert.equal(f.calls.filter(call=>call.path.endsWith('/enabled')).at(-1).body.enabled,true);
+test('no enabled scheme remains pending instead of inventing an empty monitor and retries on the existing minute interval',async t=>{
+ let schemes=[schemeValue({enabled:false})];const f=fixture({fetch:async path=>path==='/api/a-share-daily/schemes'?{ok:true,status:200,json:async()=>({schemes})}:null});t.after(()=>f.appUI.destroy());await f.appUI.refresh();
+ assert.equal(f.calls.length,1);assert.equal(f.monitors.length,0);assert.equal(f.appUI.getState().monitor,null);assert.match(f.el('status').textContent,/暂无启用.*活跃与剔除记录待核/);assert.doesNotMatch(f.el('status').textContent,/活跃 0|已接通/);
+ schemes=[schemeValue()];await f.tick();assert.equal(f.monitors.length,1);assert.equal(f.appUI.getState().id,'scheme1');
 });
-test('401 requires only the existing login,403 is ownership denial, and409 preserves the unsaved draft',async t=>{
- for(const status of [401,403,409]){
-  const f=fixture({fetch:async path=>path==='/api/research-control/schemes'?{ok:false,status,json:async()=>({error:status===409?'revision_conflict':'denied',message:'拒绝'})}:null});t.after(()=>f.appUI.destroy());await f.appUI.refresh();f.el('name').value='保留的草稿';await f.el('name').emit('input');await f.el('save').emit('click');
-  assert.equal(f.el('name').value,'保留的草稿');assert.doesNotMatch(f.el('status').textContent,/已保存到服务器|管理员/);assert.equal(f.el('status').dataset.error,'true');
-  if(status===401)assert.match(f.el('status').textContent,/登录现有账户.*登录账户/);else if(status===403)assert.match(f.el('status').textContent,/没有此方案的修改权限/);else assert.match(f.el('status').textContent,/版本已变化.*当前条件保留/);
- }
+test('hourly status distinguishes missing credentials, source snapshots and retained stale data without replacing15-day returns',async t=>{
+ const f=fixture();t.after(()=>f.appUI.destroy());const track={revision:1,code:'600000.SH',entryDay:day,enteredRunId:'run1',observations:{},assessment:{status:'ready',passed:true,returnPercent:5.1,reason:'第15日已达5%'}};
+ f.setTracks([track]);f.setMonitor(monitorValue({active:[track]}));f.setHourly({schema:'books.a-share.hourly.v1',attempt:{status:'unconfigured',requestCount:0},lastSuccess:null});await f.appUI.refresh();assert.match(f.el('status').textContent,/每小时检查：盘中来源未配置/);assert.doesNotMatch(f.el('status').textContent,/已接通|指数快照/);assert.equal(f.el('records').children[0].children[6].textContent,'+5.1%');
+ const snapshot={sourceId:'tickflow-auth-quotes-v1',asOf:day+'T02:00:00Z',fetchedAt:day+'T02:00:02Z',staleAfter:day+'T03:00:00Z',indices:[{code:'000001.SH',name:'上证指数',changePercent:1.2},{code:'399001.SZ',name:'深证成指',changePercent:0},{code:'399006.SZ',name:'创业板指',changePercent:null}]};
+ f.setHourly({schema:'books.a-share.hourly.v1',attempt:{status:'complete',requestCount:1},lastSuccess:snapshot});await f.tick();assert.match(f.el('status').textContent,/指数快照 上证指数 \+1.2% \/ 深证成指 0%/);assert.doesNotMatch(f.el('status').textContent,/创业板指 0%/);assert.match(f.el('source').textContent,/盘中来源 tickflow-auth-quotes-v1.*来源时间 2026\/11\/20 10:00:00（北京）.*本站读取 2026\/11\/20 10:00:02（北京）.*有效截止 2026\/11\/20 11:00:00（北京）/);
+ for(const [status,label]of [['stale','上次指数快照已过期'],['failed','读取失败，保留上次指数快照'],['closed','非交易时段']]){f.setHourly({schema:'books.a-share.hourly.v1',attempt:{status},lastSuccess:snapshot});await f.tick();assert.ok(f.el('status').textContent.includes(label));assert.ok(f.el('source').textContent.includes(snapshot.sourceId));assert.equal(f.el('records').children[0].children[6].textContent,'+5.1%');}
 });
-test('the first baseline is polled at most three times after saving and never by a permanent interval',async t=>{
- let details=0;const current=schemeValue({revision:2,attempt:{id:'running1',revision:2,status:'running'}}),f=fixture({fetch:async(path)=>{
-  if(path==='/api/research-control/schemes')return {ok:true,status:201,json:async()=>({scheme:current})};
-  if(path.includes('?id=')){details++;return {ok:true,status:200,json:async()=>({scheme:current,runs:[],latestRun:null,tracks:[]})};}
- }});t.after(()=>f.appUI.destroy());await f.appUI.refresh();details=0;f.el('name').value='首次基准';await f.el('name').emit('input');await f.el('save').emit('click');assert.equal(details,1);
- assert.equal(await f.fire(5000),1);assert.equal(await f.fire(5000),1);assert.equal(await f.fire(5000),1);assert.equal(await f.fire(5000),0);assert.equal(details,4);assert.equal(f.timers.size,0);assert.match(f.el('run-status').textContent,/正在运行/);
-});
-test('review uses all five change states and joins the matching episode instead of an older same-stocktrade',async t=>{
- const f=fixture(),run=completedRun();t.after(()=>f.appUI.destroy());
- f.setTracks([{id:'old',revision:1,code:'600000.SH',entryDay:'2026-11-01',exitDay:'2026-11-10',enteredRunId:'older',observations:{'1':{status:'ready',returnPercent:999}}},{id:'current',revision:1,code:'600000.SH',entryDay:day,knownAt:'2026-11-22T03:04:05Z',exitDay:null,enteredRunId:'run1',observations:{'1':{status:'ready',returnPercent:3.2},'3':{status:'pending',returnPercent:null,reason:'未到第3个交易日'}}}]);
- await f.appUI.refresh();f.el('select').value='scheme1';await f.el('select').emit('change');assert.equal(f.el('records').children.length,5);const first=f.el('records').children[0];assert.equal(first.children.length,7);assert.match(first.textContent,/观察起点 2026-11-20.*建档基准.*\+3.2%/);assert.match(first.children[0].children[1].title,/首次确认 2026\/11\/22 11:04:05（北京）/);assert.match(f.el('run-status').textContent,/来源 2026\/11\/20 16:10:00（北京）.*建档 2026\/11\/22 10:30:45（北京）.*首次基准，不回填旧信号/);assert.match(first.children[3].attrs['aria-label'],/第3个交易日.*未到第3个交易日/);assert.equal(first.children[3].children.length,0);assert.doesNotMatch(first.textContent,/999|实际成交收益|未到第3个交易日/);
+test('review keeps all five change states and old horizons while joining the exact episode for15-day assessment',async t=>{
+ const f=fixture();t.after(()=>f.appUI.destroy());
+ const current={id:'current',revision:1,code:'600000.SH',name:'股票0',entryDay:day,knownAt:'2026-11-22T03:04:05Z',exitDay:null,enteredRunId:'run1',observations:{'1':{status:'ready',returnPercent:3.2},'3':{status:'pending',returnPercent:null,reason:'未到第3个交易日'}}};
+ const eliminated={...current,assessment:{status:'ready',passed:false,targetDay:'2026-12-11',returnPercent:4.99,reason:'第15个交易日涨幅不足5%',checkedAt:'2026-12-11T08:10:00Z'},elimination:{targetDay:'2026-12-11',decisionDay:'2026-12-11',returnPercent:4.99,reason:'第15个交易日涨幅不足5%'}};
+ f.setTracks([{id:'old',revision:1,code:'600000.SH',entryDay:'2026-11-01',exitDay:'2026-11-10',enteredRunId:'older',observations:{'1':{status:'ready',returnPercent:999}}},current]);f.setMonitor(monitorValue({eliminated:[eliminated]}));
+ await f.appUI.refresh();assert.equal(f.el('records').children.length,5);const first=f.el('records').children[0];assert.equal(first.children.length,9);assert.match(first.textContent,/观察起点 2026-11-20.*建档基准.*\+3.2%.*\+4.99%.*已剔除.*涨幅不足5%.*决定日 2026-12-11/);
+ assert.match(first.children[0].children[1].title,/首次确认 2026\/11\/22 11:04:05（北京）/);assert.match(f.el('run-status').textContent,/来源 2026\/11\/20 16:10:00（北京）.*建档 2026\/11\/22 10:30:45（北京）.*首次基准，不回填旧信号/);
+ assert.match(first.children[3].attrs['aria-label'],/第3个交易日.*未到第3个交易日/);assert.equal(first.children[3].children.length,0);assert.match(first.children[6].attrs['aria-label'],/第15个交易日.*2026-12-11.*涨幅不足5%/);assert.doesNotMatch(first.textContent,/999|实际成交收益|未到第3个交易日/);
  for(const change of ['baseline','new','continued','exited','unknown']){f.el('change').value=change;await f.el('change').emit('change');assert.equal(f.el('records').children.length,1);assert.equal(f.el('records').children[0].children[1].textContent.startsWith({baseline:'建档基准',new:'新入选',continued:'持续入选',exited:'已退出',unknown:'待核对'}[change]),true);}
  assert.match(f.el('records').textContent,/本日数据不足/);assert.match(f.el('run-summary').textContent,/基准 1.*新 1.*持续 1.*退出 1.*待核 1/);
- const oldRun=completedRun('older',1,'2026-11-01');oldRun.records=[record(0,'baseline')];f.setRun(oldRun);f.el('change').value='all';await f.el('change').emit('change');f.el('runs').value='older';await f.el('runs').emit('change');assert.match(f.el('records').textContent,/\+999%/);assert.match(f.el('run-summary').textContent,/数据日 2026-11-01/);
+ const oldRun=completedRun('older',1,'2026-11-01');oldRun.records=[record(0,'baseline')];f.setRun(oldRun);f.el('change').value='all';await f.el('change').emit('change');f.el('runs').value='older';await f.el('runs').emit('change');assert.match(f.el('records').textContent,/\+999%/);assert.doesNotMatch(f.el('records').textContent,/4.99%|已剔除/);assert.match(f.el('run-summary').textContent,/数据日 2026-11-01/);
 });
-test('a failed new revision retains the last successful date and delayed selected-scheme responses cannot overwrite another selection',async t=>{
- let release;const f=fixture({fetch:async path=>path.includes('?id=slow')?new Promise(resolve=>release=resolve):null});t.after(()=>f.appUI.destroy());f.setScheme(schemeValue({revision:2,attempt:{id:'failed',revision:2,status:'error',error:'同日日线不足'}}));await f.appUI.refresh();f.el('select').value='scheme1';await f.el('select').emit('change');assert.match(f.el('run-status').textContent,/v2运行失败.*同日日线不足.*保留数据日 2026-11-20/);
- f.el('select').value='slow';const loading=f.el('select').emit('change');await settle();f.el('select').value='';await f.el('select').emit('change');release({ok:true,status:200,json:async()=>({scheme:schemeValue({id:'slow'}),runs:[],latestRun:null,tracks:[]})});await loading;assert.equal(f.el('select').value,'');assert.equal(f.el('name').value,'');assert.equal(f.appUI.getState().detail,null);
+test('pending unavailable and unobservable15-day results stay unknown while a genuine zero remains zero',async t=>{
+ const f=fixture(),track={revision:1,code:'600000.SH',entryDay:day,enteredRunId:'run1',observations:{}};t.after(()=>f.appUI.destroy());f.setTracks([track]);
+ for(const [status,passed,value,label]of [['pending',null,null,'待考核'],['unavailable',null,null,'待核'],['not_observable',null,null,'不可核验'],['ready',false,0,'未达标'],['ready',true,5,'通过']]){
+  f.setMonitor(monitorValue({active:[{...track,assessment:{status,passed,returnPercent:value,reason:'真实复核原因'}}]}));await f.appUI.refresh();const row=f.el('records').children[0];assert.equal(row.children[6].textContent,value===null?'—':value===0?'0%':'+5%');assert.equal(row.children[8].textContent,label+' · 真实复核原因');
+ }
 });
-test('leaving cancels bounded polling and in-flight reads while bfcache navigation preserves the component',async()=>{
- const f=fixture();await f.appUI.refresh();f.env.dispatchEvent({type:'pagehide',persisted:true});assert.equal(f.el('save').events.get('click').size,1);assert.equal(f.intervals.size,1);f.env.dispatchEvent({type:'pagehide',persisted:false});assert.equal(f.el('save').events.get('click').size,0);assert.equal(f.timers.size,0);assert.equal(f.intervals.size,0);
+test('failed revisions and collection progress keep the last successful date',async t=>{
+ let collection={attempt:{status:'running',stage:'collecting',checked:430,total:3194}};const f=fixture({fetch:async path=>path.includes('?id=')?{ok:true,status:200,json:async()=>({scheme:schemeValue({revision:2,attempt:{id:'failed',revision:2,status:'error',error:'同日日线不足'}}),runs:[completedRun()],latestRun:completedRun(),tracks:[],monitor:monitorValue(),collection})}:null});t.after(()=>f.appUI.destroy());await f.appUI.refresh();assert.match(f.el('run-status').textContent,/收盘采集中.*collecting 430\/3194.*2026-11-20/);
+ collection={attempt:{status:'failed',error:'官方日线来源限流'}};await f.tick();assert.match(f.el('run-status').textContent,/收盘采集失败.*官方日线来源限流.*保留数据日 2026-11-20/);assert.equal(f.appUI.getState().run.day,day);
+ collection=null;await f.tick();assert.match(f.el('run-status').textContent,/v2运行失败.*同日日线不足.*保留数据日 2026-11-20/);
 });
-test('visible periodicrefresh advances the latest review but never replaces a manually selected historicalrun or typedname',async t=>{
+test('leaving removes listeners and aborts in-flight reads while bfcache navigation preserves the component',async()=>{
+ let signal;const f=fixture({fetch:async(path,init)=>path.includes('?id=')?new Promise((resolve,reject)=>{signal=init.signal;signal.addEventListener('abort',()=>reject(Object.assign(Error('aborted'),{name:'AbortError'})));}):null});const loading=f.appUI.refresh();await settle();assert.equal(signal.aborted,false);
+ f.env.dispatchEvent({type:'pagehide',persisted:true});assert.equal(f.el('runs').events.get('change').size,1);assert.equal(f.intervals.size,1);assert.equal(signal.aborted,false);
+ f.env.dispatchEvent({type:'pagehide',persisted:false});await loading;assert.equal(f.el('runs').events.get('change').size,0);assert.equal(signal.aborted,true);assert.equal(f.timers.size,0);assert.equal(f.intervals.size,0);assert.equal(f.monitors.length,0);
+});
+test('visible minute refresh advances the latest review without replacing a selected historical run',async t=>{
  const f=fixture();t.after(()=>f.appUI.destroy());await f.appUI.refresh();assert.equal(f.applied.length,0);const before=f.calls.length;
  f.doc.hidden=true;await f.tick();assert.equal(f.calls.length,before);f.doc.hidden=false;
  f.setRun(completedRun('run2',1,'2026-11-23'));await f.tick();assert.equal(f.appUI.getState().run.id,'run2');assert.match(f.el('run-summary').textContent,/2026-11-23/);
- f.setRun(completedRun('run1',1,day));f.el('runs').value='run1';await f.el('runs').emit('change');f.el('name').value='未保存的新名称';await f.el('name').emit('input');
- f.setRun(completedRun('run3',1,'2026-11-24'));await f.tick();f.el('review').open=false;await f.el('review').emit('toggle');f.el('review').open=true;await f.el('review').emit('toggle');assert.equal(f.appUI.getState().run.id,'run1');assert.equal(f.el('runs').value,'run1');assert.equal(f.el('name').value,'未保存的新名称');assert.match(f.el('run-summary').textContent,/2026-11-20/);assert.equal(f.applied.length,0);
+ f.setRun(completedRun('run1',1,day));f.el('runs').value='run1';await f.el('runs').emit('change');
+ f.setRun(completedRun('run3',1,'2026-11-24'));await f.tick();f.el('review').open=false;await f.el('review').emit('toggle');f.el('review').open=true;await f.el('review').emit('toggle');assert.equal(f.appUI.getState().run.id,'run1');assert.equal(f.el('runs').value,'run1');assert.match(f.el('run-summary').textContent,/2026-11-20/);assert.equal(f.applied.length,0);assert.ok(f.monitors.length>=3);
 });
-test('periodic read failures retain the successful result and clear their own Chineseerror after recovery',async t=>{
- let failure=null;const f=fixture({fetch:async path=>{if(path.includes('?id=')&&failure)throw failure;}});t.after(()=>f.appUI.destroy());await f.appUI.refresh();const before=clone(f.appUI.getState().run);
- failure=new TypeError('Failed to fetch');await f.tick();assert.deepEqual(f.appUI.getState().run,before);assert.equal(f.appUI.getState().readError.id,'scheme1');assert.equal(f.el('status').dataset.error,'true');assert.match(f.el('status').textContent,/方案数据读取暂时失败.*保留上次成功结果/);assert.doesNotMatch(f.el('status').textContent,/Failed to fetch/);
- failure=null;await f.tick();assert.equal(f.appUI.getState().readError,null);assert.equal(f.el('status').dataset.error,'false');assert.doesNotMatch(f.el('status').textContent,/读取暂时失败|Failed to fetch/);assert.deepEqual(f.appUI.getState().run,before);
+test('delayed detail responses cannot overwrite a newer historical review',async t=>{
+ let delayed=false,release;const f=fixture({fetch:async path=>path.includes('?id=')&&delayed?new Promise(resolve=>release=resolve):null});t.after(()=>f.appUI.destroy());await f.appUI.refresh();delayed=true;await f.tick();
+ const oldRun=completedRun('older',1,'2026-11-01');f.setRun(oldRun);f.el('runs').value='older';await f.el('runs').emit('change');const monitorCount=f.monitors.length;
+ release({ok:true,status:200,json:async()=>({scheme:schemeValue(),runs:[completedRun('newer')],latestRun:completedRun('newer'),tracks:[],monitor:monitorValue()})});await settle();assert.equal(f.appUI.getState().run.id,'older');assert.equal(f.monitors.length,monitorCount);
+});
+test('periodic read failures retain the monitor and review and clear their own error after recovery',async t=>{
+ let failure=null;const f=fixture({fetch:async path=>{if(path.includes('?id=')&&failure)throw failure;}});t.after(()=>f.appUI.destroy());f.setMonitor(monitorValue({active:[{code:'600000.SH',entryDay:day}]}));await f.appUI.refresh();const before=clone(f.appUI.getState()),monitors=f.monitors.length;
+ failure=new TypeError('Failed to fetch');await f.tick();assert.deepEqual(f.appUI.getState().run,before.run);assert.deepEqual(f.appUI.getState().monitor,before.monitor);assert.equal(f.monitors.length,monitors);assert.equal(f.appUI.getState().readAt,before.readAt);assert.equal(f.appUI.getState().readError.id,'scheme1');assert.equal(f.el('status').dataset.error,'true');assert.match(f.el('status').textContent,/活跃 1 只.*方案数据读取暂时失败.*保留上次成功结果/);assert.doesNotMatch(f.el('status').textContent,/Failed to fetch/);
+ failure=null;await f.tick();assert.equal(f.appUI.getState().readError,null);assert.equal(f.el('status').dataset.error,'false');assert.doesNotMatch(f.el('status').textContent,/读取暂时失败|Failed to fetch/);assert.deepEqual(f.appUI.getState().run,before.run);
  failure=Object.assign(Error('aborted'),{name:'AbortError'});await f.tick();assert.match(f.el('status').textContent,/读取方案请求已超时.*保留上次成功结果/);failure=null;await f.tick();assert.equal(f.el('status').dataset.error,'false');
 });
-test('read recovery never hides an unconfirmed401 or409 writefailure',async t=>{
- for(const status of [401,409]){
-  let failRead=false;const f=fixture({fetch:async path=>{
-   if(path==='/api/research-control/schemes')return {ok:false,status,json:async()=>({error:status===409?'revision_conflict':'sign_in_required',message:'拒绝写入'})};
-   if(path.includes('?id=')&&failRead)throw new TypeError('Failed to fetch');
-  }});t.after(()=>f.appUI.destroy());await f.appUI.refresh();await f.el('save').emit('click');const message=f.el('status').textContent;
-  failRead=true;await f.tick();assert.notEqual(f.appUI.getState().readError,null);assert.equal(f.el('status').textContent,message);
-  failRead=false;await f.tick();assert.equal(f.appUI.getState().readError,null);assert.equal(f.appUI.getState().error,true);assert.equal(f.el('status').dataset.error,'true');assert.equal(f.el('status').textContent,message);assert.equal(f.calls.filter(call=>call.init.method==='POST').length,1);
- }
+test('missing or invalid monitor responses never clear the last monitor or send a write',async t=>{
+ const f=fixture();t.after(()=>f.appUI.destroy());await f.appUI.refresh();const previous=clone(f.appUI.getState().monitor),count=f.monitors.length;
+ f.setMonitor(null);await f.tick();assert.deepEqual(f.appUI.getState().monitor,previous);assert.equal(f.monitors.length,count);assert.match(f.el('status').textContent,/监控数据尚未返回.*保留上次监控/);
+ f.setMonitor(monitorValue({schemeId:'another'}));await f.tick();assert.deepEqual(f.appUI.getState().monitor,previous);assert.equal(f.monitors.length,count);assert.match(f.el('status').textContent,/自动监控数据不完整.*保留上次结果/);assert.ok(f.calls.every(call=>call.init.method==='GET'));
 });
-test('local schemeid is only a review preference and collectionprogress or failure keeps the prior successfuldate',async t=>{
- let collection={attempt:{status:'running',stage:'collecting',checked:430,total:3194}},f=fixture({fetch:async(path)=>{
-  if(path==='/api/a-share-daily/schemes')return {ok:true,status:200,json:async()=>({schemes:[schemeValue({id:'first'}),schemeValue({id:'remembered'})],collection})};
-  if(path.includes('?id=remembered'))return {ok:true,status:200,json:async()=>({scheme:schemeValue({id:'remembered'}),runs:[completedRun()],latestRun:completedRun(),tracks:[],collection})};
- }});t.after(()=>f.appUI.destroy());f.storage.set('books.screening.schemeId.v1','remembered');await f.appUI.refresh();assert.equal(f.el('select').value,'remembered');assert.match(f.el('run-status').textContent,/收盘采集中.*collecting 430\/3194.*2026-11-20/);assert.equal(f.applied.length,0);
- collection={attempt:{status:'failed',error:'官方日线来源限流'}};await f.tick();assert.match(f.el('run-status').textContent,/收盘采集失败.*官方日线来源限流.*保留数据日 2026-11-20/);assert.equal(f.appUI.getState().run.day,day);
+test('HTTP read denials preserve accepted data and remain read-only',async t=>{
+ for(const status of [401,403,409]){
+  let denied=false;const f=fixture({fetch:async path=>path.includes('?id=')&&denied?{ok:false,status,json:async()=>({message:'方案读取被拒绝'})}:null});t.after(()=>f.appUI.destroy());await f.appUI.refresh();const before=clone(f.appUI.getState().monitor);denied=true;await f.tick();assert.deepEqual(f.appUI.getState().monitor,before);assert.equal(f.el('status').dataset.error,'true');assert.match(f.el('status').textContent,/方案读取被拒绝/);assert.ok(f.calls.every(call=>call.init.method==='GET'));
+ }
 });
 function mainFixture(){
  const f=documentFixture(),bars=Array.from({length:65},(_,i)=>({date:new Date(Date.parse(day+'T00:00:00Z')-(64-i)*86400000).toISOString().slice(0,10),close:100+i,volume:i>=60?700:1000})),stocks=Array.from({length:32},(_,index)=>({code:String(600000+index)+'.SH',name:'股'+index}));
@@ -149,27 +155,14 @@ test('the actual controller exports every condition and exactscope, and loading 
  saved.selection.scopeCodes=null;await f.app.applyScheme(saved);assert.equal(f.app.getState().records.length,32);assert.equal(f.app.getSchemeDraft().selection.scopeCodes,null);assert.equal(f.app.getSchemeDraft().selection.patternId,'volume-contract');assert.equal(f.ids.get('trend-pattern').value,'volume-contract');
  const before=clone(f.app.getSchemeDraft());assert.throws(()=>f.app.applyScheme({...saved,selection:{...saved.selection,patternId:'not-a-pattern'}}));assert.deepEqual(f.app.getSchemeDraft(),before);
 });
-test('the actual trend and scheme controllers save and reload every peer condition with nullable values intact',async t=>{
- const f=mainFixture(),cachedFetch=f.env.fetch,posts=[];let stored=null;
- f.env.fetch=async(path,init)=>{
-  if(path==='/api/research-control/schemes'){
-   const body=JSON.parse(init.body);posts.push(clone(body));stored=schemeValue({id:'peer-scheme',name:body.name,config:clone(body.config),selection:clone(body.selection)});
-   return {ok:true,status:201,json:async()=>({scheme:clone(stored)})};
-  }
-  if(path==='/api/a-share-daily/schemes')return {ok:true,status:200,json:async()=>({schemes:stored?[clone(stored)]:[]})};
-  if(path.startsWith('/api/a-share-daily/schemes?id='))return {ok:true,status:200,json:async()=>({scheme:clone(stored),runs:[],latestRun:null,tracks:[]})};
-  return cachedFetch(path,init);
- };
- const ui=schemesUI.mount(f.doc,{app:f.app,autoLoad:false});t.after(()=>{ui.destroy();f.app.destroy();});await f.app.start('strength');
+test('the actual controller preserves every nullable peer condition through draft and explicit applyScheme',async t=>{
+ const f=mainFixture();t.after(()=>f.app.destroy());await f.app.start('strength');
  const peer={enabled:true,groupTopPercent:45,minPeers:6,minExcessReturn:1.2,minRecentExcess:.4,minImprovement:.2,minDownsideExcess:null,maxSupportDistance:3.5,minResistanceSpace:4,sectorTopPercent:50};
  const input=key=>f.ids.get('trend-screen').children.find(node=>node.dataset.trendPeer===key);
  for(const [key,value]of Object.entries(peer).filter(([key])=>key!=='enabled')){const node=input(key);assert.ok(node,'real HTML field '+key);node.value=value===null?'':String(value);await node.emit('change');}
- f.ids.get('trend-peer-enabled').checked=true;await f.ids.get('trend-peer-enabled').emit('change');
- assert.deepEqual(f.app.getSchemeDraft().config.settings.peer,peer);const original=clone(f.app.getSchemeDraft());
- f.el('name').value='同走势选强与空间';await f.el('name').emit('input');await f.el('save').emit('click');
- assert.equal(posts.length,1);assert.deepEqual(posts[0].config.settings.peer,peer);assert.deepEqual(posts[0].selection,original.selection);assert.equal(posts[0].enabled,true);assert.match(f.el('status').textContent,/已保存到服务器/);
+ f.ids.get('trend-peer-enabled').checked=true;await f.ids.get('trend-peer-enabled').emit('change');assert.deepEqual(f.app.getSchemeDraft().config.settings.peer,peer);const original=clone(f.app.getSchemeDraft());
  input('groupTopPercent').value='90';await input('groupTopPercent').emit('change');input('minResistanceSpace').value='';await input('minResistanceSpace').emit('change');f.ids.get('trend-peer-enabled').checked=false;await f.ids.get('trend-peer-enabled').emit('change');
  assert.equal(f.app.getSchemeDraft().config.settings.peer.groupTopPercent,90);assert.equal(f.app.getSchemeDraft().config.settings.peer.minResistanceSpace,null);
- await f.el('load').emit('click');assert.deepEqual(f.app.getSchemeDraft().config.settings.peer,peer);assert.equal(input('groupTopPercent').value,'45');assert.equal(input('minDownsideExcess').value,'');assert.equal(input('maxSupportDistance').value,'3.5');assert.equal(input('minResistanceSpace').value,'4');assert.equal(input('sectorTopPercent').value,'50');assert.equal(f.ids.get('trend-peer-enabled').checked,true);
- assert.equal(posts.length,1,'loading never writes a second scheme revision');
+ await f.app.applyScheme(original);assert.deepEqual(f.app.getSchemeDraft().config.settings.peer,peer);assert.equal(input('groupTopPercent').value,'45');assert.equal(input('minDownsideExcess').value,'');assert.equal(input('maxSupportDistance').value,'3.5');assert.equal(input('minResistanceSpace').value,'4');assert.equal(input('sectorTopPercent').value,'50');assert.equal(f.ids.get('trend-peer-enabled').checked,true);
+ assert.deepEqual(f.app.getSchemeDraft().selection,original.selection);
 });
