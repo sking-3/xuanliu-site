@@ -1,4 +1,10 @@
-:root { color-scheme: light; font: 13px/1.25 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif; color: #203543; background: #fff; }
+:root {
+  color-scheme: light;
+  font: 13px/1.25 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-variant-numeric: tabular-nums;
+  color: #182033;
+  background: #f9f9fc;
+}
 * { box-sizing: border-box; }
 body { margin: 0; }
 .tape { display: flex; align-items: stretch; height: 44px; }
@@ -8,15 +14,33 @@ body { margin: 0; }
 [data-loop] .tape-track { animation: market-tape-scroll 48s linear infinite; }
 @keyframes market-tape-scroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
 [data-tape-group] { display: flex; align-items: center; justify-content: space-around; min-width: 100vw; height: 44px; }
-.tape-item { display: grid; grid-template-columns: auto auto auto; align-items: baseline; column-gap: 7px; row-gap: 1px; padding: 4px 17px; border-inline-end: 1px solid #e4e9ed; white-space: nowrap; color: inherit; text-decoration: none; font-variant-numeric: tabular-nums; }
-.tape-name { font-weight: 650; }
-.tape-price { font-weight: 600; }
-.tape-change { font-size: 12px; }
-.tape-change[data-direction=up] { color: #08725a; }
-.tape-change[data-direction=down] { color: #b23946; }
-.tape-stamp { grid-column: 1 / -1; color: #617581; font-size: 10px; }
-.tape-item:focus-visible { outline: 2px solid #a74613; outline-offset: -2px; }
-.tape-item:hover .tape-name { text-decoration: underline; }
+.tape-item {
+  display: grid;
+  grid-template-columns: auto auto auto;
+  align-content: center;
+  align-items: baseline;
+  column-gap: 7px;
+  row-gap: 2px;
+  height: 100%;
+  padding: 4px 17px;
+  border-inline-end: 1px solid #e0e3ec;
+  white-space: nowrap;
+  color: inherit;
+  text-decoration: none;
+  touch-action: manipulation;
+}
+.tape-name { font-weight: 670; }
+.tape-price { font-weight: 620; }
+.tape-change { font-size: 12px; font-weight: 600; }
+.tape-change[data-direction=up] { color: #176146; }
+.tape-change[data-direction=down] { color: #a1263a; }
+.tape-stamp { grid-column: 1 / -1; color: #525c70; font-size: 11px; }
+.tape-item:focus-visible { outline: 2px solid #1455b4; outline-offset: -2px; background: #e9effb; }
+.tape-item:active { background: #e9effb; }
+@media (hover: hover) {
+  .tape-item:hover { background: #eef1f8; }
+  .tape-item:hover .tape-name { text-decoration: underline; text-underline-offset: .17em; }
+}
 .tape:not([data-loop]) .tape-window, .tape-window:has(a:focus-visible) { overflow-x: auto; }
 .tape-window:has(a:focus-visible) .tape-track { animation: none; }
 @media (prefers-reduced-motion: reduce) {

@@ -67,15 +67,24 @@
   sidebar.insertBefore(toggle, nav);
   body.classList.add('books-shell-enhanced');
 
+  const menuIsOpen = () => toggle.getAttribute('aria-expanded') === 'true';
   const setOpen = (open, restoreFocus = false) => {
     toggle.setAttribute('aria-expanded', String(open));
     toggle.textContent = open ? '收起导航' : '导航菜单';
     nav.hidden = mobile.matches && !open;
     if (restoreFocus) toggle.focus();
   };
-  toggle.addEventListener('click', () => setOpen(toggle.getAttribute('aria-expanded') !== 'true'));
+  toggle.addEventListener('click', () => setOpen(!menuIsOpen()));
+  document.addEventListener('click', (event) => {
+    if (mobile.matches && menuIsOpen() && !sidebar.contains(event.target)) {
+      setOpen(false, sidebar.contains(document.activeElement));
+    }
+  });
+  nav.addEventListener('click', (event) => {
+    if (mobile.matches && event.target.closest?.('a')) setOpen(false, true);
+  });
   sidebar.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape' && mobile.matches && toggle.getAttribute('aria-expanded') === 'true') {
+    if (event.key === 'Escape' && mobile.matches && menuIsOpen()) {
       event.preventDefault();
       setOpen(false, true);
     }

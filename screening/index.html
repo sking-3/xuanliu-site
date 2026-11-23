@@ -146,8 +146,8 @@
   <header><h2 id="review-title">独立策略筛选</h2><p>正式候选须核实沪深主板普通股、当日正常 10% 限幅、交易状态和复权。风险警示、退市及停牌排除。</p></header>
   <div class="review-fields"><label>策略<select id="strategy"><option value="">全部策略</option></select></label><label>结果状态<select id="category"><option value="">全部状态</option></select></label><label>证券<input id="security-search" type="search" placeholder="代码或名称"></label></div>
   <p id="falsifier" class="scope-note"></p>
-  <details class="import-box"><summary>载入本地历史快照</summary><p>选择交付包的「历史筛选快照.json」。文件仅在当前页面内读取。</p><input id="research-file" type="file" accept=".json,application/json" aria-label="选择历史筛选快照"></details>
-  <p id="file-state" role="status">当日已核实收盘数据尚未接入。</p>
+  <details class="import-box"><summary>导入历史记录</summary><button class="review-picker" id="review-picker" type="button">选择文件</button><input id="research-file" type="file" accept=".json,application/json" hidden></details>
+  <p id="file-state" role="status">还没有导入历史记录。</p>
   <div class="review-table" tabindex="0" aria-label="历史筛选结果" role="region"><table><thead><tr><th>证券</th><th>资格 / 状态</th><th>命中分支</th><th>历史收盘 / 元</th><th>依据 / 缺口</th></tr></thead><tbody id="review-rows"></tbody></table></div>
   <div class="review-pages"><span id="review-count" role="status"></span><button id="back-page" type="button">上一页</button><button id="next-page" type="button">下一页</button></div>
 </section></details></main></body></html>

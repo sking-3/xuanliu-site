@@ -20,6 +20,7 @@
   const get=id=>root.querySelector('#'+id);
   const rule=get('strategy'),group=get('category'),query=get('security-search');
   const source=get('file-state'),body=get('review-rows'),count=get('review-count'),file=get('research-file');
+  const pick=get('review-picker');
   const option=(select,key,label)=>select.add(new Option(label,key));
   for(const [key,[name]] of Object.entries(rules))option(rule,key,name);
   for(const status of market==='a'?['待核','排除']:['历史观察','待核','未命中','排除'])option(group,status,status);
@@ -72,8 +73,9 @@
       if(token!==generation)return;
       book=v;page=0;
       source.textContent='历史文件 · '+v.asof+' · '+v.source+' · 输入 '+v.rows.length+' 只';
-    }catch{if(token!==generation)return;source.textContent='文件格式或指标未通过校验。'+(book?'保留上次载入的 '+book.asof+' 历史结果。':'请选择本工具生成的研究快照。');}
+    }catch{if(token!==generation)return;source.textContent='无法读取这份文件。'+(book?'已保留 '+book.asof+' 的历史记录。':'请选择本站导出的历史记录。');}
     render();
+    file.value = '';
   }
   function openImportLink() {
     if (location.hash !== '#research-file') return;
@@ -82,10 +84,12 @@
       wrap.open = true;
       wrap = wrap.parentElement?.closest('details');
     }
+    pick?.focus();
   }
   window.addEventListener('hashchange',openImportLink);
   openImportLink();
   file.addEventListener('change',load);
+  pick?.addEventListener('click',()=>file.click());
   for(const control of [rule,group,query])control.addEventListener('input',()=>{page=0;render();});
   get('back-page').addEventListener('click',()=>{page--;render();});
   get('next-page').addEventListener('click',()=>{page++;render();});

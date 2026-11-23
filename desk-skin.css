@@ -1,37 +1,101 @@
-/* Shared reading and interaction scale for Books' public desks. */
+/* Grouped surfaces and shared controls for the Books research workspace. */
 :root {
   --desk-paper: #fff;
-  --desk-canvas: #f5f7f7;
-  --desk-ink: #1c303c;
-  --desk-muted: #536673;
-  --desk-border: #dbe2e4;
-  --desk-accent: #14675c;
+  --desk-canvas: #f2f3f6;
+  --desk-ink: #1b202a;
+  --desk-muted: #596473;
+  --desk-border: #d9dee7;
+  --desk-accent: #245784;
+  --desk-fill: #edf0f5;
+  --desk-selected: #e8f0fa;
+  --desk-pressed: #dce7f6;
+  --desk-navigation: #fafbfd;
   --desk-pad: clamp(12px, 1.25vw, 20px);
 }
 body.books-shell {
   background: var(--desk-canvas);
   color: var(--desk-ink);
+  color-scheme: light;
   --books-ink: var(--desk-ink);
   --books-muted: var(--desk-muted);
   --books-line: var(--desk-border);
-  --books-radius: 8px;
+  --books-accent: var(--desk-accent);
+  --books-radius: 14px;
+  font-family: -apple-system, BlinkMacSystemFont, system-ui, "PingFang SC", "Microsoft YaHei", sans-serif;
   font-variant-numeric: tabular-nums;
 }
+.books-shell ::selection { background: var(--desk-pressed); color: var(--desk-ink); }
+.books-shell :is(button,a,input,select,textarea,summary,[tabindex]):focus-visible { outline: 2px solid var(--desk-accent); outline-offset: 3px; }
 .books-shell > main { padding-inline: clamp(14px,2.2vw,34px); }
-.books-shell main h1 {
+.books-shell main h1,
+.books-shell :is(.page-heading,.stock-page-heading,.desk-heading,.page-header,.books-page-heading) h1 {
   margin-block: 0; color: var(--desk-ink);
-  font-size: clamp(22px,1.65vw,28px); line-height: 1.28; letter-spacing: -.025em;
+  font-size: 1.875rem; font-weight: 700; line-height: 1.2; letter-spacing: -.03em;
 }
-.books-shell main :is(.page-heading,.stock-page-heading,.desk-heading,.page-header,.books-page-heading) { margin: 0 0 14px; }
-.books-shell :is(.desk-heading,.stock-page-heading,.page-heading) > p { margin: 5px 0 0; color: var(--desk-muted); font-size: 13px; line-height: 1.6; }
-.books-shell .books-sidebar { padding-top: 14px; }
-.books-shell .books-nav { margin-top: 18px; }
+.books-shell main :is(.page-heading,.stock-page-heading,.desk-heading,.page-header,.books-page-heading) { margin: 0 0 18px; }
+.books-shell :is(.desk-heading,.stock-page-heading,.page-heading) > p { margin: 6px 0 0; color: var(--desk-muted); font-size: 13px; line-height: 1.6; }
+.books-shell .books-kicker { display: none; }
+.books-shell :is(.home-panel,.screening-panel,.chart-panel,.terminal-panel,.feed-card,.review-desk,.workspace,.public-feed,.preview-placeholder) {
+  background-color: var(--desk-paper);
+  border-color: var(--desk-border);
+  border-radius: var(--books-radius);
+  box-shadow: none;
+}
+.books-shell .books-sidebar {
+  background-color: var(--desk-navigation);
+  border: 1px solid var(--desk-border);
+  border-radius: 18px;
+}
+.books-shell .books-brand { color: var(--desk-ink); }
+.books-shell .books-nav { gap: 4px; margin-top: 14px; }
+.books-shell .books-nav a { padding-inline: 4px; border-radius: 11px; color: var(--desk-muted); }
+.books-shell .books-nav a:hover { background-color: var(--desk-fill); color: var(--desk-ink); }
+.books-shell .books-nav a:is([aria-current=page],[aria-current=location]) {
+  background-color: var(--desk-selected);
+  color: var(--desk-accent);
+  font-weight: 700;
+}
+.books-shell .books-nav a:is([aria-current=page],[aria-current=location])::before { content: none; }
 .books-shell .books-shortcuts {
-  display: grid; gap: 7px; margin: 15px 0 0; padding: 12px 0 0; border-top: 1px solid var(--desk-border);
+  display: grid; gap: 4px; margin: 12px 0 0; padding: 8px 0 0; border-top: 1px solid var(--desk-border);
 }
-.books-shortcuts a { display: flex; align-items: center; justify-content: center; min-height: 34px; padding: 7px 9px; border: 1px solid #d8e1e5; border-radius: 8px; background: #fff; color: var(--desk-muted); text-align: center; text-decoration: none; font-size: 11px; font-weight: 650; box-shadow: 0 1px 2px #1823350a; transition: border-color .16s ease, background .16s ease, color .16s ease, transform .16s ease; }
-.books-shortcuts a:hover, .books-shortcuts a[aria-current=page] { border-color: #d2b39d; background: #fff8f2; color: #a94d17; text-decoration: none; transform: translateY(-1px); }
-.books-shortcuts a:focus-visible { outline: 2px solid #278487; outline-offset: 2px; }
+.books-shortcuts a {
+  display: flex; align-items: center; justify-content: center;
+  min-height: 34px; padding: 6px 4px; border-radius: 9px;
+  color: var(--desk-muted); text-align: center; text-decoration: none;
+  font-size: 11px; font-weight: 650;
+}
+.books-shortcuts a:hover { background-color: var(--desk-fill); color: var(--desk-ink); }
+.books-shortcuts a[aria-current=page] { background-color: var(--desk-selected); color: var(--desk-accent); }
+.books-shell :is(.books-nav a,.books-shortcuts a,.books-menu-toggle):active { background-color: var(--desk-pressed); }
+@media (prefers-reduced-motion: no-preference) {
+  .books-shell :is(.books-nav a,.books-shortcuts a,.books-menu-toggle) { transition: background-color .16s ease-out, color .16s ease-out; }
+}
+@supports ((backdrop-filter: blur(12px)) or (-webkit-backdrop-filter: blur(12px))) {
+  .books-shell .books-sidebar {
+    background-color: rgb(250 251 253 / .85);
+    -webkit-backdrop-filter: blur(12px) saturate(115%);
+    backdrop-filter: blur(12px) saturate(115%);
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .books-shell .books-sidebar {
+    background-color: var(--desk-navigation);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+@media (min-width:761px) {
+  .books-shell .books-sidebar {
+    top: calc(var(--books-ticker-height, 0px) + 8px);
+    bottom: auto;
+    left: 6px;
+    width: calc(var(--books-side) - 12px);
+    height: calc(100dvh - var(--books-ticker-height, 0px) - 16px);
+    padding: 12px 5px 10px;
+  }
+  .books-shell .books-nav a { min-height: 54px; }
+}
 .books-shell .desk-heading { display: block; }
 .books-shell .desk-paper { min-width: 0; border: 1px solid var(--desk-border); border-radius: var(--books-radius); background: var(--desk-paper); margin: 0 0 14px; overflow: clip; }
 .desk-section-title, .desk-toolbar, .desk-foot { display: flex; align-items: baseline; justify-content: space-between; gap: 8px 16px; flex-wrap: wrap; padding: 10px var(--desk-pad); }
@@ -49,17 +113,17 @@ body.books-shell {
   gap: 4px 16px; padding: 12px var(--desk-pad); text-decoration: none; color: var(--desk-ink);
 }
 .desk-task-list > a + a { border-top: 1px solid var(--desk-border); }
-.desk-task-list > a:hover { background: #f1f7f5; }
+.desk-task-list > a:hover { background: var(--desk-fill); }
 .desk-task-list span, .desk-foot { font-size: 13px; color: var(--desk-muted); }
 .desk-task-list b { color: var(--desk-accent); }
 .books-shell .desk-toolbar label { display: flex; align-items: center; gap: 8px; }
-.desk-toolbar :is(button,select) { font: inherit; color: var(--desk-ink); border: 1px solid var(--desk-border); border-radius: 5px; background: white; padding: 6px 10px; cursor: pointer; }
+.desk-toolbar :is(button,select) { min-height: 36px; font: inherit; color: var(--desk-ink); border: 1px solid var(--desk-border); border-radius: 9px; background: var(--desk-paper); padding: 6px 10px; cursor: pointer; }
 .desk-meta { color: var(--desk-muted); font-size: 12px; margin: 0; padding: 6px var(--desk-pad); line-height: 1.5; }
 .desk-sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .desk-table-wrap { overflow: auto; max-width: 100%; }
 .evidence-table { width: 100%; border-collapse: collapse; color: var(--desk-ink); font-size: 13px; }
 .evidence-table th, .evidence-table td { padding: 7px var(--desk-pad); text-align: left; border-block-end: 1px solid var(--desk-border); }
-.evidence-table th { color: var(--desk-muted); background: #f4f7f7; font-size: 12px; font-weight: 580; }
+.evidence-table th { color: var(--desk-muted); background: var(--desk-fill); font-size: 12px; font-weight: 580; }
 .evidence-table small { display: block; color: var(--desk-muted); }
 .evidence-table tr :nth-child(n+3) { text-align: right; }
 .desk-foot { font-size: 12px; line-height: 1.6; }
@@ -74,10 +138,26 @@ body.books-shell {
 @keyframes books-progress { from { transform: translateX(-100%); } to { transform: translateX(390%); } }
 @media (prefers-reduced-motion: reduce) { .books-shell .books-load-screen { display: none; } }
 @media (max-width:760px) {
-  .books-shell > main { padding-inline: 12px; }
-  .books-shell .books-sidebar { min-height: 54px; padding: 5px 12px; }
-  .books-shell .books-brand { font-size: 20px; }
+  .books-shell > main { padding-inline: 14px; }
+  .books-shell main h1,
+  .books-shell :is(.page-heading,.stock-page-heading,.desk-heading,.page-header,.books-page-heading) h1 { font-size: 1.625rem; }
+  .books-shell .books-sidebar { width: auto; min-height: 60px; margin: 8px 10px 0; padding: 7px 12px; }
+  .books-shell .books-brand { font-size: 22px; }
   .books-shell .books-brand span { display: none; }
+  .books-shell .books-nav { gap: 4px; margin-top: 8px; }
+  .books-shell .books-nav a { min-height: 44px; padding-inline: 9px; }
+  .books-shell-enhanced .books-menu-toggle {
+    min-height: 44px;
+    border-radius: 999px;
+    background-color: var(--desk-fill);
+    border-color: var(--desk-border);
+    color: var(--desk-ink);
+  }
+  .books-shell-enhanced .books-menu-toggle[aria-expanded=true] {
+    background-color: var(--desk-selected);
+    border-color: #c4d4ea;
+    color: var(--desk-accent);
+  }
   .books-shell .books-shortcuts { grid-column: 1/-1; grid-template-columns: repeat(3,minmax(0,1fr)); margin: 6px 0 0; padding: 4px 0 0; }
   .books-shell .books-nav[hidden] ~ .books-shortcuts { display: none; }
   .books-shortcuts a, .desk-paper :is(button,select), .material-grid a, .desk-section-title a, .desk-foot a { min-height: 44px; display: inline-flex; align-items: center; }
@@ -99,3 +179,40 @@ body.books-shell {
   .evidence-table td:nth-child(3)::before { content: "数量 "; color: var(--desk-muted); font-size: 11px; }
   .evidence-table td:nth-child(4)::before { content: "均价 "; color: var(--desk-muted); font-size: 11px; }
 }
+
+.books-shell .review-picker {
+  min-height: 44px;
+  margin-block: 6px 10px;
+  padding-inline: 15px;
+  border: 1px solid var(--desk-border);
+  border-radius: 999px;
+  background: var(--desk-selected);
+  color: var(--desk-accent);
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.books-shell .market-methods > summary {
+  min-height: 44px;
+  display: flex;
+  align-items: baseline;
+  align-content: center;
+  gap: 2px 12px;
+  flex-wrap: wrap;
+  padding-block: 9px;
+  cursor: pointer;
+  list-style: none;
+}
+.books-shell .market-methods > summary::-webkit-details-marker { display: none; }
+.books-shell .market-methods > summary::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  align-self: center;
+  border: solid var(--desk-accent);
+  border-width: 0 1.5px 1.5px 0;
+  transform: rotate(-45deg);
+}
+.books-shell .market-methods[open] > summary::before { transform: rotate(45deg); }
+.books-shell .market-methods-summary { color: var(--desk-muted); font-size: 12px; }
