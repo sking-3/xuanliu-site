@@ -66,9 +66,10 @@
    if(!run){empty(state.loading?'正在读取运行记录。':'尚无已完成的每日运行记录。');return;}
    if(run.status!=='complete'){empty(run.status==='error'?'本次运行失败，尚无已完成结果。':'本次运行尚未完成。');return;}
    const records=run.records.filter(record=>state.filter==='all'||record.change===state.filter),episodes=new Map(),monitorEpisodes=new Map();
+   const methodKnown=[run.sourceId,run.engineVersion,run.patternVersion].every(value=>typeof value==='string'&&value.length>0);
    for(const track of state.detail.tracks){
-    if(track.revision!==run.revision||track.entryDay>run.day||track.exitDay&&track.exitDay<run.day)continue;
-    const before=episodes.get(track.code);if(!before||track.entryDay>before.entryDay)episodes.set(track.code,track);
+    if(!methodKnown||track.sourceId!==run.sourceId||track.engineVersion!==run.engineVersion||track.patternVersion!==run.patternVersion||track.revision!==run.revision||track.entryDay>run.day||track.exitDay&&track.exitDay<run.day)continue;
+    const before=episodes.get(track.code);if(!before||track.entryDay>before.entryDay||track.entryDay===before.entryDay&&track.enteredRunId===run.id)episodes.set(track.code,track);
    }
    if(state.monitor?.schemeId===run.schemeId)for(const episode of [...state.monitor.active,...state.monitor.eliminated])monitorEpisodes.set(episode.code+':'+episode.entryDay+':'+episode.enteredRunId,episode);
    const rows=[];

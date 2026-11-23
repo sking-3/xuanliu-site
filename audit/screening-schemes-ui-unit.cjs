@@ -36,9 +36,10 @@ function documentFixture(){
  return {env,doc,ids,timers,intervals,storage,el:id=>ids.get('trend-scheme-'+id),async fire(ms){const due=[...timers].filter(([,timer])=>timer.ms===ms);for(const [id,timer]of due){timers.delete(id);timer.fn();}await settle();return due.length;},async tick(){for(const timer of intervals.values())timer.fn();await settle();}};
 }
 const config=model.normalizeConfig({name:'初期转强',settings:{mode:'strength',direction:'up',sampleSize:'all'}});
+const method={sourceId:'tickflow-eod',engineVersion:model.engineVersion,patternVersion:patterns.version};
 const draft=()=>({config:clone(config),selection:{patternId:'near-ma-20',qualification:'strict',scopeCodes:null}});
 function record(index,change){return {stock:{code:String(600000+index)+'.SH',name:'股票'+index},result:{metrics:{periodReturn:2}},selected:change==='unknown'?null:change!=='exited',confirmedSelected:change!=='exited',change,reason:change==='unknown'?'本日数据不足':''};}
-function completedRun(id='run1',revision=1,runDay=day){return {id,schemeId:'scheme1',revision,day:runDay,asOf:runDay+'T08:10:00Z',startedAt:'2026-11-22T02:30:45Z',generation:'g1',status:'complete',error:null,summary:{isBaseline:true,baselineReason:'first_run',baseline:1,new:1,continued:1,exited:1,unknown:1,selected:3,total:5,ready:4},records:['baseline','new','continued','exited','unknown'].map((change,index)=>record(index,change))};}
+function completedRun(id='run1',revision=1,runDay=day){return {id,schemeId:'scheme1',revision,...method,day:runDay,asOf:runDay+'T08:10:00Z',startedAt:'2026-11-22T02:30:45Z',generation:'g1',status:'complete',error:null,summary:{isBaseline:true,baselineReason:'first_run',baseline:1,new:1,continued:1,exited:1,unknown:1,selected:3,total:5,ready:4},records:['baseline','new','continued','exited','unknown'].map((change,index)=>record(index,change))};}
 function schemeValue(extra={}){return {id:'scheme1',name:'已存方案',revision:1,enabled:true,config:clone(config),selection:draft().selection,attempt:null,lastSuccess:null,...extra};}
 function monitorValue(extra={}){return {schema:'books.screening.monitor.v1',schemeId:'scheme1',scope:'scheme',revision:1,mode:'strength',lookback:20,benchmark:'000300.SH',policy:{horizon:15,minimumReturnPercent:5},sourceId:'tickflow-eod',engineVersion:model.engineVersion,patternVersion:patterns.version,day,generation:'g1',active:[],eliminated:[],...extra};}
 function fixture(options={}){
@@ -74,7 +75,7 @@ test('no enabled scheme remains pending instead of inventing an empty monitor an
  schemes=[schemeValue()];await f.tick();assert.equal(f.monitors.length,1);assert.equal(f.appUI.getState().id,'scheme1');
 });
 test('hourly status distinguishes missing credentials, source snapshots and retained stale data without replacing15-day returns',async t=>{
- const f=fixture();t.after(()=>f.appUI.destroy());const track={revision:1,code:'600000.SH',entryDay:day,enteredRunId:'run1',observations:{},assessment:{status:'ready',passed:true,returnPercent:5.1,reason:'第15日已达5%'}};
+ const f=fixture();t.after(()=>f.appUI.destroy());const track={...method,revision:1,code:'600000.SH',entryDay:day,enteredRunId:'run1',observations:{},assessment:{status:'ready',passed:true,returnPercent:5.1,reason:'第15日已达5%'}};
  f.setTracks([track]);f.setMonitor(monitorValue({active:[track]}));f.setHourly({schema:'books.a-share.hourly.v1',attempt:{status:'unconfigured',requestCount:0},lastSuccess:null});await f.appUI.refresh();assert.match(f.el('status').textContent,/每小时检查：盘中来源未配置/);assert.doesNotMatch(f.el('status').textContent,/已接通|指数快照/);assert.equal(f.el('records').children[0].children[6].textContent,'+5.1%');
  const snapshot={sourceId:'tickflow-auth-quotes-v1',asOf:day+'T02:00:00Z',fetchedAt:day+'T02:00:02Z',staleAfter:day+'T03:00:00Z',indices:[{code:'000001.SH',name:'上证指数',changePercent:1.2},{code:'399001.SZ',name:'深证成指',changePercent:0},{code:'399006.SZ',name:'创业板指',changePercent:null}]};
  f.setHourly({schema:'books.a-share.hourly.v1',attempt:{status:'complete',requestCount:1},lastSuccess:snapshot});await f.tick();assert.match(f.el('status').textContent,/指数快照 上证指数 \+1.2% \/ 深证成指 0%/);assert.doesNotMatch(f.el('status').textContent,/创业板指 0%/);assert.match(f.el('source').textContent,/盘中来源 tickflow-auth-quotes-v1.*来源时间 2026\/11\/20 10:00:00（北京）.*本站读取 2026\/11\/20 10:00:02（北京）.*有效截止 2026\/11\/20 11:00:00（北京）/);
@@ -82,9 +83,9 @@ test('hourly status distinguishes missing credentials, source snapshots and reta
 });
 test('review keeps all five change states and old horizons while joining the exact episode for15-day assessment',async t=>{
  const f=fixture();t.after(()=>f.appUI.destroy());
- const current={id:'current',revision:1,code:'600000.SH',name:'股票0',entryDay:day,knownAt:'2026-11-22T03:04:05Z',exitDay:null,enteredRunId:'run1',observations:{'1':{status:'ready',returnPercent:3.2},'3':{status:'pending',returnPercent:null,reason:'未到第3个交易日'}}};
+ const current={...method,id:'current',revision:1,code:'600000.SH',name:'股票0',entryDay:day,knownAt:'2026-11-22T03:04:05Z',exitDay:null,enteredRunId:'run1',observations:{'1':{status:'ready',returnPercent:3.2},'3':{status:'pending',returnPercent:null,reason:'未到第3个交易日'}}};
  const eliminated={...current,assessment:{status:'ready',passed:false,targetDay:'2026-12-11',returnPercent:4.99,reason:'第15个交易日涨幅不足5%',checkedAt:'2026-12-11T08:10:00Z'},elimination:{targetDay:'2026-12-11',decisionDay:'2026-12-11',returnPercent:4.99,reason:'第15个交易日涨幅不足5%'}};
- f.setTracks([{id:'old',revision:1,code:'600000.SH',entryDay:'2026-11-01',exitDay:'2026-11-10',enteredRunId:'older',observations:{'1':{status:'ready',returnPercent:999}}},current]);f.setMonitor(monitorValue({eliminated:[eliminated]}));
+ f.setTracks([{...method,id:'old',revision:1,code:'600000.SH',entryDay:'2026-11-01',exitDay:'2026-11-10',enteredRunId:'older',observations:{'1':{status:'ready',returnPercent:999}}},current]);f.setMonitor(monitorValue({eliminated:[eliminated]}));
  await f.appUI.refresh();assert.equal(f.el('records').children.length,5);const first=f.el('records').children[0];assert.equal(first.children.length,9);assert.match(first.textContent,/观察起点 2026-11-20.*建档基准.*\+3.2%.*\+4.99%.*已剔除.*涨幅不足5%.*决定日 2026-12-11/);
  assert.match(first.children[0].children[1].title,/首次确认 2026\/11\/22 11:04:05（北京）/);assert.match(f.el('run-status').textContent,/来源 2026\/11\/20 16:10:00（北京）.*建档 2026\/11\/22 10:30:45（北京）.*首次基准，不回填旧信号/);
  assert.match(first.children[3].attrs['aria-label'],/第3个交易日.*未到第3个交易日/);assert.equal(first.children[3].children.length,0);assert.match(first.children[6].attrs['aria-label'],/第15个交易日.*2026-12-11.*涨幅不足5%/);assert.doesNotMatch(first.textContent,/999|实际成交收益|未到第3个交易日/);
@@ -92,8 +93,30 @@ test('review keeps all five change states and old horizons while joining the exa
  assert.match(f.el('records').textContent,/本日数据不足/);assert.match(f.el('run-summary').textContent,/基准 1.*新 1.*持续 1.*退出 1.*待核 1/);
  const oldRun=completedRun('older',1,'2026-11-01');oldRun.records=[record(0,'baseline')];f.setRun(oldRun);f.el('change').value='all';await f.el('change').emit('change');f.el('runs').value='older';await f.el('runs').emit('change');assert.match(f.el('records').textContent,/\+999%/);assert.doesNotMatch(f.el('records').textContent,/4.99%|已剔除/);assert.match(f.el('run-summary').textContent,/数据日 2026-11-01/);
 });
+test('same-day engine source and pattern generations select their own baseline new continued and exited episodes regardless of track order',async t=>{
+ const currentRun=completedRun('current-method'),oldRun={...completedRun('old-method'),engineVersion:method.engineVersion+'-previous'};
+ function tracksFor(run,offset){return run.records.slice(0,4).map((record,index)=>({...method,engineVersion:run.engineVersion,id:run.id+'-'+index,revision:1,code:record.stock.code,entryDay:index<2?day:'2026-11-18',exitDay:index===3?day:null,enteredRunId:index<2?run.id:'earlier-'+run.id,observations:{'1':{status:'ready',returnPercent:offset+index+1}},assessment:{status:'ready',passed:true,returnPercent:offset+index+5.2,reason:run.id+'考核'}}));}
+ const current=tracksFor(currentRun,0),previous=tracksFor(oldRun,10);
+ const unrelated=current.flatMap(track=>[{...track,id:'other-source-'+track.id,sourceId:'other-source',observations:{'1':{status:'ready',returnPercent:999}}},{...track,id:'other-pattern-'+track.id,patternVersion:'other-pattern',observations:{'1':{status:'ready',returnPercent:999}}}]);
+ const competing=current.slice(0,2).map(track=>({...track,id:'other-run-'+track.id,enteredRunId:'unrelated-run',observations:{'1':{status:'ready',returnPercent:999}}}));
+ const outOfWindow=[{...current[2],entryDay:'2026-11-01',exitDay:'2026-11-10'},{...current[2],entryDay:'2026-11-23',exitDay:null}];
+ const tracks=[...previous,...unrelated,...competing,...outOfWindow,...current];
+ for(const order of [tracks,tracks.toReversed()]){
+  const f=fixture();t.after(()=>f.appUI.destroy());f.setRun(currentRun);f.setTracks(order);f.setMonitor(monitorValue({active:current.slice(0,3),eliminated:[current[3]]}));await f.appUI.refresh();
+  for(let index=0;index<4;index++){const row=f.el('records').children[index];assert.equal(row.children[2].textContent,'+'+(index+1)+'%');assert.equal(row.children[6].textContent,'+'+(index+5.2)+'%');assert.match(row.children[8].textContent,/current-method考核/);assert.doesNotMatch(row.textContent,/未确认入选|未返回15日考核|999/);}
+  f.setRun(oldRun);f.el('runs').value=oldRun.id;await f.el('runs').emit('change');
+  for(let index=0;index<4;index++){const row=f.el('records').children[index];assert.equal(row.children[2].textContent,'+'+(index+11)+'%');assert.equal(row.children[6].textContent,'+'+(index+15.2)+'%');assert.match(row.children[8].textContent,/old-method考核/);assert.doesNotMatch(row.textContent,/未确认入选|current-method考核|999/);}
+ }
+});
+test('an unknown run or track method never borrows an observation from a known or unknown method',async t=>{
+ const f=fixture();t.after(()=>f.appUI.destroy());
+ for(const field of ['sourceId','engineVersion','patternVersion'])for(const missing of ['run','track','both']){
+  const run=completedRun(),track={...method,revision:1,code:'600000.SH',entryDay:day,enteredRunId:run.id,observations:{'1':{status:'ready',returnPercent:999}}};
+  if(missing!=='track')delete run[field];if(missing!=='run')delete track[field];f.setRun(run);f.setTracks([track]);await f.appUI.refresh();const row=f.el('records').children[0];assert.match(row.children[0].textContent,/未确认入选/);assert.equal(row.children[2].textContent,'—');assert.equal(row.children[6].textContent,'—');assert.match(row.children[8].textContent,/待核.*未返回15日考核/);assert.doesNotMatch(row.textContent,/999/);
+ }
+});
 test('pending unavailable and unobservable15-day results stay unknown while a genuine zero remains zero',async t=>{
- const f=fixture(),track={revision:1,code:'600000.SH',entryDay:day,enteredRunId:'run1',observations:{}};t.after(()=>f.appUI.destroy());f.setTracks([track]);
+ const f=fixture(),track={...method,revision:1,code:'600000.SH',entryDay:day,enteredRunId:'run1',observations:{}};t.after(()=>f.appUI.destroy());f.setTracks([track]);
  for(const [status,passed,value,label]of [['pending',null,null,'待考核'],['unavailable',null,null,'待核'],['not_observable',null,null,'不可核验'],['ready',false,0,'未达标'],['ready',true,5,'通过']]){
   f.setMonitor(monitorValue({active:[{...track,assessment:{status,passed,returnPercent:value,reason:'真实复核原因'}}]}));await f.appUI.refresh();const row=f.el('records').children[0];assert.equal(row.children[6].textContent,value===null?'—':value===0?'0%':'+5%');assert.equal(row.children[8].textContent,label+' · 真实复核原因');
  }
