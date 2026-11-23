@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {DatabaseSync} from 'node:sqlite';
 import {createRequire} from 'node:module';
 import {createSchemeStore} from '../server/a-share-schemes.mjs';
+import {createSchemeApi} from '../server/a-share-schemes-api.mjs';
 
 const require=createRequire(import.meta.url),model=require('../control/model.js'),patterns=require('../screening/trend-patterns.js');
 const day='2026-11-20',copy=value=>JSON.parse(JSON.stringify(value));
@@ -127,4 +128,31 @@ test('running progress is readable and cannot overwrite a completed result',t=>{
   assert.deepEqual(store.get(scheme.id).attempt.summary,{stage:'evaluating',checked:200,total:1000});assert.equal(store.get(scheme.id).lastSuccess,null);
   for(const progress of [{stage:'bad',checked:2,total:1},{stage:'bad',checked:-1,total:1000},{stage:'bad',checked:NaN,total:1000}])assert.throws(()=>store.updateProgress(run.id,progress),error=>error.status===400);
   const finished=complete(store,run);assert.deepEqual(store.updateProgress(run.id,{stage:'late',checked:0,total:1}),finished);assert.equal(store.get(scheme.id).lastSuccess.id,run.id);
+});
+
+test('fifteenth-session observations, policy and completed assessments are frozen with their entry method',t=>{
+  const {store}=fixture(t),scheme=save(store),run=begin(store,scheme),policy={version:'close-15-return-5-v1',horizon:15,minimumReturnPercent:5,knownAt:run.startedAt};
+  const episode=track(scheme,run,{policy,observations:{'15':{status:'ready',horizon:15,targetDay:'2026-12-11',returnPercent:5,generation:'verified-first'}},assessment:{status:'ready',passed:true,targetDay:'2026-12-11',returnPercent:5,observationGeneration:'verified-first'}});complete(store,run,{tracks:[episode]});
+  for(const changed of [{...episode,policy:{...policy,knownAt:'2026-11-20T00:00:00Z'}},{...episode,policy:undefined},{...episode,sourceId:'changed-provider'},{...episode,engineVersion:'changed-engine'},{...episode,assessment:{...episode.assessment,passed:false}},{...episode,observations:{'15':{...episode.observations['15'],returnPercent:4.9}}}])assert.throws(()=>store.updateTracks([changed]),error=>error.status===409);
+  assert.throws(()=>store.updateTracks([{...episode,policy:{...policy,horizon:14}}]),error=>error.code==='invalid_track');assert.throws(()=>store.updateTracks([{...episode,observations:{'16':{status:'pending'}}}]),error=>error.code==='invalid_track');
+  assert.deepEqual(store.tracks(scheme.id),[episode]);
+});
+
+test('monitor projects current tracks after skipped-run updates without exposing internal fields or rewriting history',async t=>{
+  const {store,reopen}=fixture(t),scheme=save(store),run=begin(store,scheme),episode=track(scheme,run),finished=complete(store,run,{tracks:[episode]}),before=JSON.stringify(finished);
+  const context={revision:scheme.revision,sourceId:run.sourceId,engineVersion:run.engineVersion,patternVersion:run.patternVersion,day:'2026-12-11',generation:'repaired-batch',checkedAt:'2026-12-11T12:10:00Z'};
+  const assessment={status:'ready',passed:false,targetDay:'2026-12-11',returnPercent:4,reason:'同批收盘变化',day:context.day,generation:'first-observation',observationGeneration:'first-observation',checkedAt:context.checkedAt};
+  const elimination={targetDay:context.day,decisionDay:context.day,returnPercent:4,reason:'入选后第15个交易日收盘涨幅不足5%'};
+  const closed={...episode,exitDay:context.day,assessment,elimination,monitorContext:context,ownerId:'must-not-be-published',internal:{privateValue:'must-not-be-published'}};store.updateTracks([closed]);
+  const monitor=store.monitor(scheme.id);assert.equal(monitor.scope,'scheme');assert.equal(monitor.revision,scheme.revision);assert.equal(monitor.mode,scheme.config.settings.mode);assert.equal(monitor.lookback,scheme.config.settings.lookback);assert.equal(monitor.benchmark,scheme.config.settings.benchmark);assert.deepEqual(monitor.policy,{horizon:15,minimumReturnPercent:5});assert.equal(monitor.day,context.day);assert.equal(monitor.generation,context.generation);assert.deepEqual(monitor.active,[]);assert.equal(monitor.eliminated[0].code,episode.code);assert.equal(monitor.eliminated[0].assessment.generation,context.generation);assert.equal(monitor.eliminated[0].assessment.observationGeneration,'first-observation');assert.doesNotMatch(JSON.stringify(monitor),/owner|internal|privateValue|must-not-be-published|"(?:bars|prices|price|close)"/);
+  const nextContext={...context,day:'2026-12-14',generation:'next-batch',checkedAt:'2026-12-14T12:10:00Z'};store.updateTracks([{...closed,monitorContext:nextContext}]);assert.equal(store.monitor(scheme.id).eliminated[0].assessment.day,nextContext.day);assert.equal(JSON.stringify(store.getRun(run.id)),before);assert.deepEqual(reopen().monitor(scheme.id),store.monitor(scheme.id));
+  for(const changed of [{...closed,elimination:{...elimination,reason:'rewritten'}},{...closed,elimination:undefined}])assert.throws(()=>store.updateTracks([changed]),error=>error.status===409);
+  const api=createSchemeApi({store});let response;await api.handle({method:'GET'},null,{path:'/api/a-share-daily/schemes',url:new URL('https://example.test/api/a-share-daily/schemes?id='+scheme.id),json:(_res,status,body)=>{response={status,body};}});assert.equal(response.status,200);assert.deepEqual(response.body.monitor,store.monitor(scheme.id));assert.deepEqual(response.body.latestRun,finished);
+});
+
+test('monitor separates method and revision scope while retaining a same-day elimination barrier',t=>{
+  const {store}=fixture(t),one=save(store),runOne=begin(store,one),episode=track(one,runOne),context={revision:one.revision,sourceId:runOne.sourceId,engineVersion:runOne.engineVersion,patternVersion:runOne.patternVersion,day,generation:runOne.generation,checkedAt:runOne.startedAt};
+  const closed={...episode,exitDay:day,assessment:{status:'ready',passed:false,targetDay:day,returnPercent:1},elimination:{targetDay:day,decisionDay:day,returnPercent:1,reason:'不足5%'},monitorContext:context};complete(store,runOne,{tracks:[closed]});
+  const two=save(store,{id:one.id,expectedRevision:1}),runTwo=begin(store,two,{engineVersion:'next-engine'});complete(store,runTwo,{records:[],tracks:[{...closed,monitorContext:{...context,revision:two.revision,engineVersion:'next-engine'}}]});let monitor=store.monitor(one.id);assert.equal(monitor.engineVersion,'next-engine');assert.equal(monitor.revision,two.revision);assert.equal(monitor.active.length,0);assert.equal(monitor.eliminated.length,1);
+  store.updateTracks([{...closed,monitorContext:{...context,revision:two.revision,engineVersion:'next-engine',day:'2026-11-23',generation:'next-day'}}]);monitor=store.monitor(one.id);assert.equal(monitor.eliminated.length,0);assert.equal(store.tracks(one.id).length,1);assert.equal(store.monitor('missing'),null);
 });

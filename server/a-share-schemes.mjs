@@ -134,12 +134,23 @@ export function createSchemeStore({db,model,patterns,now=Date.now}){
     const entered=identifier(episode.enteredRunId)?q('SELECT scheme_id,revision,day FROM screening_scheme_run WHERE id=?').get(episode.enteredRunId):null;
     if(!entered||entered.scheme_id!==episode.schemeId||entered.revision!==episode.revision||entered.day!==episode.entryDay)reject(400,'invalid_track','入选运行记录不一致');
     if(episode.exitDay!==null&&(day(episode.exitDay)<episode.entryDay))reject(400,'invalid_track','退出日期无效');
-    if(!episode.observations||typeof episode.observations!=='object'||Array.isArray(episode.observations)||Object.keys(episode.observations).some(key=>!['1','3','5','10','20'].includes(key)))reject(400,'invalid_track','后续观察窗口无效');
+    if(!episode.observations||typeof episode.observations!=='object'||Array.isArray(episode.observations)||Object.keys(episode.observations).some(key=>!['1','3','5','10','15','20'].includes(key)))reject(400,'invalid_track','后续观察窗口无效');
+    if(episode.policy){
+      if(episode.policy.version!=='close-15-return-5-v1'||episode.policy.horizon!==15||episode.policy.minimumReturnPercent!==5)reject(400,'invalid_track','后续考核规则无效');
+      timestamp(episode.policy.knownAt);
+    }
+    if(episode.elimination){
+      day(episode.elimination.targetDay);day(episode.elimination.decisionDay);
+      if(episode.exitDay!==episode.elimination.decisionDay||episode.elimination.targetDay>episode.exitDay||!Number.isFinite(episode.elimination.returnPercent)||episode.assessment?.status!=='ready'||episode.assessment.passed!==false)reject(400,'invalid_track','淘汰记录与已完成考核不一致');
+    }
     const previous=q('SELECT episode_json FROM screening_scheme_track WHERE id=?').get(episode.id);
     if(previous){
       const old=parse(previous.episode_json);
-      for(const key of ['schemeId','revision','code','entryDay','knownAt','enteredRunId'])if(old[key]!==episode[key])reject(409,'track_identity_conflict','不能改写跟踪记录起点');
+      for(const key of ['schemeId','revision','code','entryDay','knownAt','enteredRunId','benchmark','sourceId','engineVersion','patternVersion','anchorGeneration','observationMethod'])if(old[key]!==episode[key])reject(409,'track_identity_conflict','不能改写跟踪记录起点');
       if(old.exitDay!==null&&old.exitDay!==episode.exitDay)reject(409,'track_exit_conflict','不能改写已确认退出日期');
+      if(old.policy&&!isDeepStrictEqual(old.policy,episode.policy))reject(409,'track_policy_conflict','不能改写已冻结的后续考核规则');
+      if(old.elimination&&!isDeepStrictEqual(old.elimination,episode.elimination))reject(409,'track_elimination_conflict','不能改写已确认淘汰记录');
+      if(['ready','not_observable'].includes(old.assessment?.status)&&!isDeepStrictEqual(old.assessment,episode.assessment))reject(409,'assessment_final','不能改写已完成的后续考核');
       for(const [horizon,observation]of Object.entries(old.observations))if(['ready','not_observable'].includes(observation.status)&&!isDeepStrictEqual(observation,episode.observations[horizon]))reject(409,'observation_final','不能改写已完成的后续观察');
     }
     q('INSERT INTO screening_scheme_track VALUES (?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET episode_json=excluded.episode_json,updated_at=excluded.updated_at').run(episode.id,episode.schemeId,episode.revision,episode.code,episode.entryDay,encoded,clock());
@@ -164,5 +175,23 @@ export function createSchemeStore({db,model,patterns,now=Date.now}){
     const run=getRun(runId);if(!run)reject(404,'run_not_found','找不到运行记录');if(run.status!=='running')return run;
     q("UPDATE screening_scheme_run SET summary_json=? WHERE id=? AND status='running'").run(JSON.stringify({...run.summary,stage,checked,total}),runId);return getRun(runId);
   }
-  return {save,list,get:id=>schemeView(row(id)),setEnabled,beginRun,finishRun,failRun,updateProgress,latestRun,runs:schemeId=>q('SELECT '+runSummaryColumns+' FROM screening_scheme_run WHERE scheme_id=? ORDER BY started_at DESC,rowid DESC LIMIT 30').all(schemeId).map(value=>runView(value)),getRun,tracks:(schemeId,{revision}={})=>(revision===undefined?q('SELECT episode_json FROM screening_scheme_track WHERE scheme_id=? ORDER BY entry_day DESC,id').all(schemeId):q('SELECT episode_json FROM screening_scheme_track WHERE scheme_id=? AND revision=? ORDER BY entry_day DESC,id').all(schemeId,revision)).map(value=>parse(value.episode_json)),updateTracks};
+  function tracks(schemeId,{revision}={}){
+    return (revision===undefined?q('SELECT episode_json FROM screening_scheme_track WHERE scheme_id=? ORDER BY entry_day DESC,id').all(schemeId):q('SELECT episode_json FROM screening_scheme_track WHERE scheme_id=? AND revision=? ORDER BY entry_day DESC,id').all(schemeId,revision)).map(value=>parse(value.episode_json));
+  }
+  function monitor(schemeId){
+    const scheme=schemeView(row(schemeId));if(!scheme)return null;
+    const episodes=tracks(schemeId),run=latestRun(schemeId);
+    const context=episodes.map(episode=>episode.monitorContext).filter(value=>value?.revision===scheme.revision).sort((a,b)=>b.day.localeCompare(a.day)||b.checkedAt.localeCompare(a.checkedAt))[0]||(run?.revision===scheme.revision?run:null);
+    const sameMethod=episode=>context&&episode.revision===scheme.revision&&episode.sourceId===context.sourceId&&episode.engineVersion===context.engineVersion&&episode.patternVersion===context.patternVersion;
+    function item(episode){
+      const a=episode.assessment,e=episode.elimination;
+      return {code:episode.code,name:episode.name,entryDay:episode.entryDay,knownAt:episode.knownAt,enteredRunId:episode.enteredRunId,revision:episode.revision,sourceId:episode.sourceId,engineVersion:episode.engineVersion,patternVersion:episode.patternVersion,exitDay:episode.exitDay,
+        assessment:a?{status:a.status,passed:a.passed,targetDay:a.targetDay,returnPercent:a.returnPercent,reason:a.reason,observationGeneration:a.observationGeneration,day:context?.day||null,generation:context?.generation||null,checkedAt:context?.checkedAt||a.checkedAt}:null,
+        ...(e?{elimination:{targetDay:e.targetDay,decisionDay:e.decisionDay,returnPercent:e.returnPercent,reason:e.reason}}:{})};
+    }
+    return {schema:'books.screening.monitor.v1',schemeId,scope:'scheme',revision:scheme.revision,mode:scheme.config.settings.mode,lookback:scheme.config.settings.lookback,benchmark:scheme.config.settings.benchmark,policy:{horizon:15,minimumReturnPercent:5},sourceId:context?.sourceId||null,engineVersion:context?.engineVersion||null,patternVersion:context?.patternVersion||null,day:context?.day||null,generation:context?.generation||null,
+      active:episodes.filter(episode=>sameMethod(episode)&&episode.exitDay===null&&!episode.elimination).map(item),
+      eliminated:episodes.filter(episode=>episode.elimination&&(sameMethod(episode)||episode.elimination.decisionDay===context?.day)).map(item)};
+  }
+  return {save,list,get:id=>schemeView(row(id)),setEnabled,beginRun,finishRun,failRun,updateProgress,latestRun,runs:schemeId=>q('SELECT '+runSummaryColumns+' FROM screening_scheme_run WHERE scheme_id=? ORDER BY started_at DESC,rowid DESC LIMIT 30').all(schemeId).map(value=>runView(value)),getRun,tracks,updateTracks,monitor};
 }

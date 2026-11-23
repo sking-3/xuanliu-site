@@ -7,7 +7,8 @@ import {randomUUID} from 'node:crypto';
 import {createSchemeStore} from './a-share-schemes.mjs';
 
 const require=createRequire(import.meta.url);
-const horizons=[1,3,5,10,20];
+const horizons=[1,3,5,10,15,20];
+const followThroughPolicy={version:'close-15-return-5-v1',horizon:15,minimumReturnPercent:5};
 const observationMethod='same_batch_forward_adjusted_close_change';
 const stamp=now=>new Date(now()).toISOString();
 async function json(path){return JSON.parse(await readFile(path,'utf8'));}
@@ -57,7 +58,8 @@ function compareMembership(current,previous,isBaseline,scheme,patterns,day){
   return {records,summary};
 }
 function episodeFor(record,scheme,run,manifest,engineVersion,patternVersion,now){
-  return {id:randomUUID(),schemeId:scheme.id,revision:scheme.revision,code:record.stock.code,name:record.stock.name,entryDay:run.day,knownAt:stamp(now),enteredRunId:run.id,exitDay:null,benchmark:scheme.config.settings.benchmark,sourceId:manifest.sourceId,engineVersion,patternVersion,anchorGeneration:manifest.generation,observationMethod,observations:{}};
+  const knownAt=stamp(now);
+  return {id:randomUUID(),schemeId:scheme.id,revision:scheme.revision,code:record.stock.code,name:record.stock.name,entryDay:run.day,knownAt,enteredRunId:run.id,exitDay:null,benchmark:scheme.config.settings.benchmark,sourceId:manifest.sourceId,engineVersion,patternVersion,anchorGeneration:manifest.generation,observationMethod,policy:{...followThroughPolicy,knownAt},observations:{}};
 }
 function trackMembership(episodes,records,scheme,run,manifest,engineVersion,patternVersion,now){
   const next=episodes.map(episode=>({...episode,observations:{...episode.observations}}));
@@ -69,12 +71,13 @@ function trackMembership(episodes,records,scheme,run,manifest,engineVersion,patt
   }
   return next;
 }
-async function observeTracks(episodes,manifest,loadDataset,now){
+async function observeTracks(episodes,manifest,loadDataset,now,context){
   const counts={episodes:episodes.length,ready:0,pending:0,unavailable:0,notObservable:0};
   const updated=[];
   for(const episode of episodes){
+    const current={...episode,policy:episode.policy||{...followThroughPolicy,knownAt:stamp(now)},monitorContext:{...context,day:manifest.day,generation:manifest.generation,checkedAt:stamp(now)}};
     const observations={...episode.observations};
-    if(horizons.every(h=>['ready','not_observable'].includes(observations[h]?.status))){for(const h of horizons)counts[observations[h].status==='ready'?'ready':'notObservable']++;updated.push(episode);continue;}
+    if(horizons.every(h=>['ready','not_observable'].includes(observations[h]?.status))){for(const h of horizons)counts[observations[h].status==='ready'?'ready':'notObservable']++;updated.push(current);continue;}
     const dataset=await loadDataset(episode.benchmark||'000300.SH'),calendar=dataset.reference.bars.map(bar=>bar.date),anchorIndex=calendar.indexOf(episode.entryDay),source=dataset.records.find(record=>record.stock.code===episode.code)?.source;
     const byDay=new Map((source?.bars||[]).map(bar=>[bar.date,bar]));
     for(const horizon of horizons){
@@ -85,7 +88,8 @@ async function observeTracks(episodes,manifest,loadDataset,now){
       else if(anchorIndex<0){observation.status='unavailable';observation.reason='入选锚日已超出本批已验证交易日历，无法同批核对';}
       else if(observation.targetDay){
         const closeTime=Date.parse(observation.targetDay+'T15:00:00+08:00');
-        if(!Number.isFinite(Date.parse(episode.knownAt))||closeTime<=Date.parse(episode.knownAt)){observation.status='not_observable';observation.reason='该观察日收盘不晚于方案实际已知时间，不回填为后续走势';}
+        const knownAt=horizon===current.policy.horizon?Math.max(Date.parse(episode.knownAt),Date.parse(current.policy.knownAt)):Date.parse(episode.knownAt);
+        if(!Number.isFinite(knownAt)||closeTime<=knownAt){observation.status='not_observable';observation.reason='该观察日收盘不晚于方案或考核规则实际已知时间，不回填为后续走势';}
         else if(!source||source.status!=='ready'||source.adjustment!=='qfq'){observation.status='unavailable';observation.reason='本批缺少该股票有效前复权日线，可能停牌或来源缺失';}
         else{
           const aligned=calendar.slice(anchorIndex,anchorIndex+horizon+1).every(date=>{const bar=byDay.get(date);return bar&&Number.isFinite(bar.close)&&bar.close>0&&Number.isFinite(bar.volume)&&bar.volume>0;});
@@ -99,9 +103,26 @@ async function observeTracks(episodes,manifest,loadDataset,now){
       }
       observations[horizon]=observation;counts[observation.status==='not_observable'?'notObservable':observation.status]++;
     }
-    updated.push({...episode,observations});
+    updated.push({...current,observations});
   }
   return {tracks:updated,summary:counts};
+}
+function assessTracks(episodes,manifest,now){
+  return episodes.map(episode=>{
+    if(['ready','not_observable'].includes(episode.assessment?.status))return episode;
+    const observation=episode.observations[episode.policy.horizon],ready=observation.status==='ready';
+    const tolerance=Number.EPSILON*64*Math.max(1,Math.abs(observation.returnPercent||0),episode.policy.minimumReturnPercent);
+    const passed=ready?episode.policy.minimumReturnPercent-observation.returnPercent<=tolerance:null;
+    const assessment={status:observation.status,passed,targetDay:observation.targetDay,returnPercent:observation.returnPercent,reason:observation.reason,checkedAt:stamp(now),day:manifest.day,generation:manifest.generation,observationGeneration:observation.generation};
+    if(!ready||passed||episode.exitDay!==null)return {...episode,assessment};
+    const elimination={targetDay:observation.targetDay,decisionDay:manifest.day,returnPercent:observation.returnPercent,reason:'入选后第15个交易日收盘涨幅不足5%'};
+    return {...episode,assessment,elimination,exitDay:manifest.day};
+  });
+}
+function blockedSelections(records,episodes,scheme,manifest,engineVersion,patternVersion){
+  const blocked=new Map();
+  for(const episode of episodes)if(episode.elimination&&(episode.elimination.decisionDay===manifest.day||episode.revision===scheme.revision&&episode.sourceId===manifest.sourceId&&episode.engineVersion===engineVersion&&episode.patternVersion===patternVersion))blocked.set(episode.code,episode.elimination);
+  return records.map(record=>blocked.has(record.stock.code)?{...record,selection:{selected:false,reason:blocked.get(record.stock.code).reason}}:record);
 }
 
 export async function runSavedSchemes({dbFile,dir,siteDir,now=Date.now,schemeIds}={}){
@@ -129,16 +150,17 @@ export async function runSavedSchemes({dbFile,dir,siteDir,now=Date.now,schemeIds
       let run;
       try{
         for(const prior of store.runs(scheme.id))if(prior.status==='running'&&now()-Date.parse(prior.startedAt)>6*3600000)store.failRun(prior.id,'process_interrupted');
-        const episodes=store.tracks(scheme.id);
+        const episodes=store.tracks(scheme.id),context={revision:scheme.revision,sourceId:manifest.sourceId,engineVersion:model.engineVersion,patternVersion:patterns.version};
+        const previous=store.latestRun(scheme.id);
+        if(previous&&previous.day>manifest.day)throw Error('新行情日期早于上次成功方案结果，拒绝回退');
         if(!scheme.enabled){
-          if(episodes.length){const tracking=await observeTracks(episodes,manifest,loadDataset,now);store.updateTracks(tracking.tracks);}
+          if(episodes.length){const tracking=await observeTracks(episodes,manifest,loadDataset,now,context);store.updateTracks(assessTracks(tracking.tracks,manifest,now));}
           outcomes.push({schemeId:scheme.id,status:'disabled'});continue;
         }
-        const previous=store.latestRun(scheme.id),reason=baselineReason(previous,scheme,manifest,model.engineVersion,patterns.version);
-        if(previous&&previous.day>manifest.day)throw Error('新行情日期早于上次成功方案结果，拒绝回退');
+        const reason=baselineReason(previous,scheme,manifest,model.engineVersion,patterns.version);
         run=store.beginRun({schemeId:scheme.id,revision:scheme.revision,day:manifest.day,generation:manifest.generation,sourceId:manifest.sourceId,asOf:manifest.asOf,engineVersion:model.engineVersion,patternVersion:patterns.version,kind:reason?'baseline':'daily'});
         if(run.skipped){
-          if(episodes.length){const tracking=await observeTracks(episodes,manifest,loadDataset,now);store.updateTracks(tracking.tracks);}
+          if(episodes.length){const tracking=await observeTracks(episodes,manifest,loadDataset,now,context);store.updateTracks(assessTracks(tracking.tracks,manifest,now));}
           outcomes.push({schemeId:scheme.id,status:'skipped',runId:run.run.id});continue;
         }
         store.updateProgress(run.id,{stage:'reading',checked:0,total:manifest.total});
@@ -154,11 +176,12 @@ export async function runSavedSchemes({dbFile,dir,siteDir,now=Date.now,schemeIds
         });
         const scoped=candidates.filter(record=>config.settings.mode==='consensus'||scope===null||scope.has(record.stock.code));
         const selected=selection.select(scoped,{day:manifest.day,lookback:config.settings.lookback,mode:config.settings.mode,qualification:scheme.selection.qualification,patternId:scheme.selection.patternId,peer:config.settings.peer,sectorRecords:candidates});
-        const current=selected.records;
+        const observed=await observeTracks(episodes,manifest,loadDataset,now,context),assessed=assessTracks(observed.tracks,manifest,now);
+        const current=blockedSelections(selected.records,assessed,scheme,manifest,model.engineVersion,patterns.version);
         store.updateProgress(run.id,{stage:'tracking',checked:dataset.expectedCount,total:dataset.expectedCount});
-        const compared=compareMembership(current,previous,Boolean(reason),scheme,patterns,manifest.day),members=trackMembership(episodes,compared.records,scheme,run,manifest,model.engineVersion,patterns.version,now),tracking=await observeTracks(members,manifest,loadDataset,now);
+        const compared=compareMembership(current,previous,Boolean(reason),scheme,patterns,manifest.day),members=trackMembership(assessed,compared.records,scheme,run,manifest,model.engineVersion,patterns.version,now),tracking=await observeTracks(members,manifest,loadDataset,now,context);
         const summary={...compared.summary,isBaseline:Boolean(reason),baselineReason:reason,selection:scheme.selection,relativeStrength:selected.groupSummary,dataDay:manifest.day,generation:manifest.generation,sourceStatus:evaluated.status,market:evaluated.summary,tracking:tracking.summary,observationLabel:'入选后收盘走势，非交易收益'};
-        store.finishRun({runId:run.id,records:compared.records,summary,tracks:tracking.tracks});outcomes.push({schemeId:scheme.id,status:'complete',runId:run.id,summary});
+        store.finishRun({runId:run.id,records:compared.records,summary,tracks:assessTracks(tracking.tracks,manifest,now)});outcomes.push({schemeId:scheme.id,status:'complete',runId:run.id,summary});
       }catch(error){
         if(run?.id)store.failRun(run.id,error);
         outcomes.push({schemeId:scheme.id,status:'failed',error:error.message});

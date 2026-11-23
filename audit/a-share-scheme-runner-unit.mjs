@@ -33,6 +33,15 @@ async function fixture(t){
   function save(changes={}){return store.save({ownerId,name:'盘后观察',config:{settings:{mode:'market',sampleSize:'all',limits:{enabled:false}}},selection:{patternId:'',qualification:'strict',scopeCodes},...changes});}
   return {dir,dbFile,db,store,now,setNow:value=>{time=value;},batch,save,run:(extra={})=>runSavedSchemes({dbFile,dir,siteDir,now,...extra})};
 }
+async function setReturns(f,batch,targetDay,values,entryDay='2026-11-02'){
+  for(const [code,value]of Object.entries(values)){
+    const bars=batch.dataset.records.find(record=>record.stock.code===code).source.bars;
+    bars.find(bar=>bar.date===targetDay).close=bars.find(bar=>bar.date===entryDay).close*(1+value/100);
+  }
+  const reference=batch.dataset.reference.bars;
+  reference.find(bar=>bar.date===targetDay).close=reference.find(bar=>bar.date===entryDay).close*(1+Object.values(values)[0]/100);
+  await writeFile(join(f.dir,'private','generations',batch.manifest.generation,'dataset-all-000300.SH.json'),JSON.stringify(batch.dataset));
+}
 
 test('a real completed private batch creates one derived baseline per named scheme and same-day reruns are idempotent without external requests',async t=>{
   const f=await fixture(t),scheme=f.save();await f.batch('2026-11-02');let external=0;t.mock.method(globalThis,'fetch',()=>{external++;throw Error('must stay offline');});
@@ -116,4 +125,62 @@ test('a missing chosen-shape support window is unknown even when the selected ma
   }
   await reshape('2026-11-02');await f.run();assert.equal(f.store.latestRun(scheme.id).records[0].selected,true);
   await reshape('2026-11-03',true);await f.run();const run=f.store.latestRun(scheme.id),record=run.records[0];assert.equal(record.result.status,'ready');assert.equal(record.result.matched,true);assert.equal(record.selected,null);assert.equal(record.confirmedSelected,true);assert.equal(record.change,'unknown');assert.equal(run.summary.exited,0);assert.match(record.reason,/形态资料不足/);
+});
+
+test('the fifteenth verified session eliminates only returns below five percent and keeps prior observations and runs frozen',async t=>{
+  const f=await fixture(t),extra='600002.SH',scheme=f.save({selection:{patternId:'',qualification:'strict',scopeCodes:[...scopeCodes,extra]}});let external=0;
+  t.mock.method(globalThis,'fetch',()=>{external++;throw Error('must stay offline');});
+  await f.batch('2026-11-02');await f.run();const baseline=f.store.latestRun(scheme.id),original=JSON.stringify(baseline);
+  await f.batch('2026-11-20');await f.run();let tracks=f.store.tracks(scheme.id);assert(tracks.every(track=>track.exitDay===null&&track.assessment.status==='pending'));const one=tracks[0].observations[1];
+  const target=await f.batch('2026-11-23');await setReturns(f,target,'2026-11-23',{[scopeCodes[0]]:4.999,[scopeCodes[1]]:5-1e-14,[extra]:5.01});await f.run();
+  const run=f.store.latestRun(scheme.id),failed=f.store.tracks(scheme.id).find(track=>track.code===scopeCodes[0]);
+  assert.equal(failed.observations[15].targetDay,'2026-11-23');assert.equal(failed.assessment.status,'ready');assert.equal(failed.assessment.passed,false);assert.equal(failed.elimination.decisionDay,'2026-11-23');assert.equal(failed.exitDay,'2026-11-23');assert.equal(run.records.find(record=>record.stock.code===scopeCodes[0]).change,'exited');assert.equal(run.summary.exited,1);assert.equal(run.summary.selected,2);
+  assert.deepEqual(failed.policy,{version:'close-15-return-5-v1',horizon:15,minimumReturnPercent:5,knownAt:baseline.startedAt});
+  const monitor=f.store.monitor(scheme.id);assert.deepEqual(monitor.active.map(item=>item.code).sort(),[scopeCodes[1],extra].sort());assert.equal(monitor.eliminated[0].code,scopeCodes[0]);assert.equal(monitor.generation,target.manifest.generation);assert.equal(monitor.mode,'market');assert.deepEqual(f.store.tracks(scheme.id)[0].observations[1],one);assert.equal(JSON.stringify(f.store.getRun(baseline.id)),original);assert.equal(external,0);
+});
+
+test('elimination blocks the same revision and method on later days and every revision and method on its decision day',async t=>{
+  const f=await fixture(t),scheme=f.save({selection:{patternId:'',qualification:'strict',scopeCodes:[scopeCodes[0]]}});await f.batch('2026-11-02');await f.run();await f.batch('2026-11-23');await f.run();
+  const eliminated=f.store.tracks(scheme.id)[0],version=model.engineVersion;
+  assert.equal(eliminated.assessment.passed,false);const history=JSON.stringify(f.store.latestRun(scheme.id));await f.run();assert.equal(f.store.tracks(scheme.id).length,1);assert.equal(JSON.stringify(f.store.latestRun(scheme.id)),history);
+  await f.batch('2026-11-24');await f.run();assert.equal(f.store.latestRun(scheme.id).summary.selected,0);assert.equal(f.store.tracks(scheme.id).length,1);
+  model.engineVersion=version+'-next';
+  try{
+    await f.batch('2026-11-23');const regressed=await f.run();assert.equal(regressed.status,'failed');
+    await f.batch('2026-11-24');await f.run();assert.equal(f.store.latestRun(scheme.id).summary.selected,1);assert.equal(f.store.tracks(scheme.id).length,2);
+  }finally{model.engineVersion=version;}
+  const sameDay=await fixture(t),a=sameDay.save({selection:{patternId:'',qualification:'strict',scopeCodes:[scopeCodes[0]]}});await sameDay.batch('2026-11-02');await sameDay.run();await sameDay.batch('2026-11-23');await sameDay.run();
+  model.engineVersion=version+'-same-day';
+  try{
+    await sameDay.run();assert.equal(sameDay.store.latestRun(a.id).summary.selected,0);
+    await sameDay.batch('2026-11-23',{provider:'changed-provider'});await sameDay.run();assert.equal(sameDay.store.latestRun(a.id).summary.selected,0);
+    sameDay.save({id:a.id,expectedRevision:1,name:'同日新规则',selection:{patternId:'',qualification:'strict',scopeCodes:[scopeCodes[0]]}});await sameDay.run();assert.equal(sameDay.store.latestRun(a.id).summary.selected,0);assert.equal(sameDay.store.tracks(a.id).length,1);assert.equal(sameDay.store.monitor(a.id).eliminated[0].code,scopeCodes[0]);
+  }finally{model.engineVersion=version;}
+});
+
+test('unknown fifteenth-session data preserves membership and later recovery uses the original target with the actual decision day',async t=>{
+  const f=await fixture(t),scheme=f.save({selection:{patternId:'',qualification:'strict',scopeCodes:[scopeCodes[0]]}});await f.batch('2026-11-02');await f.run();
+  await f.batch('2026-11-23',{missing:[scopeCodes[0]]});await f.run();const unknown=f.store.latestRun(scheme.id),saved=JSON.stringify(unknown),track=f.store.tracks(scheme.id)[0];
+  assert.equal(track.assessment.status,'unavailable');assert.equal(track.assessment.passed,null);assert.equal(track.exitDay,null);assert.equal(track.elimination,undefined);assert.equal(unknown.records[0].confirmedSelected,true);assert.equal(f.store.monitor(scheme.id).active.length,1);
+  await f.batch('2026-11-24');await f.run();const failed=f.store.tracks(scheme.id)[0];assert.equal(failed.elimination.targetDay,'2026-11-23');assert.equal(failed.elimination.decisionDay,'2026-11-24');assert.equal(failed.exitDay,'2026-11-24');assert.equal(f.store.monitor(scheme.id).active.length,0);assert.equal(JSON.stringify(f.store.getRun(unknown.id)),saved);
+});
+
+test('same-method skipped runs reassess repaired observations through monitor without rewriting completed records',async t=>{
+  const f=await fixture(t),scheme=f.save({selection:{patternId:'',qualification:'strict',scopeCodes:[scopeCodes[0]]}});await f.batch('2026-11-02');await f.run();await f.batch('2026-11-23',{missing:[scopeCodes[0]]});await f.run();
+  const completed=f.store.latestRun(scheme.id),before=JSON.stringify(completed),firstGeneration=completed.generation;
+  const repaired=await f.batch('2026-11-23');const result=await f.run();assert.equal(result.schemes[0].status,'skipped');assert.equal(JSON.stringify(f.store.getRun(completed.id)),before);assert.equal(f.store.latestRun(scheme.id).records[0].confirmedSelected,true);
+  const monitor=f.store.monitor(scheme.id);assert.equal(monitor.active.length,0);assert.equal(monitor.eliminated.length,1);assert.equal(monitor.generation,repaired.manifest.generation);assert.notEqual(monitor.generation,firstGeneration);assert.equal(monitor.eliminated[0].assessment.generation,repaired.manifest.generation);
+  await f.batch('2026-11-24');await f.run();assert.equal(f.store.latestRun(scheme.id).summary.selected,0);assert.equal(f.store.tracks(scheme.id).length,1);
+});
+
+test('legacy episodes freeze the new policy when first processed and cannot backfill an already known fifteenth close',async t=>{
+  const f=await fixture(t),scheme=f.save({selection:{patternId:'',qualification:'strict',scopeCodes:[scopeCodes[0]]}});await f.batch('2026-11-02');await f.run();const episode=f.store.tracks(scheme.id)[0];
+  delete episode.policy;delete episode.assessment;delete episode.observations[15];f.db.prepare('UPDATE screening_scheme_track SET episode_json=? WHERE id=?').run(JSON.stringify(episode),episode.id);
+  await f.batch('2026-11-23');await f.run();let track=f.store.tracks(scheme.id)[0];assert.equal(track.policy.knownAt,new Date(f.now()).toISOString());assert.equal(track.assessment.status,'not_observable');assert.equal(track.exitDay,null);assert.equal(track.observations[1].status,'ready');const frozen=JSON.stringify(track.assessment);
+  await f.batch('2026-11-24');await f.run();track=f.store.tracks(scheme.id)[0];assert.equal(JSON.stringify(track.assessment),frozen);assert.equal(track.exitDay,null);assert.equal(track.elimination,undefined);
+});
+
+test('daily qualification exits stay intact while disabled schemes still apply a known fifteenth-session assessment',async t=>{
+  const f=await fixture(t),scheme=f.save();await f.batch('2026-11-02');await f.run();await f.batch('2026-11-03',{opposite:[scopeCodes[0]]});await f.run();const early=f.store.tracks(scheme.id).find(track=>track.code===scopeCodes[0]);assert.equal(early.exitDay,'2026-11-03');
+  f.store.setEnabled({ownerId,id:scheme.id,enabled:false});await f.batch('2026-11-23');const result=await f.run();assert.equal(result.schemes[0].status,'disabled');const tracks=f.store.tracks(scheme.id),closed=tracks.find(track=>track.code===scopeCodes[0]),failed=tracks.find(track=>track.code===scopeCodes[1]);assert.equal(closed.exitDay,'2026-11-03');assert.equal(closed.elimination,undefined);assert.equal(closed.observations[15].status,'ready');assert.equal(failed.exitDay,'2026-11-23');assert.equal(failed.elimination.decisionDay,'2026-11-23');assert.equal(f.store.monitor(scheme.id).active.length,0);
 });
