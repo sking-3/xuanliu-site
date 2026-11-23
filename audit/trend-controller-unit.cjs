@@ -507,6 +507,30 @@ function earlyStrengthResult(){
  result.records=result.records.slice(0,2);result.records.forEach((record,index)=>Object.assign(record.result.metrics,{periodReturn:-2.47,return5:1.43,ma20Deviation:1,ma5:102,ma20:101,crossAgeDays:index?7:1,crossSearchDays:20}));
  return result;
 }
+test('the automatic15-day monitor removes failed candidates before pagination without source requests or history mutation',async t=>{
+ const s=mounted({configuration:undefined});t.after(()=>s.app.destroy());
+ const result=earlyStrengthResult();result.sourceId='tickflow-test';s.setResult(result);await s.app.start('strength');
+ const code=articles(s)[0].dataset.code,requests=s.calls.length,before=JSON.stringify(result),original=articles(s)[0];
+ const monitor={schema:'books.screening.monitor.v1',schemeId:'scheme-one',revision:1,mode:'strength',lookback:20,benchmark:'000300.SH',day,sourceId:result.sourceId,engineVersion:controlModel.engineVersion,patternVersion:actualPatterns.version,policy:{horizon:15,minimumReturnPercent:5},active:[{code,entryDay:'2026-11-01',assessment:{status:'pending',passed:null}}],eliminated:[]};
+ assert.equal(s.app.setMonitor(monitor),true);assert.equal(articles(s)[0],original);assert.match(original.textContent,/15日考核 待满15个交易日/);
+ const eliminated={...monitor,active:[],eliminated:[{code,elimination:{decisionDay:day,targetDay:day,returnPercent:4.99,reason:'15日涨幅不足5%'}}]};
+ assert.equal(s.app.setMonitor(eliminated),true);assert.equal(articles(s).length,0);assert.match(s.ids['trend-results'].textContent,/15个交易日涨幅不足5%移出/);assert.match(s.ids['trend-status'].textContent,/已移出15日未达标 1只/);
+ assert.equal(s.app.setMonitor({...monitor,day:'2026-11-19'}),false);assert.equal(articles(s).length,0);
+ assert.equal(s.app.setMonitor({...monitor,revision:0}),false);assert.equal(s.app.setMonitor(null),false);assert.equal(articles(s).length,0);
+ assert.equal(s.calls.length,requests);assert.equal(JSON.stringify(result),before);assert.equal(s.charts.disposed.length,1);
+ s.env.fetch=async()=>{throw Error('cache offline');};await s.app.start('strength');assert.equal(articles(s).length,0);
+});
+test('monitor decisions only apply to matching source, method, mode and period; future decisions cannot hide earlier results',async t=>{
+ const s=mounted({configuration:undefined});t.after(()=>s.app.destroy());const result=earlyStrengthResult();result.sourceId='tickflow-test';s.setResult(result);await s.app.start('strength');
+ const code=articles(s)[0].dataset.code;
+ const base={schema:'books.screening.monitor.v1',schemeId:'scheme-one',revision:1,mode:'strength',lookback:20,benchmark:'000300.SH',day,sourceId:result.sourceId,engineVersion:controlModel.engineVersion,patternVersion:actualPatterns.version,policy:{horizon:15,minimumReturnPercent:5},active:[],eliminated:[{code,elimination:{decisionDay:day,returnPercent:4}}]};
+ for(const patch of [{sourceId:'other'},{engineVersion:'other'},{patternVersion:'other'},{mode:'market'},{lookback:60},{benchmark:'000001.SH'},{eliminated:[{code,elimination:{decisionDay:'2026-11-21',returnPercent:4}}]}]){
+  assert.equal(s.app.setMonitor({...base,...patch}),true);assert.equal(articles(s).length,1);
+ }
+ s.app.setMonitor({...base,active:[{code,entryDay:'2026-11-01',assessment:{status:'unavailable',passed:null}}],eliminated:[]});assert.equal(articles(s).length,1);assert.match(articles(s)[0].textContent,/15日考核 待核对/);
+ s.app.setMonitor({...base,active:[{code,entryDay:'2026-11-01',assessment:{status:'ready',passed:true,returnPercent:5,targetDay:day}}],eliminated:[]});assert.match(articles(s)[0].textContent,/15日考核达标 \+5%/);
+ assert.equal(s.app.setMonitor(base),true);assert.equal(articles(s).length,0);
+});
 test('public landing is early strength with five-day main return and a separately labeled negative20-day return',async t=>{
  const s=mounted({configuration:undefined});t.after(()=>s.app.destroy());s.setResult(earlyStrengthResult());await s.app.start('strength');
  assert.equal(s.app.getState().mode,'strength');assert.equal(s.app.getState().direction,'up');assert.equal(s.app.getState().limits.maxReturn20,10);assert.equal(s.app.getState().limits.maxReturn60,20);

@@ -288,7 +288,7 @@
    if(saved!==null&&saved!==undefined)localPatch.minimumBreadth=model.normalizeConfig({settings:{minimumBreadth:JSON.parse(saved)}}).settings.minimumBreadth;
   }catch{}
   let baseConfiguration=defaults,configuration=merge(baseConfiguration,localPatch);
-  let state=initial(),page=0,selectedMode=configuration.settings.mode,selectedPattern='',displaySize='all',qualifiedOnly=false,patternOptionsKey='',marketGeneration=null,contextKey='',schemeScopeCodes,configurationApplied=false,destroyed=false,displayed=null;
+  let state=initial(),page=0,selectedMode=configuration.settings.mode,selectedPattern='',displaySize='all',qualifiedOnly=false,patternOptionsKey='',marketGeneration=null,contextKey='',schemeScopeCodes,configurationApplied=false,destroyed=false,displayed=null,monitor=null;
   const empty=doc.createElement('p');empty.className='trend-empty';body.replaceChildren(empty);
   el('trend-display').value=displaySize;
   const breadthValue=()=>String(Number((configuration.settings.minimumBreadth*100).toPrecision(15)));
@@ -340,13 +340,23 @@
    if(!definitions.some(definition=>definition.id===selectedPattern))selectedPattern='';
    select.value=selectedPattern;
   }
+  function monitoringApplies(){
+   return monitor&&displayed&&monitor.mode===selectedMode&&monitor.lookback===displayed.lookback&&monitor.benchmark===configuration.settings.benchmark&&
+    monitor.sourceId===displayed.sourceId&&monitor.engineVersion===model.engineVersion&&monitor.patternVersion===displayed.patternVersion&&monitor.day<=displayed.day;
+  }
+  function setMonitor(value){
+   if(value?.schema!=='books.screening.monitor.v1'||typeof value.schemeId!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(value.day)||
+    !Array.isArray(value.active)||!Array.isArray(value.eliminated)||value.policy?.horizon!==15||value.policy.minimumReturnPercent!==5)return false;
+   if(monitor?.schemeId===value.schemeId&&(value.day<monitor.day||value.day===monitor.day&&value.revision<monitor.revision))return false;
+   monitor=value;render();return true;
+  }
   function render(){
    const lookback=Number(el('trend-lookback').value),matching=state.mode===selectedMode&&state.lookback===lookback;
    const completed=matching&&state.generation&&state.phase==='evaluated'&&(!state.records.length||state.records.some(record=>record.result.status==='ready'));
    const refreshing=state.status==='running'&&displayed?.mode===selectedMode&&displayed.lookback===lookback;
    let visible=[];
    if(completed){
-    displayed={mode:selectedMode,lookback,day:state.day,scope:state.scope,sampleCount:state.sampleCount,marketUniverseCount:state.marketUniverseCount,fullMarket:state.fullMarket,consensus:state.consensus,directionSummary:state.directionSummary,marketQualified:state.marketQualified,minimumBreadth:state.minimumBreadth,strength:state.strength,attribution:state.dataPolicy?.attribution,patternVersion:state.patternVersion,patternDefinitions:state.patternDefinitions,sectorRecords:state.sectorRecords,records:state.records.filter(record=>record.result.status==='ready')};
+    displayed={mode:selectedMode,lookback,day:state.day,sourceId:state.sourceId,scope:state.scope,sampleCount:state.sampleCount,marketUniverseCount:state.marketUniverseCount,fullMarket:state.fullMarket,consensus:state.consensus,directionSummary:state.directionSummary,marketQualified:state.marketQualified,minimumBreadth:state.minimumBreadth,strength:state.strength,attribution:state.dataPolicy?.attribution,patternVersion:state.patternVersion,patternDefinitions:state.patternDefinitions,sectorRecords:state.sectorRecords,records:state.records.filter(record=>record.result.status==='ready')};
    }
    const show=completed||refreshing;
    if(show)visible=sortRecords(displayed.records.filter(record=>selectedMode==='consensus'&&!qualifiedOnly?record.result.candidateMatched===true&&record.result.directionMatched===true:record.result.matched===true),selectedMode);
@@ -370,6 +380,12 @@
     peerSelection=defaultStrengthSelection.select(displayed.records,{day:displayed.day,lookback:displayed.lookback,mode:selectedMode,qualification:selectedMode==='consensus'&&!qualifiedOnly?'observation':'strict',patternId:selectedPattern,peer:settings.peer,sectorRecords:displayed.sectorRecords});
     visible=settings.peer.enabled?peerSelection.selectedRecords.slice().sort((a,b)=>a.result.relativeStrength.rank-b.result.relativeStrength.rank||a.stock.code.localeCompare(b.stock.code)):sortRecords(peerSelection.selectedRecords,selectedMode);
    }
+   const tracking=monitoringApplies(),activeTracks=new Map(tracking?monitor.active.map(item=>[item.code,item]):[]);
+   let removed=0;
+   if(tracking){
+    const excluded=new Set(monitor.eliminated.filter(item=>item.elimination?.decisionDay<=displayed.day).map(item=>item.code));
+    const before=visible.length;visible=visible.filter(record=>!excluded.has(record.stock.code));removed=before-visible.length;
+   }
    el('trend-peer-status').textContent=settings.peer.enabled&&peerSelection?'同组有效 '+peerSelection.groupSummary.groupCount+' 只 · '+peerSelection.groupSummary.reason+' · 入选 '+visible.length+' 只':'';
    for(const button of buttons){button.disabled=false;button.setAttribute('aria-pressed',String(button.dataset.trendMode===selectedMode));}
    host.setAttribute('aria-busy',String(state.status==='running'));
@@ -382,6 +398,7 @@
     if(displayed.attribution)description+=' · '+displayed.attribution;
    }
    el('trend-status').textContent=description;
+   if(removed)el('trend-status').textContent+=' · 已移出15日未达标 '+removed+'只';
    el('trend-count').textContent=show?visible.length+' 只':'';
    const size=displaySize==='all'?visible.length||1:Number(displaySize),pages=Math.ceil(visible.length/size);page=Math.max(0,Math.min(page,pages-1));
    const records=visible.slice(page*size,page*size+size),wanted=new Set(records.map(record=>record.stock.code));
@@ -395,6 +412,7 @@
      empty.textContent='所选'+lookback+'日没有符合'+label+'条件的共性候选，可调整涨跌分界'+(direction==='sideways'?'和横盘区间幅度':'')+'，或切换全部方向。';
     }
     if(show&&settings.peer.enabled)empty.textContent=peerSelection.groupSummary.status!=='ready'?peerSelection.groupSummary.reason+'；关闭“仅看同组强势”可查看原候选。':'当前没有同时满足强弱及空间门槛的股票，可调整条件或关闭“仅看同组强势”。';
+    if(removed&&!visible.length)empty.textContent='本轮候选已因15个交易日涨幅不足5%移出；历史考核记录保留在复盘中。';
     if(body.children.length!==1||body.children[0]!==empty)body.replaceChildren(empty);
    }else{
     empty.remove();
@@ -414,6 +432,12 @@
      if(rank?.rank)facts.unshift('同组第 '+rank.rank+'/'+peerSelection.groupSummary.groupCount);
      if(s?.status==='ready'&&s.endAt===displayed.day&&s.window===20&&s.method==='confirmed_pivots_and_prior_ohlc_range')facts.push('距20日支撑 '+(s.supportDistancePct===null?'未识别':s.supportDistancePct.toFixed(2)+'%'),'上方压力空间 '+(s.resistanceSpacePct===null?'未识别':s.resistanceSpacePct.toFixed(2)+'%'));else facts.push('支撑压力资料不足');
      if(sector?.status==='ready')facts.push(sector.sector+' · 盘后行业第 '+sector.stats.rank);
+     const tracked=activeTracks.get(record.stock.code),assessment=tracked?.assessment;
+     if(tracked){
+      facts.push('入选 '+tracked.entryDay);
+      if(assessment?.status==='ready'&&assessment.passed===true)facts.push('15日考核达标 '+percentage(assessment.returnPercent)+'（'+assessment.targetDay+'）');
+      else facts.push('15日考核 '+(assessment?.status==='pending'?'待满15个交易日':'待核对'));
+     }
      item.facts.textContent=facts.join(' · ');
      item.qualification.hidden=selectedMode==='market';
      if(selectedMode!=='market'){
@@ -522,7 +546,7 @@
   }
   listen(env,'pagehide',event=>{if(!event.persisted)cleanup();});contextKey=identity();render();
   if(options.autoLoad!==false)start(selectedMode);
-  return {start,render,runner,applyConfiguration,getSchemeDraft,applyScheme,loadDataset:()=>runner.loadDataset(),exportDataset:()=>runner.exportDataset(),getExportStatus:()=>runner.getExportStatus(),getState:()=>runner.getState(),isRunning:()=>state.status==='running',destroy(){cleanup();for(const [target,type,handler]of listeners)target.removeEventListener(type,handler);}};
+  return {start,render,runner,setMonitor,applyConfiguration,getSchemeDraft,applyScheme,loadDataset:()=>runner.loadDataset(),exportDataset:()=>runner.exportDataset(),getExportStatus:()=>runner.getExportStatus(),getState:()=>runner.getState(),isRunning:()=>state.status==='running',destroy(){cleanup();for(const [target,type,handler]of listeners)target.removeEventListener(type,handler);}};
  }
  return {createRunner,createCachedRunner,mount,sortRecords,names};
 });
