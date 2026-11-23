@@ -25,3 +25,40 @@
 .chart-nav{padding-bottom:12px}.chart-heading{margin-bottom:12px}.chart-note{margin-top:8px}
 .chart-controls{gap:6px 12px;align-items:center}.chart-controls p{flex-basis:100%}.chart-controls a{min-height:44px;display:inline-flex;align-items:center}
 }
+
+.chart-outlook,.chart-symbol-form{font-variant-numeric:tabular-nums}
+.chart-outlook-jump{color:#285369;line-height:1.5;min-height:44px;align-items:center;text-underline-offset:4px}
+.chart-outlook-jump:not([hidden]){display:inline-flex}
+.chart-symbol-form{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:end;padding:14px 0 4px}
+.chart-symbol-form label,.outlook-import label{display:grid;gap:4px;font-size:13px;color:#354357}
+.chart-symbol-form input,.chart-symbol-form select,.chart-symbol-form button{height:44px;border:1px solid #cbd3dd;border-radius:6px;padding:0 10px;background:white;color:#273242;font:inherit;width:100%}
+.chart-symbol-form button{width:auto;font-size:14px;cursor:pointer}
+.chart-symbol-form label:nth-child(2){flex:0 1 310px;min-width:0}
+.chart-symbol-form p{flex-basis:100%;font-size:13px;margin:0;color:#97332d}
+.chart-outlook{scroll-margin-top:120px;margin-top:16px;padding:20px;border:1px solid #dce3eb;border-radius:12px;background:white;color:#273242;overflow-wrap:anywhere}
+.outlook-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:10px 20px;flex-wrap:wrap}
+.chart-outlook h2{font-size:20px;margin:0}
+.chart-outlook h3{font-size:14px;line-height:1.4;margin:0 0 8px}
+.chart-outlook p{font-size:13px;line-height:1.6;margin:4px 0 0;color:#46566c}
+.chart-outlook strong{display:block;font-size:17px;margin:0 0 4px}
+.outlook-grid{display:grid;grid-template-columns:minmax(0,1fr);border-block:1px solid #e3e8ef;margin:16px 0}
+.outlook-grid section{padding:12px 0}
+.outlook-grid section+section{border-top:1px solid #e3e8ef}
+.outlook-levels{margin:0 0 12px}
+.outlook-levels div{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2fr);gap:10px 16px;padding:9px 0;border-bottom:1px solid #e3e8ef;font-size:14px;line-height:1.5}
+.outlook-levels dd{margin:0;font-weight:600}
+.outlook-basis{margin-bottom:8px}
+.outlook-import{margin-top:8px}
+.outlook-import summary{width:fit-content;min-height:44px;align-content:center;font-size:13px;color:#285369;cursor:pointer}
+.outlook-import input{margin-top:8px;min-height:44px;max-width:100%;font:inherit;font-size:13px}
+@media(min-width:721px){
+  .outlook-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .outlook-grid section:first-child{padding-right:16px}
+  .outlook-grid section+section{border-top:0;border-left:1px solid #e3e8ef;padding-left:16px}
+}
+@media(max-width:600px){
+  .chart-outlook{padding:14px}
+  .chart-symbol-form label:nth-child(2){flex-basis:100%}
+  .outlook-levels div{grid-template-columns:minmax(0,1fr)}
+}
+.outlook-retry{min-height:44px;margin-top:8px;padding:0 10px;border:1px solid #cbd3dd;border-radius:6px;background:white;color:#285369;font:inherit;font-size:13px;cursor:pointer}
