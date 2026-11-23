@@ -43,7 +43,7 @@ function schemeValue(extra={}){return {id:'scheme1',name:'已存方案',revision
 function monitorValue(extra={}){return {schema:'books.screening.monitor.v1',schemeId:'scheme1',scope:'scheme',revision:1,mode:'strength',lookback:20,benchmark:'000300.SH',policy:{horizon:15,minimumReturnPercent:5},sourceId:'tickflow-eod',engineVersion:model.engineVersion,patternVersion:patterns.version,day,generation:'g1',active:[],eliminated:[],...extra};}
 function fixture(options={}){
  const f=documentFixture(),calls=[],applied=[],monitors=[];let scheme=schemeValue(),run=completedRun(),tracks=[],monitor=monitorValue(),hourly=null;
- const app={getSchemeDraft:draft,applyScheme:async value=>applied.push(value),setMonitor:value=>monitors.push(clone(value))},custom=options.fetch;
+ const app={getSchemeDraft:draft,applyScheme:async value=>applied.push(value),setMonitor:value=>options.acceptMonitor?.(value)===false?false:monitors.push(clone(value))},custom=options.fetch;
  f.env.fetch=async(path,init)=>{
   assert.ok(path.startsWith('/api/a-share-daily/schemes'));assert.equal(init.method,'GET');assert.equal(init.body,undefined);calls.push({path,init});
   if(custom){const response=await custom(path,init,calls.length);if(response)return response;}
@@ -135,6 +135,11 @@ test('HTTP read denials preserve accepted data and remain read-only',async t=>{
  for(const status of [401,403,409]){
   let denied=false;const f=fixture({fetch:async path=>path.includes('?id=')&&denied?{ok:false,status,json:async()=>({message:'方案读取被拒绝'})}:null});t.after(()=>f.appUI.destroy());await f.appUI.refresh();const before=clone(f.appUI.getState().monitor);denied=true;await f.tick();assert.deepEqual(f.appUI.getState().monitor,before);assert.equal(f.el('status').dataset.error,'true');assert.match(f.el('status').textContent,/方案读取被拒绝/);assert.ok(f.calls.every(call=>call.init.method==='GET'));
  }
+});
+test('a monitor rejected by the main controller cannot replace accepted review counts or its read time',async t=>{
+ let accepted=true;const f=fixture({acceptMonitor:()=>accepted});t.after(()=>f.appUI.destroy());await f.appUI.refresh();
+ const before=clone(f.appUI.getState());accepted=false;f.setMonitor(monitorValue({revision:0,active:[{code:'600009.SH'}]}));f.setRun(completedRun('stale'));
+ await f.tick();assert.deepEqual(f.appUI.getState().monitor,before.monitor);assert.deepEqual(f.appUI.getState().run,before.run);assert.equal(f.appUI.getState().readAt,before.readAt);assert.match(f.el('status').textContent,/监控批次已过期.*保留上次监控与复盘/);assert.equal(f.monitors.length,1);
 });
 function mainFixture(){
  const f=documentFixture(),bars=Array.from({length:65},(_,i)=>({date:new Date(Date.parse(day+'T00:00:00Z')-(64-i)*86400000).toISOString().slice(0,10),close:100+i,volume:i>=60?700:1000})),stocks=Array.from({length:32},(_,index)=>({code:String(600000+index)+'.SH',name:'股'+index}));

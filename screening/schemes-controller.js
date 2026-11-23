@@ -131,7 +131,7 @@
     const monitor=detail.monitor;
     if(!monitor)throw Error('监控数据尚未返回；保留上次监控与复盘，活跃状态待核。');
     if(monitor.schema!=='books.screening.monitor.v1'||monitor.schemeId!==id||!Array.isArray(monitor.active)||!Array.isArray(monitor.eliminated))throw Error('自动监控数据不完整；保留上次结果。');
-    app.setMonitor(monitor);
+    if(app.setMonitor(monitor)===false)throw Error('监控批次已过期或与当前规则不符；保留上次监控与复盘。');
     const history=preserveHistory&&state.id===id&&state.history,run=history?state.run:detail.latestRun;
     state={...state,id,detail,collection:detail.collection||null,monitor,hourly:detail.hourly||null,readAt:new Date().toISOString(),run,runId:run?.id||'',history,loading:false,readError:null};
     render();
