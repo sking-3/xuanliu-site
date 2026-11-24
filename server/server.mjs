@@ -606,7 +606,7 @@ export function createApp({ dbFile = ':memory:', siteDir = DEFAULT_SITE_DIR, aSh
         if (!candidate.startsWith(resolve(siteDir) + '/') && candidate !== resolve(siteDir, 'index.html')) return html(res, 403, 'Forbidden');
         if (existsSync(candidate)) {
           const body = await readFile(candidate);
-          const type = candidate.endsWith('.html') ? 'text/html' : candidate.endsWith('.css') ? 'text/css' : candidate.endsWith('.js') ? 'application/javascript' : candidate.endsWith('.png') ? 'image/png' : candidate.endsWith('.jpg') || candidate.endsWith('.jpeg') ? 'image/jpeg' : candidate.endsWith('.webp') ? 'image/webp' : 'application/octet-stream';
+          const type = candidate.endsWith('.pdf') ? 'application/pdf' : candidate.endsWith('.html') ? 'text/html' : candidate.endsWith('.css') ? 'text/css' : candidate.endsWith('.js') || candidate.endsWith('.mjs') ? 'application/javascript' : candidate.endsWith('.png') ? 'image/png' : candidate.endsWith('.jpg') || candidate.endsWith('.jpeg') ? 'image/jpeg' : candidate.endsWith('.webp') ? 'image/webp' : 'application/octet-stream';
           res.writeHead(200, { 'content-type': `${type}; charset=utf-8` }); res.end(body); return;
         }
       }
