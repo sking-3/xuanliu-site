@@ -1,7 +1,7 @@
 import {catalog, evaluateIndicator, verifySnapshot} from './viprasol-registry.mjs';
 
 const $ = id => document.getElementById(id);
-const state = {snapshot:null, market:null, marketError:null, results:new Map(), selected:'tyson', parameters:{}, window:120, error:null, loading:false};
+const state = {snapshot:null, market:null, marketError:null, results:new Map(), selected:'tyson', parameters:{}, window:120, chartWidth:960, error:null, loading:false};
 const number = value => Number.isFinite(value) ? value.toLocaleString('zh-CN',{maximumFractionDigits:4}) : '—';
 const day = time => new Date(time).toISOString().slice(0,10);
 const stamp = value => Number.isFinite(Date.parse(value)) ? new Date(value).toLocaleString('zh-CN',{hour12:false,timeZone:'Asia/Shanghai'})+'（北京）' : '未提供';
@@ -62,15 +62,16 @@ function renderLibrary() {
 }
 function drawChart(bars,result,plot=null) {
   const chosen=state.window==='all'?bars.length:state.window,start=Math.max(0,bars.length-chosen),visible=bars.slice(start);
-  const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('viewBox','0 0 960 400');svg.setAttribute('role','img');svg.setAttribute('aria-label','BTC/USD真实已完成日线与当前所选指标的历史信号；横轴为UTC开盘日，不代表实际成交');
-  const left=76,right=28,top=30,bottom=340,width=960-left-right;
+  const canvasWidth=state.chartWidth;
+  const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('viewBox',`0 0 ${canvasWidth} 400`);svg.setAttribute('role','img');svg.setAttribute('aria-label','BTC/USD真实已完成日线与当前所选指标的历史信号；横轴为UTC开盘日，不代表实际成交');
+  const left=76,right=20,top=30,bottom=340,width=canvasWidth-left-right;
   const overlays=result.plots.filter(item=>item.pane!=='oscillator'&&Array.isArray(item.values));
   const samples=plot?plot.values.slice(start).filter(Number.isFinite):[...visible.flatMap(bar=>[bar.high,bar.low]),...overlays.flatMap(line=>line.values.slice(start).filter(Number.isFinite))];
   if(!samples.length)return node('p',(plot?.name||'图表')+'：当前窗口数据不足。','indicator-caption');
   const high=Math.max(...samples),low=Math.min(...samples),span=high-low||Math.max(Math.abs(high)*.01,1);
   const y=price=>top+(high+span*.05-price)/(span*1.1)*(bottom-top),x=index=>left+(index-start+.5)*width/visible.length;
   function shape(tag,attrs,text) {const element=document.createElementNS(svg.namespaceURI,tag);for(const [key,value] of Object.entries(attrs))element.setAttribute(key,String(value));if(text!==undefined)element.textContent=text;svg.append(element);return element;}
-  for(let i=0;i<=4;i++){const value=low+span*i/4,cy=y(value);shape('line',{x1:left,x2:932,y1:cy,y2:cy,stroke:'#e1e7ee'});shape('text',{x:66,y:cy+4,'text-anchor':'end'},number(value));}
+  for(let i=0;i<=4;i++){const value=low+span*i/4,cy=y(value);shape('line',{x1:left,x2:canvasWidth-right,y1:cy,y2:cy,stroke:'#e1e7ee'});shape('text',{x:66,y:cy+4,'text-anchor':'end'},number(value));}
   const clip=shape('clipPath',{id:plot?'indicator-pane-clip-'+result.plots.indexOf(plot):'indicator-price-clip'});
   const clipRect=document.createElementNS(svg.namespaceURI,'rect');for(const [key,value]of Object.entries({x:left,y:top,width,height:bottom-top}))clipRect.setAttribute(key,String(value));clip.append(clipRect);
   const clipped='url(#'+clip.id+')';
@@ -93,7 +94,8 @@ function drawChart(bars,result,plot=null) {
     shape('circle',{cx:x(signal.index),cy,r:label.length>1?14:9,fill:'#fff',stroke:structural?'#496982':buy?'#187968':'#b3474c'});shape('text',{x:x(signal.index),y:cy+4,'text-anchor':'middle'},label);
   }
   if(plot)shape('text',{x:left,y:18},plot.name+(plot.unit?' · '+plot.unit:''));
-  for(const index of [start,Math.floor((start+bars.length-1)/2),bars.length-1])shape('text',{x:x(index),y:377,'text-anchor':'middle'},day(bars[index].time));
+  const dates=canvasWidth<600?[start,bars.length-1]:[start,Math.floor((start+bars.length-1)/2),bars.length-1];
+  for(const index of dates)shape('text',{x:x(index),y:377,'text-anchor':index===start?'start':index===bars.length-1?'end':'middle'},day(bars[index].time));
   return svg;
 }
 function drawProfiles(profiles) {
@@ -157,4 +159,5 @@ $('indicator-form').addEventListener('input',event=>{
 });
 $('indicator-form').addEventListener('submit',event=>{event.preventDefault();if(!state.snapshot)return;state.result=compute(state.selected,state.parameters);renderResult(state.result);$('indicator-run').textContent='计算当前指标';});
 $('indicator-refresh').addEventListener('click',refresh);
+new ResizeObserver(entries=>{const width=Math.max(300,Math.min(960,Math.round(entries[0].contentRect.width)-32));if(width!==state.chartWidth){state.chartWidth=width;if(state.result)renderResult(state.result);}}).observe($('indicator-result'));
 renderLibrary();choose(state.selected);refresh();

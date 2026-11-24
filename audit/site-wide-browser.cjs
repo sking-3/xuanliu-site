@@ -80,6 +80,7 @@ async function main() {
           report.writeAttempts.push({url: url.pathname, method: request.method()});
           return route.abort();
         }
+        if(local && url.pathname.endsWith('/books-auth-config.js'))return route.fulfill({status:200,contentType:'text/javascript',body:'window.BOOKS_API_BASE='+JSON.stringify(base.origin)+';'});
         if (authAPI) {
           const owner = pageRoutes.get(request.frame().page());
           const json = (value, status = 200) => route.fulfill({status, json: value,

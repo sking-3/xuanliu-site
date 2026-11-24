@@ -30,7 +30,10 @@ const report = {
 };
 
 async function settled(page) {
-  await page.evaluate(async () => {await document.fonts.ready; await new Promise(resolve => requestAnimationFrame(resolve));});
+  await page.evaluate(async () => {
+    await document.fonts.ready;
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  });
 }
 async function loaded(page) {
   await page.waitForFunction(() => {
@@ -49,6 +52,16 @@ async function choose(page, id) {
 async function priceDates(page) {
   return page.locator('.indicator-chart svg text').evaluateAll(nodes => nodes.map(node => node.textContent)
     .filter(text => /^\d{4}-\d{2}-\d{2}$/.test(text)));
+}
+async function chartGeometry(page) {
+  return page.locator('.indicator-chart svg').evaluate(svg => {
+    const fontSizes = [...svg.querySelectorAll('text')].map(text => {
+      const matrix = text.getScreenCTM();
+      return parseFloat(getComputedStyle(text).fontSize) * Math.min(Math.hypot(matrix.a, matrix.b), Math.hypot(matrix.c, matrix.d));
+    });
+    return {viewBoxWidth: svg.viewBox.baseVal.width, renderedWidth: svg.getBoundingClientRect().width,
+      minimumTextPixels: Math.min(...fontSizes)};
+  });
 }
 async function visibleArchive(page) {
   return {
@@ -157,11 +170,16 @@ async function viewportCheck(browser, width) {
     assert.equal(await page.locator('#indicator-select').inputValue(), 'tyson', 'library selects the current workspace');
     for (const window of ['60', '120', 'all']) {
       await page.locator('#indicator-window').selectOption(window);
+      await settled(page);
+      const geometry = await chartGeometry(page);
       const start = window === 'all' ? 0 : Math.max(0, snapshot.bars.length - Number(window));
       const middle = Math.floor((start + snapshot.bars.length - 1) / 2);
-      const expected = [start, middle, snapshot.bars.length - 1].map(index => isoDay(snapshot.bars[index].time));
+      const indices = geometry.viewBoxWidth < 600 ? [start, snapshot.bars.length - 1] : [start, middle, snapshot.bars.length - 1];
+      const expected = indices.map(index => isoDay(snapshot.bars[index].time));
       assert.deepEqual(await priceDates(page), expected, window + ' visible chart follows the selected archived window');
-      result.interactions.push({test: 'chart window', window, firstDay: expected[0], lastDay: expected[2]});
+      if (width === 390) assert.ok(geometry.minimumTextPixels >= 9 || geometry.viewBoxWidth <= geometry.renderedWidth + 10,
+        window + ' mobile chart labels must not shrink to unreadable desktop-size coordinates: ' + JSON.stringify(geometry));
+      result.interactions.push({test: 'chart window', window, firstDay: expected[0], lastDay: expected.at(-1), dateLabels: expected.length, ...geometry});
     }
     const parameter = page.locator('[data-param-key="compLen"]');
     await parameter.fill('');
