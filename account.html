@@ -6,17 +6,17 @@
   <title>Books · 账户中心</title>
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' https: blob:; frame-src 'self'; base-uri 'none'; form-action 'self'; object-src 'none">
   <link rel="canonical" href="https://45-77-39-98.sslip.io/account.html">
-  <link rel="stylesheet" href="books-ui.css?v=52cf1963">
+  <link rel="stylesheet" href="books-ui.css?v=40832f3c">
   <link rel="stylesheet" href="public-shell.css?v=6bcf60e1">
-  <link rel="stylesheet" href="index-ticker.css?v=d6459a25">
-  <link rel="stylesheet" href="desk-skin.css?v=de90c7f4">
-  <link rel="stylesheet" href="account.css?v=20261118-avatar-centered">
-  <script src="books-shell.js?v=35acfa43"></script>
-</head>
+  <link rel="stylesheet" href="index-ticker.css?v=compact-20261123-1">
+  <link rel="stylesheet" href="desk-skin.css?v=ui-motion-20261124-1">
+  <link rel="stylesheet" href="account.css?v=natural-layout-20261123-1">
+  <script src="books-shell.js?v=shell-motion-20261124-2"></script>
+<link rel="stylesheet" href="content-materials.css?v=content-20261123-2"></head>
 <body class="books-shell account-page">
-  <section class="index-ticker" id="index-ticker" aria-label="全球指数行情"><iframe src="market-strip.html?v=a494c410" title="全球指数行情"></iframe></section>
+  <section class="index-ticker" id="index-ticker" aria-label="全球指数行情"><iframe src="market-strip.html?v=compact-20261123-1" title="全球指数行情"></iframe></section>
   <a class="skip-link" href="#content">跳至账户内容</a>
-  <aside class="books-sidebar" aria-label="研究导航"><a class="books-brand" href="index.html">Books<span>RESEARCH STUDIO</span></a><nav class="books-nav" aria-label="工作区"><a href="index.html">市场总览</a><a href="screening/index.html">A股选股</a><a href="us.html">美股选股</a><a href="trader/index.html">带单员广场</a><a href="research.html">公司研究</a><a href="screening/history.html">历史研究</a><a href="tools.html">研究工具</a><a href="account.html" aria-current="page" aria-label="账户中心" title="账户中心"><svg class="books-nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21a8 8 0 0 0-16 0M12 13a4 4 0 1 0 0-8 4 4 0 0 0 0 8"/></svg><span class="books-nav-label">账户中心</span></a></nav><nav class="books-shortcuts" aria-label="行情快捷入口"><a href="a-shares.html">A 股行情</a><a href="us-live.html">美股监控</a><a href="crypto.html">加密行情</a></nav><p class="books-side-note">独立研究 · 证据优先</p></aside>
+  <aside class="books-sidebar" aria-label="研究导航"><a class="books-brand" href="index.html">Books<span>RESEARCH STUDIO</span></a><nav class="books-nav" aria-label="工作区"><a href="index.html">市场总览</a><a href="screening/index.html">A股选股</a><a href="us.html">美股选股</a><a href="trader/index.html">带单员广场</a><a href="research.html">公司研究</a><a href="screening/history.html">历史研究</a><a href="academy/index.html">交易员研习</a><a href="tools.html">研究工具</a><a href="account.html" aria-current="page" aria-label="账户中心" title="账户中心"><svg class="books-nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21a8 8 0 0 0-16 0M12 13a4 4 0 1 0 0-8 4 4 0 0 0 0 8"/></svg><span class="books-nav-label">账户中心</span></a></nav><nav class="books-shortcuts" aria-label="行情快捷入口"><a href="a-shares.html">A 股行情</a><a href="us-live.html">美股监控</a><a href="crypto.html">加密行情</a></nav><p class="books-side-note">独立研究 · 证据优先</p></aside>
   <main class="page" id="content">
     <section class="hero"><div><p class="eyebrow">账户与资金</p><h1>账户中心</h1><p>管理个人资料、正式钱包余额与链上充值记录。</p></div><div class="hero-actions"><div class="account-session"><a href="auth.html" id="auth-link">登录</a><span class="user-chip" id="user-chip" hidden><span class="avatar" id="top-avatar">B</span><span id="top-name">账户</span></span></div><button class="btn" id="logout" type="button">退出登录</button><button class="btn primary" id="open-recharge" type="button">充值</button></div></section>
     <div class="notice" id="account-notice" hidden></div>
@@ -26,8 +26,8 @@
     </section>
     <section class="card" style="margin-top:18px"><div class="card-header"><div><h2>账户明细</h2><p>充值请求、确认状态与资金时间线。</p></div><span class="eyebrow" id="last-updated">—</span></div><div class="card-body"><div class="tabs" role="tablist"><button class="tab" role="tab" aria-selected="true" aria-controls="history-panel" data-panel="history-panel">充值记录</button><button class="tab" role="tab" aria-selected="false" aria-controls="settings-panel" data-panel="settings-panel">安全设置</button></div><div class="panel active" id="history-panel" role="tabpanel"><div class="table-wrap"><table><thead><tr><th>时间</th><th>币种</th><th>金额</th><th>支付服务</th><th>状态</th><th>请求 ID</th></tr></thead><tbody id="recharge-rows"><tr><td colspan="6" class="empty">正在读取记录…</td></tr></tbody></table></div></div><div class="panel" id="settings-panel" role="tabpanel"><p class="empty">正式版账户安全设置将在密码找回、二次验证和第三方身份提供商接通后开放。当前不会伪造手机号、Google、微信或 QQ 登录。</p></div></div></section>
   </main>
-  <div class="modal-backdrop" id="avatar-modal"><section class="modal avatar-modal" role="dialog" aria-modal="true" aria-labelledby="avatar-title"><div class="modal-header"><div><h2 id="avatar-title">更换头像</h2><p>选择一张图片，保存时上传到你的账户。</p></div><button class="modal-close" data-close="avatar-modal" aria-label="关闭">×</button></div><div class="modal-body avatar-modal-body"><div class="avatar-current"><span class="avatar avatar-current-image" id="avatar-current-image">B</span><span>当前头像</span></div><label class="avatar-upload" for="avatar-file"><span class="avatar-upload-icon" aria-hidden="true">↑</span><span><strong>选择图片</strong><small>PNG、JPEG 或 WebP · 最大 2MB</small></span><input id="avatar-file" type="file" accept="image/png,image/jpeg,image/webp"></label><div class="avatar-preview" id="avatar-preview" hidden><span class="avatar" id="avatar-preview-image"></span><span id="avatar-preview-name"></span></div><div class="form-actions"><button class="btn" data-close="avatar-modal">取消</button><button class="btn primary" id="save-avatar">保存头像</button></div></div></section></div>
-  <div class="modal-backdrop" id="recharge-modal"><section class="modal" role="dialog" aria-modal="true" aria-labelledby="recharge-title"><div class="modal-header"><div><h2 id="recharge-title">链上充值</h2><p>创建真实充值意图，等待支付服务确认。</p></div><button class="modal-close" data-close="recharge-modal" aria-label="关闭">×</button></div><div class="modal-body"><div class="field"><label for="recharge-currency">币种</label><select id="recharge-currency"><option value="USDT">USDT</option><option value="USDC">USDC</option></select></div><div class="field"><label for="recharge-amount">金额</label><input id="recharge-amount" type="number" min="0.01" step="0.01" placeholder="例如 100"></div><div class="payment-callout" id="payment-state">正式支付服务尚未配置时，系统不会生成假地址、假订单或增加余额。配置链上托管服务后，这里会显示网络、充值地址和确认要求。</div><div class="form-actions"><button class="btn" data-close="recharge-modal">取消</button><button class="btn primary" id="submit-recharge">创建充值请求</button></div></div></section></div>
+  <div class="modal-backdrop" id="avatar-modal" aria-hidden="true"><section class="modal avatar-modal" role="dialog" aria-modal="true" aria-labelledby="avatar-title"><div class="modal-header"><div><h2 id="avatar-title">更换头像</h2><p>选择一张图片，保存时上传到你的账户。</p></div><button class="modal-close" data-close="avatar-modal" aria-label="关闭">×</button></div><div class="modal-body avatar-modal-body"><div class="avatar-current"><span class="avatar avatar-current-image" id="avatar-current-image">B</span><span>当前头像</span></div><label class="avatar-upload" for="avatar-file"><span class="avatar-upload-icon" aria-hidden="true">↑</span><span><strong>选择图片</strong><small>PNG、JPEG 或 WebP · 最大 2MB</small></span><input id="avatar-file" type="file" accept="image/png,image/jpeg,image/webp"></label><div class="avatar-preview" id="avatar-preview" hidden><span class="avatar" id="avatar-preview-image"></span><span id="avatar-preview-name"></span></div><div class="form-actions"><button class="btn" data-close="avatar-modal">取消</button><button class="btn primary" id="save-avatar">保存头像</button></div></div></section></div>
+  <div class="modal-backdrop" id="recharge-modal" aria-hidden="true"><section class="modal" role="dialog" aria-modal="true" aria-labelledby="recharge-title"><div class="modal-header"><div><h2 id="recharge-title">链上充值</h2><p>创建真实充值意图，等待支付服务确认。</p></div><button class="modal-close" data-close="recharge-modal" aria-label="关闭">×</button></div><div class="modal-body"><div class="field"><label for="recharge-currency">币种</label><select id="recharge-currency"><option value="USDT">USDT</option><option value="USDC">USDC</option></select></div><div class="field"><label for="recharge-amount">金额</label><input id="recharge-amount" type="number" min="0.01" step="0.01" placeholder="例如 100"></div><div class="payment-callout" id="payment-state">正式支付服务尚未配置时，系统不会生成假地址、假订单或增加余额。配置链上托管服务后，这里会显示网络、充值地址和确认要求。</div><div class="form-actions"><button class="btn" data-close="recharge-modal">取消</button><button class="btn primary" id="submit-recharge">创建充值请求</button></div></div></section></div>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <script src="books-auth-config.js"></script><script src="books-auth.js"></script>
   <script>
@@ -47,8 +47,46 @@
     const formatMinor = (value) => (Number(value || 0) / 100).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const formatDate = (value) => value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '—';
     const showNotice = (message) => { const el = $('#account-notice'); el.textContent = message; el.hidden = !message; };
-    const openModal = (id) => $('#' + id).classList.add('open');
-    const closeModal = (id) => $('#' + id).classList.remove('open');
+    let activeModal = null;
+    let modalTrigger = null;
+    const pageContent = [...document.querySelectorAll('body > main, .books-sidebar, .index-ticker')];
+    const modalControls = () => [...activeModal.querySelectorAll('button, input, select, textarea, a[href], [tabindex]')]
+      .filter((node) => !node.disabled && node.tabIndex >= 0 && node.getClientRects().length);
+    const openModal = (id) => {
+      modalTrigger = document.activeElement;
+      activeModal = $('#' + id);
+      pageContent.forEach((node) => { node.inert = true; });
+      activeModal.setAttribute('aria-hidden', 'false');
+      activeModal.classList.add('open');
+      modalControls()[0]?.focus();
+    };
+    const closeModal = (id) => {
+      const modal = $('#' + id);
+      modal.classList.remove('open');
+      modal.setAttribute('aria-hidden', 'true');
+      if (modal !== activeModal) return;
+      activeModal = null;
+      pageContent.forEach((node) => { node.inert = false; });
+      modalTrigger?.focus();
+    };
+    document.addEventListener('keydown', (event) => {
+      if (!activeModal) return;
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeModal(activeModal.id);
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const controls = modalControls();
+      const first = controls[0], last = controls.at(-1);
+      if (event.shiftKey && (document.activeElement === first || !activeModal.contains(document.activeElement))) {
+        event.preventDefault();
+        last?.focus();
+      } else if (!event.shiftKey && (document.activeElement === last || !activeModal.contains(document.activeElement))) {
+        event.preventDefault();
+        first?.focus();
+      }
+    });
     function renderUser(user) {
       $('#profile-name').textContent = user.displayName || 'Books 用户'; $('#profile-email').textContent = user.email; $('#profile-id').textContent = user.accountNo || '—'; $('#profile-role').textContent = user.role === 'admin' ? '管理员' : '用户'; $('#profile-status').textContent = user.status === 'active' ? '正常' : '已停用'; $('#profile-created').textContent = formatDate(user.createdAt); $('#top-name').textContent = user.displayName || user.email; $('#auth-link').hidden = true; $('#user-chip').hidden = false; setAvatar($('#profile-avatar'), user); setAvatar($('#top-avatar'), user); setAvatar($('#avatar-current-image'), user);
     }
