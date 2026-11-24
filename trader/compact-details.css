@@ -94,3 +94,8 @@
  #detail .sa-metrics dt,#detail .sa-metrics small{font-size:12px}
  .books-shell.trader-page .card .card-links :is(.private-paper,.private-follow){min-height:44px;padding:7px 10px}
 }
+
+@media(max-width:760px) {
+  #detail .icon-button { width:44px; min-height:44px; flex-basis:44px; }
+  #detail #tabs button, #detail.ta-detail #tabs button { min-height:44px; }
+}
