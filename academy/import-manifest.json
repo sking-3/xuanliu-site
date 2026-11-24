@@ -1,0 +1,70 @@
+{
+  "repository": "suoha888/Trader-Archives",
+  "commit": "5e18e9a752719264508dc00be093e75c8b7f1824",
+  "readers": [
+    {
+      "slug": "thankucrypto",
+      "sourceSha256": "f1f061f1cbc2419c101b1b5aab2a9262309f0f09d103767d48d2859aa8c8421b"
+    },
+    {
+      "slug": "xiaomu",
+      "sourceSha256": "0606ba9508a050816f56c43bd8effd144da71dd12759aa24c32a0f874dc49275"
+    },
+    {
+      "slug": "michael-liu",
+      "sourceSha256": "e721dd66771f8c11a3e41febdf1b5f0d6768938b2f6e3ed8d832383052c65644"
+    },
+    {
+      "slug": "cj",
+      "sourceSha256": "4cf9160b5a2d1a281781e1ec36d35660fc7e7fe109ac4cb1408077e92fcf7574"
+    },
+    {
+      "slug": "yourquantguy",
+      "sourceSha256": "46dd5d0761a2dac8eb85c69cd6af6ac904cfe293434b5fab0c8f19ca477b9877"
+    },
+    {
+      "slug": "metabape",
+      "sourceSha256": "ef534b78718abe8112bef52342a94ce74e3714048f68b0d3284cfebed894fd1b"
+    },
+    {
+      "slug": "coolish",
+      "sourceSha256": "33e4d006bf024435d2b9bac5b6c45ae4682e66cb4cd2536349fa59d0b6857d8d"
+    },
+    {
+      "slug": "wallstreet0name",
+      "sourceSha256": "632891850fa72337ff6bc3a7161d03f045425502648ca20e2d4d827e5061229a"
+    },
+    {
+      "slug": "0xcryptowizard",
+      "sourceSha256": "d4dc4152fa2bdca721f57b59c1474845e6ec7a34b71ee7bb37b4f9e06100d37e"
+    },
+    {
+      "slug": "0xsun",
+      "sourceSha256": "14fc5c106b45ab1d58ada927532e2d57a0cc7805202f3ba8048a178e720b8f60"
+    },
+    {
+      "slug": "kuigas",
+      "sourceSha256": "6db5c04e5536ad2793f1cc255e2f6e9dae27ac5726d90be0c3c2e0acd44c0b16"
+    },
+    {
+      "slug": "web3feng",
+      "sourceSha256": "a84ef193ebe5717c88023052119e458ec78138c892845b13567d6e6e42046dad"
+    },
+    {
+      "slug": "0xmagnolia",
+      "sourceSha256": "fb2f4b48f9c6792171ad771769f3ecef5601a1c224df9cc79d7f644f1e58e767"
+    },
+    {
+      "slug": "agintender",
+      "sourceSha256": "fac4e945355a9d4f2eb27eeb908579ddeefa7a3b658ce04db975e31a6a0c40ec"
+    },
+    {
+      "slug": "ztzzbtc",
+      "sourceSha256": "bb7d58049d6803508687a8f36d4976c0e4c4ef8ecaf2b67e9253719d96eaf66d"
+    },
+    {
+      "slug": "laoemo",
+      "sourceSha256": "146d3395f28adca8a50e8cdfb7f867bd0225f615508d022ed3746d8a4d3f2c15"
+    }
+  ]
+}
