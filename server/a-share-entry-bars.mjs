@@ -111,7 +111,7 @@ export function analyzeEntryBars({stock,bars,calendar,patterns,matches,day,asOf,
     setup.status=late?'late_discovery':setup.replayStatus;
     setup.mode='historical_research_replay';setup.recommended=false;setup.entryOutcomeValidated=false;
     setup.patternGatePassed=setup.patternIds.some(id=>effective.has(id));
-    setup.recommendationReasons=[...(!setup.patternGatePassed?['对应固定形态当前未通过原有完整门槛']:[]),'本触发规则尚未独立完成收益与样本外验证'];
+    setup.recommendationReasons=[...(!setup.patternGatePassed?['对应固定形态当前未通过原有完整门槛']:[]),'本记录为历史证据；独立验证及合格状态以当前观察面板为准'];
     if(!knownAt)setup.recommendationReasons.push('来源读取或规则生效时间未知，不追认已发生的入场');
     if(late)setup.recommendationReasons.push('实际发现晚于首个目标开盘；仅保留回放及未来剩余窗口条件观察');
     const pending=waiting.has(setup.replayStatus)&&setup.remainingSessions>0;
@@ -126,5 +126,5 @@ export function analyzeEntryBars({stock,bars,calendar,patterns,matches,day,asOf,
     sourceFetchedAt,policyKnownAt,coverage:{calendarSessions:dates.length,sourceBars:bars.length,currentDayValid:Boolean(validBar(aligned.at(-1)))},
     summary:{setupCount:setups.length,confirmedCount:setups.filter(setup=>setup.keyBar).length,currentWatchCount:current.length,recommendedCount:0,triggeredObservations:setups.filter(setup=>setup.replayStatus==='triggered_observation').length},
     setups,current,
-    method:{formation:'固定形态首次成立，沿用15交易日同形态形成间隔',confirmation:'形成K后最多3交易日：收盘严格越过形成K高点、阳线、MA20上方、量不低于此前20日均量',trigger:'确认收盘之后，从下一交易日起最多3交易日严格越过关键K高点；开盘超触发位2%排除',invalidation:'形成K最低价固定作为失效研究参考位；不下移',timing:'所有确认只用当根及以前已收盘日线；日内精确触发时间和实际成交未知',outcomes:'未计算本触发规则收益，不引用原次日开盘形态收益作为本规则回报'}};
+    method:{formation:'固定形态首次成立，沿用15交易日同形态形成间隔',confirmation:'形成K后最多3交易日：收盘严格越过形成K高点、阳线、MA20上方、量不低于此前20日均量',trigger:'确认收盘之后，从下一交易日起最多3交易日严格越过关键K高点；开盘超触发位2%排除',invalidation:'形成K最低价固定作为失效研究参考位；不下移',timing:'所有确认只用当根及以前已收盘日线；日内精确触发时间和实际成交未知',outcomes:'触发后收益另见同批次独立入场验证；不引用原次日开盘形态收益作为本规则回报'}};
 }

@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
-import {analyzePatternRegimes,evaluateEvent,summarizeEvents,walkForward,policy,fixedMatches} from '../server/a-share-pattern-regimes.mjs';
+import {analyzePatternRegimes,evaluateEvent,summarizeEvents,walkForward,policy,fixedMatches,diagnosePatternGates} from '../server/a-share-pattern-regimes.mjs';
 
 const require=createRequire(import.meta.url),patterns=require('../screening/trend-patterns.js');
 function calendar(count){const days=[];for(let time=Date.UTC(2024,0,1);days.length<count;time+=86400000){const date=new Date(time);if(date.getUTCDay()!==0&&date.getUTCDay()!==6)days.push(date.toISOString().slice(0,10));}return days;}
@@ -64,6 +64,35 @@ test('negative or sparse past patterns are never selected into OOS recommendatio
   assert.equal(negative.selectedFoldCount,0);assert.equal(negative.stats.sampleCount,0);assert.equal(negative.adjustedPValue,null);
   const sparse=walkForward(inputEvents(dates).filter(event=>event.code==='1'),dates);assert.equal(sparse.selectedFoldCount,0);assert.equal(sparse.stats.meanReturnPercent,null);
   assert.equal(walkForward([],calendar(100)).status,'insufficient');
+});
+
+test('gate diagnostics preserve the existing strict return, diversity, fold and corrected-p boundaries',()=>{
+  const stats={sampleCount:60,stockCount:20,signalDayCount:20,meanReturnPercent:.01,meanExcessPercent:.01,positiveRate:.5};
+  const validation={...stats,positiveFoldCount:2,blockCount:8,adjustedPValue:.05};
+  const gates=diagnosePatternGates({fit:stats,recent:stats,validation});
+  assert.equal(gates.length,22);assert(gates.every(gate=>gate.passed));
+  assert.equal(gates.find(gate=>gate.id==='recent_sampleCount').threshold,30);
+  assert.equal(gates.find(gate=>gate.id==='fit_positiveRate').actual,50);
+  for(const scope of ['fit','recent','validation']){
+    const input={fit:{...stats},recent:{...stats},validation:{...validation}};
+    input[scope].meanReturnPercent=0;input[scope].meanExcessPercent=0;input[scope].positiveRate=.49999;
+    const failed=diagnosePatternGates(input).filter(gate=>!gate.passed).map(gate=>gate.id);
+    assert.deepEqual(failed,[scope+'_meanReturnPercent',scope+'_meanExcessPercent',scope+'_positiveRate']);
+  }
+  const absent=diagnosePatternGates({fit:stats,recent:stats,validation:{...validation,adjustedPValue:null},rollingStatus:'insufficient'});
+  assert.deepEqual(absent.filter(gate=>!gate.passed).map(gate=>gate.id),['rolling_ready','adjustedPValue']);
+  assert.equal(absent.find(gate=>gate.id==='adjustedPValue').actual,null);
+});
+
+test('published diagnostics agree with selection and keep the fixed 16-hypothesis family separate',async()=>{
+  const result=await analyzePatternRegimes(series(500,2));
+  assert.deepEqual(result.validationFamily,{id:'fixed-shape-next-open-v1',hypothesisCount:16,correction:'Bonferroni',scope:'仅本16类固定形态次日开盘假设，不含独立关键K家族'});
+  for(const item of result.patterns){
+    assert.equal(item.diagnostics.length,22);
+    assert.equal(item.diagnostics.every(gate=>gate.passed),item.recommended);
+    assert.equal(item.diagnostics.find(gate=>gate.id==='blockCount').actual,item.validation.blockCount);
+    assert.equal(item.diagnostics.find(gate=>gate.id==='recent_meanReturnPercent').actual,item.recent.meanReturnPercent);
+  }
 });
 
 test('constant persistent shapes do not create a fresh event every day',async()=>{

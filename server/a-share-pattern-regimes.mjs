@@ -94,6 +94,28 @@ function adequate(stats,kind){
   return stats.sampleCount>=policy[prefix+'Samples']&&stats.stockCount>=policy[prefix+'Stocks']&&stats.signalDayCount>=policy[prefix+'Dates'];
 }
 const positive=stats=>stats.sampleCount>0&&stats.meanReturnPercent>0&&stats.meanExcessPercent>0&&stats.positiveRate>=.5;
+/** Numeric evidence for the existing gates; it does not decide or relax selection. */
+export function diagnosePatternGates({fit,recent,validation,rollingStatus='ready'}){
+  const gates=[];
+  function gate(id,scope,label,actual,operator,threshold,unit=''){
+    const known=actual!==null&&actual!==undefined;
+    const passed=known&&(operator==='>='?actual>=threshold:operator==='>'?actual>threshold:operator==='<='?actual<=threshold:actual===threshold);
+    gates.push({id,scope,label,actual:actual??null,operator,threshold,unit,passed});
+  }
+  for(const [scope,stats,prefix,label]of [['fit',fit,'minTrain','近120日'],['recent',recent,'minRecent','近60日'],['validation',validation,'minValidation','样本外']]){
+    gate(scope+'_sampleCount',scope,label+'成熟样本',stats.sampleCount,'>=',policy[prefix+'Samples'],'个');
+    gate(scope+'_stockCount',scope,label+'股票数',stats.stockCount,'>=',policy[prefix+'Stocks'],'只');
+    gate(scope+'_signalDayCount',scope,label+'信号日期数',stats.signalDayCount,'>=',policy[prefix+'Dates'],'日');
+    gate(scope+'_meanReturnPercent',scope,label+'平均净变化',stats.meanReturnPercent,'>',0,'%');
+    gate(scope+'_meanExcessPercent',scope,label+'平均超额',stats.meanExcessPercent,'>',0,'%');
+    gate(scope+'_positiveRate',scope,label+'正收益占比',finite(stats.positiveRate)?stats.positiveRate*100:null,'>=',50,'%');
+  }
+  gate('rolling_ready','validation','滚动区间完整',rollingStatus,'=','ready');
+  gate('positiveFoldCount','validation','预选后正向验证折数',validation.positiveFoldCount,'>=',policy.minPositiveFolds,'折');
+  gate('blockCount','validation','非重叠15日验证锚点',validation.blockCount,'>=',policy.minIndependentBlocks,'个');
+  gate('adjustedPValue','validation','16类校正后p值',validation.adjustedPValue,'<=',policy.familywiseAlpha);
+  return gates;
+}
 function signTail(positive,total){let combinations=1,sum=0;for(let i=0;i<=total;i++){if(i>=positive)sum+=combinations;combinations=combinations*(total-i)/(i+1);}return sum/2**total;}
 
 /** Each fold's choice is frozen before any outcome from that fold is observed. */
@@ -193,14 +215,14 @@ export async function analyzePatternRegimes({dataset,records=dataset?.records,pa
     }
     const recommended=reasons.length===0,insufficient=!adequate(fit,'train')||!adequate(recent,'recent')||rolling.status!=='ready';
     const {selectedEvents,stats,status,reason,...validation}=rolling;
-    output.push({...definition,status:recommended?'effective':insufficient?'insufficient':positive(fit)&&positive(recent)?'watch':'inactive',recommended,reasons,currentMatchCount:counts.get(definition.id).current,pendingCount:counts.get(definition.id).pending,excludedEvents:{unavailable:counts.get(definition.id).unavailable,unexecutable:counts.get(definition.id).unexecutable},fit,recent,validation:{...stats,...validation}});
+    output.push({...definition,status:recommended?'effective':insufficient?'insufficient':positive(fit)&&positive(recent)?'watch':'inactive',recommended,reasons,diagnostics:diagnosePatternGates({fit,recent,validation:{...stats,...validation},rollingStatus:status}),currentMatchCount:counts.get(definition.id).current,pendingCount:counts.get(definition.id).pending,excludedEvents:{unavailable:counts.get(definition.id).unavailable,unexecutable:counts.get(definition.id).unexecutable},fit,recent,validation:{...stats,...validation}});
   }
   const effective=new Set(output.filter(item=>item.recommended).map(item=>item.id)),candidates=fresh.map(stock=>{
     const patternIds=stock.patternIds.filter(id=>effective.has(id));
     return {code:stock.code,name:stock.name,patternIds,formedAt:patternIds.length?dates[Math.max(...patternIds.map(id=>stock.formed.get(id)))]:null,metrics:stock.metrics,sourceAt:stock.sourceAt};
   }).filter(stock=>stock.patternIds.length).sort((a,b)=>a.metrics.return5-b.metrics.return5||compare(a.code,b.code));
   const universeWarning='按本次名册及当前风险名称过滤回看历史，不含已退市或历史时点名册，可能有存续偏差；当日停牌或缺行情不会抹掉已成熟历史事件。结果仅为研究候选，不代表可实现收益。';
-  return {schema:'books.a-share.pattern-regimes.v1',version,day,asOf,computedAt:new Date(now()).toISOString(),sourceId,generation,benchmark:{code:reference.code,label:'沪深300'},policy:{...policy,patternVersion:patterns.version},coverage:{universeCount:universeCount||seen.size,readyCount,historyDays:dates.length,historyStart:dates[0],historyEnd:day,universeBasis:universeMetadata?.basis||'current-roster-retrospective',warning:universeWarning},
+  return {schema:'books.a-share.pattern-regimes.v1',version,day,asOf,computedAt:new Date(now()).toISOString(),sourceId,generation,benchmark:{code:reference.code,label:'沪深300'},policy:{...policy,patternVersion:patterns.version},validationFamily:{id:'fixed-shape-next-open-v1',hypothesisCount:16,correction:'Bonferroni',scope:'仅本16类固定形态次日开盘假设，不含独立关键K家族'},coverage:{universeCount:universeCount||seen.size,readyCount,historyDays:dates.length,historyStart:dates[0],historyEnd:day,universeBasis:universeMetadata?.basis||'current-roster-retrospective',warning:universeWarning},
     summary:{patternCount:definitions.length,effectiveCount:effective.size,candidateCount:candidates.length,reason:effective.size?candidates.length?'已按近期有效固定形态及初期转强、未明显拉升条件筛选':'近期有效形态当前没有满足初期转强及未明显拉升条件的股票':'尚无固定形态通过完整近期与滚动样本外门槛；保留各形态样本和未通过原因'},patterns:output,candidates,candidateCodes:candidates.map(stock=>stock.code),
     method:{returnLabel:'信号次一交易日开盘至第3/5/10/15个后续交易日收盘的前复权价格变化估算；各期限使用同一15日成熟事件组，非实际成交收益',drawdownLabel:'从次日开盘起，15个交易日收盘路径的最大回撤；未含盘中高低点及费用',costLabel:'估算收益统一减去往返费用及滑点0.30个百分点；实际费率与成交差异未知',validationLabel:'固定形态参数；120个信号日训练、15交易日隔离、随后20日验证，最近180个成熟信号日滚动9折；非重叠15日锚点按日期合并后单侧符号检验，按固定目录数Bonferroni校正；检验假设各区间方向独立，不能证明未来获利',confidenceLabel:'5%目标命中率的95% Wilson区间仅描述事件组；同日股票相关，不能当独立样本的保证',universeWarning}};
 }
