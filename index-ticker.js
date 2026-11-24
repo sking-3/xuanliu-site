@@ -7,7 +7,7 @@
     const data = event.data;
     if (!data || data.type !== 'books-market-strip-size' || !Number.isFinite(data.height)) return;
     // Size the entire provider component, including its own attribution.
-    const height = Math.max(40, Math.ceil(data.height));
+    const height = Math.max(32, Math.ceil(data.height));
     document.documentElement.style.setProperty('--books-ticker-height', height + 'px');
   });
   const measure = () => frame.contentWindow?.postMessage({type:'books-market-strip-measure'}, location.origin);

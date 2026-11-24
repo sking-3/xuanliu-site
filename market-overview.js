@@ -141,6 +141,8 @@ function macroSnapshot(payload,base,now=Date.now()){
 function node(doc,tag,text,cls){const el=doc.createElement(tag);if(text!==undefined)el.textContent=text;if(cls)el.className=cls;return el;}
 function anchor(doc,text,url,cls){const a=node(doc,'a',text,cls);a.href=url;a.target='_blank';a.rel='noopener noreferrer';return a;}
 function renderCard(doc,host,id,c,now,readFailed){
+  const previousContent=host.querySelector('.insight-content');
+  const scrollTop=previousContent?.scrollTop||0,contentFocused=previousContent&&doc.activeElement===previousContent;
   const status=cardState(id,c,now,readFailed);
   const head=node(doc,'div',undefined,'insight-heading');head.append(node(doc,'h2',LABELS[id]));
   head.append(node(doc,'span',status==='ready'?({sentiment:'日度',valuation:'月末',flows:'月度',active:'快照',macro:'官方发布'})[id]:cardStateLabel(status,readFailed),'insight-state'));
@@ -148,6 +150,19 @@ function renderCard(doc,host,id,c,now,readFailed){
   const scope=node(doc,'p',foreignMacro?'美国宏观 · 备用发布与日历':SCOPES[id],'insight-scope'),body=node(doc,'div',undefined,'insight-body');
   const metric=(value,unit,label)=>{const line=node(doc,'div',undefined,'insight-metric');line.append(node(doc,'strong',value));if(unit)line.append(node(doc,'span',unit));body.append(line);if(label)body.append(node(doc,'p',label,'insight-caption'));};
   const row=(label,value)=>{const r=node(doc,'div',undefined,'insight-row');r.append(node(doc,'span',label),node(doc,'strong',value));body.append(r);};
+  const secondary=entries=>{
+    const list=node(doc,'dl',undefined,'insight-secondary');
+    for(const [label,value] of entries){
+      const item=node(doc,'div');
+      item.append(node(doc,'dt',label),node(doc,'dd',value));
+      list.append(item);
+    }
+    body.append(list);
+  };
+  const context=title=>{
+    const section=node(doc,'section',undefined,'insight-context');
+    section.append(node(doc,'h3',title));body.append(section);return section;
+  };
   if(c.data){const d=c.data;
     if(id==='sentiment'){
       const labels={'Extreme Fear':'极度恐惧',Fear:'恐惧',Neutral:'中性',Greed:'贪婪','Extreme Greed':'极度贪婪'};
@@ -155,18 +170,75 @@ function renderCard(doc,host,id,c,now,readFailed){
       const meter=node(doc,'meter',undefined,'insight-meter');meter.min=0;meter.max=100;meter.value=d.value;meter.setAttribute('aria-label','比特币恐惧与贪婪指数');body.append(meter);
       if(d.previous!==null)row('昨日',String(d.previous));
     }else if(id==='valuation'){
-      metric(decimal(d.pe),'倍','滚动市盈率 · PE(TTM)');row('市净率 PB',decimal(d.pb)+' 倍');row('股息率',decimal(d.dividendYield)+'%');
+      metric(decimal(d.pe),'倍','滚动市盈率 · PE(TTM)');
+      secondary([['市净率 PB',decimal(d.pb)+' 倍'],['股息率',decimal(d.dividendYield)+'%']]);
+      const reading=context('盈利视角'),yieldRow=node(doc,'div',undefined,'insight-row');
+      yieldRow.append(node(doc,'span','盈利收益率'),node(doc,'strong',decimal(100/d.pe)+'%'));
+      reading.append(yieldRow,node(doc,'p','按 PE 倒数推算，表示滚动盈利相对指数价格的水平。'),node(doc,'p','盈利收益率与股息率口径不同，也不等于预期投资回报。'));
+
     }else if(id==='flows'){
-      metric(signed(d.netMillions/100),'亿美元',d.period.replace('-','年')+'月 · 月度');row('美债净买入',d.treasuryMillions===null?'':signed(d.treasuryMillions/100)+' 亿');row('股票净买入',d.equityMillions===null?'':signed(d.equityMillions/100)+' 亿');
+      metric(signed(d.netMillions/100),'亿美元',d.period.replace('-','年')+'月 · 月度');
+      const components=[
+        ['美债净买入',d.treasuryMillions],['机构债净买入',d.agencyMillions],
+        ['公司债净买入',d.corporateMillions],['股票净买入',d.equityMillions]
+      ];
+      secondary(components.map(([label,value])=>[label,value===null?'—':signed(value/100)+' 亿']));
+      const structure=context('资金投向');
+      const bondValues=components.slice(0,3).map(([,value])=>value);
+      if(bondValues.every(value=>value!==null)){
+        const bonds=bondValues.reduce((sum,value)=>sum+value,0);
+        structure.append(node(doc,'p','债券合计 '+signed(bonds/100)+' 亿美元'));
+      }
+      const values=components.map(([,value])=>value),complete=values.every(value=>value!==null);
+      const total=complete?values.reduce((sum,value)=>sum+value,0):0;
+      if(complete&&values.every(value=>value>=0)&&total>0&&d.netMillions>0&&Math.abs(total-d.netMillions)<=4){
+        const bar=node(doc,'div',undefined,'insight-flow-bar'),legend=node(doc,'ul',undefined,'insight-flow-legend');
+        const colors=['#3e647e','#7891a4','#72a29a','#a68a56'];
+        bar.setAttribute('aria-hidden','true');
+        components.forEach(([label,value],index)=>{
+          const share=value/total*100,text=label.replace('净买入','')+' '+decimal(share,1)+'%';
+          const segment=node(doc,'span'),item=node(doc,'li',text);
+          segment.setAttribute('style','flex: '+share+'; --flow-color: '+colors[index]);
+          segment.setAttribute('title',text);item.setAttribute('style','--flow-color: '+colors[index]);
+          bar.append(segment);legend.append(item);
+        });
+        structure.append(bar,legend);
+      }else{
+        const note=!complete?'分项尚未完整，暂不计算结构占比。':values.some(value=>value<0)?'部分资产为净卖出，保留各项正负净额。':total===0&&d.netMillions===0?'四类资产本期净额均为零。':'分项与合计尚未对齐，暂不计算占比。';
+        structure.append(node(doc,'p',note));
+      }
+
     }else if(id==='active'){
       const list=node(doc,'ol',undefined,'insight-ranking');for(const r of d.items.slice(0,3)){const li=node(doc,'li');const name=node(doc,'strong',r.symbol);
         if(['BTC','ETH','SOL','USDT'].includes(r.symbol)){const chart=node(doc,'a',r.symbol);const pair=r.symbol==='USDT'?'BTCUSDT':r.symbol+'USDT';chart.href='chart.html?tvwidgetsymbol='+encodeURIComponent('BITGET:'+pair);chart.setAttribute('aria-label',r.symbol+' · 查看 Bitget USDT 现货K线');name.replaceChildren(chart);}
         li.append(name,node(doc,'span',compactUsd(r.volumeUsd)));li.setAttribute('title',r.name+'；来源更新 '+dateLabel(r.lastUpdated,true));list.append(li);}body.append(list,node(doc,'p',d.universe,'insight-caption'));
     }else{
-      const headline=anchor(doc,employmentHeadline(d.latest.title),d.latest.url,'insight-headline');headline.setAttribute('title',d.latest.title);body.append(headline,node(doc,'p','发布 '+dateLabel(d.latest.publishedAt),'insight-caption'));
+      const release=node(doc,'div',undefined,'insight-release');
+      const published=d.latest.publishedAt,fullDate='发布 '+dateLabel(published)+'（北京时间）';
+      const day=node(doc,'time',dateLabel(published,false,false),'insight-date');
+      day.setAttribute('datetime',published);
+      day.setAttribute('aria-label',fullDate);
+      day.setAttribute('title',fullDate);
+      const headline=anchor(doc,employmentHeadline(d.latest.title),d.latest.url,'insight-headline');
+      headline.setAttribute('title',d.latest.title);
+      release.append(day,headline);
+      body.append(release);
       const events=d.events.filter(e=>Date.parse(e.startAt)>=now).slice(0,2);
       for(const e of events){const a=anchor(doc,eventTitle(e.title),e.url,'insight-event');a.append(node(doc,'time',dateLabel(e.startAt,true)+' 北京时间'));body.append(a);}
       if(!events.length&&foreignMacro)body.append(node(doc,'p','暂无未来已核验发布，等待下一次官方日历更新','insight-caption'));
+      if(!foreignMacro){
+        const followup=context('继续跟踪'),links=node(doc,'div',undefined,'insight-followup');
+        for(const [label,detail,url] of [
+          ['增长与物价','工业 · 消费 · CPI / PPI','https://www.stats.gov.cn/sj/zxfb/'],
+          ['资金与信用','社融 · 货币 · 信贷','https://www.pbc.gov.cn/diaochatongjisi/116219/116319/index.html'],
+          ['官方发布日程','查看数据公布安排','https://www.stats.gov.cn/sj/fbrc/']
+        ]){
+          const a=anchor(doc,undefined,url);
+          a.append(node(doc,'strong',label+' ↗'),node(doc,'span',detail));links.append(a);
+        }
+        followup.append(links);
+      }
+
     }
   }else body.append(node(doc,'p',readFailed?errorLabel(c.errorCode)+'，尚无有效快照。可打开来源核对。':'暂无可核验数据，可打开来源查看发布情况。','insight-empty'));
   const cadenceText=foreignMacro?'中文快照暂不可用 · 美国官方备用来源':CADENCE[id];
@@ -175,7 +247,12 @@ function renderCard(doc,host,id,c,now,readFailed){
   if(c.asOf){const time=node(doc,'time','数据截至 '+dateLabel(c.asOf,id==='active',true),'insight-asof');time.dateTime=c.asOf;time.setAttribute('title','来源统计时间（北京时间）'+(c.sourceUpdatedAt?'；来源更新 '+dateLabel(c.sourceUpdatedAt,true,true):''));foot.append(time);}
   else foot.append(node(doc,'span','数据时间未提供','insight-asof'));
   if(c.fetchedAt){const time=node(doc,'time','采集 '+dateLabel(c.fetchedAt,true,true)+'（北京）','insight-fetched');time.dateTime=c.fetchedAt;foot.append(time);}
-  host.setAttribute('data-state',status);host.setAttribute('aria-busy','false');host.replaceChildren(head,scope,body,cadence,foot);
+  const content=node(doc,'div',undefined,'insight-content');
+  content.setAttribute('role','region');content.setAttribute('tabindex','0');content.setAttribute('aria-label',LABELS[id]+'内容');
+  content.append(scope,body,cadence);
+  host.setAttribute('data-state',status);host.setAttribute('aria-busy','false');host.replaceChildren(head,content,foot);
+  content.scrollTop=scrollTop;
+  if(contentFocused)content.focus({preventScroll:true});
 }
 function mount(doc,options={}){
   const root=doc.getElementById('market-insights');if(!root)return null;
