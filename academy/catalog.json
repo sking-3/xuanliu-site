@@ -1,0 +1,354 @@
+[
+  {
+    "slug": "thankucrypto",
+    "name": "allincrypto 熬鹰资本",
+    "handle": "@thankUcrypto · 178.5K 关注",
+    "title": "《熬鹰资本 · 实盘推文、早期微博与深度专访全档案》",
+    "focus": "全平台扩充 · 实盘+微博+专访",
+    "description": "OKX/币安实盘带单冠军，从 13,000 元起步滚到千万实盘。完整保留 3,420 篇 X 原创推文（7 大板块 28 节）与 555 张配图；底部新增 3 场一手深度专访（含 OKX 两期原文 + 币安华语电台 73.5 分钟原声逐字稿，共 40,841 字）及 943 篇跨平台去重后的早期微博时间轴（含经典长文补遗）。",
+    "avatar": "thankucrypto/images/thankucrypto_avatar.jpg",
+    "tags": [
+      "仓位管理",
+      "行情与开单",
+      "山寨与做空",
+      "事件与美股",
+      "早期微博",
+      "深度专访"
+    ],
+    "stats": [
+      "4,363 篇 X 原推 + 微博独占",
+      "3 场专访 4.08 万字实录",
+      "555 张 实盘配图"
+    ],
+    "kind": "trader"
+  },
+  {
+    "slug": "xiaomu",
+    "name": "川沐｜Trumoo",
+    "handle": "@xiaomustock · 28.2万 关注",
+    "title": "《川沐实战交易全书：美股硬科技、加密大周期与盘口博弈》",
+    "focus": "美股硬科技与加密周期",
+    "description": "跨市场二级实战交易员。从 3,866 篇原始记录中去噪沉淀 3,103 篇原创推文（含 1,596 篇 S/A 精选干货）与 444 张实盘配图，整理为 6 大板块 13 节与 6 条核心思维模型，系统覆盖美股半导体算力、BTC 宏观节奏、盘口结构博弈与仓位风控。",
+    "avatar": "xiaomu/images/xiaomu_avatar.jpg",
+    "tags": [
+      "美股算力主线",
+      "加密大周期",
+      "盘口情绪博弈",
+      "仓位与止损",
+      "左侧与右侧"
+    ],
+    "stats": [
+      "3,103 篇 清洗原推",
+      "1,596 篇 S/A 精选",
+      "6 卷 13 节 体系专题"
+    ],
+    "kind": "trader"
+  },
+  {
+    "slug": "michael-liu",
+    "name": "憨厚的麦总",
+    "handle": "@Michael_Liu93 · 88.9K 关注",
+    "title": "《憨厚的麦总 · Meme 连载教学、链上扒庄与二级轮动全档案》",
+    "focus": "Meme 教学与二级轮动",
+    "description": "兼具一级链上扒庄与二级系统交易的实战派导师。从 5,344 篇历史原推清洗沉淀 2,645 篇高密度推文（含 1,312 篇 S/A 精选）与 476 张实盘配图，按 7 大板块 15 节完整归档《麦总长篇 Meme 教学》、GMGN 筛庄工具链、二级山寨与 Polymarket/美股大区间复盘。",
+    "avatar": "michael-liu/images/michael_avatar.jpg",
+    "tags": [
+      "PVP 与庄盘定性",
+      "GMGN 链上扒庄",
+      "二段交易策略",
+      "Coinglass 扫链",
+      "美股与 Polymarket"
+    ],
+    "stats": [
+      "2,645 篇 清洗原推",
+      "1,312 篇 S/A 精选",
+      "7 卷 15 节 体系专题"
+    ],
+    "kind": "trader"
+  },
+  {
+    "slug": "cj",
+    "name": "C J",
+    "handle": "@gch_enbsbxbs · DeFi 做市实战派",
+    "title": "《CJ DeFi 做市与单边离散网格套利实战手册》",
+    "focus": "DeFi 做市与网格套利",
+    "description": "专注链上集中流动性做市与 DeFi 套利的真金白银实战档案。从 502 篇原推精选沉淀 466 篇本人原创（含 247 篇 S/A 精选）与 119 张配图，整理为 6 大板块 16 节与 6 条核心模型，详述 Uniswap v3/v4 区间设定、单边离散网格、无常损失对冲与滑点控制。",
+    "avatar": "cj/images/cj_avatar.jpg",
+    "tags": [
+      "集中流动性 LP",
+      "单边离散网格",
+      "无常损失对冲",
+      "资金费率套利",
+      "做市风险控制"
+    ],
+    "stats": [
+      "466 篇 清洗原推",
+      "247 篇 S/A 精选",
+      "6 卷 16 节 体系专题"
+    ],
+    "kind": "trader"
+  },
+  {
+    "slug": "yourquantguy",
+    "name": "yourQuantGuy",
+    "handle": "@yourQuantGuy · 19.3K 关注",
+    "title": "《yourQuantGuy 量化套利与 Perp DEX 实战大典》",
+    "focus": "量化做市与 Perp DEX",
+    "description": "前纽约对冲基金量化交易员。从 673 篇原推精选归档 614 篇高密度推文（含 395 篇 S/A 精选）、4 篇深度实盘长文（含 edgeX 帕拉梅拉战役与 Derive 冻结复盘）及 267 张配图，按 6 大板块 16 节拆解 Perp DEX 做市代码与跨所价差套利逻辑。",
+    "avatar": "yourquantguy/images/yourquantguy_avatar.jpg",
+    "tags": [
+      "Perp DEX 基差",
+      "订单簿微观结构",
+      "跨所资金费对冲",
+      "期权与组合风控",
+      "4 篇深度长文"
+    ],
+    "stats": [
+      "614 篇 清洗原推",
+      "4 篇 深度长文",
+      "6 卷 16 节 体系专题"
+    ],
+    "kind": "trader"
+  },
+  {
+    "slug": "metabape",
+    "name": "Meta 猿 🦍",
+    "handle": "@Metabape · 27.7K 关注",
+    "title": "《Meta 猿 实战心法：微观机制套利与商海博弈全档案》",
+    "focus": "微观套利与商海复盘",
+    "description": "实操派套利玩家与十年实业商战老手。从 3,625 篇原始推文去噪沉淀 2,348 篇原创推文（含 904 篇 S/A 精选）、6 篇官方深度长文及 1,450 张实盘配图，整理为 6 大板块 17 节与 6 条核心模型，覆盖跨所补贴套利、多号防风控与商业债务观察。",
+    "avatar": "metabape/images/metabape_avatar_v2.jpg",
+    "tags": [
+      "机制套利拆解",
+      "OLP 负滑点补贴",
+      "Backpack 多号风控",
+      "债务与商业规律",
+      "6 篇深度长文"
+    ],
+    "stats": [
+      "2,348 篇 清洗原推",
+      "6 篇 深度长文",
+      "6 卷 17 节 体系专题"
+    ],
+    "kind": "trader"
+  },
+  {
+    "slug": "coolish",
+    "name": "Wei Paul",
+    "handle": "@coolish · 6.47万 关注",
+    "title": "《Wei Paul 实战交易全书：BitMEX 时光机、杠铃策略与逆向周期》",
+    "focus": "时光机法则与杠铃策略",
+    "description": "早期 BitMEX 资深交易员与跨周期思考者。从 2,581 篇历史记录去噪沉淀 1,909 篇原创推文（含 961 篇 S/A 精选）与 115 张真实配图，按 7 大板块 20 节梳理非对称杠铃仓位、以太坊与比特币周期判断、生酮健康管理及 AI 编程效率实践。",
+    "avatar": "coolish/images/coolish_avatar.jpg",
+    "tags": [
+      "时光机投资法则",
+      "杠铃仓位配置",
+      "流动性蓄水池",
+      "逆向周期定投",
+      "Vibe Coding"
+    ],
+    "stats": [
+      "1,909 篇 清洗原推",
+      "961 篇 S/A 精选",
+      "7 卷 20 节 体系专题"
+    ],
+    "kind": "trader"
+  },
+  {
+    "slug": "wallstreet0name",
+    "name": "华尔街没有名字",
+    "handle": "@WallStreet0Name · 8.6万 关注",
+    "title": "《华尔街没有名字 · 裸K多周期、贵金属与 AI 选股实战全档案》",
+    "focus": "裸K多周期与跨市场宏观",
+    "description": "8 年全市场趋势实战交易员。从 2,915 篇原始推文去噪归档 2,306 篇原创推文（含 723 篇 S/A 精选）与 13 篇深度长文（总计 6.3 万字），整理为 7 大板块 16 节与 6 条核心模型，涵盖四阶裸K看盘、硬着头皮止损纪律、黄金白银战役与 AI 产业链选股提示词。",
+    "avatar": "wallstreet0name/images/wallstreet0name_avatar.jpg",
+    "tags": [
+      "四阶裸K看盘",
+      "Guppy 与 VWAP",
+      "黄金白银大周期",
+      "美股 60% 上涨律",
+      "AI 投研提示词",
+      "13 篇深度长文"
+    ],
+    "stats": [
+      "2,306 篇 清洗原推",
+      "13 篇 深度长文",
+      "7 卷 16 节 体系专题"
+    ],
+    "kind": "trader"
+  },
+  {
+    "slug": "0xcryptowizard",
+    "name": "0xWizard",
+    "handle": "@0xcryptowizard · 22.96万 关注",
+    "title": "《0xWizard · 信念交易、从二级到链上与宏观周期全档案》",
+    "focus": "信念交易与链上宏观",
+    "description": "横跨加密周期、链上数据、AI 算力与 FHE 隐私密码学的深度研究者。从 1,812 篇历史原推去噪沉淀 1,615 篇原创推文（含 1,214 篇 S/A 精选）、6 篇深度长文与 149 张配图，系统归档“别死、眼光好、等”四步心法、《从二级到链上》与《敦刻尔克计划》。",
+    "avatar": "0xcryptowizard/images/0xcryptowizard_avatar.jpg",
+    "tags": [
+      "四步穿越牛熊",
+      "从二级到链上",
+      "敦刻尔克撤退",
+      "Glassnode 周期",
+      "AI 算力与 FHE",
+      "6 篇深度长文"
+    ],
+    "stats": [
+      "1,615 篇 清洗原推",
+      "6 篇 深度长文",
+      "7 卷 14 节 体系专题"
+    ],
+    "kind": "trader"
+  },
+  {
+    "slug": "0xsun",
+    "name": "0xSun",
+    "handle": "@0xSunNFT · 21.18万 关注",
+    "title": "《0xSun 链上扫链实战与大资金全市场进化全书》",
+    "focus": "链上扫链与全市场进化",
+    "description": "华语链上实战派代表玩家。从 2,695 篇历史记录剔除抽奖与转推噪音后沉淀 1,583 篇高信号原创推文（含 659 篇 S/A 精选）、1 篇长文与 153 张配图，按 7 大板块 19 节完整还原从小资金链上突围到大体量流动性管理的真实演进。",
+    "avatar": "0xsun/images/0xsun_avatar.jpg",
+    "tags": [
+      "链上扫链逻辑",
+      "Meme 赔率与止盈",
+      "资金体量切换",
+      "二级与美股联动",
+      "事件驱动套利"
+    ],
+    "stats": [
+      "1,583 篇 清洗原推",
+      "659 篇 S/A 精选",
+      "7 卷 19 节 体系专题"
+    ],
+    "kind": "trader"
+  },
+  {
+    "slug": "kuigas",
+    "name": "丰密 · KuiGas",
+    "handle": "@KuiGas · 10.76万 关注",
+    "title": "《丰密 · KuiGas 大周期投资与以慢制快实战全书》",
+    "focus": "大周期投资与以慢制快",
+    "description": "资深周期实战投资者与 33Dao 核心成员。从 5,299 篇原推去噪沉淀 3,669 篇原创推文（含 2,325 篇 S/A 精选）、10 篇深度长文及 177 张真实配图，整理为 7 大板块 15 节与 6 条核心思维模型，详述大周期逃顶抄底与慢即是快的长期复利方法。",
+    "avatar": "kuigas/images/kuigas_avatar.jpg",
+    "tags": [
+      "以慢制快原则",
+      "四年周期逃顶抄底",
+      "公链与应用演进",
+      "估值与安全边际",
+      "10 篇深度长文"
+    ],
+    "stats": [
+      "3,669 篇 清洗原推",
+      "10 篇 深度长文",
+      "7 卷 15 节 体系专题"
+    ],
+    "kind": "trader"
+  },
+  {
+    "slug": "web3feng",
+    "name": "风无向",
+    "handle": "@Web3Feng · 8.59万 关注",
+    "title": "《风无向 · 精心策划的辉煌：工作室管理与长尾确定性套利》",
+    "focus": "工作室产业化与长尾套利",
+    "description": "硬核 Web3 实干派与长尾机会捕手。从 5,351 篇原始推文去噪精选 4,020 篇原创干货（含 1,937 篇 S/A 精选）、4 篇深度长文与 156 张配图，按 7 大板块 17 节拆解低风险高赔率套利、工作室团队管理与逆境翻盘纪律。",
+    "avatar": "web3feng/images/web3feng_avatar.jpg",
+    "tags": [
+      "工作室产业化",
+      "长尾确定性套利",
+      "期望值与仓位",
+      "一级空投风控",
+      "4 篇深度长文"
+    ],
+    "stats": [
+      "4,020 篇 清洗原推",
+      "4 篇 深度长文",
+      "7 卷 17 节 体系专题"
+    ],
+    "kind": "trader"
+  },
+  {
+    "slug": "0xmagnolia",
+    "name": "magnolia",
+    "handle": "@0xmagnolia · 6.61万 关注",
+    "title": "《magnolia · 蓝筹 Alpha 与一级链上实战全档案》",
+    "focus": "蓝筹波段与链上实战",
+    "description": "一级链上与二级蓝筹双栖实战派。从 1,249 篇原始推文去噪归档 781 篇本人原创（含 331 篇 S/A 精选）、1 篇长文与 112 张配图，按 6 大板块 16 节与 6 条核心模型拆解选币赔率、链上筹码追踪与仓位纪律。",
+    "avatar": "0xmagnolia/images/0xmagnolia_avatar.jpg",
+    "tags": [
+      "一级链上掘金",
+      "蓝筹波段复利",
+      "筹码与赔率评估",
+      "止盈与回撤控制",
+      "1 篇深度长文"
+    ],
+    "stats": [
+      "781 篇 清洗原推",
+      "331 篇 S/A 精选",
+      "6 卷 16 节 体系专题"
+    ],
+    "kind": "trader"
+  },
+  {
+    "slug": "agintender",
+    "name": "danny · agintender",
+    "handle": "@agintender · 3.60万 关注",
+    "title": "《danny (@agintender)：合约算法镰刀、做市黑盒与灰色金融全档案》",
+    "focus": "合约算法与 129 篇长文",
+    "description": "专拆永续合约清算算法、做市商借币协议、美股 Perp 周末定价权与潮汕钱庄暗流的硬核长文作者。全站设四大独立专区：头牌收录 129 篇完整深度长文（总计 84.7 万字，分 6 大专题）、主区精筛 1,295 篇 2025–2026 中文原创推文（含 413 篇 S/A 精选，按 6 大板块 16 个自然小节归档），并独立挂载 509 条 2017–2024 早期英文 Builder 时间轴。",
+    "avatar": "agintender/images/agintender_avatar.jpg",
+    "tags": [
+      "《合约算法镰刀》全系",
+      "129 篇深度长文",
+      "潮汕钱庄与灰色金融",
+      "美股 Perp 休市定价",
+      "早期英文档案独立区"
+    ],
+    "stats": [
+      "1,295 篇 清洗原推",
+      "129 篇 深度长文",
+      "6 卷 16 节 体系专题"
+    ],
+    "kind": "trader"
+  },
+  {
+    "slug": "ztzzbtc",
+    "name": "ZTZZ ₿",
+    "handle": "@ZTZZBTC · 2.39万 关注",
+    "title": "《ZTZZ ₿ · 主观做市、空头交易与〈慢就是快〉生存指南全书》",
+    "focus": "主观空头与 6.7 万字指南",
+    "description": "硬核独立交易员与主观空头专家。从 886 篇全量原推重新精细清洗恢复 715 篇原创推文（含 392 篇 S/A 精选）、完整收录 6.7 万字《慢就是快——币圈生存指南》与 129 张修复的高清实盘图谱，按 6 大板块 16 节沉淀 6 条实战思维模型。",
+    "avatar": "ztzzbtc/images/ztzzbtc_avatar.jpg",
+    "tags": [
+      "主观做市视角",
+      "做空纪律与止损",
+      "6.7 万字《慢就是快》",
+      "独立交易员心智",
+      "反脆弱仓位"
+    ],
+    "stats": [
+      "715 篇 清洗原推",
+      "6.7万字 《慢就是快》",
+      "129 张 高清图谱"
+    ],
+    "kind": "trader"
+  },
+  {
+    "slug": "laoemo",
+    "name": "老恶魔",
+    "handle": "交易专著",
+    "title": "《老恶魔谈合约》",
+    "focus": "合约交易 · 完整典藏",
+    "description": "完整阅读《老恶魔谈合约》，浏览原有章节并下载高清 PDF。",
+    "avatar": "laoemo/images/laoemo_profile.jpg",
+    "tags": [
+      "合约交易",
+      "章节阅读",
+      "高清 PDF"
+    ],
+    "stats": [
+      "完整典藏",
+      "PDF 下载"
+    ],
+    "kind": "book"
+  }
+]
