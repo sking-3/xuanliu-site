@@ -1,7 +1,8 @@
 {
   "releases": [
     "ui-motion-20261124-3",
-    "reader-widgets-20261124-1"
+    "reader-widgets-20261124-1",
+    "data-motion-20261125-1"
   ],
   "verifiedSource": "Published UI snapshots and HTTPS assets recovered 2026-11-24. A-share feature HTML is independently rebased against the published source.",
   "files": {
@@ -236,11 +237,12 @@
       ]
     },
     "index.html": {
-      "sha256": "107604b598ddfb154664ad72a17b2c7e8a6d165da8799ae1c1e453b12dc41992",
-      "bytes": 25048,
+      "sha256": "74625945478c22b34b276fce9c1d83c38fdc197b0d58b3d50336dfa8da9f62d7",
+      "bytes": 25202,
       "versions": [],
       "sourceSha256": "49736af6f530bd4b5b46719e756302a8f0d7972d31e2414af8ed6d5415cabd7c",
-      "change": "Runtime content hash reference only; published UI markup retained."
+      "change": "Add shared data-bound chart CSS/script references; existing published UI markup and business logic retained.",
+      "previousSha256": "107604b598ddfb154664ad72a17b2c7e8a6d165da8799ae1c1e453b12dc41992"
     },
     "market-overview.js": {
       "sha256": "88a5bbceb09cd00dac352b54bc8de34a9f361e35ef9662692ea5c8fb85d401c5",
@@ -385,6 +387,20 @@
       "bytes": 1194,
       "versions": [
         "75716032"
+      ]
+    },
+    "books-data-visuals.css": {
+      "sha256": "3a8bd24bf18a3f4ac05aabc437df34d1bfd5fc27f428b2f65917f22c6332dee6",
+      "bytes": 2256,
+      "versions": [
+        "data-motion-20261125-1"
+      ]
+    },
+    "books-data-visuals.js": {
+      "sha256": "29d30f4043fdb87e237d77b3ca6900e0e3404602949fd7072b5eca9e029f10c2",
+      "bytes": 9006,
+      "versions": [
+        "data-motion-20261125-1"
       ]
     }
   },
