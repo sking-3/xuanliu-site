@@ -103,10 +103,11 @@ test('late source or newly introduced policy cannot retrospectively authorize an
   const f=fixture(64);
   for(const name of ['sourceFetchedAt','policyKnownAt']){
     const timely={sourceFetchedAt:f.dates[62]+'T07:30:00.000Z',policyKnownAt:f.dates[60]+'T07:30:00.000Z'};
-    const early=f.run(timely).setups[0];assert.equal(early.lateDiscovery,false);assert.equal(early.status,'triggered_observation');
+    const early=f.run(timely).setups[0];assert.equal(early.lateDiscovery,true);assert.equal(early.status,'late_discovery');assert.equal(early.knownAt,new Date(f.input.now()).toISOString());
     const late=f.run({...timely,[name]:f.dates[63]+'T01:31:00.000Z'}).setups[0];
     assert.equal(late.lateDiscovery,true);assert.equal(late.status,'late_discovery');assert.equal(late.replayStatus,'triggered_observation');assert.equal(late.recommended,false);
   }
+  const future=fixture(63).run().current[0];assert.equal(future.lateDiscovery,false);assert.equal(future.replayStatus,'waiting_trigger');
   const pending=fixture(64);pending.input.bars[63]=candle(pending.dates[63],{open:102,high:103,low:101,close:102});
   const watched=pending.run().current[0];assert.equal(watched.status,'late_discovery');assert.equal(watched.replayStatus,'waiting_trigger');assert.equal(watched.monitoring.remainingSessions,2);assert.equal(watched.monitoring.status,'future_condition_watch');
   assert(watched.recommendationReasons.some(reason=>reason.includes('晚于首个目标开盘')));

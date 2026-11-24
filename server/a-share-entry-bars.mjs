@@ -105,7 +105,7 @@ export function analyzeEntryBars({stock,bars,calendar,patterns,matches,day,asOf,
   for(const setup of setups){
     const firstTarget=setup.trigger?.validFrom||setup.confirmation&&nextSessionDay,firstOpen=firstTarget?openAt(firstTarget):null;
     const observationKnownAt=setup.conditionKnownAt||closeAt(setup.formation.date);
-    const knownAt=sourceFetchedAt&&policyKnownAt?new Date(Math.max(Date.parse(observationKnownAt),Date.parse(sourceFetchedAt),Date.parse(policyKnownAt))).toISOString():null;
+    const knownAt=sourceFetchedAt&&policyKnownAt?new Date(Math.max(checkedAt,Date.parse(observationKnownAt),Date.parse(sourceFetchedAt),Date.parse(policyKnownAt))).toISOString():null;
     const late=Boolean(firstOpen&&knownAt&&Date.parse(knownAt)>Date.parse(firstOpen));
     setup.detectedAt=checkedStamp;setup.knownAt=knownAt;setup.firstTargetOpenAt=firstOpen;setup.lateDiscovery=late;
     setup.status=late?'late_discovery':setup.replayStatus;
