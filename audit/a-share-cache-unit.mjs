@@ -252,3 +252,24 @@ test('console polling updates only automation status and preserves the unsaved d
   windowEvents.pagehide();assert.equal([...timers.values()].some(value=>value.ms===30000),false);
 });
 function copy(value){return JSON.parse(JSON.stringify(value));}
+
+
+test('independent entry statistics require their own completed version and remain isolated from raw exports and old generations',async t=>{
+  const f=await fixture(t);f.publish();
+  const entryPolicyVersion='books.entry-bars.2026-11-24.v1',entryValidationVersion='books.entry-validation.2026-11-24.v1',publication={...lastSuccess,sourceId:'tickflow-free-forward-v1',dataPolicy:{rawPublic:false,derivedPublic:true},entryPolicyVersion,entryValidationVersion};
+  const location=join(f.cache,'generations',generation),file=join(location,'entry-validation.json');writeJson(join(location,'complete.json'),{...publication,completed:true});
+  const value={schema:'books.a-share.entry-validation.v1',generation,sourceId:publication.sourceId,day:publication.day,asOf:publication.asOf,entryPolicyVersion,version:entryValidationVersion,patterns:Array.from({length:16},(_,i)=>({id:'fixed-'+i,status:'insufficient'})),current:[],summary:{qualifiedCount:0}};
+  assert.equal((await f.request('/api/a-share-daily/entry-validation')).status,503);writeJson(file,value);
+  const before=readFileSync(join(f.cache,'current.json'),'utf8');t.mock.method(globalThis,'fetch',()=>{throw Error('a read must not collect');});
+  assert.deepEqual((await f.request('/api/a-share-daily/entry-validation?generation='+generation)).json(),value);
+  writeFileSync(file+'.gz',gzipSync(JSON.stringify(value)));unlinkSync(file);assert.deepEqual((await f.request('/api/a-share-daily/entry-validation?generation='+generation,{'accept-encoding':'gzip'})).json(),value);
+  for(const route of ['dataset','market'])assert.equal((await f.request('/api/a-share-daily/'+route+'?generation='+generation)).status,403);
+  for(const field of ['schema','generation','sourceId','day','asOf','entryPolicyVersion','version']){
+    writeJson(file,{...value,[field]:'different'});const response=await f.request('/api/a-share-daily/entry-validation?generation='+generation);assert.equal(response.status,503,field);assert.equal(response.json().error,'entry_validation_mismatch',field);
+  }
+  writeFileSync(file,'not-json with private diagnostics');const malformed=await f.request('/api/a-share-daily/entry-validation');assert.equal(malformed.status,503);assert.deepEqual(malformed.json(),{error:'cache_read_failed'});
+  unlinkSync(file);writeFileSync(file+'.gz','bad gzip');assert.equal((await f.request('/api/a-share-daily/entry-validation')).status,503);
+  assert.equal((await f.request('/api/a-share-daily/entry-validation?generation=2026-11-23')).status,404);
+  assert.equal((await f.request('/api/a-share-daily/entry-validation?mode=market')).status,400);assert.equal((await f.request('/api/a-share-daily/entry-validation',{},'POST')).status,405);
+  assert.equal(readFileSync(join(f.cache,'current.json'),'utf8'),before);
+});

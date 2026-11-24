@@ -6,10 +6,10 @@ import {tmpdir} from 'node:os';
 import {createRequire} from 'node:module';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
-import {precomputeEntryEvidence,entryChart,readHistoryLines} from '../server/a-share-entry-precompute.mjs';
+import {precomputeEntryEvidence,entryChart,readHistoryLines,qualifyEntryWatch} from '../server/a-share-entry-precompute.mjs';
 import {createAShareCache} from '../server/a-share-cache.mjs';
 
-const require=createRequire(import.meta.url),patterns=require('../screening/trend-patterns.js');
+const require=createRequire(import.meta.url),patterns=require('../screening/trend-patterns.js'),engine=require('../screening/trend-screen.js'),{riskName}=require('../screening/market-pool.js');
 const generation='2026-11-23-1',day='2026-11-23',asOf='2026-11-23T07:00:00.000Z',sourceId='tickflow-free-forward-v1';
 async function fixture(t){
   const dir=await mkdtemp(join(tmpdir(),'books-entry-evidence-'));t.after(()=>rm(dir,{recursive:true,force:true}));
@@ -18,7 +18,7 @@ async function fixture(t){
   const bars=Array.from({length:80},(_,i)=>({date:new Date(Date.parse(day+'T00:00:00Z')-(79-i)*86400000).toISOString().slice(0,10),open:10,high:10.2,low:9.8,close:10,volume:1000}));
   const header={schema:'books.a-share.history.v1',generation,sourceId,day,asOf,total:1,reference:{bars}},stock={code:'600000.SH',name:'研究样本'},source={sourceId,day,status:'ready',bars,adjustment:'qfq',fetchedAt:'2026-11-23T13:00:00Z'};
   const write=async(h=header,record={stock,source})=>writeFile(historyFile,[h,record].map(x=>JSON.stringify(x)).join('\n')+'\n');await write();
-  return {dir,target,privateTarget,historyFile,bars,header,stock,source,write,options:{historyFile,target,privateTarget,generation,sourceId,day,asOf,patterns,now:()=>Date.parse('2026-11-24T04:00:00Z')}};
+  return {dir,target,privateTarget,historyFile,bars,header,stock,source,write,options:{historyFile,target,privateTarget,generation,sourceId,day,asOf,patterns,engine,riskName,now:()=>Date.parse('2026-11-24T04:00:00Z')}};
 }
 test('precompute stores full replay privately and publishes only batch-bound derived evidence',async t=>{
   const f=await fixture(t),summary=await precomputeEntryEvidence(f.options);
@@ -62,4 +62,57 @@ test('slow consumers process 120 MB of long history lines under a 64 MB heap wit
   const script=`import {readHistoryLines} from ${JSON.stringify(new URL('../server/a-share-entry-precompute.mjs',import.meta.url).href)};let count=0;for await(const line of readHistoryLines(process.argv[1])){if(JSON.parse(line).i!==count++)throw Error('line order');await new Promise(resolve=>setTimeout(resolve,1));}if(count!==1500)throw Error('coverage');console.log(count);`;
   const result=await promisify(execFile)(process.execPath,['--max-old-space-size=64','--input-type=module','-e',script,file],{maxBuffer:4096,timeout:30000});assert.equal(result.stdout.trim(),'1500');
   await writeFile(file,'{"中文":"跨字节"}\r\n\n{"最后":"无换行"}');const rows=[];for await(const line of readHistoryLines(file))rows.push(JSON.parse(line));assert.deepEqual(rows,[{中文:'跨字节'},{最后:'无换行'}]);
+});
+
+
+test('independent report is produced for all 16 shapes, bound to the actual private batch and readable after cold compression',async t=>{
+  const f=await fixture(t),summary=await precomputeEntryEvidence(f.options),file=join(f.target,'entry-validation.json'),raw=await readFile(file,'utf8'),report=JSON.parse(raw);
+  assert.equal(report.patterns.length,16);assert.deepEqual(report.patterns.map(item=>item.id),patterns.definitions.map(item=>item.id));
+  for(const field of ['generation','sourceId','day','asOf'])assert.equal(report[field],f.options[field]);
+  assert.equal(report.version,summary.entryValidationVersion);assert.equal(report.entryPolicyVersion,summary.entryPolicyVersion);assert.equal(report.validationFamily.hypotheses,16);assert.notEqual(report.validationFamily.id,report.validationFamily.separateFrom);
+  assert(report.patterns.every(item=>item.recommended===false&&item.validation.sampleCount===0));assert.equal(report.summary.qualifiedCount,0);assert.equal(report.summary.watchCount,0);
+  assert.doesNotMatch(raw,/"(?:bars|open|high|low|close|volume|prices|cookie|apiKey)"/);assert.match(report.method.returnLabel,/T后第3\/5\/10\/15/);assert.match(report.method.excessLabel,/收盘区间|收盘至/);
+  const publication={generation,sourceId,day,asOf,entryPolicyVersion:summary.entryPolicyVersion,entryValidationVersion:summary.entryValidationVersion,dataPolicy:{rawPublic:false}};
+  await writeFile(join(f.dir,'current.json'),JSON.stringify(publication));await writeFile(join(f.target,'complete.json'),JSON.stringify({...publication,completed:true}));
+  await rm(file);const before=await readFile(join(f.dir,'current.json'),'utf8'),api=createAShareCache({directory:f.dir});
+  async function request(route){const url=new URL('http://localhost/api/a-share-daily/'+route),res={writeHead(status,headers){this.status=status;this.headers=headers;},end(body){this.body=body;}};await api.handle({method:'GET',headers:{'accept-encoding':'gzip'}},res,{url,path:url.pathname,json(res,status,value){res.status=status;res.value=value;}});return res;}
+  const response=await request('entry-validation?generation='+generation);assert.equal(response.status,200);assert.deepEqual(response.value,report);
+  for(const route of ['dataset','market'])assert.equal((await request(route+'?generation='+generation)).status,403);
+  assert.equal(await readFile(join(f.dir,'current.json'),'utf8'),before);
+});
+
+async function currentFixture(t,formationIndex){
+  const f=await fixture(t);
+  for(let i=75;i<80;i++){const close=10+(i-74)*.05;Object.assign(f.bars[i],{open:close-.04,high:close+.01,low:close-.06,close,volume:i===79?1100:1000});}
+  f.source.fetchedAt='2026-11-23T09:00:00Z';await f.write();
+  const controlled={...patterns,classify:input=>({status:'ready',labels:input.day===f.bars[formationIndex].date?[{id:'regain-ma-20'}]:[]})};
+  const options={...f.options,patterns:controlled,now:()=>Date.parse('2026-11-23T12:00:00Z'),policyKnownAt:'2026-11-23T08:00:00Z',nextSessionDay:'2026-11-24',effectivePatternIds:['regain-ma-20']};
+  return {...f,options};
+}
+
+test('current F and C are future condition watches with real dates, not historical trade claims or a bypass of independent gates',async t=>{
+  for(const index of [78,79]){
+    const f=await currentFixture(t,index);await precomputeEntryEvidence(f.options);const report=JSON.parse(await readFile(join(f.target,'entry-validation.json'))),candidate=report.current[0];
+    assert.equal(report.current.length,1);assert.equal(candidate.formationDay,f.bars[index].date);assert.equal(candidate.replayStatus,index===78?'waiting_trigger':'waiting_confirmation');
+    assert.equal(candidate.fresh,true);assert.equal(candidate.monitoring.nextSessionDay,'2026-11-24');assert.equal(candidate.sourceFetchedAt,f.source.fetchedAt);assert.equal(candidate.knownAt,'2026-11-23T12:00:00.000Z');assert.equal(candidate.patternGatePassed,true);assert.equal(candidate.entryGatePassed,false);assert.deepEqual(candidate.eligiblePatternIds,[]);assert.equal(candidate.qualified,false);
+    assert(candidate.reasons.some(reason=>reason.includes('独立滚动验证')));assert.equal(report.summary.qualifiedCount,0);assert.equal(report.summary.watchCount,1);
+    if(index===78){assert.equal(candidate.keyBarDay,day);assert.equal(candidate.trigger.above,f.bars[79].high);}else{assert.equal(candidate.keyBarDay,null);assert.equal(candidate.trigger,null);}
+    const image=await readFile(join(f.target,'entries','600000.SH-0.svg'),'utf8');assert(image.includes('>F<'));assert.equal(image.includes('>C<'),index===78);
+  }
+});
+
+test('the same pending candle stops claiming a fresh observation when its next opening has passed',async t=>{
+  const f=await currentFixture(t,78);await precomputeEntryEvidence(f.options);const early=JSON.parse(await readFile(join(f.target,'entry-validation.json'))).current[0];assert.equal(early.fresh,true);
+  await precomputeEntryEvidence({...f.options,now:()=>Date.parse('2026-11-24T04:00:00Z')});const later=JSON.parse(await readFile(join(f.target,'entry-validation.json'))).current[0];
+  assert.equal(later.setupId,early.setupId);assert.equal(later.fresh,false);assert.equal(later.qualified,false);assert.equal(later.monitoring.status,'requires_fresh_data');assert(later.reasons.some(reason=>reason.includes('需要新收盘日线')));assert.equal(later.sourceFetchedAt,early.sourceFetchedAt);
+});
+
+test('the production qualifier intersects identical pattern IDs and never substitutes independently passing other IDs',()=>{
+  const input={patternIds:['regain-ma-20','volume-expand'],knownAt:'2026-11-23T12:00:00Z',sourceFetchedAt:'2026-11-23T09:00:00Z',monitoring:{status:'future_condition_watch',nextSessionDay:'2026-11-24',remainingSessions:3}},before=structuredClone(input),base={computedAt:'2026-11-23T12:00:00Z'};
+  const mismatched=qualifyEntryWatch(input,{...base,entryEffective:new Set(['regain-ma-20']),shapeEffective:new Set(['volume-expand'])});
+  assert.equal(mismatched.entryGatePassed,true);assert.equal(mismatched.patternGatePassed,true);assert.deepEqual(mismatched.eligiblePatternIds,[]);assert.equal(mismatched.qualified,false);assert(mismatched.reasons.some(reason=>reason.includes('没有同一形态')));
+  const same=qualifyEntryWatch(input,{...base,entryEffective:new Set(['regain-ma-20']),shapeEffective:new Set(['regain-ma-20'])});assert.equal(same.qualified,true);assert.deepEqual(same.eligiblePatternIds,['regain-ma-20']);
+  const stale=qualifyEntryWatch(input,{...base,computedAt:'2026-11-24T04:00:00Z',entryEffective:new Set(['regain-ma-20']),shapeEffective:new Set(['regain-ma-20'])});assert.equal(stale.fresh,false);assert.equal(stale.qualified,false);
+  const unknown=qualifyEntryWatch({...input,monitoring:{...input.monitoring,status:'knowledge_time_unknown'}},{...base,entryEffective:new Set(['regain-ma-20']),shapeEffective:new Set(['regain-ma-20'])});assert.equal(unknown.qualified,false);assert.equal(unknown.fresh,false);
+  assert.deepEqual(input,before);assert.equal(same.knownAt,input.knownAt);assert.equal(same.sourceFetchedAt,input.sourceFetchedAt);
 });

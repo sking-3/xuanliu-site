@@ -53,7 +53,7 @@ export function createAShareCache({directory}){
     const reply=(status,value)=>json(res,status,value,{'cache-control':'no-cache'});
     if(req.method!=='GET'){reply(405,{error:'method_not_allowed'});return true;}
     const route=path.slice(prefix.length),params=url.searchParams;
-    if(!['state','result','dataset','market','patterns','entries','entry-chart','coverage'].includes(route)){reply(404,{error:'not_found'});return true;}
+    if(!['state','result','dataset','market','patterns','entries','entry-chart','coverage','entry-validation'].includes(route)){reply(404,{error:'not_found'});return true;}
     const allowed=route==='state'?[]:route==='result'?['mode','lookback','sampleSize','benchmark','generation']:route==='dataset'?['sampleSize','benchmark','generation']:route==='entries'?['generation','code']:route==='entry-chart'?['generation','code','setup']:['generation'];
     if(!validQuery(params,allowed)){reply(400,{error:'invalid_query'});return true;}
     const requestedGeneration=params.get('generation');
@@ -71,7 +71,7 @@ export function createAShareCache({directory}){
       const code=params.get('code'),setup=params.get('setup');
       if(!/^\d{6}\.(SH|SZ)$/.test(code||'')||route==='entry-chart'&&!/^[012]$/.test(setup||'')){reply(400,{error:'invalid_query'});return true;}
       filename=join('entries',code+(route==='entry-chart'?'-'+setup+'.svg':'.json'));
-    }else filename=route==='patterns'?'pattern-regimes.json':route==='coverage'?'coverage.json':'market.json';
+    }else filename=route==='patterns'?'pattern-regimes.json':route==='entry-validation'?'entry-validation.json':route==='coverage'?'coverage.json':'market.json';
     try{
       const full=await pointer('current.json'),historical=await pointer('historical-current.json',true),published=full||historical;
       if(route==='state'){
@@ -92,6 +92,14 @@ export function createAShareCache({directory}){
         if(!value){reply(503,{error:route==='entries'?'entry_evidence_unavailable':'coverage_unavailable'});return true;}
         if(value.schema!==(route==='entries'?'books.a-share.entry-evidence.v1':'books.a-share.coverage.v1')||value.generation!==generation||value.sourceId!==marker.sourceId||value.day!==marker.day||value.asOf!==marker.asOf||route==='entries'&&(value.stock?.code!==params.get('code')||value.recommended!==false||value.entryOutcomeValidated!==false)){
           reply(503,{error:'derived_evidence_mismatch'});return true;
+        }
+        reply(200,value);return true;
+      }
+      if(route==='entry-validation'){
+        const value=await readJson(join(completed.location,filename)),marker=completed.completion;
+        if(!value){reply(503,{error:'entry_validation_unavailable'});return true;}
+        if(value.schema!=='books.a-share.entry-validation.v1'||typeof marker.entryValidationVersion!=='string'||value.version!==marker.entryValidationVersion||value.entryPolicyVersion!==marker.entryPolicyVersion||value.generation!==generation||value.day!==marker.day||value.asOf!==marker.asOf||value.sourceId!==marker.sourceId||!Array.isArray(value.patterns)||value.patterns.length!==16||new Set(value.patterns.map(item=>item.id)).size!==16||!Array.isArray(value.current)){
+          reply(503,{error:'entry_validation_mismatch'});return true;
         }
         reply(200,value);return true;
       }

@@ -12,6 +12,7 @@ import {precomputePatternStatistics} from './a-share-pattern-precompute.mjs';
 import {readTickflowUniverse,universeSchema} from './a-share-universe.mjs';
 import {precomputeEntryEvidence} from './a-share-entry-precompute.mjs';
 import {entryPolicyVersion} from './a-share-entry-bars.mjs';
+import {entryValidationVersion} from './a-share-entry-validation.mjs';
 import {assertCollectionSpace,runRetention} from './a-share-retention.mjs';
 
 const require = createRequire(import.meta.url);
@@ -175,10 +176,10 @@ export async function precompute({ dir, siteDir, snapshot, universe, sources, re
     onProgress({stage:'pattern-statistics',checked:0,total:universe.length,currentCode:null});
     const statistics=await precomputePatternStatistics({historyFile:join(rawTarget,'history-all.ndjson'),target,generation,sourceId,day,asOf,patterns,now,onProgress});
     patternStatisticsVersion=statistics.version;
-    entrySummary=await precomputeEntryEvidence({historyFile:join(rawTarget,'history-all.ndjson'),target,privateTarget:rawTarget,generation,sourceId,day,asOf,patterns,policyKnownAt,nextSessionDay,effectivePatternIds:statistics.patterns.filter(item=>item.status==='effective').map(item=>item.id),now,onProgress});
+    entrySummary=await precomputeEntryEvidence({historyFile:join(rawTarget,'history-all.ndjson'),target,privateTarget:rawTarget,generation,sourceId,day,asOf,patterns,engine,riskName,policyKnownAt,nextSessionDay,effectivePatternIds:statistics.patterns.filter(item=>item.status==='effective').map(item=>item.id),now,onProgress});
   }
   const ready = universe.filter(stock => sources.get(stock.code)?.status === 'ready').length;
-  const completed = { generation,sourceId,dataPolicy,barSchema:storedBarSchema,historyRequested,universePolicy,...(patternStatisticsVersion?{patternStatisticsVersion}:{}),...(entrySummary?{entryPolicyVersion,entrySummary}:{}),patternVersion:patterns.version,patternProfile:patterns.profile, day, asOf, startedAt, finishedAt: new Date(now()).toISOString(), total: universe.length, ready,missing:universe.length-ready,coverage:ready/universe.length,fullMarket:true };
+  const completed = { generation,sourceId,dataPolicy,barSchema:storedBarSchema,historyRequested,universePolicy,...(patternStatisticsVersion?{patternStatisticsVersion}:{}),...(entrySummary?{entryPolicyVersion,entryValidationVersion,entrySummary}:{}),patternVersion:patterns.version,patternProfile:patterns.profile, day, asOf, startedAt, finishedAt: new Date(now()).toISOString(), total: universe.length, ready,missing:universe.length-ready,coverage:ready/universe.length,fullMarket:true };
   await atomicJson(join(target, 'complete.json'), { ...completed, completed: true });
   return completed;
 }
@@ -194,6 +195,7 @@ async function completedManifest(dir,value){
   const required=[];
   if(marker.patternStatisticsVersion)for(const suffix of ['.json','.json.gz'])required.push(join(dir,'generations',value.generation,'pattern-regimes'+suffix));
   if(marker.entryPolicyVersion)for(const name of ['entry-summary','coverage'])for(const suffix of ['.json','.json.gz'])required.push(join(dir,'generations',value.generation,name+suffix));
+  if(marker.entryValidationVersion)for(const suffix of ['.json','.json.gz'])required.push(join(dir,'generations',value.generation,'entry-validation'+suffix));
   for(const code of INDICES)for(const mode of ['consensus','market','strength'])for(const lookback of [20,60])for(const suffix of ['.json','.json.gz'])required.push(join(dir,'generations',value.generation,'result-'+mode+'-'+lookback+'-all-'+code+suffix));
   try{await Promise.all(required.map(path=>access(path)));}
   catch(error){if(error.code==='ENOENT')return null;throw error;}
@@ -252,7 +254,7 @@ export async function collect({ dir, siteDir, fetch: request = globalThis.fetch,
     const previous=await completedManifest(dir,await optionalJson(join(dir,'current.json')));
     let longArchive=false;
     if(previous?.historyRequested>=historyCount){try{await access(join(dir,'private','generations',previous.generation,'history-all.ndjson'));longArchive=true;}catch(error){if(error.code!=='ENOENT')throw error;}}
-    if (previous?.day === latest.date &&(previous.sourceId||legacySourceId)===sourceId&&(technicalFactory||previous.barSchema===barSchema&&longArchive&&(compute!==precompute||previous.entryPolicyVersion===entryPolicyVersion))&&Date.parse(previous.asOf) >= Date.parse(latest.closeTime)) {
+    if (previous?.day === latest.date &&(previous.sourceId||legacySourceId)===sourceId&&(technicalFactory||previous.barSchema===barSchema&&longArchive&&(compute!==precompute||previous.entryPolicyVersion===entryPolicyVersion&&previous.entryValidationVersion===entryValidationVersion))&&Date.parse(previous.asOf) >= Date.parse(latest.closeTime)) {
       progress({ status: 'no_new_day', stage: 'waiting', day: latest.date, total: previous.total, finishedAt: new Date(now()).toISOString() });
       await pending;
       return { attempt, lastSuccess: previous };
