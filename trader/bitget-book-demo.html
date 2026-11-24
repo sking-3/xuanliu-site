@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#f2f3f6"><title>Books · Bitget 公开盘口</title>
+<link rel="stylesheet" href="../books-ui.css?v=40832f3c">
+<link rel="stylesheet" href="../index-ticker.css?v=compact-20261123-1">
+<link rel="stylesheet" href="../desk-skin.css?v=ui-motion-20261124-1">
+<script defer src="../index-ticker.js?v=compact-20261123-1"></script>
+<script src="../books-shell.js?v=shell-motion-20261124-2"></script>
+<style>
+.book-demo{max-width:1000px}
+.book-demo .desk-paper{padding:clamp(16px,3vw,28px)}
+.book-demo label{display:grid;gap:6px;max-width:300px;font-size:14px;color:var(--desk-muted)}
+.book-demo select{min-width:0;min-height:44px;padding:8px 12px;border:1px solid var(--desk-border);border-radius:10px;background:var(--desk-paper);color:var(--desk-ink);font:inherit}
+.book-demo output{display:block;margin:18px 0 10px;color:var(--desk-muted);font-size:14px}
+.book-demo dl{display:grid;grid-template-columns:minmax(120px,.6fr) minmax(0,1fr);gap:0;margin:0}
+.book-demo :is(dt,dd){padding:12px 0;border-bottom:1px solid var(--desk-border);font-size:14px}
+.book-demo dt{color:var(--desk-muted)}.book-demo dd{margin:0;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
+.book-demo .warning{color:#85500e;font-size:13px;line-height:1.7}
+@media(max-width:600px){.book-demo select{font-size:16px}.book-demo dl{grid-template-columns:minmax(0,1fr)}.book-demo dt{padding-bottom:0;border-bottom:0}.book-demo dd{padding-top:4px}}
+</style>
+<link rel="stylesheet" href="../content-materials.css?v=content-20261123-2"></head>
+<body class="books-shell">
+<section class="index-ticker" id="index-ticker" aria-label="全球指数行情"><iframe src="../market-strip.html?v=compact-20261123-1" title="全球指数行情"></iframe></section>
+<a class="skip-link" href="#content">跳至内容</a>
+<aside class="books-sidebar" aria-label="研究导航"><a class="books-brand" href="../index.html">Books<span>RESEARCH STUDIO</span></a><nav class="books-nav" aria-label="工作区"><a href="../index.html">市场总览</a><a href="../screening/index.html">A股选股</a><a href="../us.html">美股选股</a><a href="../trader/index.html" aria-current="page">带单员广场</a><a href="../research.html">公司研究</a><a href="../screening/history.html">历史研究</a><a href="../academy/index.html">交易员研习</a><a href="../tools.html">研究工具</a></nav><nav class="books-shortcuts" aria-label="行情快捷入口"><a href="../a-shares.html">A 股行情</a><a href="../us-live.html">美股监控</a><a href="../crypto.html">加密行情</a></nav><p class="books-side-note">独立研究 · 证据优先</p></aside>
+<main class="book-demo" id="content"><header class="desk-heading"><h1>Bitget 公开实时盘口</h1><p>公开 USDT 永续市场的最佳买卖价，只用于行情核验，不连接账户或下单。</p></header><section class="desk-paper">
+<label>合约 <select id="symbol"><option>BTCUSDT</option><option>ETHUSDT</option><option>NVDAUSDT</option></select></label>
+<output id="status" role="status" aria-live="polite">正在连接…</output><dl><dt>买一价 / 数量</dt><dd id="bid">—</dd><dt>卖一价 / 数量</dt><dd id="ask">—</dd><dt>来源时间</dt><dd id="source-time">—</dd><dt>接收时间</dt><dd id="received-time">—</dd></dl>
+<p class="warning">盘口变动时推送；超过 5 秒未收到有效新盘口会标为过期，不可作为新鲜行情。持仓、带单信号和交易所带单资格需另行验证。</p></section></main>
+<script src="bitget-book-stream.js"></script><script>
+let client;const byId=id=>document.getElementById(id),date=t=>new Date(t).toLocaleString('zh-CN',{hour12:false});
+function render(s){byId('status').textContent=(({idle:'未连接',connecting:'连接中',live:'实时盘口已连接',stale:'行情已过期',disconnected:'连接中断',error:'行情连接不可用',stopped:'已停止'})[s.status]||s.status)+(s.reason?' · '+s.reason:'');for(const side of ['bid','ask'])byId(side).textContent=s.quote?(s.usable?'':'上次（已失效） ')+s.quote[side].price+' / '+s.quote[side].quantity:'—';byId('source-time').textContent=s.quote?date(s.quote.sourceTime):'—';byId('received-time').textContent=s.quote?date(s.quote.receivedAt):'—';}
+function connect(){if(client)client.stop();client=BooksBitgetBookStream.create({symbol:byId('symbol').value,onChange:render});client.start();}byId('symbol').addEventListener('change',connect);document.addEventListener('visibilitychange',()=>{if(document.hidden){if(client)client.stop();}else connect();});setInterval(()=>{if(client)render(client.getState());},1000);connect();
+</script></body></html>

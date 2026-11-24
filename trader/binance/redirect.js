@@ -9,7 +9,7 @@
   function destination(href) {
     const current = new URL(href), ids = current.searchParams.getAll('portfolioId');
     if (ids.length && (ids.length !== 1 || !IDS.includes(ids[0]))) return null;
-    const target = new URL('../', current);
+    const target = new URL('../index.html', current);
     target.searchParams.set('exchange', 'Binance');
     if (ids.length) {
       target.searchParams.set('q', ids[0]);
