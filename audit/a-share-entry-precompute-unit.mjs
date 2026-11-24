@@ -1,10 +1,12 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp,mkdir,writeFile,readFile,rm} from 'node:fs/promises';
+import {mkdtemp,mkdir,writeFile,readFile,rm,open} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {createRequire} from 'node:module';
-import {precomputeEntryEvidence,entryChart} from '../server/a-share-entry-precompute.mjs';
+import {execFile} from 'node:child_process';
+import {promisify} from 'node:util';
+import {precomputeEntryEvidence,entryChart,readHistoryLines} from '../server/a-share-entry-precompute.mjs';
 import {createAShareCache} from '../server/a-share-cache.mjs';
 
 const require=createRequire(import.meta.url),patterns=require('../screening/trend-patterns.js');
@@ -53,4 +55,11 @@ test('public routes are readonly, pinned and cannot expose raw bars or traverse 
   assert.equal((await request('dataset')).status,403);
   const file=join(f.target,'entries','600000.SH.json'),value=JSON.parse(await readFile(file));await writeFile(file,JSON.stringify({...value,day:'2026-11-20'}));
   assert.equal((await request('entries?code=600000.SH')).status,503);
+});
+test('slow consumers process 120 MB of long history lines under a 64 MB heap without read-ahead accumulation',async t=>{
+  const f=await fixture(t),file=join(f.dir,'large-history.ndjson'),output=await open(file,'w'),padding='x'.repeat(80*1024);
+  try{for(let i=0;i<1500;i++)await output.write(JSON.stringify({i,padding})+'\n');}finally{await output.close();}
+  const script=`import {readHistoryLines} from ${JSON.stringify(new URL('../server/a-share-entry-precompute.mjs',import.meta.url).href)};let count=0;for await(const line of readHistoryLines(process.argv[1])){if(JSON.parse(line).i!==count++)throw Error('line order');await new Promise(resolve=>setTimeout(resolve,1));}if(count!==1500)throw Error('coverage');console.log(count);`;
+  const result=await promisify(execFile)(process.execPath,['--max-old-space-size=64','--input-type=module','-e',script,file],{maxBuffer:4096,timeout:30000});assert.equal(result.stdout.trim(),'1500');
+  await writeFile(file,'{"中文":"跨字节"}\r\n\n{"最后":"无换行"}');const rows=[];for await(const line of readHistoryLines(file))rows.push(JSON.parse(line));assert.deepEqual(rows,[{中文:'跨字节'},{最后:'无换行'}]);
 });

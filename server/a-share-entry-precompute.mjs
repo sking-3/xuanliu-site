@@ -1,6 +1,5 @@
 import {createReadStream} from 'node:fs';
 import {mkdir,writeFile,rename} from 'node:fs/promises';
-import {createInterface} from 'node:readline';
 import {join} from 'node:path';
 import {gzipSync} from 'node:zlib';
 import {analyzeEntryBars,entryPolicyVersion} from './a-share-entry-bars.mjs';
@@ -11,6 +10,21 @@ async function save(file,value){
   const body=typeof value==='string'?value:JSON.stringify(value);
   await writeFile(file+'.tmp',body);await rename(file+'.tmp',file);
   await writeFile(file+'.gz.tmp',gzipSync(body));await rename(file+'.gz.tmp',file+'.gz');
+}
+
+/** Backpressure is byte-bounded; readline's 1024-line queue can retain >100 MB here. */
+export async function* readHistoryLines(file){
+  const input=createReadStream(file,{encoding:'utf8',highWaterMark:64*1024});let pending='';
+  try{
+    for await(const chunk of input){
+      pending+=chunk;let end;
+      while((end=pending.indexOf('\n'))!==-1){
+        const line=pending.slice(0,end);pending=pending.slice(end+1);
+        if(line.trim())yield line;
+      }
+    }
+    if(pending.trim())yield pending;
+  }finally{input.destroy();}
 }
 
 /** A derived, normalized research chart; raw OHLC remains in the private archive. */
@@ -46,11 +60,10 @@ export function entryChart({stock,bars,setup}){
 
 export async function precomputeEntryEvidence({historyFile,target,privateTarget,generation,sourceId,day,asOf,patterns,effectivePatternIds=[],policyKnownAt=null,nextSessionDay=null,now=Date.now,onProgress=()=>{}}){
   await mkdir(join(target,'entries'),{recursive:true});await mkdir(join(privateTarget,'entries'),{recursive:true});
-  const stream=createReadStream(historyFile),reader=createInterface({input:stream,crlfDelay:Infinity});
   let header=null,count=0;const seen=new Set(),coverage=[];
   const totals={stocks:0,setups:0,confirmed:0,currentWatch:0,recommended:0};
-  try{
-    for await(const line of reader){
+  {
+    for await(const line of readHistoryLines(historyFile)){
       if(!line)continue;const row=JSON.parse(line);
       if(!header){
         header=row;
@@ -82,5 +95,5 @@ export async function precomputeEntryEvidence({historyFile,target,privateTarget,
     if(!header||count!==header.total)throw Error('关键K原始归档覆盖不完整');
     await save(join(target,'coverage.json'),{schema:'books.a-share.coverage.v1',generation,sourceId,day,asOf,total:header.total,missing:coverage.length,records:coverage});
     const summary={entryPolicyVersion,policyKnownAt,...totals};await save(join(target,'entry-summary.json'),summary);return summary;
-  }finally{reader.close();stream.destroy();}
+  }
 }
