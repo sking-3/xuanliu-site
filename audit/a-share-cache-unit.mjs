@@ -72,6 +72,21 @@ test('gzip negotiation serves stored bytes and honors explicit q=0',async t=>{
     const plain=await f.request('/api/a-share-daily/market',{'accept-encoding':encoding});assert.equal(plain.status,200);assert.equal(plain.headers['content-encoding'],undefined);assert.equal(plain.json().day,'2026-11-20');
   }
 });
+test('cold generations serve gzip-only results without changing source export policy',async t=>{
+  const f=await fixture(t);f.publish();
+  const location=join(f.cache,'generations',generation),file=join(location,'result-consensus-20-120-000300.SH.json');
+  const original=readFileSync(file);unlinkSync(file);
+  for(const headers of [{},{'accept-encoding':'gzip'}]){
+    const response=await f.request('/api/a-share-daily/result?generation='+generation,headers);
+    assert.equal(response.status,200);assert.deepEqual(headers['accept-encoding']?gunzipSync(response.body):response.body,original);
+  }
+  const publication={...lastSuccess,sourceId:'tickflow-free-forward-v1',dataPolicy:{rawPublic:false,derivedPublic:true}};
+  writeJson(join(location,'complete.json'),{...publication,completed:true});
+  const patterns={schema:'books.a-share.pattern-regimes.v1',...publication,patterns:[],candidates:[]};
+  writeFileSync(join(location,'pattern-regimes.json.gz'),gzipSync(JSON.stringify(patterns)));
+  assert.deepEqual((await f.request('/api/a-share-daily/patterns?generation='+generation)).json(),patterns);
+  for(const route of ['dataset','market'])assert.equal((await f.request('/api/a-share-daily/'+route+'?generation='+generation)).status,403);
+});
 test('parameters are allowlisted and nonconsensus requests always use the full pool file',async t=>{
   const f=await fixture(t);f.publish();
   for(const query of ['mode=other','lookback=365','sampleSize=20','benchmark=600519.SH','command=run','mode=market&mode=strength','generation=..%2fsecret','generation=abc']){
