@@ -1,8 +1,8 @@
 import {entryPolicy} from './a-share-entry-bars.mjs';
 import {evaluateEntryOutcome,entryValidationPolicy} from './a-share-entry-validation.mjs';
 
-export const closeCandidateVersion='books.entry-current.2026-11-24.v1';
-export const closeCandidatePolicy=Object.freeze({maxDistancePercent:2,formedWithinDays:entryValidationPolicy.formedWithinDays,horizon:entryValidationPolicy.horizon,closeEntryValidated:false});
+export const closeCandidateVersion='books.entry-current.2026-11-24.v2';
+export const closeCandidatePolicy=Object.freeze({maxDistancePercent:2,confirmationSessions:entryPolicy.confirmationSessions,triggerSessions:entryPolicy.triggerSessions,horizon:entryValidationPolicy.horizon,closeEntryValidated:false});
 const finite=value=>typeof value==='number'&&Number.isFinite(value);
 const validDay=value=>typeof value==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(value)&&Number.isFinite(Date.parse(value+'T00:00:00Z'))&&new Date(value+'T00:00:00Z').toISOString().slice(0,10)===value;
 const validBar=(bar,day)=>bar&&bar.date===day&&['open','high','low','close','volume'].every(key=>finite(bar[key])&&bar[key]>0)&&bar.high>=Math.max(bar.open,bar.close)&&bar.low<=Math.min(bar.open,bar.close);
@@ -44,7 +44,7 @@ export function buildCloseCandidates({stock,bars,reference,dates,setups,strength
     const triggered=setup.replayStatus==='triggered_observation'&&setup.observedEvent?.date===day,waiting=setup.replayStatus==='waiting_trigger';
     if(!triggered&&!waiting)continue;
     const formationIndex=dates.indexOf(setup.formation?.date),keyIndex=dates.indexOf(setup.keyBar?.date),formationAgeSessions=end-formationIndex,known=Date.parse(setup.knownAt);
-    if(formationIndex<20||formationAgeSessions<0||formationAgeSessions>=closeCandidatePolicy.formedWithinDays||keyIndex<=formationIndex||keyIndex>end||!Number.isFinite(known)||known>computed)continue;
+    if(formationIndex<20||formationAgeSessions<0||keyIndex<=formationIndex||keyIndex>end||!Number.isFinite(known)||known>computed)continue;
     if(setup.id!==stock.code+':'+dates[formationIndex]||!Array.isArray(setup.patternIds)||!setup.patternIds.length||setup.patternIds.some(id=>typeof id!=='string'||!id)||new Set(setup.patternIds).size!==setup.patternIds.length)continue;
     const trigger=setup.trigger?.above,invalidation=setup.invalidation?.below;
     if(trigger!==bars[keyIndex].high||invalidation!==bars[formationIndex].low||!above(trigger,invalidation)||above(invalidation,current.low))continue;
@@ -53,14 +53,15 @@ export function buildCloseCandidates({stock,bars,reference,dates,setups,strength
       if(!above(current.close,trigger)||above(distanceToTriggerPct,closeCandidatePolicy.maxDistancePercent))continue;
       if(evaluateEntryOutcome({setup,bars,reference,dates,code:stock.code}).status!=='pending')continue;
     }else{
-      if(above(current.close,trigger)||above(-distanceToTriggerPct,closeCandidatePolicy.maxDistancePercent)||!validWaitingWindow(setup,bars,dates,formationIndex,keyIndex,end))continue;
+      if(above(current.close,trigger)||!validWaitingWindow(setup,bars,dates,formationIndex,keyIndex,end))continue;
     }
-    const eligiblePatternIds=setup.patternIds.filter(id=>entryEffective.has(id)&&shapeEffective.has(id)),qualified=eligiblePatternIds.length>0;
+    const nearTrigger=triggered||!above(-distanceToTriggerPct,closeCandidatePolicy.maxDistancePercent);
+    const eligiblePatternIds=setup.patternIds.filter(id=>entryEffective.has(id)&&shapeEffective.has(id)),qualified=nearTrigger&&eligiblePatternIds.length>0;
     const patternGatePassed=setup.patternIds.some(id=>shapeEffective.has(id)),entryGatePassed=setup.patternIds.some(id=>entryEffective.has(id));
-    const reasons=[...(!patternGatePassed?['对应固定形态未通过原完整门槛']:[]),...(!entryGatePassed?['触发入场规则未通过独立滚动验证']:[]),...(patternGatePassed&&entryGatePassed&&!qualified?['没有同一形态同时通过原形态和独立入场验证']:[]),
-      `收盘距离${closeCandidatePolicy.maxDistancePercent}%仅用于研究候选过滤，按收盘价入场的收益尚未独立验证`,'当日收盘后形成条件观察，下一交易日须重新核验，不代表实际成交'];
+    const reasons=[...(!patternGatePassed?['对应固定形态未通过原完整门槛']:[]),...(!entryGatePassed?['触发入场规则未通过独立滚动验证']:[]),...(patternGatePassed&&entryGatePassed&&!eligiblePatternIds.length?['没有同一形态同时通过原形态和独立入场验证']:[]),...(!nearTrigger?[`距触发位超过${closeCandidatePolicy.maxDistancePercent}%，仅作远距离研究观察，等待接近关键价`]:[]),
+      `收盘距离${closeCandidatePolicy.maxDistancePercent}%用于接近触发分层和当日触发过滤，按收盘价入场的收益尚未独立验证`,'当日收盘后形成条件观察，下一交易日须重新核验，不代表实际成交'];
     candidates.push({code:stock.code,name:stock.name||stock.code,setupId:setup.id,patternIds:setup.patternIds.slice(),stage:triggered?'triggered_at_close':'waiting_breakout',day,asOf,
-      formationDay:dates[formationIndex],keyBarDay:dates[keyIndex],formationAgeSessions,closePrice:current.close,trigger:{...setup.trigger},invalidation:{...setup.invalidation},distanceToTriggerPct,
+      formationDay:dates[formationIndex],keyBarDay:dates[keyIndex],formationAgeSessions,closePrice:current.close,trigger:{...setup.trigger},invalidation:{...setup.invalidation},distanceToTriggerPct,nearTrigger,
       knownAfter:closeAt(day),sourceFetchedAt,actualDiscoveryAt:new Date(Math.max(computed,fetched,known)).toISOString(),nextSessionDay,activeUntil,remainingSessions:triggered?0:setup.remainingSessions,
       eligiblePatternIds,patternGatePassed,entryGatePassed,qualified,qualification:qualified?'qualified_watch':'research',reasons,requiresRecheck:true,closeEntryValidated:closeCandidatePolicy.closeEntryValidated,actualFillVerified:false,priceBasis:'qfq_research_reference'});
   }

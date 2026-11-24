@@ -14,7 +14,7 @@ import {precomputeEntryEvidence} from './a-share-entry-precompute.mjs';
 import {entryPolicyVersion} from './a-share-entry-bars.mjs';
 import {entryValidationVersion} from './a-share-entry-validation.mjs';
 import {signalChartVersion} from './a-share-signal-chart.mjs';
-import {precomputeCurrentEntries,rebuildCurrentEntries} from './a-share-entry-current-precompute.mjs';
+import {precomputeCurrentEntries,rebuildCurrentEntries,currentEntryDirectory} from './a-share-entry-current-precompute.mjs';
 import {closeCandidateVersion} from './a-share-entry-current.mjs';
 import {assertCollectionSpace,runRetention} from './a-share-retention.mjs';
 
@@ -200,7 +200,7 @@ async function completedManifest(dir,value){
   if(marker.patternStatisticsVersion)for(const suffix of ['.json','.json.gz'])required.push(join(dir,'generations',value.generation,'pattern-regimes'+suffix));
   if(marker.entryPolicyVersion)for(const name of ['entry-summary','coverage'])for(const suffix of ['.json','.json.gz'])required.push(join(dir,'generations',value.generation,name+suffix));
   if(marker.entryValidationVersion)for(const suffix of ['.json','.json.gz'])required.push(join(dir,'generations',value.generation,'entry-validation'+suffix));
-  if(marker.closeCandidateVersion)for(const suffix of ['.json','.json.gz'])required.push(join(dir,'generations',value.generation,'entry-current-v1','report'+suffix));
+  if(marker.closeCandidateVersion)for(const suffix of ['.json','.json.gz'])required.push(join(dir,'generations',value.generation,marker.closeCandidateVersion===closeCandidateVersion?currentEntryDirectory:'entry-current-v1','report'+suffix));
   for(const code of INDICES)for(const mode of ['consensus','market','strength'])for(const lookback of [20,60])for(const suffix of ['.json','.json.gz'])required.push(join(dir,'generations',value.generation,'result-'+mode+'-'+lookback+'-all-'+code+suffix));
   try{await Promise.all(required.map(path=>access(path)));}
   catch(error){if(error.code==='ENOENT')return null;throw error;}
@@ -260,6 +260,7 @@ export async function collect({ dir, siteDir, fetch: request = globalThis.fetch,
     let longArchive=false;
     if(previous?.historyRequested>=historyCount){try{await access(join(dir,'private','generations',previous.generation,'history-all.ndjson'));longArchive=true;}catch(error){if(error.code!=='ENOENT')throw error;}}
     if (previous?.day === latest.date &&(previous.sourceId||legacySourceId)===sourceId&&(technicalFactory||previous.barSchema===barSchema&&longArchive&&(compute!==precompute||previous.entryPolicyVersion===entryPolicyVersion&&previous.entryValidationVersion===entryValidationVersion&&previous.signalChartVersion===signalChartVersion))&&Date.parse(previous.asOf) >= Date.parse(latest.closeTime)) {
+      if(!technicalFactory&&compute===precompute)await precomputeCurrentEntries({target:join(dir,'generations',previous.generation),privateTarget:join(dir,'private','generations',previous.generation),batch:previous,siteDir,nextSessionDay:nextVerifiedSession(calendar,latest.date),now,onProgress:fields=>progress({stage:'entry-current',...fields}),signal});
       progress({ status: 'no_new_day', stage: 'waiting', day: latest.date, total: previous.total, finishedAt: new Date(now()).toISOString() });
       await pending;
       return { attempt, lastSuccess: previous };

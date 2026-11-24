@@ -27,12 +27,14 @@ async function fixture(t){
 
 test('current close view is appended atomically without rewriting source history, old studies or the source pointer',async t=>{
   const f=await fixture(t),old=await Promise.all([readFile(f.historyFile),readFile(join(f.target,'entry-validation.json')),readFile(join(f.dir,'current.json'))]);
+  const legacy=join(f.target,'entry-current-v1');await mkdir(legacy);const legacyBody=JSON.stringify({version:'books.entry-current.2026-11-24.v1',completed:true,current:[]});await writeFile(join(legacy,'report.json'),legacyBody);
   const report=await precomputeCurrentEntries(f.options);assert.equal(report.current.length,1);const item=report.current[0];
   assert.equal(report.completed,true);assert.equal(report.datasetBound,true);assert.equal(item.stage,'waiting_breakout');assert.equal(item.closePrice,101);assert.equal(item.day,day);assert.equal(item.qualified,false);assert.equal(item.actualFillVerified,false);
   assert.equal(report.summary.todayTriggeredCount,0);assert.equal(report.summary.waitingBreakoutCount,1);assert.equal(report.summary.stockCount,1);assert.equal(report.summary.entryEffectiveCount,0);
   assert.doesNotMatch(JSON.stringify(report),/"(?:bars|open|high|low|close|volume)"/);
   for(const window of [60,120]){const svg=await readFile(join(f.target,currentEntryDirectory,f.stock.code+'-'+item.formationDay+'-'+window+'.svg'),'utf8');assert.match(svg,/>C</);assert.doesNotMatch(svg,/>[BS]</);}
   for(const [index,file]of [f.historyFile,join(f.target,'entry-validation.json'),join(f.dir,'current.json')].entries())assert.deepEqual(await readFile(file),old[index]);
+  assert.equal(await readFile(join(legacy,'report.json'),'utf8'),legacyBody);assert.equal(item.nearTrigger,true);
   const again=await precomputeCurrentEntries({...f.options,now:()=>Date.parse('2026-11-24T10:00:00Z')});assert.deepEqual(again,report);
 });
 

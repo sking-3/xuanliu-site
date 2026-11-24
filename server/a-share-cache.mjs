@@ -2,6 +2,7 @@ import {readFile,stat} from 'node:fs/promises';
 import {join} from 'node:path';
 import {readStoredFile,readStoredJson} from './a-share-retention.mjs';
 import {closeCandidateVersion} from './a-share-entry-current.mjs';
+import {currentEntryDirectory} from './a-share-entry-current-precompute.mjs';
 import {entryPolicyVersion} from './a-share-entry-bars.mjs';
 import {entryValidationVersion} from './a-share-entry-validation.mjs';
 
@@ -81,8 +82,8 @@ export function createAShareCache({directory}){
     }else if(route==='entry-current-chart'){
       const code=params.get('code'),setup=params.get('setup'),window=params.get('window')||'60';
       if(!/^\d{6}\.(SH|SZ)$/.test(code||'')||!/^\d{4}-\d{2}-\d{2}$/.test(setup||'')||!['60','120'].includes(window)){reply(400,{error:'invalid_query'});return true;}
-      filename=join('entry-current-v1',code+'-'+setup+'-'+window+'.svg');
-    }else filename=route==='entry-current'?join('entry-current-v1','report.json'):route==='patterns'?'pattern-regimes.json':route==='entry-validation'?'entry-validation.json':route==='coverage'?'coverage.json':'market.json';
+      filename=join(currentEntryDirectory,code+'-'+setup+'-'+window+'.svg');
+    }else filename=route==='entry-current'?join(currentEntryDirectory,'report.json'):route==='patterns'?'pattern-regimes.json':route==='entry-validation'?'entry-validation.json':route==='coverage'?'coverage.json':'market.json';
     try{
       const full=await pointer('current.json'),historical=await pointer('historical-current.json',true),published=full||historical;
       if(route==='state'){
@@ -99,7 +100,7 @@ export function createAShareCache({directory}){
       if(completed.completion.dataPolicy?.rawPublic===false&&['dataset','market'].includes(route)){reply(403,{error:route==='dataset'?'source_policy_raw_export_disabled':'source_policy_raw_market_disabled'});return true;}
       if(route==='market'&&completed.completion.scope==='historical-sample'){reply(503,{error:'historical_market_unavailable'});return true;}
       if(route==='entry-current'||route==='entry-current-chart'){
-        const value=await readJson(join(completed.location,'entry-current-v1','report.json')),marker=completed.completion;
+        const value=await readJson(join(completed.location,currentEntryDirectory,'report.json')),marker=completed.completion;
         if(!value){reply(503,{error:'current_entry_unavailable'});return true;}
         if(value.schema!=='books.a-share.entry-current.v1'||value.version!==closeCandidateVersion||value.entryPolicyVersion!==entryPolicyVersion||value.entryValidationVersion!==entryValidationVersion||value.completed!==true||value.datasetBound!==true||value.generation!==generation||value.sourceId!==marker.sourceId||value.day!==marker.day||value.sourceDay!==marker.day||value.asOf!==marker.asOf||!Array.isArray(value.current)||value.current.some(item=>item.day!==marker.day||item.generation!==generation||item.sourceId!==marker.sourceId||item.asOf!==marker.asOf||!['triggered_at_close','waiting_breakout'].includes(item.stage)||item.actualFillVerified!==false)){
           reply(503,{error:'current_entry_mismatch'});return true;

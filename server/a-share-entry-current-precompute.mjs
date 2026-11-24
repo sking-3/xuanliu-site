@@ -11,7 +11,7 @@ import {entryValidationVersion} from './a-share-entry-validation.mjs';
 import {version as shapeValidationVersion} from './a-share-pattern-regimes.mjs';
 
 const require=createRequire(import.meta.url);
-export const currentEntryDirectory='entry-current-v1';
+export const currentEntryDirectory='entry-current-v2';
 const same=(a,b)=>['generation','sourceId','day','asOf'].every(key=>a[key]===b[key]);
 const valid=bar=>bar&&['open','high','low','close','volume'].every(key=>Number.isFinite(bar[key])&&bar[key]>0)&&bar.high>=Math.max(bar.open,bar.close)&&bar.low<=Math.min(bar.open,bar.close);
 async function save(file,value){const body=JSON.stringify(value);await writeFile(file,body);await writeFile(file+'.gz',gzipSync(body));}

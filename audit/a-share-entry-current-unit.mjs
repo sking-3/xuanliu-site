@@ -1,9 +1,11 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
+import {createRequire} from 'node:module';
 import {buildCloseCandidates,closeCandidateVersion,closeCandidatePolicy} from '../server/a-share-entry-current.mjs';
-import {entryPolicy} from '../server/a-share-entry-bars.mjs';
+import {entryPolicy,analyzeEntryBars} from '../server/a-share-entry-bars.mjs';
 import {entryValidationPolicy} from '../server/a-share-entry-validation.mjs';
 
+const require=createRequire(import.meta.url),patterns=require('../screening/trend-patterns.js'),engine=require('../screening/trend-screen.js');
 function calendar(count){const dates=[];for(let time=Date.UTC(2024,0,1);dates.length<count;time+=86400000){const day=new Date(time);if(day.getUTCDay()!==0&&day.getUTCDay()!==6)dates.push(day.toISOString().slice(0,10));}return dates;}
 const candle=(date,changes={})=>({date,open:100,high:101,low:99,close:100,volume:1000,...changes});
 function fixture(stage='triggered',count=stage==='waiting'?63:64){
@@ -18,15 +20,28 @@ function fixture(stage='triggered',count=stage==='waiting'?63:64){
     sourceFetchedAt:day+'T07:05:00.000Z',computedAt:day+'T08:00:00.000Z',nextSessionDay:allDates[count],entryEffectiveIds:[],shapeEffectiveIds:[]};
 }
 
-test('the candidate policy is frozen and preserves the original age, horizon and opening-chase limits',()=>{
-  assert.equal(closeCandidateVersion,'books.entry-current.2026-11-24.v1');assert(Object.isFrozen(closeCandidatePolicy));
-  assert.deepEqual(closeCandidatePolicy,{maxDistancePercent:2,formedWithinDays:3,horizon:15,closeEntryValidated:false});
-  assert.equal(closeCandidatePolicy.formedWithinDays,entryValidationPolicy.formedWithinDays);assert.equal(entryPolicy.maxOpeningChasePercent,2);
+function lifecycleFixture(stage,offset){
+  const f=fixture('waiting',65+offset);
+  for(let index=61;index<f.bars.length;index++)f.bars[index]=candle(f.dates[index]);
+  f.bars[61]=candle(f.dates[61],{open:99.8,high:101,low:98,close:99.5});
+  f.bars[64]=candle(f.dates[64],{open:100.5,high:103,low:100,close:102,volume:1100});
+  for(let index=65;index<f.bars.length;index++)f.bars[index]=candle(f.dates[index],{open:102,high:103,low:101,close:102});
+  if(stage==='triggered')f.bars[f.bars.length-1]=candle(f.day,{open:102,high:104,low:101,close:103.5});
+  const replay=analyzeEntryBars({stock:f.stock,bars:f.bars,calendar:f.dates,patterns,matches:input=>input.day===f.dates[61]?['regain-ma-20']:[],day:f.day,asOf:f.asOf,
+    sourceId:'tickflow-free-forward-v1',generation:f.day+'-1',sourceFetchedAt:f.sourceFetchedAt,policyKnownAt:f.dates[60]+'T07:00:00Z',nextSessionDay:f.nextSessionDay,now:()=>Date.parse(f.computedAt)});
+  f.setups=replay.setups;f.strength=engine.evaluate({mode:'strength',bars:f.bars.slice(-61),referenceBars:f.reference.slice(-61),day:f.day,lookback:20});
+  return f;
+}
+
+test('v2 preserves the original stage windows, horizon and opening-chase policy without a global formation-age cap',()=>{
+  assert.equal(closeCandidateVersion,'books.entry-current.2026-11-24.v2');assert(Object.isFrozen(closeCandidatePolicy));
+  assert.deepEqual(closeCandidatePolicy,{maxDistancePercent:2,confirmationSessions:3,triggerSessions:3,horizon:15,closeEntryValidated:false});
+  assert.equal(Object.hasOwn(closeCandidatePolicy,'formedWithinDays'),false);assert.equal(entryValidationPolicy.formedWithinDays,3);assert.equal(entryPolicy.maxOpeningChasePercent,2);
 });
 
 test('today first T that remains above its key at the close becomes a research candidate, never an executed buy',()=>{
   const f=fixture(),items=buildCloseCandidates(f);assert.equal(items.length,1);
-  const item=items[0];assert.equal(item.stage,'triggered_at_close');assert.equal(item.closePrice,103.5);assert.equal(item.remainingSessions,0);
+  const item=items[0];assert.equal(item.stage,'triggered_at_close');assert.equal(item.closePrice,103.5);assert.equal(item.remainingSessions,0);assert.equal(item.nearTrigger,true);
   assert.equal(item.knownAfter,f.day+'T15:00:00+08:00');assert.equal(item.actualDiscoveryAt,f.computedAt);assert.equal(item.sourceFetchedAt,f.sourceFetchedAt);
   assert.equal(item.activeUntil,f.nextSessionDay+'T09:30:00+08:00');assert.equal(item.requiresRecheck,true);assert.equal(item.actualFillVerified,false);assert.equal(item.closeEntryValidated,false);
   assert.equal(item.qualified,false);assert.equal(item.qualification,'research');assert.equal(item.formationAgeSessions,2);assert.equal(item.keyBarDay,f.dates[62]);assert.match(item.reasons.join(' '),/尚未独立验证/);
@@ -39,6 +54,29 @@ test('a valid confirmed C awaiting a future break remains distinct and keeps the
     assert.equal(items[0].stage,'waiting_breakout');assert.equal(items[0].remainingSessions,3-(count-1-62));
     assert(items[0].distanceToTriggerPct<=0&&items[0].distanceToTriggerPct>=-2);
   }
+});
+
+test('C confirmed on F+3 and its still-valid waiting window are not cut off by the age of F',()=>{
+  for(const offset of [0,2]){
+    const f=lifecycleFixture('waiting',offset);assert.equal(f.setups[0].replayStatus,'waiting_trigger');assert.equal(f.strength.matched,true);
+    const [item]=buildCloseCandidates(f);assert(item);assert.equal(item.stage,'waiting_breakout');assert.equal(item.formationAgeSessions,3+offset);
+    assert.equal(item.remainingSessions,3-offset);assert.equal(item.nearTrigger,true);
+  }
+});
+
+test('the first valid T on F+4 and F+6 follows the original C+3 trigger limit with original strength intact',()=>{
+  for(const offset of [1,3]){
+    const f=lifecycleFixture('triggered',offset);assert.equal(f.setups[0].replayStatus,'triggered_observation');assert.equal(f.strength.matched,true);
+    const [item]=buildCloseCandidates(f);assert(item);assert.equal(item.stage,'triggered_at_close');assert.equal(item.formationAgeSessions,3+offset);
+    assert.equal(item.remainingSessions,0);assert.equal(item.nearTrigger,true);assert.equal(item.actualFillVerified,false);
+  }
+});
+
+test('expired C windows and a forced T later than C+3 stay excluded without a formation-age shortcut',()=>{
+  const waiting=lifecycleFixture('waiting',3);assert.equal(waiting.setups[0].replayStatus,'expired');assert.deepEqual(buildCloseCandidates(waiting),[]);
+  waiting.setups[0].replayStatus='waiting_trigger';waiting.setups[0].remainingSessions=1;assert.deepEqual(buildCloseCandidates(waiting),[]);
+  const late=lifecycleFixture('triggered',4);assert.equal(late.setups[0].replayStatus,'expired');assert.deepEqual(buildCloseCandidates(late),[]);
+  late.setups[0].replayStatus='triggered_observation';late.setups[0].observedEvent={date:late.day};assert.deepEqual(buildCloseCandidates(late),[]);
 });
 
 test('formation-only F, historical B, S and MA5 add/reduce observations cannot populate the current pool',()=>{
@@ -54,11 +92,22 @@ test('intraday touches that close back at or below the key, and any fixed invali
   const waiting=fixture('waiting',64);waiting.bars[63].low=97;assert.deepEqual(buildCloseCandidates(waiting),[]);
 });
 
-test('the new close-distance cap includes exactly two percent and rejects anything beyond it',()=>{
+test('today T retains its exact two-percent close cap while waiting C is tagged near or far at that boundary',()=>{
   const exact=fixture();exact.bars[63]=candle(exact.day,{open:102,high:106,low:101,close:105.06});assert.equal(buildCloseCandidates(exact).length,1);
   exact.bars[63].close=105.060001;assert.deepEqual(buildCloseCandidates(exact),[]);
-  const waiting=fixture('waiting',64);waiting.bars[63]=candle(waiting.day,{open:102,high:103,low:100,close:100.94});assert.equal(buildCloseCandidates(waiting).length,1);
-  waiting.bars[63].close=100.939999;assert.deepEqual(buildCloseCandidates(waiting),[]);
+  const waiting=fixture('waiting',64);waiting.bars[63]=candle(waiting.day,{open:102,high:103,low:100,close:100.94});assert.equal(buildCloseCandidates(waiting)[0].nearTrigger,true);
+  waiting.bars[63].close=100.939999;const [far]=buildCloseCandidates(waiting);assert(far);assert.equal(far.nearTrigger,false);assert.equal(far.qualified,false);
+});
+
+test('far but valid C remains a research observation even when the same pattern passes both original gates',()=>{
+  const f=fixture('waiting');f.bars[62]=candle(f.day,{open:100.5,high:110,low:100,close:104,volume:1100});
+  f.setups[0].keyBar={...f.bars[62]};f.setups[0].trigger.above=110;
+  f.strength=engine.evaluate({mode:'strength',bars:f.bars.slice(-61),referenceBars:f.reference.slice(-61),day:f.day,lookback:20});assert.equal(f.strength.matched,true);
+  const [item]=buildCloseCandidates({...f,entryEffectiveIds:['regain-ma-20'],shapeEffectiveIds:['regain-ma-20']});
+  assert(item);assert.equal(item.stage,'waiting_breakout');assert.equal(item.nearTrigger,false);assert(item.distanceToTriggerPct< -2);
+  assert.equal(item.patternGatePassed,true);assert.equal(item.entryGatePassed,true);assert.deepEqual(item.eligiblePatternIds,['regain-ma-20']);
+  assert.equal(item.qualified,false);assert.equal(item.qualification,'research');assert.match(item.reasons.join(' '),/远距离研究观察/);
+  assert.doesNotMatch(item.reasons.join(' '),/没有同一形态/);assert.equal(item.closeEntryValidated,false);
 });
 
 test('the original opening-chase exclusion still rejects a later close inside the new distance cap',()=>{
@@ -72,10 +121,10 @@ test('waiting-breakout cannot hide an earlier intraday trigger or substitute an 
   const wrongWindow=fixture('waiting',64);wrongWindow.setups[0].remainingSessions=3;assert.deepEqual(buildCloseCandidates(wrongWindow),[]);
 });
 
-test('original strength failure and the existing formation age boundary are not relaxed',()=>{
+test('original strength failure is never relaxed by the broader lifecycle or distance observation pool',()=>{
   const f=fixture();for(const strength of [null,{matched:false},{status:'unavailable'}])assert.deepEqual(buildCloseCandidates({...f,strength}),[]);
-  const old=fixture('waiting',65);assert.deepEqual(buildCloseCandidates(old),[]);
-  assert.equal(closeCandidatePolicy.formedWithinDays,3);
+  const far=fixture('waiting');far.bars[62]=candle(far.day,{open:100.5,high:110,low:100,close:104,volume:1100});far.setups[0].keyBar={...far.bars[62]};far.setups[0].trigger.above=110;
+  assert.deepEqual(buildCloseCandidates({...far,strength:{matched:false}}),[]);
 });
 
 test('qualification requires the identical pattern ID to pass both original and independent gates',()=>{
