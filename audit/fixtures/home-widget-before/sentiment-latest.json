@@ -1,0 +1,81 @@
+{
+  "schemaVersion": 1,
+  "demoData": false,
+  "generatedAt": "2026-11-24T01:26:01Z",
+  "markets": {
+    "cn": {
+      "status": "ready",
+      "sourceName": "东方财富股吧 · Books 融合模型",
+      "sourceUrl": "https://guba.eastmoney.com/list,szzs.html",
+      "asOf": "2026-11-24T01:25:46Z",
+      "fetchedAt": "2026-11-24T01:26:00Z",
+      "lastAttemptAt": "2026-11-24T01:25:58Z",
+      "errorCode": null,
+      "data": {
+        "sampleCount": 131,
+        "directionalCount": 8,
+        "bullishCount": 8,
+        "bearishCount": 0,
+        "neutralCount": 123,
+        "bullishRatio": 100.0,
+        "bearishRatio": 0.0,
+        "momHeat": 17.2,
+        "baoma": 34.9,
+        "novice": 23.5,
+        "retail": 45.9,
+        "composite": 34.8,
+        "chaseRatio": 3.1,
+        "panicRatio": 1.5,
+        "confidence": "limited",
+        "methodVersion": "books-community-v1",
+        "signalCoverage": {
+          "observed": [
+            "optimism",
+            "fomo",
+            "newcomer",
+            "intensity"
+          ],
+          "missing": [
+            "attention",
+            "breadth"
+          ]
+        },
+        "fetchedCount": 240,
+        "windowHours": 72,
+        "sourceCount": 1,
+        "boardCount": 3,
+        "windowStart": "2026-11-23T00:00:31Z",
+        "windowEnd": "2026-11-24T01:25:46Z"
+      }
+    },
+    "us": {
+      "status": "ready",
+      "sourceName": "Cboe · VIX",
+      "sourceUrl": "https://www.cboe.com/tradable_products/vix/vix_historical_data",
+      "asOf": "2026-11-20",
+      "fetchedAt": "2026-11-24T01:26:00Z",
+      "lastAttemptAt": "2026-11-24T01:26:00Z",
+      "errorCode": null,
+      "data": {
+        "value": 35.89,
+        "previous": 28.44,
+        "sessionDate": "2026-11-20"
+      }
+    },
+    "crypto": {
+      "status": "ready",
+      "sourceName": "Alternative.me",
+      "sourceUrl": "https://alternative.me/crypto/fear-and-greed-index/",
+      "asOf": "2026-11-24T00:00:00Z",
+      "fetchedAt": "2026-11-24T01:26:01Z",
+      "lastAttemptAt": "2026-11-24T01:26:00Z",
+      "errorCode": null,
+      "data": {
+        "value": 11,
+        "previous": 11,
+        "classification": "Extreme Fear"
+      }
+    }
+  },
+  "sourceStops": {}
+}
