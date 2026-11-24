@@ -119,8 +119,11 @@ async function openWorkspace(page){
   assert.equal(again.sourceStopped,true);assert.equal(daily,1);
   await page.reload({waitUntil:'domcontentloaded'});await page.locator('[data-selection][data-state=ready]').waitFor();assert.ok(await page.locator('#pick-run').isDisabled());assert.equal(daily,1);
   await page.locator('details.pick-advanced > summary').click();
-  await page.locator('#pick-tech-access a').click();assert.ok(await page.locator('#research-file').isVisible());assert.equal(daily,1);
-  record.checks.push({name:'Tencent stop survives repeat calls/reload and offers local-file recovery',dailyRequests:daily,requestedHosts,localFileVisible:true});await c.close();
+  await page.locator('#pick-tech-access a').click();
+  const picker=page.locator('#review-picker');await picker.waitFor({state:'visible'});assert.ok(await picker.isEnabled());
+  assert.equal(await page.locator('#research-file').evaluate(input=>{let details=input.closest('details');while(details){if(!details.open)return false;details=details.parentElement?.closest('details');}return true;}),true);
+  const [chooser]=await Promise.all([page.waitForEvent('filechooser'),picker.click()]);assert.equal(chooser.isMultiple(),false);assert.equal(daily,1);
+  record.checks.push({name:'Tencent stop survives repeat calls/reload and offers local-file recovery',dailyRequests:daily,requestedHosts,localFilePickerVisible:true,fileChooserOpened:true});await c.close();
   // Calendar boundary changes without reloading or receiving a new market batch.
   c=await context(undefined,'2026-11-16T06:59:00Z');page=await c.newPage();await page.goto(base+'screening/index.html',{waitUntil:'domcontentloaded'});await page.locator('[data-selection][data-state=ready]').waitFor();
   await page.locator('details.pick-advanced > summary').click();
