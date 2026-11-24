@@ -14,6 +14,8 @@ import {precomputeEntryEvidence} from './a-share-entry-precompute.mjs';
 import {entryPolicyVersion} from './a-share-entry-bars.mjs';
 import {entryValidationVersion} from './a-share-entry-validation.mjs';
 import {signalChartVersion} from './a-share-signal-chart.mjs';
+import {precomputeCurrentEntries,rebuildCurrentEntries} from './a-share-entry-current-precompute.mjs';
+import {closeCandidateVersion} from './a-share-entry-current.mjs';
 import {assertCollectionSpace,runRetention} from './a-share-retention.mjs';
 
 const require = createRequire(import.meta.url);
@@ -178,9 +180,10 @@ export async function precompute({ dir, siteDir, snapshot, universe, sources, re
     const statistics=await precomputePatternStatistics({historyFile:join(rawTarget,'history-all.ndjson'),target,generation,sourceId,day,asOf,patterns,now,onProgress});
     patternStatisticsVersion=statistics.version;
     entrySummary=await precomputeEntryEvidence({historyFile:join(rawTarget,'history-all.ndjson'),target,privateTarget:rawTarget,generation,sourceId,day,asOf,patterns,engine,riskName,policyKnownAt,nextSessionDay,effectivePatternIds:statistics.patterns.filter(item=>item.status==='effective').map(item=>item.id),now,onProgress});
+    await precomputeCurrentEntries({target,privateTarget:rawTarget,batch:{generation,sourceId,day,asOf,total:universe.length},siteDir,nextSessionDay,now,onProgress:fields=>onProgress({stage:'entry-current',...fields})});
   }
   const ready = universe.filter(stock => sources.get(stock.code)?.status === 'ready').length;
-  const completed = { generation,sourceId,dataPolicy,barSchema:storedBarSchema,historyRequested,universePolicy,...(patternStatisticsVersion?{patternStatisticsVersion}:{}),...(entrySummary?{entryPolicyVersion,entryValidationVersion,signalChartVersion,entrySummary}:{}),patternVersion:patterns.version,patternProfile:patterns.profile, day, asOf, startedAt, finishedAt: new Date(now()).toISOString(), total: universe.length, ready,missing:universe.length-ready,coverage:ready/universe.length,fullMarket:true };
+  const completed = { generation,sourceId,dataPolicy,barSchema:storedBarSchema,historyRequested,universePolicy,...(patternStatisticsVersion?{patternStatisticsVersion}:{}),...(entrySummary?{entryPolicyVersion,entryValidationVersion,signalChartVersion,closeCandidateVersion,entrySummary}:{}),patternVersion:patterns.version,patternProfile:patterns.profile, day, asOf, startedAt, finishedAt: new Date(now()).toISOString(), total: universe.length, ready,missing:universe.length-ready,coverage:ready/universe.length,fullMarket:true };
   await atomicJson(join(target, 'complete.json'), { ...completed, completed: true });
   return completed;
 }
@@ -197,6 +200,7 @@ async function completedManifest(dir,value){
   if(marker.patternStatisticsVersion)for(const suffix of ['.json','.json.gz'])required.push(join(dir,'generations',value.generation,'pattern-regimes'+suffix));
   if(marker.entryPolicyVersion)for(const name of ['entry-summary','coverage'])for(const suffix of ['.json','.json.gz'])required.push(join(dir,'generations',value.generation,name+suffix));
   if(marker.entryValidationVersion)for(const suffix of ['.json','.json.gz'])required.push(join(dir,'generations',value.generation,'entry-validation'+suffix));
+  if(marker.closeCandidateVersion)for(const suffix of ['.json','.json.gz'])required.push(join(dir,'generations',value.generation,'entry-current-v1','report'+suffix));
   for(const code of INDICES)for(const mode of ['consensus','market','strength'])for(const lookback of [20,60])for(const suffix of ['.json','.json.gz'])required.push(join(dir,'generations',value.generation,'result-'+mode+'-'+lookback+'-all-'+code+suffix));
   try{await Promise.all(required.map(path=>access(path)));}
   catch(error){if(error.code==='ENOENT')return null;throw error;}
@@ -361,7 +365,7 @@ async function main() {
   try {
     const control = new AbortController();
     for (const event of ['SIGTERM', 'SIGINT']) process.once(event, () => control.abort(Error('任务被停止，已完成日线留待续跑；正式结果保持不变。')));
-    const run=process.argv.includes('--recompute-cache')?recomputeFromCache:collect;
+    const run=process.argv.includes('--rebuild-current-entry')?rebuildCurrentEntries:process.argv.includes('--recompute-cache')?recomputeFromCache:collect;
     const retention={dir,booksDb:process.env.BOOKS_DB,hotGenerations:Number(process.env.A_SHARE_HOT_GENERATIONS||2),reserveBytes:Number(process.env.A_SHARE_ARCHIVE_RESERVE_BYTES||1073741824)};
     await runRetention(retention);
     try{await assertCollectionSpace({dir,reserveBytes:retention.reserveBytes,batchBytes:Number(process.env.A_SHARE_BATCH_RESERVE_BYTES||1073741824)});}
@@ -373,7 +377,7 @@ async function main() {
     let result,taskError;
     try{
       result=await run({dir,siteDir,signal:control.signal});
-      if(process.env.BOOKS_DB&&['complete','no_new_day'].includes(result.attempt.status)){
+      if(process.env.BOOKS_DB&&result.attempt.jobType!=='entry-current'&&['complete','no_new_day'].includes(result.attempt.status)){
         const {runSavedSchemes}=await import('./a-share-scheme-runner.mjs');
         result.schemes=await runSavedSchemes({dbFile:process.env.BOOKS_DB,dir,siteDir});
         if(result.schemes.status==='failed')process.exitCode=1;

@@ -1,4 +1,4 @@
-.entry-opportunities {margin:22px 0;padding:20px 0;border-block:1px solid var(--desk-border,#dfe5e9);color:var(--desk-ink,#1b202a);font-variant-numeric:tabular-nums;min-width:0}
+.entry-opportunities {margin:4px 0 18px;padding:0 0 16px;border-bottom:1px solid var(--desk-border,#dfe5e9);color:var(--desk-ink,#1b202a);font-variant-numeric:tabular-nums;min-width:0}
 .entry-opportunities-heading {display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:10px}
 .entry-opportunities-heading h4 {margin:0;font-size:16px;line-height:1.5}
 .entry-opportunities-heading small,.entry-opportunities-source {font-size:11px;color:var(--desk-muted,#66727f);line-height:1.7;overflow-wrap:anywhere}
@@ -11,6 +11,16 @@
 .entry-opportunities :is(button,select,a,summary):focus-visible {outline:2px solid var(--desk-accent,#365f77);outline-offset:3px}
 .entry-opportunities :is(button,select):disabled {color:var(--desk-muted,#66727f);cursor:wait}
 .entry-opportunities-list {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 28px;min-width:0}
+.entry-current-group {min-width:0}
+.entry-current-group-heading {margin:14px 0 0;padding-bottom:10px;border-bottom:1px solid var(--desk-border);font-size:14px;font-weight:600;line-height:1.6}
+.entry-current-stale {grid-column:1/-1}
+.entry-current-chart {display:block;width:100%;height:auto;margin:8px 0}
+.entry-current-chart-box {min-width:0}
+.entry-current-qualification {font-size:12px;line-height:1.7;color:#775126!important}
+.entry-current-evidence>summary,.pick-desk .entry-history-workspace>summary {min-height:44px;display:flex;align-items:center;font-size:13px;cursor:pointer;color:var(--desk-accent);font-weight:600}
+.entry-current-evidence {margin-top:8px}
+.entry-history-workspace {border-top:1px solid var(--desk-border);padding-top:6px}
+.entry-history-workspace>.trend-toolbar {margin-top:10px}
 .entry-opportunities-stock {padding:17px 0;border-top:1px solid var(--desk-border,#dfe5e9);min-width:0}
 .entry-opportunities-stock-title {display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:7px;margin:0 0 8px;font-size:14px}
 .entry-opportunities-stock-title a {color:var(--desk-ink,#1b202a);text-underline-offset:3px}
@@ -31,3 +41,5 @@
 .entry-opportunities-diagnostic {font-size:11px;color:var(--desk-muted,#66727f);line-height:1.8;overflow-wrap:anywhere}
 .entry-opportunities-empty {grid-column:1/-1;padding:16px 0;border-top:1px solid var(--desk-border,#dfe5e9);font-size:13px;color:var(--desk-muted,#66727f)}
 @media(max-width:700px){.entry-opportunities-list{grid-template-columns:minmax(0,1fr)}.entry-opportunities-stats{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 18px}.entry-opportunities-stats>span:first-child{grid-column:1/-1;font-weight:600}.entry-opportunities-toolbar label{width:100%;justify-content:space-between}.entry-opportunities-toolbar select{max-width:70%;min-width:0}.entry-opportunities-heading small{width:100%}.entry-opportunities{padding-block:17px}.entry-opportunities-facts{gap:7px}}
+
+@media(max-width:700px){.entry-opportunities-facts{grid-template-columns:repeat(2,minmax(0,1fr))}.entry-current-group-heading{margin-top:12px}}
