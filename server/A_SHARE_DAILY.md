@@ -76,7 +76,29 @@ sudo -u books env BOOKS_A_SHARE_DIR=/var/lib/books/a-share-daily BOOKS_SITE_DIR=
 
 此分支沿用进程锁，仅读取当前完成代的三份私有原始归档，不进入采集、不请求外部。核对完整名册、来源、指数和日期后发布新代；原始 `day`、`asOf`、读取时间与 `status.json` 采集回执保持。完成标记写入规则版本、参数口径和 `recomputedFrom`；失败保留旧指针。后续正常收盘任务也自动生成同一套标签。
 
-## 验证与回滚
+## 自动压缩与隔离恢复
+
+同一个 worker 锁内，采集前和方案复盘后执行存储维护。默认保留最新 2 个完整热批次，并额外保护所有已发布指针；其余批次无损 gzip 冷存，不按年龄删除唯一历史。原始日线、派生 SVG、来源冻结名册及所有方案/复盘版本均保留。证券列表包含历史退市代码，不能把名册数量当作当前活跃证券数；缺目标日、上市历史不足和来源无返回分别保留诊断，可查 `/api/a-share-daily/coverage?generation=批次号`。
+
+每个文件先压缩，再解压核对字节数与摘要，写入恢复清单后才移除已验证的未压缩副本。旧 SQLite 日期先做逻辑冷归档并隔离恢复核对，再迁移热缓存；保留全部三个指数的长历史、股票和来源状态。方案备份包括 `screening_scheme*` 4 表与存在时的 `research_control_*` 5 表，不复制账户凭据。冷结果由同一只读 API 自动解压，失败保留现有发布指针。
+
+环境参数：`A_SHARE_HOT_GENERATIONS=2`；`A_SHARE_ARCHIVE_RESERVE_BYTES=1073741824`（1 GiB 基础余量）；`A_SHARE_BATCH_RESERVE_BYTES=1073741824`（1 GiB 下一轮写入余量）。容量预检还预留两倍当前 collector.sqlite 用于隔离核验/VACUUM，不足时停止新采集并在控制台说明。压缩能降低增长速度，不能提供无限空间；冷档永久保留，后续磁盘不足需要迁移完整档案而非丢弃历史。`retention-status.json` 和研究控制台显示维护阶段、结果与失败原因。
+
+恢复只写入一个不存在的新目录，不覆盖生产库，不切正式站指针：
+
+```sh
+sudo -u books /usr/bin/node --input-type=module -e 'import {restoreGeneration} from "/opt/books/app/a-share-retention.mjs"; console.log(await restoreGeneration({dir:"/var/lib/books/a-share-daily",generation:process.argv[1],target:process.argv[2]}));' 完整批次号 /var/lib/books/restore-check-唯一名称
+```
+
+恢复目录含双格式文件、`collector.sqlite`、`schemes.sqlite` 和 `RESTORED.json`。先离线核对再选择性恢复方案，不能将旧备份整库覆盖当前账号/会话库。源访问暂停记录也随来源归档恢复，恢复不解除暂停。
+
+## 关键 K 的时间边界
+
+沿用固定形态首次形成 F；最多 3 个交易日内，阳线收盘超过 F 高点、位于 MA20 上方且量不低于此前 20 日均量时，记录收盘确认关键 K（C）。仅从 C 的下一交易日起，最多 3 个交易日观察严格突破 C 高点（T）；F 最低价为固定失效研究参考位。开盘高于参考位 2% 排除追高；同日双触碰、停牌、一字价日不能假设可成交。晚发现的历史信号不追认为当时可执行。
+
+股票卡片使用统一入口，点击读取同批预计算的研究回放和派生归一化图，F/C/T 标记落在真实日期上。原图组件保留；不向第三方 iframe 注入假箭头，不公开原始 OHLC 查询。`entries?generation=批次号&code=代码` 与 `entry-chart` 为只读派生结果。该触发规则尚未独立完成收益验证，`recommended:false`；旧形态的“次日开盘”收益不作为新触发规则的收益。当前无形态通过门槛时不生成入场推荐，历史回放仍可查看。
+
+## 验证命令
 
 ```sh
 node --test audit/trend-patterns-unit.cjs audit/a-share-daily-unit.mjs audit/a-share-cache-unit.mjs audit/a-share-tickflow-unit.mjs

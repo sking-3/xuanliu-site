@@ -8,12 +8,31 @@ const indices=new Set(['000300.SH','000001.SH','399001.SZ']);
 const offset=8*60*60*1000;
 export const historyCount=500;
 const count=historyCount,minimum=61;
+const absentReason='来源未返回该证券日线';
 const object=value=>value!==null&&typeof value==='object'&&!Array.isArray(value);
 export function hasOHLC(bars){
   return Array.isArray(bars)&&bars.length>=minimum&&bars.length<=count&&bars.every(bar=>bar&&
     ['open','high','low','close','volume'].every(field=>typeof bar[field]==='number'&&Number.isFinite(bar[field])&&bar[field]>=0)&&
     bar.high>=Math.max(bar.open,bar.close)&&bar.low<=Math.min(bar.open,bar.close))&&
     bars.slice(-minimum).every(bar=>['open','high','low','close','volume'].every(field=>bar[field]>0));
+}
+
+/** Describes source coverage only; it does not relax history or stock eligibility. */
+export function diagnoseHistory(source){
+  if(!object(source)||!Array.isArray(source.bars))throw new TypeError('日线诊断需要已归档的来源记录');
+  targetEnd(source.day);
+  const bars=source.bars,recent=bars.slice(-minimum),last=bars.at(-1);
+  const valid=bar=>bar&&['open','high','low','close','volume'].every(field=>Number.isFinite(bar[field])&&bar[field]>0)&&bar.high>=Math.max(bar.open,bar.close)&&bar.low<=Math.min(bar.open,bar.close);
+  const invalid=recent.filter(bar=>!valid(bar));
+  let code='ready';
+  if(source.reason===absentReason)code='series_absent';
+  else if(!bars.length)code='empty_history';
+  else if(bars.length<minimum)code='insufficient_history';
+  else if(last.date!==source.day)code='target_day_missing';
+  else if(invalid.length)code='recent_invalid_bars';
+  return {code,requestedDay:source.day,returnedBars:bars.length,requiredBars:minimum,firstDay:bars[0]?.date??null,lastDay:last?.date??null,
+    targetDayPresent:last?.date===source.day,targetDayValid:last?.date===source.day&&Boolean(valid(last)),
+    recentInvalidCount:invalid.length,recentInvalidDays:invalid.map(bar=>bar?.date??null),analysisHistoryReady:code==='ready'};
 }
 function transport(message){return Object.assign(new Error('TickFlow '+message),{transportError:true});}
 function responseError(response,url,body,message){
@@ -76,8 +95,9 @@ export function createTickflowSource({fetch,now=Date.now}){
     const fetchedAt=new Date(now()).toISOString(),result=new Map();
     for(const code of codes){
       const series=payload.data[code];
-      const parsed=series==null?{reason:'来源未返回该证券日线'}:readSeries(series,day);
-      result.set(code,{status:parsed.reason?'unavailable':'ready',day,adjustment:index?'index':'qfq',bars:parsed.bars||[],historyRequested:count,fetchedAt,reason:parsed.reason||null,sourceId,adjustmentMethod:index?'指数不复权':'比例前复权',volumeUnit:'手'});
+      const parsed=series==null?{reason:absentReason}:readSeries(series,day);
+      const record={status:parsed.reason?'unavailable':'ready',day,adjustment:index?'index':'qfq',bars:parsed.bars||[],historyRequested:count,fetchedAt,reason:parsed.reason||null,sourceId,adjustmentMethod:index?'指数不复权':'比例前复权',volumeUnit:'手'};
+      result.set(code,{...record,diagnostic:diagnoseHistory(record)});
     }
     return result;
   }

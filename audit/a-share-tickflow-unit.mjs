@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {createTickflowSource,sourceId,dataPolicy,barSchema,hasOHLC,historyCount} from '../server/a-share-tickflow.mjs';
+import {createTickflowSource,sourceId,dataPolicy,barSchema,hasOHLC,historyCount,diagnoseHistory} from '../server/a-share-tickflow.mjs';
 import {readTickflowUniverse,universeSourceId,universeSchema,universeUrls} from '../server/a-share-universe.mjs';
 
 const day='2026-11-20',now=()=>Date.parse('2026-11-21T01:00:00Z');
@@ -120,6 +120,29 @@ test('500 actual bars are retained once; old suspended rows remain raw while rec
   assert.equal(source.status,'ready');assert.equal(source.bars.length,500);assert.equal(source.bars[0].volume,0);assert.equal(source.bars[0].close,0);assert.equal(hasOHLC(source.bars),true);assert.equal(hasOHLC(source.bars.slice(-61)),true);
   raw.volume[499]=0;const recent=(await fixture({'600519.SH':raw}).api.historyBatch([stocks[0]],day)).get(stocks[0].code);assert.equal(recent.status,'unavailable');assert.equal(recent.bars.length,500);assert.equal(recent.bars[499].volume,0);
   await assert.rejects(fixture({'600519.SH':series(501)}).api.historyBatch([stocks[0]],day),/长度/);
+});
+
+test('coverage diagnostics distinguish a real current-day bar with short history without weakening 61-bar eligibility',async()=>{
+  const h=fixture({'600519.SH':series(30)}),source=(await h.api.historyBatch([stocks[0]],day)).get(stocks[0].code);
+  assert.equal(source.status,'unavailable');assert.equal(source.reason,'不足61个交易日日线');assert.equal(hasOHLC(source.bars),false);assert.equal(h.calls.length,1);
+  assert.deepEqual(source.diagnostic,{code:'insufficient_history',requestedDay:day,returnedBars:30,requiredBars:61,firstDay:source.bars[0].date,lastDay:day,targetDayPresent:true,targetDayValid:true,recentInvalidCount:0,recentInvalidDays:[],analysisHistoryReady:false});
+});
+test('coverage diagnostics retain stale and absent source facts without claiming a listing lifecycle',async()=>{
+  const raw=series();for(const key of Object.keys(raw))raw[key].pop();
+  const lag=(await fixture({'600519.SH':raw}).api.historyBatch([stocks[0]],day)).get(stocks[0].code);
+  assert.equal(lag.status,'unavailable');assert.equal(lag.diagnostic.code,'target_day_missing');assert.equal(lag.diagnostic.lastDay,lag.bars.at(-1).date);assert.equal(lag.diagnostic.targetDayPresent,false);assert.equal(lag.diagnostic.targetDayValid,false);assert.equal(lag.diagnostic.analysisHistoryReady,false);assert.equal('delisted' in lag.diagnostic,false);
+  const missing=(await fixture({}).api.historyBatch([stocks[0]],day)).get(stocks[0].code);
+  assert.equal(missing.diagnostic.code,'series_absent');assert.equal(missing.diagnostic.returnedBars,0);assert.equal(missing.diagnostic.lastDay,null);assert.equal(missing.status,'unavailable');
+  const empty=(await fixture({'600519.SH':series(0)}).api.historyBatch([stocks[0]],day)).get(stocks[0].code);
+  assert.equal(empty.diagnostic.code,'empty_history');assert.equal(empty.reason,'不足61个交易日日线');
+});
+test('diagnostics work on immutable old archives and preserve invalid-day evidence and all 500 raw bars',async()=>{
+  const raw=series(500);raw.volume[0]=0;raw.open[0]=raw.high[0]=raw.low[0]=raw.close[0]=0;
+  const source=(await fixture({'600519.SH':raw}).api.historyBatch([stocks[0]],day)).get(stocks[0].code);
+  const {diagnostic,...legacy}=copy(source),before=copy(legacy);assert.deepEqual(diagnoseHistory(legacy),diagnostic);assert.deepEqual(legacy,before);assert.equal(diagnostic.code,'ready');assert.equal(diagnostic.recentInvalidCount,0);assert.equal(source.bars.length,500);assert.equal(source.bars[0].close,0);
+  raw.volume[499]=0;const invalid=(await fixture({'600519.SH':raw}).api.historyBatch([stocks[0]],day)).get(stocks[0].code);
+  assert.equal(invalid.status,'unavailable');assert.equal(invalid.diagnostic.code,'recent_invalid_bars');assert.equal(invalid.diagnostic.targetDayPresent,true);assert.equal(invalid.diagnostic.targetDayValid,false);assert.deepEqual(invalid.diagnostic.recentInvalidDays,[day]);assert.equal(invalid.diagnostic.analysisHistoryReady,false);
+  assert.throws(()=>diagnoseHistory({day,bars:null}),TypeError);assert.throws(()=>diagnoseHistory({day:'2026-02-30',bars:[]}),TypeError);
 });
 
 function instruments(exchange){return {exchange,count:600,data:Array.from({length:600},(_,i)=>{

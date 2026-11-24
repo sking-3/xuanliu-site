@@ -298,6 +298,11 @@ test('offline replay bypasses same-day collection skip, publishes complete deriv
   assert.equal(await readFile(join(dir,'status.json'),'utf8'),'中止或完成的原始采集回执保持不变');assert.equal(await readFile(join(f.location,'dataset-all-000300.SH.json'),'utf8'),before);
   assert.equal(JSON.parse(await readFile(join(dir,'current.json'))).generation,replay.lastSuccess.generation);
   const marker=JSON.parse(await readFile(join(dir,'generations',replay.lastSuccess.generation,'complete.json')));assert.equal(marker.recomputedFrom,f.previous.generation);assert.equal(marker.completed,true);
+  const policyDb=openStore(join(dir,'collector.sqlite')),policyBefore=policyDb.prepare("SELECT value FROM settings WHERE key LIKE 'entry-policy-known-at:%'").get().value;policyDb.close();
+  assert.equal(policyBefore,new Date(now()+1000).toISOString());
+  let policyAfter,nextSessionDay;
+  await assert.rejects(recomputeFromCache({dir,siteDir:resolve('.'),now:()=>now()+2000,compute:async options=>{policyAfter=options.policyKnownAt;nextSessionDay=options.nextSessionDay;throw Error('check metadata only');}}),/check metadata only/);
+  assert.equal(policyAfter,policyBefore);assert.equal(nextSessionDay,'2026-11-23');
   for(const code of INDICES)for(const mode of ['consensus','market','strength'])for(const lookback of [20,60]){
     const value=JSON.parse(await readFile(join(dir,'generations',replay.lastSuccess.generation,'result-'+mode+'-'+lookback+'-all-'+code+'.json')));
     assert.equal(value.records.length,1000);assert.equal(value.patternDefinitions.length,16);assert.equal(value.records[0].fetchedAt,new Date(now()).toISOString());assert.equal(value.dataPolicy.rawPublic,false);
