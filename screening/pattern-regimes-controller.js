@@ -16,6 +16,10 @@
  const magnitude=value=>Number.isFinite(value)?value.toLocaleString('zh-CN',{maximumFractionDigits:2})+'%':'—';
  const beijing=new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'});
  const stamp=value=>time(value)?beijing.format(new Date(value))+'（北京）':'未提供';
+ function diagnosticsText(values=[]){
+  const display=value=>value===null?'未取得':typeof value==='number'?value.toLocaleString('zh-CN',{maximumFractionDigits:4}):String(value);
+  return values.filter(item=>item.passed===false).map(item=>item.label+' '+display(item.actual)+(item.unit||'')+' / '+item.operator+' '+display(item.threshold)+(item.unit||'')).join('；');
+ }
  function validate(value,current){
   if(value?.schema!==schema||!date(value.day)||!time(value.asOf)||!time(value.computedAt)||value.generation!==current.generation||value.day!==current.day||value.sourceId!==current.sourceId||!Array.isArray(value.patterns)||!Array.isArray(value.candidates)||value.benchmark?.code!=='000300.SH'||value.policy?.patternVersion!==current.patternVersion||value.policy?.lookback!==20||value.policy?.horizon!==15||value.policy?.targetReturnPercent!==5)throw Error('形态验证与当前日线批次或固定口径不一致，保留上次结果。');
   if(!value.patterns.length||['trainDays','recentDays','testDays','foldDays','purgeDays'].some(key=>!Number.isInteger(value.policy[key])||value.policy[key]<1)||['returnLabel','drawdownLabel','costLabel'].some(key=>typeof value.method?.[key]!=='string'))throw Error('形态验证口径或固定目录不完整，保留上次结果。');
@@ -84,7 +88,8 @@
     const title=doc.createElement('div');title.className='pattern-regimes-record-title';title.append(text('strong',item.label),text('small',statuses[item.status]));
     row.append(title,statisticRow('近期'+policy.recentDays+'日',item.recent),statisticRow('样本外'+policy.testDays+'日',item.validation));
     row.append(text('p','近期信号 '+(item.recent.fromDay||'未提供')+' 至 '+(item.recent.toDay||'未提供')+' · 样本外 '+(item.validation.fromDay||'未提供')+' 至 '+(item.validation.toDay||'未提供'),'pattern-regimes-source'));
-    row.append(text('p',item.reasons.join('；')||item.rule,'pattern-regimes-reason'));rows.push(row);
+    row.append(text('p',item.reasons.join('；')||item.rule,'pattern-regimes-reason'));
+    const failed=diagnosticsText(item.diagnostics);if(failed)row.append(text('p','未通过的实际值 / 原门槛：'+failed,'pattern-regimes-reason'));rows.push(row);
    }
    el('records').replaceChildren(...rows);
   }
@@ -113,5 +118,5 @@
   listen(env,'pagehide',event=>{if(!event.persisted)cleanup();});render();if(options.autoLoad!==false)refresh();
   return {refresh,select,getState:()=>state,destroy:cleanup};
  }
- return {mount,validate};
+ return {mount,validate,diagnosticsText};
 });

@@ -47,8 +47,8 @@ test('one hundred cards mount no requests; explicit click reads one bound entry 
  f.open();await settle();assert.equal(f.requests.length,1);assert.equal(f.requests[0].path,'/api/a-share-daily/entries?generation=2026-11-23-123&code=600000.SH');
  assert.equal(f.requests[0].init.redirect,'error');assert.equal(f.requests[0].init.credentials,'same-origin');assert.equal(f.requests[0].init.cache,'no-store');
  assert.equal(card.querySelector('.trend-stock-chart'),chart);assert.equal(chart.children[0],iframe);assert.equal(f.timeouts.size,0);
- const panel=card.querySelector('.entry-bars-panel');assert.equal(panel.hidden,false);assert.match(panel.textContent,/关键K研究回放 · 未推荐.*关键K日期2026-11-20.*突破参考位> 10.32.*失效参考位< 9.84.*F 形成 2026-11-19.*C 收盘确认 2026-11-20.*T 越位观察 2026-11-23/);
- assert.match(panel.textContent,/晚于当时开盘发现.*前复权研究参考位.*非实际委托报价.*未独立完成收益验证，不推荐/);
+ const panel=card.querySelector('.entry-bars-panel');assert.equal(panel.hidden,false);assert.match(panel.textContent,/关键K历史回放 · 当前资格见独立验证面板.*关键K日期2026-11-20.*突破参考位> 10.32.*失效参考位< 9.84.*F 形成 2026-11-19.*C 收盘确认 2026-11-20.*T 越位观察 2026-11-23/);
+ assert.match(panel.textContent,/晚于当时开盘发现.*独立验证结果与合格条件观察以.*当前观察.*面板为准.*前复权研究参考位.*非实际委托报价/);
  assert.equal(panel.querySelector('img').src,payload().items[0].chartUrl);assert.equal(panel.querySelector('img').loading,'lazy');
  f.open();assert.equal(panel.hidden,true);f.open();await settle();assert.equal(f.requests.length,1);
 });

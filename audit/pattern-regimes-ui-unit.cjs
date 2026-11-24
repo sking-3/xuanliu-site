@@ -118,3 +118,9 @@ test('actual60-day view never borrows20-day regime evidence or destroys its curr
  const f=await mountedTrend();t.after(()=>f.app.destroy());const filter={schema:'books.screening.pattern-filter.v1',generation,day,sourceId,lookback:20,benchmark:'000300.SH',patternVersion:patterns.version,patternId:'*',label:'全部近期有效形态',codes:['600005.SH']};assert.equal(f.app.setRegimeFilter(filter),true);assert.equal(f.articles().length,1);
  f.ids.get('trend-lookback').value='60';await f.app.start('market');assert.equal(f.articles().length,10);assert.match(f.ids.get('trend-status').textContent,/20日口径未对齐.*保留常规筛选/);assert.doesNotMatch(f.articles()[0].textContent,/近期有效形态候选/);const nodes=f.articles().slice();f.app.render();assert.deepEqual(f.articles(),nodes);
 });
+
+
+test('failed pattern gates show measured values and unchanged thresholds, including unknown p values',async t=>{
+ const f=fixture();t.after(()=>f.component.destroy());const value=payload();Object.assign(value.patterns[0],{status:'inactive',recommended:false,reasons:['近期收益未通过'],diagnostics:[{label:'近60日平均净变化',actual:-2.81,operator:'>',threshold:0,unit:'%',passed:false},{label:'正收益占比',actual:38.2,operator:'>=',threshold:50,unit:'%',passed:false},{label:'独立锚点',actual:0,operator:'>=',threshold:8,unit:'个',passed:false},{label:'多重校正p',actual:null,operator:'<=',threshold:.05,unit:'',passed:false},{label:'已达样本',actual:800,operator:'>=',threshold:60,unit:'个',passed:true}]});value.candidates=[];f.setPayload(value);await f.component.refresh();
+ const text=f.el('records').textContent;assert.match(text,/近60日平均净变化 -2.81% \/ > 0%/);assert.match(text,/正收益占比 38.2% \/ >= 50%/);assert.match(text,/独立锚点 0个 \/ >= 8个/);assert.match(text,/多重校正p 未取得 \/ <= 0.05/);assert.doesNotMatch(text,/已达样本 800/);assert.equal(f.filters.length,0);
+});

@@ -41,7 +41,7 @@
    const {button,panel}=record;button.setAttribute('aria-expanded',String(record.open));button.disabled=!record.binding;panel.hidden=!record.open;
    if(!record.open)return;
    const children=[],data=record.data;
-   children.push(text('p',record.loading?'正在读取本批关键K证据…':record.error||'关键K研究回放 · 未推荐','entry-bars-status'));
+   children.push(text('p',record.loading?'正在读取本批关键K证据…':record.error||'关键K历史回放 · 当前资格见独立验证面板','entry-bars-status'));
    if(data){
     children.push(text('p','数据日 '+data.day+' · 来源 '+data.sourceId+' · 读取 '+stamp(data.sourceFetchedAt),'entry-bars-source'));
     if(!data.items.length)children.push(text('p','本批没有已形成的关键K证据；不补造入场点。','entry-bars-note'));
@@ -62,7 +62,7 @@
      if(item.monitoring?.remainingSessions>0)row.append(text('p',item.monitoring.status==='future_condition_watch'?'下一已核验交易日 '+item.monitoring.nextSessionDay+' · 剩余 '+item.monitoring.remainingSessions+' 个交易日条件观察':'仅保留剩余窗口观察，下一交易日和新日线须重新核验。','entry-bars-note'));
      row.append(text('p','实际发现 '+stamp(item.knownAt)+' · '+item.recommendationReasons.join('；'),'entry-bars-note'));children.push(row);
     }
-    children.push(text('p','前复权研究参考位，非实际委托报价。F为形成、C为收盘确认、T为后日越位观察；本触发规则尚未独立完成收益验证，不推荐。','entry-bars-note'));
+    children.push(text('p','这里保留历史关键K回放；独立验证结果与合格条件观察以“关键K · 当前观察”面板为准。前复权研究参考位，非实际委托报价；F为形成、C为收盘确认、T为后日越位观察。','entry-bars-note'));
    }
    if(record.error){const retry=text('button','重新读取本批关键K','entry-bars-retry');retry.type='button';retry.dataset.entryRetry='';retry.disabled=record.loading;children.push(retry);}
    panel.replaceChildren(...children);
