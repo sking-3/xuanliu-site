@@ -1,0 +1,395 @@
+{
+  "releases": [
+    "ui-motion-20261124-3",
+    "reader-widgets-20261124-1"
+  ],
+  "verifiedSource": "Published UI snapshots and HTTPS assets recovered 2026-11-24. A-share feature HTML is independently rebased against the published source.",
+  "files": {
+    "a-shares.html": {
+      "sha256": "0ae65f528ee27dcb3ae46ac954a1eff3a328158b5bb1a7df890c2db596b54010",
+      "bytes": 15123,
+      "versions": []
+    },
+    "academy/0xcryptowizard/index.html": {
+      "sha256": "917d32cefe91b0fa435084ba81a4c1d6bdaa811226a963e39533b35de2595cc9",
+      "bytes": 815013,
+      "versions": []
+    },
+    "academy/0xmagnolia/index.html": {
+      "sha256": "f9a2694a7bc65fa11e791ae6c6569a147545ed4cdf68a1090bb54e6b272f6b64",
+      "bytes": 671365,
+      "versions": []
+    },
+    "academy/0xsun/index.html": {
+      "sha256": "5f25293279a43cb45a76b57743e18686a517349bf2e66e4683b72967d7c967c0",
+      "bytes": 1125985,
+      "versions": []
+    },
+    "academy/agintender/index.html": {
+      "sha256": "381ecd427e2245d423c2109d952e60428dfd723c9051181826146e85221dee04",
+      "bytes": 3740056,
+      "versions": []
+    },
+    "academy/cj/index.html": {
+      "sha256": "4cd4576e433a74ed1a879061759b540f5917fee894cacb7c2a1478c506a34a96",
+      "bytes": 592204,
+      "versions": []
+    },
+    "academy/coolish/index.html": {
+      "sha256": "6afe4465e9a4a0e17b7c1623efbd01c637436e0db8667c38e54bd4a1a6bec353",
+      "bytes": 1078398,
+      "versions": []
+    },
+    "academy/index.html": {
+      "sha256": "28229baf828321d1e268a42d8c503eedd846ac90590b3791f3c494cfcf4f0676",
+      "bytes": 27453,
+      "versions": []
+    },
+    "academy/kuigas/index.html": {
+      "sha256": "8823eeae1cbfd5dc5bf47f582db9cd6bf3160229e733b863e608627b3ee4c410",
+      "bytes": 964385,
+      "versions": []
+    },
+    "academy/laoemo/index.html": {
+      "sha256": "e6d54c699359596560777ccab7b202994df26dfb6a8c7134e472a6f10af3c65b",
+      "bytes": 59520,
+      "versions": []
+    },
+    "academy/library.css": {
+      "sha256": "116212bd36d3213ffe6d08486c3ff6523dbcd1a0e7ca20e21caa2391bdcccc46",
+      "bytes": 4575,
+      "versions": [
+        "directory-flow-20261124-1"
+      ]
+    },
+    "academy/library.js": {
+      "sha256": "fc7fcf66fd004bbb9c6de219198cb8d680e3aa07e40ecff4ec5bd9713fb86b20",
+      "bytes": 935,
+      "versions": [
+        "academy-20261124-2"
+      ]
+    },
+    "academy/metabape/index.html": {
+      "sha256": "7130cbcafdd9bf65a63a1dd588baeb58eab61d13bddf0457e1df310d0a99c72a",
+      "bytes": 1471552,
+      "versions": []
+    },
+    "academy/michael-liu/index.html": {
+      "sha256": "bd44f7fd7b463145d71dbda2040fb6e318fecff6e8fb29e2d62e90094a37edd3",
+      "bytes": 647271,
+      "versions": []
+    },
+    "academy/reader-ui.js": {
+      "sha256": "61b8c977e24e1efc30627c33ddb2a1d1cce7df414d8646ade0ea0ee1d8af3a65",
+      "bytes": 7776,
+      "versions": [
+        "reader-follow-20261124-2"
+      ]
+    },
+    "academy/reader.css": {
+      "sha256": "35d2de6f5f608f7aa29fc6e23729349d75b2c8bf4a4ed680ed1a96a38055feb6",
+      "bytes": 22096,
+      "versions": [
+        "reader-follow-20261124-4"
+      ]
+    },
+    "academy/thankucrypto/index.html": {
+      "sha256": "a7c86b37373f631a83646a9797a711f3a8a5fb50eda691799466d69eb3097e3d",
+      "bytes": 1430150,
+      "versions": []
+    },
+    "academy/wallstreet0name/index.html": {
+      "sha256": "686e927dd3b5802fd909b3f4002480aaf680238268f0eaf065bb98cd321560ff",
+      "bytes": 1043755,
+      "versions": []
+    },
+    "academy/web3feng/index.html": {
+      "sha256": "6e984500c4f526f3f61d9ef6f016d46abb1c396def77ad74f49e6d1518a05426",
+      "bytes": 948758,
+      "versions": []
+    },
+    "academy/xiaomu/index.html": {
+      "sha256": "7a512fc2953d7be1dcf02ca043e4c47157b2c22d35bae0ee3c34cf9ac0880a67",
+      "bytes": 772344,
+      "versions": []
+    },
+    "academy/yourquantguy/index.html": {
+      "sha256": "c2b4caa457972c7b63976dd48e5909b95b9399aed31b86f592a67fb8e519a91f",
+      "bytes": 1099970,
+      "versions": []
+    },
+    "academy/ztzzbtc/index.html": {
+      "sha256": "4d1fff78a9b57b0cfd18fb5b513f713c6e2a092196a531f065e3c339961b3e16",
+      "bytes": 1108898,
+      "versions": []
+    },
+    "account.html": {
+      "sha256": "15899422467638bb6e1021fbfe0a809978b20ea9cfa1de5124f74c81ccfe4ecc",
+      "bytes": 16676,
+      "versions": []
+    },
+    "agent-studio.html": {
+      "sha256": "6839209b308ad997474c551286f052e17ebe8aee28ecc5382104ae8220cce5df",
+      "bytes": 6927,
+      "versions": []
+    },
+    "archive/thankucrypto/archive.css": {
+      "sha256": "1596c6ab8cb7428a0de5662b188cc2951c10a8449882276cbc099d5e52a19b45",
+      "bytes": 6020,
+      "versions": [
+        "1"
+      ]
+    },
+    "archive/thankucrypto/archive.js": {
+      "sha256": "0d607812ee672809f5989ba19bf6f5e26917f4c7226a1481fb25c223655472d4",
+      "bytes": 7934,
+      "versions": [
+        "1"
+      ]
+    },
+    "archive/thankucrypto/index.html": {
+      "sha256": "7c13198aa0d612b4cda26465cc2cebd5e178777449a76b7f77134f4894a62a95",
+      "bytes": 4769,
+      "versions": []
+    },
+    "auth.html": {
+      "sha256": "6aa5c3ad274f0c39736fa3ed0c4dc4474ae95dd30f05520487b5d73edef71e92",
+      "bytes": 11698,
+      "versions": []
+    },
+    "books-shell.js": {
+      "sha256": "9529c41a1518c9aefce24ad97f09fbd27233283d934321539476ed32f0dfc3e8",
+      "bytes": 9664,
+      "versions": [
+        "shell-motion-20261124-2"
+      ]
+    },
+    "books-ui.css": {
+      "sha256": "40832f3cda1710229934c0c776f503dc4715916caca0652106c8256e577ceda5",
+      "bytes": 16840,
+      "versions": [
+        "40832f3c"
+      ]
+    },
+    "chart-outlook.js": {
+      "sha256": "c536597d07c4f05cdd63dc1bfa999912192d3ff55db73e42ab2c7596489c72c0",
+      "bytes": 12407,
+      "versions": [
+        "2"
+      ]
+    },
+    "chart.html": {
+      "sha256": "361eb6b2ab41d176e49fd7dc46c17c010062092339447886c6ce217afabbd100",
+      "bytes": 7844,
+      "versions": []
+    },
+    "company-dossier.html": {
+      "sha256": "6e9e5bdbc2176abfaed8978ec9e5f6ebf1a19af1a167454d4149430edad548dd",
+      "bytes": 7161,
+      "versions": []
+    },
+    "content-materials.css": {
+      "sha256": "0463ca759f357a1b651d22e9dc29b200606c472cb7404b872da8f8ccd0cb5dbf",
+      "bytes": 12049,
+      "versions": [
+        "content-20261123-2",
+        "directory-flow-20261124-1",
+        "natural-layout-20261123-1"
+      ]
+    },
+    "crypto.html": {
+      "sha256": "c95702b37ca175d44554974fe0a3f9be67467620fac3458caf2b544683892012",
+      "bytes": 5120,
+      "versions": []
+    },
+    "desk-skin.css": {
+      "sha256": "0bfe23788f4accbf5e530adcd9e0b7bfe151ae62f94bde0c575b326abf97a15b",
+      "bytes": 19941,
+      "versions": [
+        "ui-motion-20261124-1"
+      ]
+    },
+    "home-polish.css": {
+      "sha256": "d35597e2424d6b7e0d3f2928a387ee9fb4c2b704236786c86f972b1e2675f535",
+      "bytes": 11995,
+      "versions": [
+        "d35597e2"
+      ]
+    },
+    "home-watch-quotes.html": {
+      "sha256": "e583edb27728048716199bb7dc9f42b574134425ee756e03fd73699b0b06aa19",
+      "bytes": 3756,
+      "versions": []
+    },
+    "index-ticker.css": {
+      "sha256": "63394cb06cedc2f4074143e9d510e7a5aefc78475701c9f77ddcb0e1653c1e08",
+      "bytes": 759,
+      "versions": [
+        "compact-20261123-1"
+      ]
+    },
+    "index-ticker.js": {
+      "sha256": "5c878d6ced0f1e4608fb431ddd64ee9e486837ffa23743255874335590fe13eb",
+      "bytes": 774,
+      "versions": [
+        "compact-20261123-1"
+      ]
+    },
+    "index.html": {
+      "sha256": "107604b598ddfb154664ad72a17b2c7e8a6d165da8799ae1c1e453b12dc41992",
+      "bytes": 25048,
+      "versions": [],
+      "sourceSha256": "49736af6f530bd4b5b46719e756302a8f0d7972d31e2414af8ed6d5415cabd7c",
+      "change": "Runtime content hash reference only; published UI markup retained."
+    },
+    "market-overview.js": {
+      "sha256": "88a5bbceb09cd00dac352b54bc8de34a9f361e35ef9662692ea5c8fb85d401c5",
+      "bytes": 26149,
+      "versions": [
+        "88a5bbce"
+      ]
+    },
+    "market-sentiment.js": {
+      "sha256": "4c594a549e3f5449e675f1d7daf1fd341cc7b18e68205999b679b20dee73d4f8",
+      "bytes": 17812,
+      "versions": [
+        "4c594a54"
+      ]
+    },
+    "market-strip.css": {
+      "sha256": "99f1abbd470fb6ed974d35e53604c94273126ffc2901a8f789003a5c25757e9a",
+      "bytes": 2182,
+      "versions": [
+        "tape-hover-20261124-1"
+      ]
+    },
+    "market-strip.html": {
+      "sha256": "c1860adc2ef5006b4ea6b3d4b4a102b9e4d0beadcc7c22129955f3f7fbf69ecc",
+      "bytes": 5470,
+      "versions": [
+        "compact-20261123-1"
+      ]
+    },
+    "research.html": {
+      "sha256": "15e1c8c91b97b2c4cc60adbaa1d2cf73b238c3a21a0eedbdf0daf49b1a5cd11e",
+      "bytes": 16396,
+      "versions": []
+    },
+    "screening/history.html": {
+      "sha256": "c80ce30a4a4e25dcf519666b7713214d28191d0545d4c233047637699fd93dea",
+      "bytes": 2958,
+      "versions": []
+    },
+    "sentiment-panel.css": {
+      "sha256": "cd3ef48dd79e1df4d79f973500c84b2eac0cd2b9790df1313a112480421f804a",
+      "bytes": 5513,
+      "versions": [
+        "natural-layout-20261123-1"
+      ]
+    },
+    "tools.html": {
+      "sha256": "96d2f6264e1e2afc55a4cd5c970afd43396ebdf3f827825870931410b2181513",
+      "bytes": 4860,
+      "versions": []
+    },
+    "trader/binance/index.html": {
+      "sha256": "0148e536afb318e13061e7c29c99ae76d21da230d290fdfddbc15c76d508d9e0",
+      "bytes": 962,
+      "versions": []
+    },
+    "trader/bitget-book-demo.html": {
+      "sha256": "8b4db5f5f4a6fdaf91dd79e2d239921c429d2a2af93f898535ecb916df2d8a75",
+      "bytes": 4773,
+      "versions": []
+    },
+    "trader/bitget-book-stream.js": {
+      "sha256": "2cc9965a9a88c6a34a5e6c1ea9ee528f13fe52c49835faaaca13d743861d41f1",
+      "bytes": 5588,
+      "versions": []
+    },
+    "trader/exchange.html": {
+      "sha256": "7b799a3468680ca5b1d62aab97e3d813a15974e25ebdaecb1bf26d4a4a48c07c",
+      "bytes": 4182,
+      "versions": []
+    },
+    "trader/index.html": {
+      "sha256": "f7595c35ba52bf0e419d1824f13da28f76914e00aae20510f77fb5f35e2ee99e",
+      "bytes": 18834,
+      "versions": [],
+      "sourceSha256": "b6ec4749809027830d5cdcc5d78bf736585fa37f22b159d3b50976176d471794",
+      "change": "Runtime content hash reference only; published UI markup retained."
+    },
+    "us-live.html": {
+      "sha256": "50ae5a7455007400bfddf1fd4c3f4898b814051bfdbd80a4655dc752a754d998",
+      "bytes": 8472,
+      "versions": []
+    },
+    "us.html": {
+      "sha256": "86d367f25f07da942e12befc216aec46ee03712bc9cf73c53b6c3418ee7eba56",
+      "bytes": 13559,
+      "versions": [],
+      "sourceSha256": "0042535bbdb459f3e974dd7224ac5a1d11c83d9eef03d22619e064319fc1fea5",
+      "change": "Runtime content hash reference only; published UI markup retained."
+    },
+    "stock-workspace.js": {
+      "sha256": "ba06ed4af22eac005374eaec82b420a3b4f86004244d1578de35df5390506ca7",
+      "bytes": 35020,
+      "versions": [
+        "ba06ed4a"
+      ]
+    },
+    "agent-studio.css": {
+      "sha256": "18bd9cd362bcea0026915d5011c27e3b93c4fd79dbde2534231e663c26dd38ed",
+      "bytes": 7864,
+      "versions": [
+        "18bd9cd3"
+      ]
+    },
+    "auth.css": {
+      "sha256": "2afb68d7cd1bb11bf191214f20cb35424583bd6eedc09a9e888e07739a1d369f",
+      "bytes": 9968,
+      "versions": [
+        "2afb68d7"
+      ]
+    },
+    "home-watch-quotes.css": {
+      "sha256": "50c0d6af58d219966d03d664db29885fae984185e591aefcee97788809719394",
+      "bytes": 1617,
+      "versions": [
+        "50c0d6af"
+      ]
+    },
+    "screening/review.js": {
+      "sha256": "864b9dcff6a961494daada1edd5bef7666aa7fc3a631f6153b33df2218914d7d",
+      "bytes": 6370,
+      "versions": [
+        "864b9dcf"
+      ]
+    },
+    "trader/account-live.js": {
+      "sha256": "edb5141c3de55b7e82b31588acebefd108ce3a15ad0406039af0105a4cc6b89b",
+      "bytes": 24643,
+      "versions": [
+        "edb5141c"
+      ]
+    },
+    "trader/compact-details.css": {
+      "sha256": "2dd185b190ef30e76777b6c1e58bdda96d9b4a1de0cf036c26bf4de0781dfc88",
+      "bytes": 7493,
+      "versions": [
+        "2dd185b1"
+      ]
+    },
+    "trader/binance/redirect.js": {
+      "sha256": "7571603246efdd191a79645ba44d2868c9607f1e3647596d29fcb6d0bdad681f",
+      "bytes": 1194,
+      "versions": [
+        "75716032"
+      ]
+    }
+  },
+  "preservedBusinessLogic": {
+    "stock-workspace.js": "Keep GitHub stop-record persistence, read-state and cross-tab handling. Published VPS UI must not remove these fixes.",
+    "trader/account-live.js": "Keep GitHub xyz/default position compatibility. This source sync does not replace trading-data behavior."
+  }
+}

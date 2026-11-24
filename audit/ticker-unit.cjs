@@ -14,7 +14,7 @@ check('host requests measurement on startup and iframe load',()=>{assert.equal(m
 const size=(source,from,height)=>events.message({origin:from,source,data:{type:'books-market-strip-size',height}});
 check('host rejects wrong origin, wrong frame and invalid heights',()=>{for(const h of [NaN,Infinity,'45'])size(contentWindow,origin,h);size({},origin,100);size(contentWindow,'https://other.example',100);assert.deepEqual(properties,{})});
 check('host sizes the entire measured native strip',()=>{size(contentWindow,origin,44.5);assert.equal(properties['--books-ticker-height'],'45px');size(contentWindow,origin,86.25);assert.equal(properties['--books-ticker-height'],'87px')});
-check('host keeps safe minimum height',()=>{size(contentWindow,origin,10);assert.equal(properties['--books-ticker-height'],'40px')});
+check('host keeps the published compact minimum height',()=>{size(contentWindow,origin,10);assert.equal(properties['--books-ticker-height'],'32px')});
 const {feeds,quote,fresh,change,endpoint} = require('../market-strip.js');
 const html = fs.readFileSync('market-strip.html','utf8');
 const seeded = [...html.matchAll(/<a class="tape-item"[^>]*>[\s\S]*?<\/a>/g)].map(m=>m[0]);

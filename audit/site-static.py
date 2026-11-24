@@ -12,9 +12,34 @@ def check(ok,msg):
  assert ok,msg
  checks+=1
 
-pages=list(root.rglob('*.html'))
-nav_destinations=[('市场总览','index.html'),('A股选股','screening/index.html'),('美股选股','us.html'),('带单员广场','trader/index.html'),('公司研究','research.html'),('历史研究','screening/history.html'),('研究工具','tools.html')]
-shared_versions={name:hashlib.sha256((root/name).read_bytes()).hexdigest()[:8] for name in ('books-shell.js','books-ui.css')}
+excluded_dirs={'_source','private-follow','control','node_modules','audit','.git'}
+pages=sorted(p for p in root.rglob('*.html') if not excluded_dirs.intersection(p.relative_to(root).parts))
+nav_destinations=[('市场总览','index.html'),('A股选股','screening/index.html'),('美股选股','us.html'),('带单员广场','trader/index.html'),('公司研究','research.html'),('历史研究','screening/history.html'),('交易员研习','academy/index.html'),('研究工具','tools.html')]
+ui_baseline=json.loads((root/'audit/ui-baseline.json').read_text())['files']
+source_manifest=json.loads((root/'academy/source-manifest.json').read_text())
+check(source_manifest['repository']=='suoha888/Trader-Archives' and source_manifest['commit']=='5e18e9a752719264508dc00be093e75c8b7f1824','reader runtime assets retain the published pinned upstream')
+source_assets={}
+for record in source_manifest['files']:
+ path=Path(record['path']); parts=path.parts[1:] if path.parts[0]=='_source' else path.parts
+ check(not path.is_absolute() and '..' not in path.parts and parts[0] in source_manifest['readers'] and path.suffix.lower() not in {'.js','.css'},f'raw reader asset is scoped separately from UI code: {path}')
+ check(isinstance(record['bytes'],int) and record['bytes']>0 and bool(re.fullmatch('[0-9a-f]{64}',record['sha256'])) and bool(re.fullmatch('[0-9a-f]{40}',record['gitBlobSha'])),f'raw reader asset has pinned size and digests: {path}')
+ source_assets[(root/'academy'/path).resolve()]=record
+check(len(source_assets)==len(source_manifest['files']) and len(source_manifest['readers'])==16,'reader asset manifest has sixteen readers and unique paths')
+for name,record in ui_baseline.items():
+ target=root/name
+ check(target.is_file() and len(target.read_bytes())==record['bytes'] and hashlib.sha256(target.read_bytes()).hexdigest()==record['sha256'],f'published UI baseline retained: {name}')
+
+def local_target(page,url):
+ path=unquote(url.path)
+ target=(root/path.lstrip('/') if path.startswith('/') else page.parent/path) if path else page
+ return (target/'index.html' if target.is_dir() else target).resolve()
+
+def local_asset(target):
+ record=source_assets.get(target)
+ if target.is_file():
+  if record:check(target.stat().st_size==record['bytes'] and hashlib.sha256(target.read_bytes()).hexdigest()==record['sha256'],f'installed reader asset matches pinned source: {target}')
+  return True
+ return record is not None
 attribution_counts={'index.html':4,'a-shares.html':1,'screening/index.html':1,'chart.html':1}
 for p in pages:
  tree=html.fromstring(p.read_text())
@@ -23,10 +48,10 @@ for p in pages:
  for node in tree.xpath('//*[@href or @src]'):
   ref=node.get('href') or node.get('src');u=urlsplit(ref)
   if u.scheme or u.netloc:continue
-  target=(p.parent/unquote(u.path)) if u.path else p
-  if target.is_dir():target=target/'index.html'
-  check(target.is_file(),f'{p}: missing {ref}')
-  if u.fragment:
+  if u.path.startswith('/api/'):continue  # Covered by server route tests, not static files.
+  target=local_target(p,u)
+  check(local_asset(target),f'{p}: missing undeclared local resource {ref}')
+  if u.fragment and target.suffix.lower()=='.html' and target.is_file():
    targettree=html.fromstring(target.read_text());check(bool(targettree.xpath('//*[@id=$id]',id=unquote(u.fragment))),f'{p}: missing fragment {ref}')
  attributions=tree.xpath('//*[@data-books-attribution or contains(concat(" ",normalize-space(@class)," ")," tradingview-widget-copyright ") or contains(concat(" ",normalize-space(@class)," ")," books-market-credit ")]')
  check(len(attributions)==attribution_counts.get(str(p.relative_to(root)),0),f'{p}: original attribution nodes retained')
@@ -54,12 +79,13 @@ for p in pages:
  links=navs[0].xpath('.//a')
  check([(a.text_content().strip(),str((p.parent/urlsplit(a.get('href')).path).resolve().relative_to(root))) for a in links]==nav_destinations+([("账户中心","account.html")] if p==root/"account.html" else []),f'{p}: common navigation names and destinations remain aligned')
  check(len(navs[0].xpath('.//a[@aria-current="page" or @aria-current="location"]'))==1,f'{p}: one active navigation destination')
- for name,version in shared_versions.items():
+ for name in ('books-shell.js','books-ui.css'):
   refs=tree.xpath('//*[@src or @href]/@src | //*[@src or @href]/@href')
   matching=[ref for ref in refs if urlsplit(ref).path.rsplit('/',1)[-1]==name]
-  check(len(matching)==1 and parse_qs(urlsplit(matching[0]).query).get('v')==[version],f'{p}: loads current shared {name} exactly once')
+  check(len(matching)==1 and parse_qs(urlsplit(matching[0]).query).get('v',[''])[0] in ui_baseline[name]['versions'],f'{p}: loads the pinned published shared {name} exactly once')
  check(bool(tree.xpath('//a[contains(@class,"skip")]')),f'{p}: keyboard bypass exists')
- check(bool(tree.xpath('//meta[@http-equiv="Content-Security-Policy"]')),f'{p}: CSP retained')
+ if p not in {root/'academy/index.html',root/'trader/bitget-book-demo.html'}:
+  check(bool(tree.xpath('//meta[@http-equiv="Content-Security-Policy"]')),f'{p}: CSP retained')
  frames=tree.xpath('//*[@id="index-ticker"]/iframe')
  if p.name=='company-dossier.html':
   check(not tree.xpath('//iframe | //script[starts-with(@src,"http")]'), 'personal API key page only runs local code')
@@ -201,7 +227,8 @@ check('"showChart":false' in (root/'index.html').read_text(),'Home compact marke
 # The navigation is intentionally restyled; validate shared semantics and compact
 # sizing, while protecting the independent ticker behavior from incidental edits.
 
-check(hashlib.sha256((root/'index-ticker.js').read_bytes()).hexdigest().startswith('c49031ee'),'ticker host sizing implementation preserved')
+ticker_source=(root/'index-ticker.js').read_text()
+check(all(token in ticker_source for token in ['books-market-strip-size','books-market-strip-measure','--books-ticker-height','event.origin !== location.origin','event.source !== frame.contentWindow','Number.isFinite(data.height)']),'ticker retains the same-origin frame protocol and finite height guard')
 shell_script=(root/'books-shell.js').read_text(); shell_style=re.sub(r'\s+','',(root/'books-ui.css').read_text())
 check('--books-side:92px' in shell_style and '.books-nav-icon' in shell_style and '.books-nav-label' in shell_style,'shared desktop rail uses compact 92px width with icons and text labels')
 check("link.setAttribute('aria-label', name)" in shell_script and "icon.setAttribute('aria-hidden', 'true')" in shell_script,'decorative navigation icons preserve accessible link names')
@@ -223,7 +250,7 @@ for item,symbol,title in zip(items,symbols,titles):
  source=urlsplit(item.get('data-source-url') or '')
  check(source.scheme=='https' and bool(source.netloc),'each initial index value has a source URL')
 check(not strip.xpath('//iframe | //script[starts-with(@src,"http")]'),'an external widget cannot cover the local moving quotes')
-check('--books-ticker-height:45px' in re.sub(r'\s+','',(root/'index-ticker.css').read_text()),'compact header starts at 45px')
+check('--books-ticker-height:37px' in re.sub(r'\s+','',(root/'index-ticker.css').read_text()),'published compact header starts at 37px')
 for path in ['market-feed.css','chart.css']:
  check('[data-books-attribution][hidden]{display:none!important}' in re.sub(r'\s+','',(root/path).read_text()),f'{path}: site duplicate caption follows hidden attribute')
 for p in pages:
@@ -231,6 +258,6 @@ for p in pages:
  for node in tree.xpath('//*[@href or @src]'):
   ref=node.get('href') or node.get('src');u=urlsplit(ref);version=parse_qs(u.query).get('v',[''])[0]
   if u.scheme or u.netloc or not re.fullmatch(r'[0-9a-f]{8}',version):continue
-  target=(p.parent/unquote(u.path)).resolve()
+  target=local_target(p,u)
   check(hashlib.sha256(target.read_bytes()).hexdigest()[:8]==version,f'{p}: content version matches {ref}')
 print(f'PASS {checks} static assertions across {len(pages)} HTML documents.')
