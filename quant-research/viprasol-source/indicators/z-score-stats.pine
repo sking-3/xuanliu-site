@@ -1,0 +1,562 @@
+// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Viprasol
+
+//@version=6
+indicator("Viprasol Z-Score & Stats", "Viprasol Z-Score & Stats", overlay=false, precision=4, max_labels_count=500, max_lines_count=500)
+
+SCRIPT_NAME = "Viprasol Z-Score & Stats"
+
+// House dashboard palette
+DASH_BG     = #111725
+DASH_HEADER = #18233a
+DASH_FRAME  = #2a3550
+DASH_GRID   = #1c2538
+DASH_KEY    = #8a94a6
+DASH_TEXT   = #e6ebf5
+DASH_BULL   = #00ffaa
+DASH_BEAR   = #ff3d71
+DASH_WARN   = #FFD54F
+DASH_MUTED  = #5d6678
+
+enum StatsPeriod
+    calendarYear = "Calendar year"
+    barCount     = "Fixed bar count (classic)"
+
+enum LineColoring
+    zones  = "Zone colours"
+    single = "Single colour"
+
+NO_STATUS_LINE = display.all - display.status_line
+
+//@function Calculates the Z-score of a series over a lookback period.
+standardize(series float src, simple int len) =>
+    if len <= 1
+        float(na)
+    var S1 = 0.0
+    var S2 = 0.0
+    var N = 0
+    var float[] window_data_vals = array.new_float(0)
+    var bool[] window_data_is_na = array.new_bool(0)
+    float x_new = src[0]
+    bool x_new_is_na = na(x_new)
+    if array.size(window_data_vals) == len
+        float x_old_val = array.get(window_data_vals, 0)
+        bool x_old_was_na = array.get(window_data_is_na, 0)
+        array.shift(window_data_vals)
+        array.shift(window_data_is_na)
+        if not x_old_was_na
+            S1 -= x_old_val
+            S2 -= x_old_val * x_old_val
+            N -= 1
+    array.push(window_data_vals, x_new_is_na ? 0.0 : x_new)
+    array.push(window_data_is_na, x_new_is_na)
+    if not x_new_is_na
+        S1 += x_new
+        S2 += x_new * x_new
+        N += 1
+    float z_score = na
+    if N < 2
+        z_score := na
+    else
+        float mean_val = S1 / N
+        float variance_pop = (S2 / N) - (mean_val * mean_val)
+        variance_pop := variance_pop < 1e-10 ? 0.0 : variance_pop
+        float variance_sample = variance_pop * N / (N - 1)
+        float stdev_val = math.sqrt(variance_sample)
+        if x_new_is_na
+            z_score := na
+        else if stdev_val > 1e-10
+            z_score := (x_new - mean_val) / stdev_val
+        else
+            z_score := (math.abs(x_new - mean_val) < 1e-10) ? 0.0 : na
+    z_score
+
+barsAgo(int eventBar) =>
+    na(eventBar) ? "" : " · " + str.tostring(bar_index - eventBar) + (bar_index - eventBar == 1 ? " bar ago" : " bars ago")
+
+// ===============================
+// INPUTS
+// ===============================
+i_source = input.source(close, title="Source", display=display.none, tooltip="The series whose z-score is measured.")
+i_length = input.int(20, title="Lookback Period", minval=2, display=display.none, tooltip="Window for the mean and the sample standard deviation: z = (source - mean) / standard deviation over this many bars. The current bar is part of its own window, so the largest reachable |z| is (N-1)/sqrt(N), about 4.25 at 20. With 14 or less, the ±3.5 crosses, ±3.5 alerts and Setup Status can never trigger; with 17 or less, ±4.0 cannot.")
+i_stats_period = input.enum(StatsPeriod.calendarYear, "Yearly Stats Period", display=display.none, tooltip="Calendar year: Year Max |Z| covers the loaded part of the current year; Avg Yearly Max |Z| averages complete calendar years and needs at least one complete calendar year (1 Jan-31 Dec) loaded (the chart's first, partial year is skipped). Fixed bar count: the classic blocks of Bars per Year bars. On 1m-15m charts use Fixed bar count.")
+i_yearly_bars = input.int(252, title="Bars per Year", minval=1, display=display.none, tooltip="Fixed bar count mode only: bars per block. 252 matches daily stock charts; it is not a year on intraday charts.")
+i_rank_length = input.int(500, title="|Z| Rank Lookback", minval=50, maxval=2000, display=display.none, tooltip="Bars used for the historical rank of |z| in the table: the share of those bars whose |z| was at or below the current one.")
+
+// Volume Contraction Inputs
+i_vol_length = input.int(20, title="Volume MA Length", minval=2, group="Volume Contraction", display=display.none, tooltip="Length of the simple moving average of volume.")
+i_vol_threshold = input.float(0.7, title="Contraction Threshold", minval=0.1, maxval=1.0, step=0.05, group="Volume Contraction", display=display.none, tooltip="Volume below this ratio of average is considered contracted")
+
+// Direction Model Inputs
+i_show_direction = input.bool(true, title="Show Direction Arrow", group="Direction Model", tooltip="Arrow from the current z-score to its projected value. The projection extends the latest one-bar change in z; it is an extrapolation, not a forecast.")
+i_projection_bars = input.int(10, title="Projection Bars", minval=1, maxval=50, group="Direction Model", display=display.none, tooltip="How many bars ahead the projection is drawn.")
+i_momentum_factor = input.float(0.5, title="Momentum Factor", minval=0.1, maxval=2.0, step=0.1, group="Direction Model", display=display.none, tooltip="Projected z = z + (z - previous z) x Momentum Factor x Projection Bars, capped at +/-4.")
+
+// Divergence Inputs
+i_show_divergence = input.bool(true, title="Show Divergences", group="Divergence", tooltip="Lines and labels between z-score pivots that disagree with the source.")
+i_div_lookback = input.int(5, title="Pivot Lookback", minval=1, maxval=20, group="Divergence", display=display.none, tooltip="Bars on each side that confirm a z-score pivot. Divergences appear this many bars after the pivot.")
+i_div_range = input.int(60, title="Max Divergence Range", minval=10, maxval=200, group="Divergence", display=display.none, tooltip="Maximum bars between the two pivots of a divergence.")
+i_div_min_range = input.int(5, title="Min Divergence Range", minval=1, maxval=50, group="Divergence", display=display.none, tooltip="Minimum bars between the two pivots of a divergence.")
+col_bull_div = input.color(color.lime, "Bullish Divergence", group="Divergence", tooltip="Colour of regular bullish divergences.")
+col_bear_div = input.color(color.red, "Bearish Divergence", group="Divergence", tooltip="Colour of regular bearish divergences.")
+col_hidden_bull_div = input.color(color.new(color.lime, 50), "Hidden Bullish Div", group="Divergence", tooltip="Colour of hidden bullish divergences.")
+col_hidden_bear_div = input.color(color.new(color.red, 50), "Hidden Bearish Div", group="Divergence", tooltip="Colour of hidden bearish divergences.")
+i_show_hidden_div = input.bool(false, title="Show Hidden Divergences", group="Divergence", tooltip="Hidden bullish: source higher low, z-score lower low. Hidden bearish: source lower high, z-score higher high. Off by default to keep the pane light; turn on for the classic set.")
+i_div_gap = input.int(10, title="Min Bars Between Divergences", minval=0, maxval=100, group="Divergence", display=display.none, tooltip="Minimum bars between two divergence marks (bullish or bearish), so a run of pivots does not stack labels. Also applies to the divergence alerts and the table row. 0 = classic: every divergence is drawn.")
+
+// Cross Mark Settings
+i_show_crosses = input.bool(true, title="Show Cross Marks at ±3.5 SD", group="Cross Marks", tooltip="An x where the z-score first reaches +3.5 or -3.5.")
+
+// Band Re-entry Inputs
+i_show_reentry = input.bool(true, title="Show Band Re-entry Marks", group="Band Re-entry", tooltip="A small triangle on the bar the z-score closes back inside the band after being beyond it: down triangle below +level, up triangle above -level.")
+i_reentry_level = input.float(2.5, title="Re-entry Level (SD)", minval=1.0, maxval=4.0, step=0.5, group="Band Re-entry", display=display.none, tooltip="The band the z-score must close back inside. 2.5 matches the level where the Z label turns red or green; 2.0 marks about twice as many re-entries.")
+i_reentry_gap = input.int(10, title="Min Bars Between Marks", minval=1, maxval=100, group="Band Re-entry", display=display.none, tooltip="Minimum number of bars between two re-entry marks, so a z-score hovering at the level does not repeat them.")
+
+// Color Inputs
+i_line_coloring = input.enum(LineColoring.zones, "Z-Score Line Colouring", group="Colors", display=display.none, tooltip="Zone colours: the line takes the colour of its band (classic look). Single colour: the line uses the Z-Score Line colour.")
+col_zscore = input.color(color.yellow, "Z-Score Line", group="Colors", tooltip="Line colour in single-colour mode.")
+col_zero = input.color(color.gray, "Zero Line (Mean)", group="Colors", tooltip="Colour of the zero line.")
+col_sd1_pos = input.color(color.new(color.green, 50), "+1 SD", group="Colors", tooltip="Colour of the +1 SD line.")
+col_sd1_neg = input.color(color.new(color.green, 50), "-1 SD", group="Colors", tooltip="Colour of the -1 SD line.")
+col_sd2_pos = input.color(color.new(color.orange, 50), "+2 SD", group="Colors", tooltip="Colour of the +2 SD line.")
+col_sd2_neg = input.color(color.new(color.orange, 50), "-2 SD", group="Colors", tooltip="Colour of the -2 SD line.")
+col_sd3_pos = input.color(color.new(color.red, 50), "+3 SD", group="Colors", tooltip="Colour of the +3 SD line.")
+col_sd3_neg = input.color(color.new(color.red, 50), "-3 SD", group="Colors", tooltip="Colour of the -3 SD line.")
+
+// Fill Colors
+col_fill_1 = input.color(color.new(color.green, 90), "Fill ±1 SD", group="Fill Colors", tooltip="Fill between -1 and +1 SD.")
+col_fill_2 = input.color(color.new(color.orange, 90), "Fill ±2 SD", group="Fill Colors", tooltip="Fill between 1 and 2 SD on both sides.")
+col_fill_3 = input.color(color.new(color.red, 90), "Fill ±3 SD", group="Fill Colors", tooltip="Fill between 2 and 3 SD on both sides.")
+
+// Table Settings
+i_table_pos = input.string("Top Right", "Table Position", options=["Top Left", "Top Right", "Bottom Left", "Bottom Right"], group="Table Settings", display=display.none, tooltip="Corner of the statistics table.")
+i_table_size = input.string("Small", "Table Size", options=["Tiny", "Small", "Normal", "Large"], group="Table Settings", display=display.none, tooltip="Text size of the statistics table.")
+
+// Alert Settings
+i_alert_bar_close = input.bool(true, title="Z-Score Alert on Bar Close", group="Alerts", tooltip="On: the 'Any alert() function call' message fires once the bar has closed, so it matches the final chart. Off: it fires on the first tick that crosses +/-3.5 or +/-4.0 (classic), even if the bar closes back inside.")
+
+// ===============================
+// CALCULATION
+// ===============================
+z_score_value = standardize(i_source, i_length)
+
+// ===============================
+// VOLUME CONTRACTION DETECTION
+// ===============================
+vol_ma = ta.sma(volume, i_vol_length)
+vol_ratio = volume / vol_ma
+vol_contracted = vol_ratio < i_vol_threshold
+
+// ===============================
+// MOMENTUM & DIRECTION CALCULATION
+// ===============================
+z_momentum = z_score_value - nz(z_score_value[1])
+momentum_adjusted_pred = z_score_value + (z_momentum * i_momentum_factor * i_projection_bars)
+momentum_adjusted_pred := math.max(-4, math.min(4, momentum_adjusted_pred))
+
+is_bullish = z_score_value < 0 and momentum_adjusted_pred > z_score_value
+is_bearish = z_score_value > 0 and momentum_adjusted_pred < z_score_value
+
+// ===============================
+// PIVOT DETECTION FOR DIVERGENCE
+// ===============================
+z_pivot_low = ta.pivotlow(z_score_value, i_div_lookback, i_div_lookback)
+z_pivot_high = ta.pivothigh(z_score_value, i_div_lookback, i_div_lookback)
+
+// ===============================
+// DIVERGENCE DETECTION
+// ===============================
+// Arrays to store pivot data
+var float[] z_low_vals = array.new_float(0)
+var int[] z_low_bars = array.new_int(0)
+var float[] price_low_vals = array.new_float(0)
+
+var float[] z_high_vals = array.new_float(0)
+var int[] z_high_bars = array.new_int(0)
+var float[] price_high_vals = array.new_float(0)
+
+// Store pivot lows
+if not na(z_pivot_low)
+    array.unshift(z_low_vals, z_score_value[i_div_lookback])
+    array.unshift(z_low_bars, bar_index - i_div_lookback)
+    array.unshift(price_low_vals, i_source[i_div_lookback])
+    if array.size(z_low_vals) > 10
+        array.pop(z_low_vals)
+        array.pop(z_low_bars)
+        array.pop(price_low_vals)
+
+// Store pivot highs
+if not na(z_pivot_high)
+    array.unshift(z_high_vals, z_score_value[i_div_lookback])
+    array.unshift(z_high_bars, bar_index - i_div_lookback)
+    array.unshift(price_high_vals, i_source[i_div_lookback])
+    if array.size(z_high_vals) > 10
+        array.pop(z_high_vals)
+        array.pop(z_high_bars)
+        array.pop(price_high_vals)
+
+// Bullish Divergence Detection
+reg_bull_div = false
+hidden_bull_div = false
+var int bull_start_bar = na
+var float bull_start_z = na
+var int bull_end_bar = na
+var float bull_end_z = na
+
+if not na(z_pivot_low) and array.size(z_low_vals) >= 2
+    curr_z = array.get(z_low_vals, 0)
+    curr_bar = array.get(z_low_bars, 0)
+    curr_price = array.get(price_low_vals, 0)
+
+    for i = 1 to math.min(array.size(z_low_vals) - 1, 5)
+        prev_z = array.get(z_low_vals, i)
+        prev_bar = array.get(z_low_bars, i)
+        prev_price = array.get(price_low_vals, i)
+        bar_diff = curr_bar - prev_bar
+
+        if bar_diff >= i_div_min_range and bar_diff <= i_div_range
+            // Regular Bullish: Price lower low, Z-score higher low
+            if curr_price < prev_price and curr_z > prev_z
+                reg_bull_div := true
+                bull_start_bar := prev_bar
+                bull_start_z := prev_z
+                bull_end_bar := curr_bar
+                bull_end_z := curr_z
+                break
+            // Hidden Bullish: Price higher low, Z-score lower low
+            if curr_price > prev_price and curr_z < prev_z and i_show_hidden_div
+                hidden_bull_div := true
+                bull_start_bar := prev_bar
+                bull_start_z := prev_z
+                bull_end_bar := curr_bar
+                bull_end_z := curr_z
+                break
+
+// Bearish Divergence Detection
+reg_bear_div = false
+hidden_bear_div = false
+var int bear_start_bar = na
+var float bear_start_z = na
+var int bear_end_bar = na
+var float bear_end_z = na
+
+if not na(z_pivot_high) and array.size(z_high_vals) >= 2
+    curr_z = array.get(z_high_vals, 0)
+    curr_bar = array.get(z_high_bars, 0)
+    curr_price = array.get(price_high_vals, 0)
+
+    for i = 1 to math.min(array.size(z_high_vals) - 1, 5)
+        prev_z = array.get(z_high_vals, i)
+        prev_bar = array.get(z_high_bars, i)
+        prev_price = array.get(price_high_vals, i)
+        bar_diff = curr_bar - prev_bar
+
+        if bar_diff >= i_div_min_range and bar_diff <= i_div_range
+            // Regular Bearish: Price higher high, Z-score lower high
+            if curr_price > prev_price and curr_z < prev_z
+                reg_bear_div := true
+                bear_start_bar := prev_bar
+                bear_start_z := prev_z
+                bear_end_bar := curr_bar
+                bear_end_z := curr_z
+                break
+            // Hidden Bearish: Price lower high, Z-score higher high
+            if curr_price < prev_price and curr_z > prev_z and i_show_hidden_div
+                hidden_bear_div := true
+                bear_start_bar := prev_bar
+                bear_start_z := prev_z
+                bear_end_bar := curr_bar
+                bear_end_z := curr_z
+                break
+
+// Spacing between divergence marks (0 = classic, every divergence)
+var int last_div_signal_bar = na
+div_gap_ok = i_div_gap == 0 or na(last_div_signal_bar) or bar_index - last_div_signal_bar >= i_div_gap
+
+bull_div_shown = (reg_bull_div or hidden_bull_div) and div_gap_ok
+bear_div_shown = (reg_bear_div or hidden_bear_div) and div_gap_ok
+
+if bull_div_shown or bear_div_shown
+    last_div_signal_bar := bar_index
+
+// Last divergence for the table (the original row only read the current bar)
+var string last_div_text = "NONE"
+var int last_div_bar = na
+var int last_div_side = 0
+
+if bull_div_shown
+    last_div_text := reg_bull_div ? "BULL DIV" : "H.BULL DIV"
+    last_div_bar := bull_end_bar
+    last_div_side := 1
+
+if bear_div_shown
+    last_div_text := reg_bear_div ? "BEAR DIV" : "H.BEAR DIV"
+    last_div_bar := bear_end_bar
+    last_div_side := -1
+
+// ===============================
+// PLOT DIVERGENCE LINES & LABELS
+// ===============================
+if i_show_divergence and bull_div_shown and reg_bull_div
+    line.new(bull_start_bar, bull_start_z, bull_end_bar, bull_end_z, color=col_bull_div, width=1)
+    label.new(bull_end_bar, bull_end_z, "BULL", style=label.style_label_up, color=col_bull_div, textcolor=color.white, size=size.tiny)
+
+if i_show_divergence and bull_div_shown and hidden_bull_div
+    line.new(bull_start_bar, bull_start_z, bull_end_bar, bull_end_z, color=col_hidden_bull_div, width=1, style=line.style_dashed)
+    label.new(bull_end_bar, bull_end_z, "H.BULL", style=label.style_label_up, color=col_hidden_bull_div, textcolor=color.white, size=size.tiny)
+
+if i_show_divergence and bear_div_shown and reg_bear_div
+    line.new(bear_start_bar, bear_start_z, bear_end_bar, bear_end_z, color=col_bear_div, width=1)
+    label.new(bear_end_bar, bear_end_z, "BEAR", style=label.style_label_down, color=col_bear_div, textcolor=color.white, size=size.tiny)
+
+if i_show_divergence and bear_div_shown and hidden_bear_div
+    line.new(bear_start_bar, bear_start_z, bear_end_bar, bear_end_z, color=col_hidden_bear_div, width=1, style=line.style_dashed)
+    label.new(bear_end_bar, bear_end_z, "H.BEAR", style=label.style_label_down, color=col_hidden_bear_div, textcolor=color.white, size=size.tiny)
+
+// ===============================
+// YEARLY STATISTICS TRACKING
+// ===============================
+var float yearly_max_z = na
+var float yearly_min_z = na
+var float[] yearly_max_history = array.new_float(0)
+var int bar_count_year = 0
+var bool first_year_partial = true
+
+if i_stats_period == StatsPeriod.barCount
+    bar_count_year := bar_count_year + 1
+    if bar_count_year == 1
+        yearly_max_z := z_score_value
+        yearly_min_z := z_score_value
+
+    if not na(z_score_value)
+        yearly_max_z := na(yearly_max_z) ? z_score_value : math.max(yearly_max_z, z_score_value)
+        yearly_min_z := na(yearly_min_z) ? z_score_value : math.min(yearly_min_z, z_score_value)
+
+    if bar_count_year >= i_yearly_bars
+        if not na(yearly_max_z)
+            array.push(yearly_max_history, math.max(math.abs(yearly_max_z), math.abs(yearly_min_z)))
+        yearly_max_z := z_score_value
+        yearly_min_z := z_score_value
+        bar_count_year := 0
+else
+    // Calendar year: close the year on its first bar of the next year; the chart's first, partial year is not averaged
+    if not na(time[1]) and year(time) != year(time[1])
+        if not first_year_partial and not na(yearly_max_z)
+            array.push(yearly_max_history, math.max(math.abs(yearly_max_z), math.abs(yearly_min_z)))
+        first_year_partial := false
+        yearly_max_z := na
+        yearly_min_z := na
+
+    if not na(z_score_value)
+        yearly_max_z := na(yearly_max_z) ? z_score_value : math.max(yearly_max_z, z_score_value)
+        yearly_min_z := na(yearly_min_z) ? z_score_value : math.min(yearly_min_z, z_score_value)
+
+avg_yearly_max = array.size(yearly_max_history) > 0 ? array.avg(yearly_max_history) : na
+current_year_max_abs = math.max(math.abs(nz(yearly_max_z)), math.abs(nz(yearly_min_z)))
+
+// ===============================
+// NORMAL-CURVE COVERAGE
+// Share of a normal distribution that lies within +/-|z| (68.3% at 1 SD, 95.4% at 2 SD, 99.7% at 3 SD).
+// It describes how unusual the reading would be under a normal distribution; it is not a probability of reversion.
+// ===============================
+calc_normal_coverage(float z) =>
+    float abs_z = math.abs(z)
+    prob = abs_z >= 3.0 ? 99.7 : abs_z >= 2.5 ? 98.8 : abs_z >= 2.0 ? 95.4 : abs_z >= 1.5 ? 86.6 : abs_z >= 1.0 ? 68.3 : abs_z >= 0.5 ? 38.3 : 0.0
+    prob
+
+normal_coverage = calc_normal_coverage(z_score_value)
+
+// Historical rank of |z|: share of the last i_rank_length bars with |z| at or below the current one
+z_abs_rank = ta.percentrank(math.abs(z_score_value), i_rank_length)
+
+// ===============================
+// PLOT Z-SCORE LINE
+// ===============================
+// The classic look drew both lines, the coloured one on top; now only the selected one is drawn and listed
+single_color = i_line_coloring == LineColoring.single
+
+plot(z_score_value, "Z-score", color=col_zscore, linewidth=2, display=single_color ? display.all : display.none)
+
+// ===============================
+// PLOT STANDARD DEVIATION LINES
+// ===============================
+h_zero = hline(0, "Zero (Mean)", color=col_zero, linestyle=hline.style_dotted, linewidth=1)
+h_sd1_pos = hline(1, "+1 SD", color=col_sd1_pos, linestyle=hline.style_dotted)
+h_sd1_neg = hline(-1, "-1 SD", color=col_sd1_neg, linestyle=hline.style_dotted)
+h_sd2_pos = hline(2, "+2 SD", color=col_sd2_pos, linestyle=hline.style_dotted)
+h_sd2_neg = hline(-2, "-2 SD", color=col_sd2_neg, linestyle=hline.style_dotted)
+h_sd3_pos = hline(3, "+3 SD", color=col_sd3_pos, linestyle=hline.style_dotted)
+h_sd3_neg = hline(-3, "-3 SD", color=col_sd3_neg, linestyle=hline.style_dotted)
+
+fill(h_sd1_pos, h_sd1_neg, color=col_fill_1, title="±1 SD Zone")
+fill(h_sd2_pos, h_sd1_pos, color=col_fill_2, title="+1 to +2 SD Zone")
+fill(h_sd1_neg, h_sd2_neg, color=col_fill_2, title="-1 to -2 SD Zone")
+fill(h_sd3_pos, h_sd2_pos, color=col_fill_3, title="+2 to +3 SD Zone")
+fill(h_sd2_neg, h_sd3_neg, color=col_fill_3, title="-2 to -3 SD Zone")
+
+z_color = z_score_value >= 3 ? color.red : z_score_value >= 2 ? color.orange : z_score_value >= 1 ? color.green : z_score_value <= -3 ? color.red : z_score_value <= -2 ? color.orange : z_score_value <= -1 ? color.green : color.yellow
+plot(z_score_value, "Z-score Colored", color=z_color, linewidth=3, style=plot.style_line, display=single_color ? display.none : display.all)
+
+bgcolor_extreme = math.abs(z_score_value) >= 3 ? color.new(color.red, 85) : math.abs(z_score_value) >= 2 ? color.new(color.orange, 90) : na
+bgcolor(bgcolor_extreme, title="Extreme Zone Background")
+
+// ===============================
+// CROSS MARK PLOTTING (±3.5 SD ONLY)
+// ===============================
+// Track previous values to detect crossings
+var float prev_z = na
+prev_z := z_score_value[1]
+
+// Detect ±3.5 SD crossings
+cross_plus_35 = i_show_crosses and not na(z_score_value) and not na(prev_z) and prev_z < 3.5 and z_score_value >= 3.5
+cross_minus_35 = i_show_crosses and not na(z_score_value) and not na(prev_z) and prev_z > -3.5 and z_score_value <= -3.5
+
+// Plot cross marks for ±3.5 SD only, at the z-score itself (location.absolute uses the series value as the y position)
+plotshape(cross_plus_35 ? z_score_value : na, "Cross +3.5SD", shape.xcross, location.absolute, color.red, size=size.tiny, display=NO_STATUS_LINE)
+plotshape(cross_minus_35 ? z_score_value : na, "Cross -3.5SD", shape.xcross, location.absolute, color.green, size=size.tiny, display=NO_STATUS_LINE)
+
+// ===============================
+// BAND RE-ENTRY MARKS
+// The z-score closes back inside +/- Re-entry Level after being beyond it; marks are spaced by Min Bars Between Marks.
+// ===============================
+reentry_from_high = ta.crossunder(z_score_value, i_reentry_level)
+reentry_from_low = ta.crossover(z_score_value, -i_reentry_level)
+
+var int last_reentry_bar = na
+reentry_gap_ok = na(last_reentry_bar) or bar_index - last_reentry_bar >= i_reentry_gap
+
+reentry_down = barstate.isconfirmed and reentry_from_high and reentry_gap_ok
+reentry_up = barstate.isconfirmed and reentry_from_low and reentry_gap_ok
+
+if reentry_down or reentry_up
+    last_reentry_bar := bar_index
+
+plotshape(i_show_reentry and reentry_down ? z_score_value : na, "Re-entry Below +Level", shape.triangledown, location.absolute, color.new(color.red, 0), size=size.tiny, display=NO_STATUS_LINE)
+plotshape(i_show_reentry and reentry_up ? z_score_value : na, "Re-entry Above -Level", shape.triangleup, location.absolute, color.new(color.lime, 0), size=size.tiny, display=NO_STATUS_LINE)
+
+// ===============================
+// Z-SCORE VALUE LABEL
+// ===============================
+var label z_value_label = na
+
+if barstate.islast
+    label.delete(z_value_label)
+    labelBgColor = z_score_value > 2.5 ? #FF0000 : z_score_value < -2.5 ? #008000 : #808080
+    z_value_label := label.new(bar_index, z_score_value, text="Z: " + str.tostring(z_score_value, "#.##"), style=label.style_label_right, color=labelBgColor, textcolor=#FFFFFF, size=size.small)
+
+// ===============================
+// DIRECTION MODEL VISUALIZATION WITH ARROW
+// ===============================
+var line direction_arrow = na
+
+if barstate.islast and i_show_direction
+    if not na(direction_arrow)
+        line.delete(direction_arrow)
+    arrow_color = is_bullish ? color.new(#00ff08, 30) : is_bearish ? color.new(#ff0000, 30) : color.new(#888888, 30)
+    direction_arrow := line.new(x1=bar_index, y1=z_score_value, x2=bar_index + i_projection_bars, y2=momentum_adjusted_pred, color=arrow_color, style=line.style_arrow_right, width=2)
+
+// ===============================
+// STATISTICS TABLE
+// ===============================
+table_pos = i_table_pos == "Top Left" ? position.top_left : i_table_pos == "Top Right" ? position.top_right : i_table_pos == "Bottom Left" ? position.bottom_left : position.bottom_right
+table_size = i_table_size == "Tiny" ? size.tiny : i_table_size == "Small" ? size.small : i_table_size == "Large" ? size.large : size.normal
+
+// Value colours keep the old cell-background thresholds (red / orange / green / grey)
+get_z_color(float z) =>
+    abs_z = math.abs(z)
+    abs_z >= 3 ? DASH_BEAR : abs_z >= 2 ? DASH_WARN : abs_z >= 1 ? DASH_BULL : DASH_TEXT
+
+get_prob_color(float prob) =>
+    prob >= 95 ? DASH_BEAR : prob >= 60 ? DASH_WARN : DASH_BULL
+
+// One dashboard row: key in DASH_KEY, value in its state colour, no per-cell background
+dashRow(table panel, int row, string key, string value, color valueColor, string tip = na) =>
+    table.cell(panel, 0, row, key, text_color=DASH_KEY, text_size=table_size, text_halign=text.align_left)
+    table.cell(panel, 1, row, value, text_color=valueColor, text_size=table_size, text_halign=text.align_left, tooltip=tip)
+
+var table stats_table = table.new(position.top_right, 2, 12, bgcolor=DASH_BG, frame_color=DASH_FRAME, frame_width=1, border_color=DASH_GRID, border_width=1)
+
+// Merge the header row once, on the first bar
+if barstate.isfirst
+    table.merge_cells(stats_table, 0, 0, 1, 0)
+
+if barstate.islast
+    table.set_position(stats_table, table_pos)
+
+    table.cell(stats_table, 0, 0, SCRIPT_NAME, text_color=color.white, text_size=table_size, text_halign=text.align_left, bgcolor=DASH_HEADER, text_formatting=text.format_bold)
+
+    z_dir = z_score_value > 0 ? "▲" : z_score_value < 0 ? "▼" : "●"
+    dashRow(stats_table, 1, "Current Z-Score", z_dir + " " + str.tostring(z_score_value, "#.####"), get_z_color(z_score_value))
+
+    pred_dir = momentum_adjusted_pred > z_score_value ? "▲" : momentum_adjusted_pred < z_score_value ? "▼" : "●"
+    dashRow(stats_table, 2, "Projected Z (" + str.tostring(i_projection_bars) + " bars)", pred_dir + " " + str.tostring(momentum_adjusted_pred, "#.####"), get_z_color(momentum_adjusted_pred))
+
+    dashRow(stats_table, 3, "Year Max |Z|", str.tostring(current_year_max_abs, "#.####"), get_z_color(current_year_max_abs))
+    dashRow(stats_table, 4, "Avg Yearly Max |Z|", na(avg_yearly_max) ? "N/A" : str.tostring(avg_yearly_max, "#.####"), na(avg_yearly_max) ? DASH_MUTED : get_z_color(avg_yearly_max))
+
+    dashRow(stats_table, 5, "Normal Coverage ±|Z|", str.tostring(normal_coverage, "#.#") + "%", get_prob_color(normal_coverage), "Share of a normal distribution that lies within +/-|z|, stepped every 0.5 SD. It shows how unusual the reading would be if z-scores were normally distributed; it is not a probability of reversion.")
+    dashRow(stats_table, 6, "|Z| Rank (" + str.tostring(i_rank_length) + " bars)", na(z_abs_rank) ? "N/A" : str.tostring(z_abs_rank, "#") + "%", na(z_abs_rank) ? DASH_MUTED : get_prob_color(z_abs_rank), "Share of the last " + str.tostring(i_rank_length) + " bars whose |z| was at or below the current |z|, measured on this symbol and timeframe.")
+
+    abs_z_now = math.abs(z_score_value)
+    zone_text = abs_z_now >= 3 ? "EXTREME" : abs_z_now >= 2 ? "HIGH" : abs_z_now >= 1 ? "MODERATE" : "NORMAL"
+    dashRow(stats_table, 7, "Zone Status", zone_text, abs_z_now >= 3 ? DASH_BEAR : abs_z_now >= 1 ? DASH_WARN : DASH_BULL)
+
+    dir_text = is_bullish ? "BULLISH" : is_bearish ? "BEARISH" : "NEUTRAL"
+    dashRow(stats_table, 8, "Direction", dir_text, is_bullish ? DASH_BULL : is_bearish ? DASH_BEAR : DASH_MUTED, "Direction of the projected z-score: BULLISH = below 0 and projected higher, BEARISH = above 0 and projected lower. It describes the z-score, not a call on the market.")
+
+    // Divergence Status: the latest confirmed divergence and how long ago its pivot printed
+    dashRow(stats_table, 9, "Divergence", last_div_text + barsAgo(last_div_bar), last_div_side == 1 ? DASH_BULL : last_div_side == -1 ? DASH_BEAR : DASH_MUTED)
+
+    // Volume Contraction Status
+    vol_text = na(vol_ratio) ? "NO VOLUME DATA" : vol_contracted ? "YES (" + str.tostring(vol_ratio, "#.##") + "x)" : "NO (" + str.tostring(vol_ratio, "#.##") + "x)"
+    dashRow(stats_table, 10, "Volume Contraction", vol_text, vol_contracted ? DASH_WARN : DASH_MUTED)
+
+    // Setup Status: |z| at or beyond 3.5 while volume is contracted (a description of the bar, not an entry call)
+    is_optimal_long = z_score_value <= -3.5 and vol_contracted
+    is_optimal_short = z_score_value >= 3.5 and vol_contracted
+    optimal_text = is_optimal_long ? "OVERSOLD + LOW VOL" : is_optimal_short ? "OVERBOUGHT + LOW VOL" : "NONE"
+    dashRow(stats_table, 11, "Setup Status", optimal_text, is_optimal_long ? DASH_BULL : is_optimal_short ? DASH_BEAR : DASH_MUTED, "Z-score at or beyond 3.5 SD while volume is below the contraction threshold.")
+
+// ===============================
+// ALERTS
+// ===============================
+// Alert conditions with confirmation (previous bar must be below/above threshold)
+alert_z_plus_35 = z_score_value >= 3.5 and nz(z_score_value[1]) < 3.5
+alert_z_minus_35 = z_score_value <= -3.5 and nz(z_score_value[1]) > -3.5
+alert_z_plus_4 = z_score_value >= 4.0 and nz(z_score_value[1]) < 4.0
+alert_z_minus_4 = z_score_value <= -4.0 and nz(z_score_value[1]) > -4.0
+
+extreme_setup_low = barstate.isconfirmed and z_score_value <= -3.5 and vol_contracted and not (nz(z_score_value[1]) <= -3.5 and vol_contracted[1])
+extreme_setup_high = barstate.isconfirmed and z_score_value >= 3.5 and vol_contracted and not (nz(z_score_value[1]) >= 3.5 and vol_contracted[1])
+
+// Construct alert message
+alert_message = ""
+if alert_z_plus_35
+    alert_message := alert_message + "Z-Score >= +3.5 SD (Overbought Extreme)\n"
+if alert_z_minus_35
+    alert_message := alert_message + "Z-Score <= -3.5 SD (Oversold Extreme)\n"
+if alert_z_plus_4
+    alert_message := alert_message + "Z-Score >= +4.0 SD (CRITICAL Overbought)\n"
+if alert_z_minus_4
+    alert_message := alert_message + "Z-Score <= -4.0 SD (CRITICAL Oversold)\n"
+
+// Trigger single alert when any condition is met (on the bar close by default)
+alert_triggered = alert_z_plus_35 or alert_z_minus_35 or alert_z_plus_4 or alert_z_minus_4
+
+if alert_triggered
+    alert(SCRIPT_NAME + " | " + syminfo.prefix + ":" + syminfo.ticker + " | " + timeframe.period + "\nZ-Score Alert:\n" + alert_message + "Current Z-Score: " + str.tostring(z_score_value, "#.####"), i_alert_bar_close ? alert.freq_once_per_bar_close : alert.freq_once_per_bar)
+
+alertcondition(barstate.isconfirmed and alert_z_plus_35, title="Viprasol Z-Score & Stats - Z at +3.5", message="Viprasol Z-Score & Stats: z-score closed at or above +3.5 (overbought extreme) | {{ticker}} | {{interval}} | Close {{close}}")
+alertcondition(barstate.isconfirmed and alert_z_minus_35, title="Viprasol Z-Score & Stats - Z at -3.5", message="Viprasol Z-Score & Stats: z-score closed at or below -3.5 (oversold extreme) | {{ticker}} | {{interval}} | Close {{close}}")
+alertcondition(barstate.isconfirmed and alert_z_plus_4, title="Viprasol Z-Score & Stats - Z at +4.0", message="Viprasol Z-Score & Stats: z-score closed at or above +4.0 | {{ticker}} | {{interval}} | Close {{close}}")
+alertcondition(barstate.isconfirmed and alert_z_minus_4, title="Viprasol Z-Score & Stats - Z at -4.0", message="Viprasol Z-Score & Stats: z-score closed at or below -4.0 | {{ticker}} | {{interval}} | Close {{close}}")
+alertcondition(reentry_down, title="Viprasol Z-Score & Stats - Re-entry Below +Level", message="Viprasol Z-Score & Stats: z-score closed back inside the upper band | {{ticker}} | {{interval}} | Close {{close}}")
+alertcondition(reentry_up, title="Viprasol Z-Score & Stats - Re-entry Above -Level", message="Viprasol Z-Score & Stats: z-score closed back inside the lower band | {{ticker}} | {{interval}} | Close {{close}}")
+alertcondition(barstate.isconfirmed and bull_div_shown, title="Viprasol Z-Score & Stats - Bullish Divergence", message="Viprasol Z-Score & Stats: bullish divergence confirmed (regular or hidden) | {{ticker}} | {{interval}} | Close {{close}}")
+alertcondition(barstate.isconfirmed and bear_div_shown, title="Viprasol Z-Score & Stats - Bearish Divergence", message="Viprasol Z-Score & Stats: bearish divergence confirmed (regular or hidden) | {{ticker}} | {{interval}} | Close {{close}}")
+alertcondition(extreme_setup_low, title="Viprasol Z-Score & Stats - Oversold Extreme + Low Volume", message="Viprasol Z-Score & Stats: z-score at or below -3.5 with contracted volume | {{ticker}} | {{interval}} | Close {{close}}")
+alertcondition(extreme_setup_high, title="Viprasol Z-Score & Stats - Overbought Extreme + Low Volume", message="Viprasol Z-Score & Stats: z-score at or above +3.5 with contracted volume | {{ticker}} | {{interval}} | Close {{close}}")
+
+// ===============================
+// END OF SCRIPT
+// ===============================

@@ -1,0 +1,437 @@
+// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Viprasol
+
+//@version=6
+indicator("Pressure Flow Pro [Viprasol]", shorttitle="Pressure Flow Pro Viprasol", overlay=true, max_lines_count=20, max_labels_count=500)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// INPUT GROUPS & OPTIONS
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+G_TREND    = "1 · Trend"
+G_PRESSURE = "2 · Candle Pressure & Volume"
+G_LIQ      = "3 · Liquidity Break / Sweep"
+G_FILTER   = "4 · Signal Filter"
+G_RISK     = "5 · Stop & Targets"
+G_DISPLAY  = "6 · Display"
+G_ALERT    = "7 · Alerts"
+
+enum SweepRule
+    rejection   = "Rejection close + EMA stack"
+    sameAsBreak = "Same as breaks (body + close beyond fast EMA)"
+
+enum MinGrade
+    allGrades = "A, B and C"
+    abOnly    = "A and B"
+    aOnly     = "A only"
+
+enum AlertFormat
+    plainText   = "Text"
+    jsonPayload = "JSON"
+
+enum SignalStyle
+    compact  = "Compact: BUY / SELL + grade"
+    detailed = "Detailed: grade + BREAK / SWEEP"
+    classic  = "Plain BUY / SELL (classic)"
+
+// Pressure score weights and grade cut-offs
+W_STRENGTH  = 0.35
+W_CLOSE     = 0.35
+W_VOLUME    = 0.30
+GRADE_A_MIN = 85
+GRADE_B_MIN = 70
+
+PANEL_BG  = color.rgb(20, 20, 32)
+HEADER_BG = color.rgb(35, 35, 55)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// SETTINGS
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+fastLen     = input.int(21, "Fast EMA", minval=1, group=G_TREND, display=display.none, tooltip="Fast trend EMA. Bullish trend: fast EMA above the slow EMA and the close above the fast EMA. Bearish: the mirror.")
+slowLen     = input.int(50, "Slow EMA", minval=2, group=G_TREND, display=display.none, tooltip="Slow trend EMA.")
+showEMAs    = input.bool(true, "Show Trend EMAs", group=G_TREND, tooltip="Plots the fast and slow EMA.")
+
+minBody     = input.float(0.45, "Minimum Candle Body Ratio", minval=0.1, maxval=1.0, step=0.05, group=G_PRESSURE, display=display.none, tooltip="Candle pressure for break entries: the body must be at least this share of the bar's high-low range, in the trend direction.")
+volLen      = input.int(20, "Volume Average", minval=1, group=G_PRESSURE, display=display.none, tooltip="Length of the simple moving average of volume used for relative volume.")
+volMult     = input.float(1.0, "Relative Volume Filter", minval=0.1, step=0.1, group=G_PRESSURE, display=display.none, tooltip="Signal bars need volume of at least this multiple of the volume average. Symbols without volume data pass automatically.")
+
+swingLen    = input.int(20, "Liquidity Lookback", minval=5, group=G_LIQ, display=display.none, tooltip="Bars used for the prior high / low. Break: close beyond the highest high / lowest low of the previous N bars. Sweep: wick beyond it and close back inside.")
+sweepRule   = input.enum(SweepRule.rejection, "Sweep Entry Rule", group=G_LIQ, display=display.none, tooltip="Rejection close + EMA stack: a sweep entry needs the fast EMA above the slow EMA (below for SELL) and a candle that closes in the signal direction near its extreme. Closing back inside the swept level is the reclaim, so the close-beyond-fast-EMA test is not used. Same as breaks: sweeps must pass the break rules (strong body, close beyond the fast EMA), which sweep bars rarely do.")
+sweepClose  = input.float(0.6, "Sweep Rejection Close", minval=0.5, maxval=0.95, step=0.05, group=G_LIQ, display=display.none, tooltip="Rejection rule only: where the close must sit in the bar's range. 0.6 = the top 40% of the bar for a BUY, the bottom 40% for a SELL.")
+showSweeps  = input.bool(false, "Mark Liquidity Sweeps", group=G_LIQ, tooltip="Circles every confirmed sweep, whether or not it becomes a signal. Off by default to keep the chart clean; the dashboard always shows the last sweep, and the sweep alerts work either way.")
+
+cooldown    = input.int(10, "Signal Cooldown (bars)", minval=0, group=G_FILTER, display=display.none, tooltip="Minimum number of candles between two signals, in either direction. The classic version used 8.")
+minGrade    = input.enum(MinGrade.abOnly, "Minimum Signal Grade", group=G_FILTER, display=display.none, tooltip="Hide weaker signals by pressure grade: A = score 85+, B = 70-84, C = below 70. Default A and B; choose A, B and C to see every signal, as in the classic version. Filtered setups do not start a cooldown.")
+
+atrLen      = input.int(14, "ATR Length", minval=1, group=G_RISK, display=display.none, tooltip="ATR period for the stop distance.")
+stopATR     = input.float(1.2, "Stop Distance (ATR)", minval=0.1, step=0.1, group=G_RISK, display=display.none, tooltip="BUY stop = the lower of the signal bar's low and the close minus this many ATRs. SELL: the mirror.")
+rr1         = input.float(1.0, "Target 1 (R)", minval=0.25, step=0.25, group=G_RISK, display=display.none, tooltip="Target 1 as a multiple of the risk (entry to stop).")
+rr2         = input.float(2.0, "Target 2 (R)", minval=0.5, step=0.25, group=G_RISK, display=display.none, tooltip="Target 2 as a multiple of the risk.")
+extendBars  = input.int(20, "Level Label Distance", minval=5, maxval=100, group=G_RISK, display=display.none, tooltip="While a trade is open, how far right of the current bar its entry, stop and target lines reach. With End Levels at Stop / Target off: how many bars the lines run from the signal (classic).")
+stopAtHit   = input.bool(true, "End Levels at Stop / Target", group=G_RISK, tooltip="On: the lines run from the signal bar until the trade ends. TP1 stops with a tick on the bar price reaches it; all lines stop on the bar the stop (cross) or TP2 is hit. A bar that touches both the stop and a target counts as the stop. Off: fixed-length lines (classic).")
+
+signalStyle = input.enum(SignalStyle.compact, "Signal Labels", group=G_DISPLAY, display=display.none, tooltip="Compact: a small one-line BUY / SELL label with the pressure grade. Detailed: adds a second line saying whether a BREAK or a SWEEP fired it. Plain: the classic BUY / SELL markers. Hover a compact or detailed label for the trigger and the score breakdown.")
+showPanel   = input.bool(true, "Show Dashboard", group=G_DISPLAY, tooltip="Trend, live candle pressure and volume, last sweep and last signal.")
+panelPos    = input.string("Top Right", "Dashboard Position", options=["Top Left", "Top Center", "Top Right", "Middle Left", "Middle Center", "Middle Right", "Bottom Left", "Bottom Center", "Bottom Right"], group=G_DISPLAY, display=display.none, tooltip="Move the dashboard if it covers price or the symbol header.")
+
+alertLevels = input.bool(true, "BUY / SELL Alerts with Levels", group=G_ALERT, tooltip="Sends each BUY / SELL with grade, trigger, entry, stop and both targets through alert(). Create the alert with the condition: Any alert() function call.")
+alertFormat = input.enum(AlertFormat.plainText, "Alert Message Format", group=G_ALERT, display=display.none, tooltip="Text reads well in app and email notifications. JSON suits webhooks and automation tools.")
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// HELPERS
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+tablePosition(string pos) =>
+    switch pos
+        "Top Left"      => position.top_left
+        "Top Center"    => position.top_center
+        "Top Right"     => position.top_right
+        "Middle Left"   => position.middle_left
+        "Middle Center" => position.middle_center
+        "Middle Right"  => position.middle_right
+        "Bottom Left"   => position.bottom_left
+        "Bottom Center" => position.bottom_center
+        => position.bottom_right
+
+priceText(float value) =>
+    str.tostring(value, format.mintick)
+
+barsAgo(int eventBar) =>
+    na(eventBar) ? "" : " · " + str.tostring(bar_index - eventBar) + (bar_index - eventBar == 1 ? " bar ago" : " bars ago")
+
+pressureGrade(float score) =>
+    score >= GRADE_A_MIN ? "A" : score >= GRADE_B_MIN ? "B" : "C"
+
+gradeRank(string grade) =>
+    grade == "A" ? 3 : grade == "B" ? 2 : 1
+
+// Stops a level line and its price label on the current bar, optionally marking it
+endLevel(line levelLine, label levelLabel, string mark) =>
+    line.set_x2(levelLine, bar_index)
+    label.set_x(levelLabel, bar_index)
+    if mark != ""
+        label.set_text(levelLabel, label.get_text(levelLabel) + " " + mark)
+
+// Plain EXCHANGE:SYMBOL, so modified tickers (extended hours, adjustments) keep the JSON valid
+symbolText() =>
+    syminfo.prefix + ":" + syminfo.ticker
+
+signalMessage(string side, string grade, string trigger, float entryPrice, float stopPrice, float target1, float target2) =>
+    string message = ""
+    if alertFormat == AlertFormat.jsonPayload
+        message := '{"indicator":"Pressure Flow Pro Viprasol","signal":"' + side + '","grade":"' + grade + '","trigger":"' + trigger + '","ticker":"' + symbolText() + '","timeframe":"' + timeframe.period + '","entry":' + priceText(entryPrice) + ',"sl":' + priceText(stopPrice) + ',"tp1":' + priceText(target1) + ',"tp2":' + priceText(target2) + '}'
+    else
+        message := "Pressure Flow Pro Viprasol | " + side + " " + grade + " | " + trigger + " | " + symbolText() + " | " + timeframe.period + " | Entry " + priceText(entryPrice) + " | SL " + priceText(stopPrice) + " | TP1 " + priceText(target1) + " | TP2 " + priceText(target2)
+    message
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// CORE CALCULATIONS
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+fastEMA = ta.ema(close, fastLen)
+slowEMA = ta.ema(close, slowLen)
+atr     = ta.atr(atrLen)
+volAvg  = ta.sma(volume, volLen)
+
+barRange = math.max(high - low, syminfo.mintick)
+bodyRatio = math.abs(close - open) / barRange
+
+bullTrend = fastEMA > slowEMA and close > fastEMA
+bearTrend = fastEMA < slowEMA and close < fastEMA
+
+volumeOK = na(volume) or na(volAvg) or volume >= volAvg * volMult
+bullPressure = close > open and bodyRatio >= minBody
+bearPressure = close < open and bodyRatio >= minBody
+
+priorHigh = ta.highest(high[1], swingLen)
+priorLow  = ta.lowest(low[1], swingLen)
+
+sweepLow  = low < priorLow and close > priorLow
+sweepHigh = high > priorHigh and close < priorHigh
+
+breakUp   = close > priorHigh
+breakDown = close < priorLow
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// ENTRY TRIGGERS: BREAK OR SWEEP
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+bullClosePos = (close - low) / barRange
+bearClosePos = (high - close) / barRange
+
+useRejection  = sweepRule == SweepRule.rejection
+bullRejection = close > open and bullClosePos >= sweepClose
+bearRejection = close < open and bearClosePos >= sweepClose
+
+longBreak  = breakUp and bullTrend and bullPressure
+shortBreak = breakDown and bearTrend and bearPressure
+longSweep  = sweepLow and (useRejection ? fastEMA > slowEMA and bullRejection : bullTrend and bullPressure)
+shortSweep = sweepHigh and (useRejection ? fastEMA < slowEMA and bearRejection : bearTrend and bearPressure)
+
+longTrigger  = longBreak and longSweep ? "BREAK + SWEEP" : longBreak ? "BREAK" : "SWEEP"
+shortTrigger = shortBreak and shortSweep ? "BREAK + SWEEP" : shortBreak ? "BREAK" : "SWEEP"
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// PRESSURE SCORE (0-100) AND GRADE
+// strength = body / range for a BREAK, rejection wick / range for a SWEEP
+// score = 100 x (0.35 strength + 0.35 close location + 0.30 relative volume), rounded
+// close location = where the close sits in the bar's range, in the signal direction
+// relative volume term = volume / average, capped at 2x (scaled 0-1)
+// symbols without volume: 100 x (0.5 strength + 0.5 close location)
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+relVolume   = na(volume) or na(volAvg) or volAvg <= 0 ? na : volume / volAvg
+hasVolume   = not na(relVolume)
+volumeScore = hasVolume ? math.min(relVolume / 2.0, 1.0) : 0.0
+
+bullWick = (math.min(open, close) - low) / barRange
+bearWick = (high - math.max(open, close)) / barRange
+
+bullSweepOnly = longSweep and not longBreak
+bearSweepOnly = shortSweep and not shortBreak
+bullStrength  = bullSweepOnly ? bullWick : bodyRatio
+bearStrength  = bearSweepOnly ? bearWick : bodyRatio
+
+bullScore = math.round(hasVolume ? 100.0 * (W_STRENGTH * bullStrength + W_CLOSE * bullClosePos + W_VOLUME * volumeScore) : 100.0 * (0.5 * bullStrength + 0.5 * bullClosePos))
+bearScore = math.round(hasVolume ? 100.0 * (W_STRENGTH * bearStrength + W_CLOSE * bearClosePos + W_VOLUME * volumeScore) : 100.0 * (0.5 * bearStrength + 0.5 * bearClosePos))
+
+bullGrade = pressureGrade(bullScore)
+bearGrade = pressureGrade(bearScore)
+bullRank  = gradeRank(bullGrade)
+bearRank  = gradeRank(bearGrade)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// SELECTIVE SIGNAL LOGIC
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+minRank = minGrade == MinGrade.aOnly ? 3 : minGrade == MinGrade.abOnly ? 2 : 1
+
+longSetup  = (longBreak or longSweep) and volumeOK and bullRank >= minRank
+shortSetup = (shortBreak or shortSweep) and volumeOK and bearRank >= minRank
+
+var int lastSignalBar = na
+cooldownOK = na(lastSignalBar) or bar_index - lastSignalBar > cooldown
+
+buySignal  = barstate.isconfirmed and longSetup and cooldownOK
+sellSignal = barstate.isconfirmed and shortSetup and cooldownOK
+
+var string lastSignalText = "WAIT"
+var int    lastSignalDir  = 0
+
+if buySignal or sellSignal
+    lastSignalBar := bar_index
+    lastSignalText := buySignal ? "BUY " + bullGrade + " · " + longTrigger : "SELL " + bearGrade + " · " + shortTrigger
+    lastSignalDir := buySignal ? 1 : -1
+
+sweepLowConfirmed  = sweepLow and barstate.isconfirmed
+sweepHighConfirmed = sweepHigh and barstate.isconfirmed
+
+var string lastSweepText = "NONE"
+var int    lastSweepBar  = na
+
+if sweepLowConfirmed or sweepHighConfirmed
+    lastSweepText := sweepLowConfirmed and sweepHighConfirmed ? "BOTH SIDES" : sweepLowConfirmed ? "LOW SWEEP" : "HIGH SWEEP"
+    lastSweepBar := bar_index
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// CHART VISUALS
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+color bullColor = color.rgb(0, 220, 170)
+color bearColor = color.rgb(220, 70, 120)
+color fastColor = color.rgb(65, 170, 255)
+color slowColor = color.rgb(175, 110, 255)
+
+plot(showEMAs ? fastEMA : na, "Fast EMA", color=fastColor, linewidth=2)
+plot(showEMAs ? slowEMA : na, "Slow EMA", color=slowColor, linewidth=2)
+
+NO_STATUS_LINE = display.all - display.status_line
+
+plainLabels   = signalStyle == SignalStyle.classic
+detailedLabel = signalStyle == SignalStyle.detailed
+labelSize     = detailedLabel ? size.small : size.tiny
+
+plotshape(buySignal and plainLabels, title="BUY Signal", style=shape.labelup,
+     location=location.belowbar, color=bullColor, text="BUY",
+     textcolor=color.black, size=size.small, display=NO_STATUS_LINE)
+
+plotshape(sellSignal and plainLabels, title="SELL Signal", style=shape.labeldown,
+     location=location.abovebar, color=bearColor, text="SELL",
+     textcolor=color.white, size=size.small, display=NO_STATUS_LINE)
+
+plotshape(showSweeps and sweepLowConfirmed,
+     title="Low Liquidity Sweep", style=shape.circle,
+     location=location.belowbar, color=color.aqua, size=size.tiny, display=NO_STATUS_LINE)
+
+plotshape(showSweeps and sweepHighConfirmed,
+     title="High Liquidity Sweep", style=shape.circle,
+     location=location.abovebar, color=color.fuchsia, size=size.tiny, display=NO_STATUS_LINE)
+
+volumeTip = hasVolume ? "Volume " + str.tostring(relVolume, "#.##") + "x its average" : "No volume data on this symbol"
+
+if buySignal and not plainLabels
+    string buyStrength = (bullSweepOnly ? "Rejection wick " : "Body ") + str.tostring(bullStrength * 100, "#") + "% of range"
+    string buyTip = "Pressure score " + str.tostring(bullScore) + " (grade " + bullGrade + ")\nTrigger: " + longTrigger + "\n" + buyStrength + ", close at " + str.tostring(bullClosePos * 100, "#") + "% of range\n" + volumeTip
+    string buyText = detailedLabel ? "BUY " + bullGrade + "\n" + longTrigger : "BUY " + bullGrade
+    label.new(bar_index, low, buyText, yloc=yloc.belowbar, style=label.style_label_up, color=bullColor, textcolor=color.black, size=labelSize, tooltip=buyTip)
+
+if sellSignal and not plainLabels
+    string sellStrength = (bearSweepOnly ? "Rejection wick " : "Body ") + str.tostring(bearStrength * 100, "#") + "% of range"
+    string sellTip = "Pressure score " + str.tostring(bearScore) + " (grade " + bearGrade + ")\nTrigger: " + shortTrigger + "\n" + sellStrength + ", close at " + str.tostring((1.0 - bearClosePos) * 100, "#") + "% of range\n" + volumeTip
+    string sellText = detailedLabel ? "SELL " + bearGrade + "\n" + shortTrigger : "SELL " + bearGrade
+    label.new(bar_index, high, sellText, yloc=yloc.abovebar, style=label.style_label_down, color=bearColor, textcolor=color.white, size=labelSize, tooltip=sellTip)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// ENTRY AND TARGET LEVELS
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+var line entryLine = na
+var line stopLine  = na
+var line tp1Line   = na
+var line tp2Line   = na
+
+var label entryLabel = na
+var label stopLabel  = na
+var label tp1Label   = na
+var label tp2Label   = na
+
+// Trade tracking: the latest signal's lines run until the stop or TP2 is hit
+var bool  tradeOpen = false
+var int   tradeDir  = 0
+var int   tradeBar  = na
+var float tradeStop = na
+var float tradeT1   = na
+var float tradeT2   = na
+var bool  t1Done    = false
+var bool  t2Done    = false
+
+if buySignal or sellSignal
+    if not na(entryLine)
+        line.delete(entryLine)
+    if not na(stopLine)
+        line.delete(stopLine)
+    if not na(tp1Line)
+        line.delete(tp1Line)
+    if not na(tp2Line)
+        line.delete(tp2Line)
+    if not na(entryLabel)
+        label.delete(entryLabel)
+    if not na(stopLabel)
+        label.delete(stopLabel)
+    if not na(tp1Label)
+        label.delete(tp1Label)
+    if not na(tp2Label)
+        label.delete(tp2Label)
+
+    float entryPrice = close
+    float stopPrice = buySignal ? math.min(low, close - atr * stopATR) : math.max(high, close + atr * stopATR)
+    float riskSize = math.max(math.abs(entryPrice - stopPrice), syminfo.mintick)
+    float tp1Price = buySignal ? entryPrice + riskSize * rr1 : entryPrice - riskSize * rr1
+    float tp2Price = buySignal ? entryPrice + riskSize * rr2 : entryPrice - riskSize * rr2
+
+    tradeOpen := true
+    tradeDir  := buySignal ? 1 : -1
+    tradeBar  := bar_index
+    tradeStop := stopPrice
+    tradeT1   := tp1Price
+    tradeT2   := tp2Price
+    t1Done    := false
+    t2Done    := false
+
+    int endBar = bar_index + extendBars
+    color signalColor = buySignal ? bullColor : bearColor
+
+    entryLine := line.new(bar_index, entryPrice, endBar, entryPrice, color=chart.fg_color, width=2)
+    stopLine  := line.new(bar_index, stopPrice, endBar, stopPrice, color=color.orange, width=2, style=line.style_dashed)
+    tp1Line   := line.new(bar_index, tp1Price, endBar, tp1Price, color=signalColor, width=2)
+    tp2Line   := line.new(bar_index, tp2Price, endBar, tp2Price, color=signalColor, width=2, style=line.style_dashed)
+
+    entryLabel := label.new(endBar, entryPrice, "ENTRY  " + priceText(entryPrice), style=label.style_label_left, color=color.gray, textcolor=color.white)
+    stopLabel  := label.new(endBar, stopPrice, "SL  " + priceText(stopPrice), style=label.style_label_left, color=color.orange, textcolor=color.black)
+    tp1Label   := label.new(endBar, tp1Price, "TP1  " + priceText(tp1Price), style=label.style_label_left, color=signalColor, textcolor=color.black)
+    tp2Label   := label.new(endBar, tp2Price, "TP2  " + priceText(tp2Price), style=label.style_label_left, color=signalColor, textcolor=color.black)
+
+    if alertLevels
+        string alertSide = buySignal ? "BUY" : "SELL"
+        string alertGrade = buySignal ? bullGrade : bearGrade
+        string alertTrigger = buySignal ? longTrigger : shortTrigger
+        alert(signalMessage(alertSide, alertGrade, alertTrigger, entryPrice, stopPrice, tp1Price, tp2Price), alert.freq_once_per_bar_close)
+
+if stopAtHit and tradeOpen and barstate.isconfirmed and bar_index > tradeBar
+    bool isLong  = tradeDir == 1
+    bool stopHit = isLong ? low <= tradeStop : high >= tradeStop
+    bool hit1    = not t1Done and (isLong ? high >= tradeT1 : low <= tradeT1)
+    bool hit2    = not t2Done and (isLong ? high >= tradeT2 : low <= tradeT2)
+
+    // A bar that touches the stop and a target is counted as the stop (conservative)
+    if stopHit
+        tradeOpen := false
+        endLevel(stopLine, stopLabel, "✗")
+    else
+        if hit1
+            t1Done := true
+            endLevel(tp1Line, tp1Label, "✓")
+        if hit2
+            t2Done := true
+            tradeOpen := false
+            endLevel(tp2Line, tp2Label, "✓")
+
+    if not tradeOpen
+        endLevel(entryLine, entryLabel, "")
+        if not stopHit
+            endLevel(stopLine, stopLabel, "")
+        if not t1Done
+            endLevel(tp1Line, tp1Label, "")
+        if not t2Done
+            endLevel(tp2Line, tp2Label, "")
+
+// Open trade: keep its levels reaching the right edge
+if stopAtHit and barstate.islast and tradeOpen and not na(entryLine)
+    int openEnd = bar_index + extendBars
+    line.set_x2(entryLine, openEnd)
+    label.set_x(entryLabel, openEnd)
+    line.set_x2(stopLine, openEnd)
+    label.set_x(stopLabel, openEnd)
+    if not t1Done
+        line.set_x2(tp1Line, openEnd)
+        label.set_x(tp1Label, openEnd)
+    if not t2Done
+        line.set_x2(tp2Line, openEnd)
+        label.set_x(tp2Label, openEnd)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// LIVE DASHBOARD
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+var table panel = table.new(tablePosition(panelPos), 2, 6, bgcolor=PANEL_BG, border_width=1, frame_color=color.new(color.gray, 55))
+
+if barstate.isfirst
+    table.merge_cells(panel, 0, 0, 1, 0)
+
+if barstate.islast and showPanel
+    string trendText = bullTrend ? "BULLISH" : bearTrend ? "BEARISH" : "NEUTRAL"
+    color trendColor = bullTrend ? bullColor : bearTrend ? bearColor : color.gray
+    float liveScore = close >= open ? bullScore : bearScore
+    string pressureText = bullPressure ? "BUY PRESSURE" : bearPressure ? "SELL PRESSURE" : "BALANCED"
+    pressureText += " · " + str.tostring(liveScore, "#") + " " + pressureGrade(liveScore)
+    string volumeText = (volumeOK ? "PASS" : "LOW") + (hasVolume ? " · " + str.tostring(relVolume, "#.##") + "x" : " · NO DATA")
+    bool sweepForming = not barstate.isconfirmed and (sweepLow or sweepHigh)
+    string formingText = (sweepLow and sweepHigh ? "BOTH SIDES" : sweepLow ? "LOW SWEEP" : "HIGH SWEEP") + " FORMING"
+    string sweepText = sweepForming ? formingText : lastSweepText + barsAgo(lastSweepBar)
+    color signalTextColor = lastSignalDir == 1 ? bullColor : lastSignalDir == -1 ? bearColor : color.white
+
+    table.cell(panel, 0, 0, "Pressure Flow Pro Viprasol", bgcolor=HEADER_BG, text_color=color.white)
+    table.cell(panel, 0, 1, "TREND", text_color=color.white, bgcolor=color.new(color.gray, 80))
+    table.cell(panel, 1, 1, trendText, text_color=trendColor)
+    table.cell(panel, 0, 2, "CANDLE PRESSURE", text_color=color.white, bgcolor=color.new(color.gray, 80))
+    table.cell(panel, 1, 2, pressureText, text_color=bullPressure ? bullColor : bearPressure ? bearColor : color.gray)
+    table.cell(panel, 0, 3, "VOLUME FILTER", text_color=color.white, bgcolor=color.new(color.gray, 80))
+    table.cell(panel, 1, 3, volumeText, text_color=volumeOK ? bullColor : bearColor)
+    table.cell(panel, 0, 4, "LAST SWEEP", text_color=color.white, bgcolor=color.new(color.gray, 80))
+    table.cell(panel, 1, 4, sweepText, text_color=sweepForming ? color.yellow : color.white)
+    table.cell(panel, 0, 5, "LAST SIGNAL", text_color=color.white, bgcolor=color.new(color.gray, 80))
+    table.cell(panel, 1, 5, lastSignalText + barsAgo(lastSignalBar), text_color=signalTextColor)
+
+if barstate.islast and not showPanel
+    table.clear(panel, 0, 0, 1, 5)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// ALERTS
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+alertcondition(buySignal, title="Pressure Flow Pro Viprasol - BUY", message="Pressure Flow Pro Viprasol: BUY signal on {{ticker}} ({{interval}}) at {{close}}")
+alertcondition(sellSignal, title="Pressure Flow Pro Viprasol - SELL", message="Pressure Flow Pro Viprasol: SELL signal on {{ticker}} ({{interval}}) at {{close}}")
+alertcondition(buySignal and bullGrade == "A", title="Pressure Flow Pro Viprasol - BUY (Grade A)", message="Pressure Flow Pro Viprasol: grade A BUY signal on {{ticker}} ({{interval}}) at {{close}}")
+alertcondition(sellSignal and bearGrade == "A", title="Pressure Flow Pro Viprasol - SELL (Grade A)", message="Pressure Flow Pro Viprasol: grade A SELL signal on {{ticker}} ({{interval}}) at {{close}}")
+alertcondition(sweepLowConfirmed, title="Pressure Flow Pro Viprasol - Low Liquidity Sweep", message="Pressure Flow Pro Viprasol: potential low-side liquidity sweep on {{ticker}} ({{interval}}) at {{close}}")
+alertcondition(sweepHighConfirmed, title="Pressure Flow Pro Viprasol - High Liquidity Sweep", message="Pressure Flow Pro Viprasol: potential high-side liquidity sweep on {{ticker}} ({{interval}}) at {{close}}")

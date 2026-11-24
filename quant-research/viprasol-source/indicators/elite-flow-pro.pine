@@ -1,0 +1,359 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © viprasol
+
+//@version=6
+indicator("Viprasol Elite Flow Pro", overlay=true, max_boxes_count=100, max_lines_count=100, max_labels_count=100)
+
+// ════════════════════════════════════════════════════════════════════════════
+// 1. ENHANCED CONFIGURATION
+// ════════════════════════════════════════════════════════════════════════════
+
+// --- Premium Trend System ---
+grp_trend = "🔥 Elite Trend Engine"
+trend_type = input.string("Adaptive", "Trend Type", options=["Fast", "Adaptive", "Smooth"], group=grp_trend)
+trend_sensitivity = input.int(21, "Sensitivity", minval=10, maxval=100, group=grp_trend)
+cloud_multiplier = input.float(2.0, "Cloud Width", step=0.1, minval=1.0, maxval=4.0, group=grp_trend)
+show_cloud = input.bool(true, "Display Trend Cloud", group=grp_trend)
+
+// --- Smart Order Flow ---
+grp_flow = "💰 Order Flow Detection"
+detect_zones = input.bool(true, "Detect Premium/Discount Zones", group=grp_flow)
+zone_strength = input.int(12, "Zone Strength", minval=5, maxval=30, group=grp_flow)
+show_rejections = input.bool(true, "Mark Zone Rejections", group=grp_flow)
+auto_extend = input.bool(true, "Auto-Extend Zones", group=grp_flow)
+
+// --- Volume Intelligence ---
+grp_volume = "📊 Volume Intelligence"
+use_volume = input.bool(true, "Enable Volume Filter", group=grp_volume)
+volume_threshold = input.float(1.2, "Volume Spike Threshold", step=0.1, minval=1.0, group=grp_volume)
+show_climax = input.bool(true, "Highlight Climax Bars", group=grp_volume)
+
+// --- Signal Filtering ---
+grp_signals = "⚡ Signal System"
+signal_mode = input.string("Conservative", "Signal Mode", options=["Aggressive", "Balanced", "Conservative"], group=grp_signals)
+use_confirmation = input.bool(true, "Require Confirmation", group=grp_signals)
+show_targets = input.bool(true, "Show Profit Targets", group=grp_signals)
+
+// --- Advanced Visuals ---
+grp_style = "🎨 Premium Styling"
+theme = input.string("Cyber", "Color Theme", options=["Cyber", "Gold", "Ocean", "Fire"], group=grp_style)
+label_size = input.string("Medium", "Label Size", options=["Small", "Medium", "Large"], group=grp_style)
+transparency_level = input.int(80, "Zone Transparency", minval=60, maxval=95, group=grp_style)
+
+// Theme Colors
+bull_main = switch theme
+    "Cyber" => #00FFA3
+    "Gold" => #FFD700
+    "Ocean" => #00D4FF
+    "Fire" => #FF6B35
+    => #00FFA3
+
+bear_main = switch theme
+    "Cyber" => #FF0080
+    "Gold" => #FF4500
+    "Ocean" => #FF006E
+    "Fire" => #C1121F
+    => #FF0080
+
+neutral_col = switch theme
+    "Cyber" => #9D4EDD
+    "Gold" => #F77F00
+    "Ocean" => #06FFA5
+    "Fire" => #FFB700
+    => #9D4EDD
+
+// --- Dashboard ---
+grp_hud = "📺 Elite Dashboard"
+show_dashboard = input.bool(true, "Show Dashboard", group=grp_hud)
+hud_location = input.string("Top Right", "Location", options=["Top Right", "Top Left", "Bottom Right", "Bottom Left"], group=grp_hud)
+compact_mode = input.bool(false, "Compact Mode", group=grp_hud)
+
+// ════════════════════════════════════════════════════════════════════════════
+// 2. ADVANCED CALCULATIONS
+// ════════════════════════════════════════════════════════════════════════════
+
+// Adaptive Moving Average
+adaptive_ma(src, len, mode) =>
+    fast_len = math.round(len * 0.5)
+    slow_len = len
+    
+    result = switch mode
+        "Fast" => ta.ema(src, fast_len)
+        "Adaptive" => (ta.ema(src, fast_len) + ta.ema(src, slow_len)) / 2
+        "Smooth" => ta.hma(src, len)
+        => ta.ema(src, len)
+    result
+
+// Enhanced ATR
+enhanced_atr = ta.atr(14)
+volatility_factor = enhanced_atr / ta.sma(enhanced_atr, 50)
+
+// Trend Calculation
+trend_ma = adaptive_ma(close, trend_sensitivity, trend_type)
+upper_band = trend_ma + (enhanced_atr * cloud_multiplier)
+lower_band = trend_ma - (enhanced_atr * cloud_multiplier)
+
+// Dynamic Trend State
+var int trend_state = 0
+var int trend_strength = 0
+
+if close > upper_band
+    trend_state := 1
+    trend_strength := math.min(trend_strength + 1, 10)
+else if close < lower_band
+    trend_state := -1
+    trend_strength := math.max(trend_strength - 1, -10)
+else
+    trend_strength := math.round(trend_strength * 0.8)
+
+// Volume Analysis
+vol_avg = ta.sma(volume, 20)
+vol_spike = volume > vol_avg * volume_threshold
+vol_climax = volume > vol_avg * (volume_threshold + 0.5)
+
+// Price Action
+body_size = math.abs(close - open)
+candle_range = high - low
+is_bullish = close > open
+is_bearish = close < open
+strong_bull = is_bullish and body_size > candle_range * 0.7
+strong_bear = is_bearish and body_size > candle_range * 0.7
+
+// ════════════════════════════════════════════════════════════════════════════
+// 3. PREMIUM/DISCOUNT ZONE DETECTION
+// ════════════════════════════════════════════════════════════════════════════
+
+var box[] premium_zones = array.new_box()
+var box[] discount_zones = array.new_box()
+var line[] rejection_lines = array.new_line()
+
+// Detect Swing Points
+swing_high = ta.pivothigh(high, zone_strength, zone_strength)
+swing_low = ta.pivotlow(low, zone_strength, zone_strength)
+
+// Create Premium Zones (Supply)
+if not na(swing_high) and detect_zones
+    zone_top = high[zone_strength]
+    zone_bottom = math.min(open[zone_strength], close[zone_strength])
+    
+    // Enhanced zone color based on strength
+    zone_intensity = volatility_factor > 1.2 ? 70 : transparency_level
+    
+    box_text_size = label_size == "Large" ? size.normal : label_size == "Medium" ? size.small : size.tiny
+    
+    premium_box = box.new(bar_index - zone_strength, zone_top, bar_index + 50, zone_bottom, border_color=color.new(bear_main, 50), bgcolor=color.new(bear_main, zone_intensity), border_width=2, text="PREMIUM", text_color=bear_main, text_size=box_text_size)
+    
+    array.push(premium_zones, premium_box)
+    if array.size(premium_zones) > 10
+        box.delete(array.shift(premium_zones))
+
+// Create Discount Zones (Demand)
+if not na(swing_low) and detect_zones
+    zone_bottom = low[zone_strength]
+    zone_top = math.max(open[zone_strength], close[zone_strength])
+    
+    zone_intensity = volatility_factor > 1.2 ? 70 : transparency_level
+    
+    box_text_size2 = label_size == "Large" ? size.normal : label_size == "Medium" ? size.small : size.tiny
+    
+    discount_box = box.new(bar_index - zone_strength, zone_top, bar_index + 50, zone_bottom, border_color=color.new(bull_main, 50), bgcolor=color.new(bull_main, zone_intensity), border_width=2, text="DISCOUNT", text_color=bull_main, text_size=box_text_size2)
+    
+    array.push(discount_zones, discount_box)
+    if array.size(discount_zones) > 10
+        box.delete(array.shift(discount_zones))
+
+// Zone Management
+if barstate.islast and auto_extend
+    // Manage Premium Zones
+    for i = array.size(premium_zones) - 1 to 0
+        zone_box = array.get(premium_zones, i)
+        zone_bot = box.get_bottom(zone_box)
+        
+        // Remove if penetrated
+        if close > zone_bot
+            box.delete(zone_box)
+            array.remove(premium_zones, i)
+        else
+            box.set_right(zone_box, bar_index + 20)
+    
+    // Manage Discount Zones
+    for i = array.size(discount_zones) - 1 to 0
+        zone_box = array.get(discount_zones, i)
+        zone_top = box.get_top(zone_box)
+        
+        if close < zone_top
+            box.delete(zone_box)
+            array.remove(discount_zones, i)
+        else
+            box.set_right(zone_box, bar_index + 20)
+
+// Detect Rejections
+rejection_bull = false
+rejection_bear = false
+
+if show_rejections and array.size(discount_zones) > 0
+    for i = 0 to array.size(discount_zones) - 1
+        zone_box = array.get(discount_zones, i)
+        if low <= box.get_bottom(zone_box) and close > box.get_bottom(zone_box) and strong_bull
+            rejection_bull := true
+
+if show_rejections and array.size(premium_zones) > 0
+    for i = 0 to array.size(premium_zones) - 1
+        zone_box = array.get(premium_zones, i)
+        if high >= box.get_top(zone_box) and close < box.get_top(zone_box) and strong_bear
+            rejection_bear := true
+
+// ════════════════════════════════════════════════════════════════════════════
+// 4. TREND CLOUD VISUALIZATION
+// ════════════════════════════════════════════════════════════════════════════
+
+// Dynamic Cloud Color
+cloud_color = trend_state == 1 ? bull_main : trend_state == -1 ? bear_main : neutral_col
+cloud_intensity = math.abs(trend_strength) * 5 + 70
+
+p_upper = plot(show_cloud ? upper_band : na, "Upper", color=color.new(cloud_color, 100), linewidth=1)
+p_lower = plot(show_cloud ? lower_band : na, "Lower", color=color.new(cloud_color, 100), linewidth=1)
+p_mid = plot(show_cloud ? trend_ma : na, "Trend Core", color=cloud_color, linewidth=2)
+
+fill(p_upper, p_mid, color=color.new(cloud_color, cloud_intensity), title="Upper Cloud")
+fill(p_mid, p_lower, color=color.new(cloud_color, cloud_intensity), title="Lower Cloud")
+
+// ════════════════════════════════════════════════════════════════════════════
+// 5. INTELLIGENT SIGNAL GENERATION
+// ════════════════════════════════════════════════════════════════════════════
+
+// Signal Conditions
+var bool signal_confirmed = false
+var int bars_since_signal = 0
+
+// Volume Filter
+vol_ok = not use_volume or vol_spike
+
+// Trend Filter
+trend_aligned_long = trend_state == 1
+trend_aligned_short = trend_state == -1
+
+// Core Logic
+base_long = rejection_bull and trend_aligned_long and vol_ok
+base_short = rejection_bear and trend_aligned_short and vol_ok
+
+// Confirmation Logic
+confirmed_long = false
+confirmed_short = false
+
+if use_confirmation
+    if base_long and close > close[1]
+        confirmed_long := true
+    if base_short and close < close[1]
+        confirmed_short := true
+else
+    confirmed_long := base_long
+    confirmed_short := base_short
+
+// Signal Mode Filtering
+signal_long = false
+signal_short = false
+
+if signal_mode == "Aggressive"
+    signal_long := base_long and bars_since_signal > 5
+    signal_short := base_short and bars_since_signal > 5
+else if signal_mode == "Balanced"
+    signal_long := base_long and close > trend_ma and bars_since_signal > 8
+    signal_short := base_short and close < trend_ma and bars_since_signal > 8
+else
+    signal_long := confirmed_long and trend_strength > 3 and bars_since_signal > 12
+    signal_short := confirmed_short and trend_strength < -3 and bars_since_signal > 12
+
+// Update bars counter
+if signal_long or signal_short
+    bars_since_signal := 0
+else
+    bars_since_signal += 1
+
+// Plot Signals
+plotshape(signal_long, "LONG ENTRY", shape.labelup, location.belowbar, 
+         bull_main, text="LONG", textcolor=color.white, size=size.small)
+
+plotshape(signal_short, "SHORT ENTRY", shape.labeldown, location.abovebar, 
+         bear_main, text="SHORT", textcolor=color.white, size=size.small)
+
+// Profit Targets
+if signal_long and show_targets
+    target = close + (enhanced_atr * 2)
+    stop = close - enhanced_atr
+    line.new(bar_index, target, bar_index + 10, target, color=bull_main, style=line.style_dashed, width=1)
+    line.new(bar_index, stop, bar_index + 10, stop, color=bear_main, style=line.style_dotted, width=1)
+
+if signal_short and show_targets
+    target = close - (enhanced_atr * 2)
+    stop = close + enhanced_atr
+    line.new(bar_index, target, bar_index + 10, target, color=bull_main, style=line.style_dashed, width=1)
+    line.new(bar_index, stop, bar_index + 10, stop, color=bear_main, style=line.style_dotted, width=1)
+
+// Volume Climax Markers
+plotshape(show_climax and vol_climax and is_bullish, "Climax↑", shape.circle, location.belowbar, 
+         color.new(bull_main, 0), size=size.tiny)
+plotshape(show_climax and vol_climax and is_bearish, "Climax↓", shape.circle, location.abovebar, 
+         color.new(bear_main, 0), size=size.tiny)
+
+// ════════════════════════════════════════════════════════════════════════════
+// 6. ELITE DASHBOARD
+// ════════════════════════════════════════════════════════════════════════════
+
+if show_dashboard
+    hud_pos = hud_location == "Top Right" ? position.top_right : hud_location == "Top Left" ? position.top_left : hud_location == "Bottom Right" ? position.bottom_right : position.bottom_left
+    hud_rows = compact_mode ? 4 : 7
+    
+    var table hud = table.new(hud_pos, 2, hud_rows, bgcolor=color.new(#0a0e1a, 5), border_width=2, border_color=color.new(cloud_color, 30))
+    
+    if barstate.islast
+        // Header
+        table.cell(hud, 0, 0, "VIPRASOL ELITE PRO", 
+                  text_color=cloud_color, 
+                  bgcolor=color.new(#0a0e1a, 0),
+                  text_size=size.normal, 
+                  text_halign=text.align_center)
+        table.merge_cells(hud, 0, 0, 1, 0)
+        
+        // Trend Direction
+        trend_txt = trend_state == 1 ? "BULLISH ▲" : trend_state == -1 ? "BEARISH ▼" : "RANGING ●"
+        table.cell(hud, 0, 1, "Trend", text_color=#FFFFFF, text_size=size.small)
+        table.cell(hud, 1, 1, trend_txt, text_color=cloud_color, text_size=size.small)
+        
+        // Trend Strength
+        strength_txt = math.abs(trend_strength) > 7 ? "STRONG" : math.abs(trend_strength) > 4 ? "MODERATE" : "WEAK"
+        table.cell(hud, 0, 2, "Strength", text_color=#FFFFFF, text_size=size.small)
+        table.cell(hud, 1, 2, strength_txt, text_color=cloud_color, text_size=size.small)
+        
+        if not compact_mode
+            // Volume Status
+            vol_txt = vol_climax ? "CLIMAX" : vol_spike ? "HIGH" : "NORMAL"
+            vol_col = vol_climax ? bear_main : vol_spike ? bull_main : #888888
+            table.cell(hud, 0, 3, "Volume", text_color=#FFFFFF, text_size=size.small)
+            table.cell(hud, 1, 3, vol_txt, text_color=vol_col, text_size=size.small)
+            
+            // Active Zones
+            total_zones = array.size(premium_zones) + array.size(discount_zones)
+            table.cell(hud, 0, 4, "Active Zones", text_color=#FFFFFF, text_size=size.small)
+            table.cell(hud, 1, 4, str.tostring(total_zones), text_color=neutral_col, text_size=size.small)
+            
+            // Volatility
+            vol_txt_status = volatility_factor > 1.5 ? "EXTREME" : volatility_factor > 1.2 ? "HIGH" : volatility_factor > 0.8 ? "NORMAL" : "LOW"
+            table.cell(hud, 0, 5, "Volatility", text_color=#FFFFFF, text_size=size.small)
+            table.cell(hud, 1, 5, vol_txt_status, text_color=neutral_col, text_size=size.small)
+        
+        // Signal Status
+        sig_status = signal_long ? "LONG SIGNAL" : signal_short ? "SHORT SIGNAL" : "NO SIGNAL"
+        sig_col = signal_long ? bull_main : signal_short ? bear_main : #888888
+        table.cell(hud, 0, compact_mode ? 3 : 6, "Status", text_color=#FFFFFF, text_size=size.small)
+        table.cell(hud, 1, compact_mode ? 3 : 6, sig_status, text_color=sig_col, text_size=size.small)
+
+// ════════════════════════════════════════════════════════════════════════════
+// 7. ALERT SYSTEM
+// ════════════════════════════════════════════════════════════════════════════
+
+alertcondition(signal_long, "Long Signal", "🚀 VIPRASOL LONG: {{ticker}} @ {{close}}")
+alertcondition(signal_short, "Short Signal", "📉 VIPRASOL SHORT: {{ticker}} @ {{close}}")
+alertcondition(vol_climax, "Volume Climax", "💥 Volume Climax on {{ticker}}")
+alertcondition(rejection_bull, "Bullish Rejection", "✅ Bullish Rejection on {{ticker}}")
+alertcondition(rejection_bear, "Bearish Rejection", "❌ Bearish Rejection on {{ticker}}")

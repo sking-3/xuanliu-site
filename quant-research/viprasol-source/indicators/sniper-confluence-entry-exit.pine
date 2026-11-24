@@ -1,0 +1,432 @@
+// This Pine Script(TM) v6 indicator is subject to the terms of the Mozilla Public License 2.0
+// https://mozilla.org/MPL/2.0/
+// (c) Viprasol
+
+//@version=6
+indicator("[Viprasol] Sniper Confluence Entry/Exit", overlay=true, max_labels_count=500, max_boxes_count=500, max_bars_back=1000)
+
+// ──────────────────────────────────────────────────────────────────────────────
+// CONSTANTS
+// ──────────────────────────────────────────────────────────────────────────────
+const int    TOTAL_FACTORS        = 7
+const color  COLOR_BULL_STRONG    = #00C853
+const color  COLOR_BULL_MILD      = #66BB6A
+const color  COLOR_BEAR_STRONG    = #FF1744
+const color  COLOR_BEAR_MILD      = #EF5350
+const color  COLOR_NEUTRAL        = #9E9E9E
+const color  COLOR_ENTRY          = #2196F3
+const color  COLOR_STOPLOSS       = #FF1744
+const color  COLOR_TARGET         = #00E676
+const color  COLOR_TARGET_HIT     = #40E0D0
+const color  COLOR_TARGET_DEEP    = #00695C
+const color  COLOR_TARGET_DEEPEST = #004D40
+const color  COLOR_VWAP_BULL      = #26A69A
+const color  COLOR_VWAP_BEAR      = #EF5350
+const color  COLOR_RETEST         = #FF9800
+const color  COLOR_DASHBOARD_BG   = #1A1A2E
+const color  COLOR_DASHBOARD_HDR  = #0F3460
+const string VP_LABEL             = "VIPRASOL"
+
+// ──────────────────────────────────────────────────────────────────────────────
+// INPUTS
+// ──────────────────────────────────────────────────────────────────────────────
+// --- Signal Settings ---
+string GRP_SIGNAL = "Signal Settings"
+int fastMaPeriodInput = input.int(9, "Fast EMA Period", minval=2, maxval=50, group=GRP_SIGNAL,
+     tooltip="Period for the fast exponential moving average. Lower values = more responsive, more signals.")
+int slowMaPeriodInput = input.int(21, "Slow EMA Period", minval=5, maxval=200, group=GRP_SIGNAL,
+     tooltip="Period for the slow exponential moving average. Higher values = smoother, fewer signals.")
+bool barCloseConfirmInput = input.bool(true, "Bar-Close Confirmation", group=GRP_SIGNAL,
+     tooltip="When enabled, signals only fire on confirmed (closed) bars, reducing false signals from wicks.")
+
+// --- Confluence Filter ---
+string GRP_CONFLUENCE = "Confluence Filter"
+bool useConfluenceFilterInput = input.bool(true, "Enable Confluence Filter", group=GRP_CONFLUENCE,
+     tooltip="When enabled, buy/sell signals require a minimum confluence score to fire. This filters out weak setups.")
+int minConfluenceScoreInput = input.int(4, "Minimum Score (out of 7)", minval=1, maxval=7, group=GRP_CONFLUENCE,
+     tooltip="Minimum number of factors that must align for a signal to trigger. Higher = fewer but higher-quality signals.")
+
+// --- Risk Management ---
+string GRP_RISK = "Risk Management"
+float atrSlMultiplierInput = input.float(1.5, "SL ATR Multiplier", minval=0.1, step=0.1, group=GRP_RISK,
+     tooltip="ATR multiplier for stop-loss distance. Higher values = wider stops, fewer stop-outs but larger risk per trade.")
+int atrPeriodInput = input.int(14, "ATR Period", minval=1, maxval=50, group=GRP_RISK,
+     tooltip="Lookback period for ATR calculation used in SL/TP levels.")
+int targetCountInput = input.int(5, "Number of TP Levels", minval=1, maxval=5, group=GRP_RISK,
+     tooltip="How many take-profit levels to display (1 to 5). Each level is 1x ATR risk further from entry.")
+bool trailSlToBreakevenInput = input.bool(true, "Trail SL to Breakeven at TP1", group=GRP_RISK,
+     tooltip="When TP1 is hit, the stop-loss line moves to the entry price (breakeven).")
+
+// --- Secondary Timeframe ---
+string GRP_MTF = "Secondary Timeframe"
+string secondaryTfInput = input.timeframe("5", "RSI Confirmation Timeframe", group=GRP_MTF,
+     tooltip="Timeframe for the secondary RSI confirmation factor. Default is 5-minute.")
+
+// --- Dashboard ---
+string GRP_DASH = "Dashboard"
+bool showDashboardInput = input.bool(true, "Show Dashboard", group=GRP_DASH,
+     tooltip="Toggle the market analysis dashboard on/off.")
+string dashPositionInput = input.string("Middle Left", "Dashboard Position",
+     options=["Top Left", "Top Right", "Middle Left", "Middle Right", "Bottom Left", "Bottom Right"], group=GRP_DASH,
+     tooltip="Screen position for the dashboard table.")
+string dashFontSizeInput = input.string("small", "Dashboard Font Size",
+     options=["tiny", "small", "normal", "large", "huge"], group=GRP_DASH,
+     tooltip="Font size for all dashboard text.")
+
+// --- Visuals ---
+string GRP_VIS = "Visuals"
+bool showRibbonInput = input.bool(true, "Show EMA Ribbon Fill", group=GRP_VIS,
+     tooltip="Display the colored fill between fast and slow EMAs.")
+int ribbonTransparencyInput = input.int(75, "EMA Ribbon Transparency", minval=0, maxval=100, group=GRP_VIS,
+     tooltip="Transparency of the EMA ribbon fill. 0 = opaque, 100 = invisible.")
+bool showVwapInput = input.bool(true, "Show VWAP", group=GRP_VIS,
+     tooltip="Display the Volume Weighted Average Price line.")
+bool showTpLinesInput = input.bool(true, "Show TP/SL Lines & Labels", group=GRP_VIS,
+     tooltip="Display entry, stop-loss, and take-profit lines with price labels.")
+string tradeLabelSizeInput = input.string("small", "Trade Label Size",
+     options=["tiny", "small", "normal", "large", "huge"], group=GRP_VIS,
+     tooltip="Font size for TP/SL/Entry labels on the chart.")
+int labelBarOffsetInput = input.int(12, "Label Right Offset (Bars)", minval=1, maxval=50, group=GRP_VIS,
+     tooltip="How many bars to the right the TP/Entry/SL labels are placed.")
+bool showRetestHighlightInput = input.bool(true, "Highlight Retest Candles", group=GRP_VIS,
+     tooltip="Color candles orange when price retests the fast EMA after a signal.")
+
+// ──────────────────────────────────────────────────────────────────────────────
+// FUNCTIONS
+// ──────────────────────────────────────────────────────────────────────────────
+getDashPosition(string pos) =>
+    switch pos
+        "Top Left"     => position.top_left
+        "Top Right"    => position.top_right
+        "Middle Left"  => position.middle_left
+        "Middle Right" => position.middle_right
+        "Bottom Left"  => position.bottom_left
+        "Bottom Right" => position.bottom_right
+
+getFontSize(string sz) =>
+    switch sz
+        "tiny"   => size.tiny
+        "small"  => size.small
+        "normal" => size.normal
+        "large"  => size.large
+        "huge"   => size.huge
+
+appendDashRow(table tbl, int rowIdx, string title, string val, color valColor, string fontSize) =>
+    table.cell(tbl, 0, rowIdx, title, text_color=color.new(color.white, 20), text_halign=text.align_left,
+         text_size=getFontSize(fontSize), bgcolor=COLOR_DASHBOARD_BG)
+    table.cell(tbl, 1, rowIdx, val, text_color=valColor, text_size=getFontSize(fontSize),
+         text_halign=text.align_right, bgcolor=COLOR_DASHBOARD_BG)
+
+// ──────────────────────────────────────────────────────────────────────────────
+// CALCULATIONS — Core Indicators
+// ──────────────────────────────────────────────────────────────────────────────
+float fastMaLine       = ta.ema(close, fastMaPeriodInput)
+float slowMaLine       = ta.ema(close, slowMaPeriodInput)
+float vwapLine         = ta.vwap(hlc3)
+float avgTrueRange     = ta.atr(atrPeriodInput)
+float rsiValue         = ta.rsi(close, 14)
+float secondaryRsi     = request.security(syminfo.tickerid, secondaryTfInput, ta.rsi(close, 14), lookahead=barmerge.lookahead_off)
+[macdMain, macdSignal, _macdHist] = ta.macd(close, 12, 26, 9)
+[_diPlus, _diMinus, adxValue]     = ta.dmi(14, 14)
+float volumeAverage    = ta.sma(volume, 20)
+
+// ──────────────────────────────────────────────────────────────────────────────
+// CALCULATIONS — Confluence Scoring
+// ──────────────────────────────────────────────────────────────────────────────
+float bullishScore = 0
+bullishScore += close > vwapLine                              ? 1 : 0
+bullishScore += rsiValue > 50                                 ? 1 : 0
+bullishScore += macdMain > macdSignal                         ? 1 : 0
+bullishScore += fastMaLine > slowMaLine                       ? 1 : 0
+bullishScore += adxValue > 25 and close > fastMaLine          ? 1 : 0
+bullishScore += volume > volumeAverage and close > open       ? 1 : 0
+bullishScore += secondaryRsi > 50                             ? 1 : 0
+float bullishPct = (bullishScore / TOTAL_FACTORS) * 100
+
+float bearishScore = 0
+bearishScore += close < vwapLine                              ? 1 : 0
+bearishScore += rsiValue < 50                                 ? 1 : 0
+bearishScore += macdMain < macdSignal                         ? 1 : 0
+bearishScore += fastMaLine < slowMaLine                       ? 1 : 0
+bearishScore += adxValue > 25 and close < fastMaLine          ? 1 : 0
+bearishScore += volume > volumeAverage and close < open       ? 1 : 0
+bearishScore += secondaryRsi < 50                             ? 1 : 0
+float bearishPct = (bearishScore / TOTAL_FACTORS) * 100
+
+// ──────────────────────────────────────────────────────────────────────────────
+// CALCULATIONS — Market Bias
+// ──────────────────────────────────────────────────────────────────────────────
+string biasLabel = (bullishPct - bearishPct) >= 40 ? "STRONG BULL" :
+     (bearishPct - bullishPct) >= 40 ? "STRONG BEAR" :
+     bullishPct > bearishPct ? "MILD BULL" : "MILD BEAR"
+color biasColor = biasLabel == "STRONG BULL" ? COLOR_BULL_STRONG :
+     biasLabel == "STRONG BEAR" ? COLOR_BEAR_STRONG :
+     biasLabel == "MILD BULL" ? COLOR_BULL_MILD : COLOR_BEAR_MILD
+
+// ──────────────────────────────────────────────────────────────────────────────
+// CALCULATIONS — Signal Logic & Trade Setup
+// ──────────────────────────────────────────────────────────────────────────────
+var int   activeDirection   = 0
+var float entryPrice        = 0.0
+var float stopLossPrice     = 0.0
+var float targetPrice1      = 0.0
+var float targetPrice2      = 0.0
+var float targetPrice3      = 0.0
+var float targetPrice4      = 0.0
+var float targetPrice5      = 0.0
+var bool  target1Reached    = false
+var bool  target2Reached    = false
+var bool  target3Reached    = false
+var bool  target4Reached    = false
+var bool  target5Reached    = false
+var bool  slMovedToBreakeven = false
+
+bool rawBullishCross = ta.crossover(fastMaLine, slowMaLine)
+bool rawBearishCross = ta.crossunder(fastMaLine, slowMaLine)
+
+// Apply bar-close confirmation
+bool confirmedBullCross = barCloseConfirmInput ? (rawBullishCross and barstate.isconfirmed) : rawBullishCross
+bool confirmedBearCross = barCloseConfirmInput ? (rawBearishCross and barstate.isconfirmed) : rawBearishCross
+
+// Apply confluence filter
+bool confluenceBullPass = useConfluenceFilterInput ? bullishScore >= minConfluenceScoreInput : true
+bool confluenceBearPass = useConfluenceFilterInput ? bearishScore >= minConfluenceScoreInput : true
+
+// Final signal conditions
+bool entryLongSignal  = confirmedBullCross and activeDirection <= 0 and confluenceBullPass
+bool entryShortSignal = confirmedBearCross and activeDirection >= 0 and confluenceBearPass
+
+if entryLongSignal or entryShortSignal
+    activeDirection := entryLongSignal ? 1 : -1
+    entryPrice      := close
+    float riskAmount = avgTrueRange * atrSlMultiplierInput
+    stopLossPrice   := entryLongSignal ? entryPrice - riskAmount : entryPrice + riskAmount
+    targetPrice1    := entryLongSignal ? entryPrice + riskAmount         : entryPrice - riskAmount
+    targetPrice2    := entryLongSignal ? entryPrice + (riskAmount * 2)   : entryPrice - (riskAmount * 2)
+    targetPrice3    := entryLongSignal ? entryPrice + (riskAmount * 3)   : entryPrice - (riskAmount * 3)
+    targetPrice4    := entryLongSignal ? entryPrice + (riskAmount * 4)   : entryPrice - (riskAmount * 4)
+    targetPrice5    := entryLongSignal ? entryPrice + (riskAmount * 5)   : entryPrice - (riskAmount * 5)
+    target1Reached  := false
+    target2Reached  := false
+    target3Reached  := false
+    target4Reached  := false
+    target5Reached  := false
+    slMovedToBreakeven := false
+
+// ──────────────────────────────────────────────────────────────────────────────
+// CALCULATIONS — Target Hit Detection & Trailing SL
+// ──────────────────────────────────────────────────────────────────────────────
+if activeDirection == 1
+    if high >= targetPrice1
+        target1Reached := true
+    if high >= targetPrice2
+        target2Reached := true
+    if high >= targetPrice3
+        target3Reached := true
+    if high >= targetPrice4
+        target4Reached := true
+    if high >= targetPrice5
+        target5Reached := true
+if activeDirection == -1
+    if low <= targetPrice1
+        target1Reached := true
+    if low <= targetPrice2
+        target2Reached := true
+    if low <= targetPrice3
+        target3Reached := true
+    if low <= targetPrice4
+        target4Reached := true
+    if low <= targetPrice5
+        target5Reached := true
+
+// Trailing SL to breakeven
+if trailSlToBreakevenInput and target1Reached and not slMovedToBreakeven
+    stopLossPrice      := entryPrice
+    slMovedToBreakeven := true
+
+// ──────────────────────────────────────────────────────────────────────────────
+// VISUALS — EMA Ribbon & VWAP
+// ──────────────────────────────────────────────────────────────────────────────
+fastMaPlot = plot(fastMaLine, color=color.new(COLOR_BULL_STRONG, 20), title="Fast EMA", linewidth=1)
+slowMaPlot = plot(slowMaLine, color=color.new(COLOR_BEAR_STRONG, 20), title="Slow EMA", linewidth=1)
+fill(fastMaPlot, slowMaPlot, color=showRibbonInput ?
+     (fastMaLine > slowMaLine ? color.new(COLOR_BULL_STRONG, ribbonTransparencyInput) :
+     color.new(COLOR_BEAR_STRONG, ribbonTransparencyInput)) : color(na))
+
+plot(showVwapInput ? vwapLine : na, color=close > vwapLine ? COLOR_VWAP_BULL : COLOR_VWAP_BEAR,
+     linewidth=2, title="VWAP")
+
+// ──────────────────────────────────────────────────────────────────────────────
+// VISUALS — Signal Markers & Candle Colors
+// ──────────────────────────────────────────────────────────────────────────────
+bool isRetestCandle = (activeDirection == 1 and low <= fastMaLine and low > slowMaLine) or
+     (activeDirection == -1 and high >= fastMaLine and high < slowMaLine)
+
+barcolor((entryLongSignal or entryShortSignal) ? color.black :
+     (showRetestHighlightInput and isRetestCandle) ? COLOR_RETEST : na)
+
+plotshape(entryLongSignal, text="LONG", style=shape.labelup, location=location.belowbar,
+     color=COLOR_BULL_STRONG, textcolor=color.white, size=size.small, title="Long Signal")
+plotshape(entryShortSignal, text="SHORT", style=shape.labeldown, location=location.abovebar,
+     color=COLOR_BEAR_STRONG, textcolor=color.white, size=size.small, title="Short Signal")
+
+// ──────────────────────────────────────────────────────────────────────────────
+// VISUALS — TP/SL Lines & Labels
+// ──────────────────────────────────────────────────────────────────────────────
+var line lineEntry  = na
+var line lineSl     = na
+var line lineTp1    = na
+var line lineTp2    = na
+var line lineTp3    = na
+var line lineTp4    = na
+var line lineTp5    = na
+var label lblEntry  = label.new(na, na, "", color=COLOR_ENTRY,          textcolor=color.white, style=label.style_label_left, size=getFontSize(tradeLabelSizeInput))
+var label lblSl     = label.new(na, na, "", color=COLOR_STOPLOSS,       textcolor=color.white, style=label.style_label_left, size=getFontSize(tradeLabelSizeInput))
+var label lblTp1    = label.new(na, na, "", color=COLOR_TARGET,         textcolor=color.white, style=label.style_label_left, size=getFontSize(tradeLabelSizeInput))
+var label lblTp2    = label.new(na, na, "", color=COLOR_TARGET,         textcolor=color.white, style=label.style_label_left, size=getFontSize(tradeLabelSizeInput))
+var label lblTp3    = label.new(na, na, "", color=COLOR_TARGET,         textcolor=color.white, style=label.style_label_left, size=getFontSize(tradeLabelSizeInput))
+var label lblTp4    = label.new(na, na, "", color=COLOR_TARGET_DEEP,    textcolor=color.white, style=label.style_label_left, size=getFontSize(tradeLabelSizeInput))
+var label lblTp5    = label.new(na, na, "", color=COLOR_TARGET_DEEPEST, textcolor=color.white, style=label.style_label_left, size=getFontSize(tradeLabelSizeInput))
+
+if showTpLinesInput and (entryLongSignal or entryShortSignal)
+    line.delete(lineEntry), line.delete(lineSl)
+    line.delete(lineTp1),   line.delete(lineTp2), line.delete(lineTp3)
+    line.delete(lineTp4),   line.delete(lineTp5)
+    lineEntry := line.new(bar_index, entryPrice,    bar_index + 20, entryPrice,    color=COLOR_ENTRY,     width=2, extend=extend.right)
+    lineSl    := line.new(bar_index, stopLossPrice,  bar_index + 20, stopLossPrice,  color=COLOR_STOPLOSS,  width=2, extend=extend.right)
+    if targetCountInput >= 1
+        lineTp1 := line.new(bar_index, targetPrice1, bar_index + 20, targetPrice1, color=COLOR_TARGET,         style=line.style_dashed, extend=extend.right)
+    if targetCountInput >= 2
+        lineTp2 := line.new(bar_index, targetPrice2, bar_index + 20, targetPrice2, color=COLOR_TARGET,         style=line.style_dashed, extend=extend.right)
+    if targetCountInput >= 3
+        lineTp3 := line.new(bar_index, targetPrice3, bar_index + 20, targetPrice3, color=COLOR_TARGET,         style=line.style_dashed, extend=extend.right)
+    if targetCountInput >= 4
+        lineTp4 := line.new(bar_index, targetPrice4, bar_index + 20, targetPrice4, color=COLOR_TARGET_DEEP,    width=2, extend=extend.right)
+    if targetCountInput >= 5
+        lineTp5 := line.new(bar_index, targetPrice5, bar_index + 20, targetPrice5, color=COLOR_TARGET_DEEPEST, width=3, extend=extend.right)
+
+if showTpLinesInput and activeDirection != 0
+    int labelX = bar_index + labelBarOffsetInput
+    // Update line colors on target hits
+    if not na(lineTp1)
+        line.set_color(lineTp1, target1Reached ? COLOR_TARGET_HIT : COLOR_TARGET)
+    if not na(lineTp2)
+        line.set_color(lineTp2, target2Reached ? COLOR_TARGET_HIT : COLOR_TARGET)
+    if not na(lineTp3)
+        line.set_color(lineTp3, target3Reached ? COLOR_TARGET_HIT : COLOR_TARGET)
+    if not na(lineTp4)
+        line.set_color(lineTp4, target4Reached ? COLOR_TARGET_HIT : COLOR_TARGET_DEEP)
+    if not na(lineTp5)
+        line.set_color(lineTp5, target5Reached ? COLOR_TARGET_HIT : COLOR_TARGET_DEEPEST)
+    // Update SL line position if trailed to breakeven
+    if slMovedToBreakeven and not na(lineSl)
+        line.set_y1(lineSl, entryPrice)
+        line.set_y2(lineSl, entryPrice)
+        line.set_color(lineSl, COLOR_ENTRY)
+        line.set_style(lineSl, line.style_dotted)
+    // Update labels
+    string hitMark = " HIT"
+    label.set_xy(lblEntry, labelX, entryPrice)
+    label.set_text(lblEntry, "ENTRY: " + str.tostring(entryPrice, "#.##"))
+    label.set_xy(lblSl, labelX, stopLossPrice)
+    label.set_text(lblSl, (slMovedToBreakeven ? "BE: " : "SL: ") + str.tostring(stopLossPrice, "#.##"))
+    if targetCountInput >= 1
+        label.set_xy(lblTp1, labelX, targetPrice1)
+        label.set_text(lblTp1, "TP1: " + str.tostring(targetPrice1, "#.##") + (target1Reached ? hitMark : ""))
+    if targetCountInput >= 2
+        label.set_xy(lblTp2, labelX, targetPrice2)
+        label.set_text(lblTp2, "TP2: " + str.tostring(targetPrice2, "#.##") + (target2Reached ? hitMark : ""))
+    if targetCountInput >= 3
+        label.set_xy(lblTp3, labelX, targetPrice3)
+        label.set_text(lblTp3, "TP3: " + str.tostring(targetPrice3, "#.##") + (target3Reached ? hitMark : ""))
+    if targetCountInput >= 4
+        label.set_xy(lblTp4, labelX, targetPrice4)
+        label.set_text(lblTp4, "TP4: " + str.tostring(targetPrice4, "#.##") + (target4Reached ? hitMark : ""))
+    if targetCountInput >= 5
+        label.set_xy(lblTp5, labelX, targetPrice5)
+        label.set_text(lblTp5, "TP5: " + str.tostring(targetPrice5, "#.##") + (target5Reached ? hitMark : ""))
+
+// ──────────────────────────────────────────────────────────────────────────────
+// VISUALS — Dashboard
+// ──────────────────────────────────────────────────────────────────────────────
+var table dashPanel = table.new(getDashPosition(dashPositionInput), 2, 17,
+     bgcolor=COLOR_DASHBOARD_BG, border_width=1, border_color=color.new(color.gray, 60))
+
+if barstate.islast and showDashboardInput
+    // Header
+    table.cell(dashPanel, 0, 0, VP_LABEL, text_color=color.white, bgcolor=COLOR_DASHBOARD_HDR,
+         text_size=getFontSize(dashFontSizeInput), text_halign=text.align_center)
+    table.cell(dashPanel, 1, 0, "SNIPER", text_color=color.white, bgcolor=COLOR_DASHBOARD_HDR,
+         text_size=getFontSize(dashFontSizeInput), text_halign=text.align_center)
+    // Scores
+    table.cell(dashPanel, 0, 1, "BULL SCORE", text_color=color.white, bgcolor=COLOR_BULL_STRONG,
+         text_size=getFontSize(dashFontSizeInput))
+    table.cell(dashPanel, 1, 1, str.tostring(bullishPct, "#") + "% (" + str.tostring(bullishScore, "#") + "/7)",
+         text_color=color.white, bgcolor=COLOR_BULL_STRONG, text_size=getFontSize(dashFontSizeInput))
+    table.cell(dashPanel, 0, 2, "BEAR SCORE", text_color=color.white, bgcolor=COLOR_BEAR_STRONG,
+         text_size=getFontSize(dashFontSizeInput))
+    table.cell(dashPanel, 1, 2, str.tostring(bearishPct, "#") + "% (" + str.tostring(bearishScore, "#") + "/7)",
+         text_color=color.white, bgcolor=COLOR_BEAR_STRONG, text_size=getFontSize(dashFontSizeInput))
+    table.cell(dashPanel, 0, 3, "MARKET BIAS", text_color=color.white, bgcolor=color.new(color.black, 20),
+         text_size=getFontSize(dashFontSizeInput))
+    table.cell(dashPanel, 1, 3, biasLabel, text_color=color.white, bgcolor=biasColor,
+         text_size=getFontSize(dashFontSizeInput))
+    // Indicator rows
+    appendDashRow(dashPanel, 4,  "Price/VWAP",   close > vwapLine ? "ABOVE" : "BELOW",
+         close > vwapLine ? COLOR_BULL_STRONG : COLOR_BEAR_STRONG, dashFontSizeInput)
+    appendDashRow(dashPanel, 5,  "RSI (14)",      str.tostring(rsiValue, "#.#"),
+         rsiValue > 50 ? COLOR_BULL_STRONG : COLOR_BEAR_STRONG, dashFontSizeInput)
+    appendDashRow(dashPanel, 6,  "MACD Trend",    macdMain > macdSignal ? "BULL" : "BEAR",
+         macdMain > macdSignal ? COLOR_BULL_STRONG : COLOR_BEAR_STRONG, dashFontSizeInput)
+    appendDashRow(dashPanel, 7,  "ADX Power",     str.tostring(adxValue, "#.#"),
+         adxValue > 25 ? COLOR_BULL_STRONG : COLOR_NEUTRAL, dashFontSizeInput)
+    appendDashRow(dashPanel, 8,  "EMA Cross",     fastMaLine > slowMaLine ? "BULL" : "BEAR",
+         fastMaLine > slowMaLine ? COLOR_BULL_STRONG : COLOR_BEAR_STRONG, dashFontSizeInput)
+    appendDashRow(dashPanel, 9,  "ATR (" + str.tostring(atrPeriodInput) + ")",
+         str.tostring(avgTrueRange, "#.##"), color.white, dashFontSizeInput)
+    appendDashRow(dashPanel, 10, "Volume",        volume > volumeAverage ? "HIGH" : "LOW",
+         volume > volumeAverage ? COLOR_BULL_STRONG : COLOR_NEUTRAL, dashFontSizeInput)
+    appendDashRow(dashPanel, 11, secondaryTfInput + " RSI",
+         str.tostring(secondaryRsi, "#.#"),
+         secondaryRsi > 50 ? COLOR_BULL_STRONG : COLOR_BEAR_STRONG, dashFontSizeInput)
+    appendDashRow(dashPanel, 12, "Confluence",
+         str.tostring(math.max(bullishScore, bearishScore), "#") + "/7",
+         math.max(bullishScore, bearishScore) >= minConfluenceScoreInput ? COLOR_BULL_STRONG : COLOR_NEUTRAL, dashFontSizeInput)
+    // Trade info
+    string dirText = activeDirection == 1 ? "LONG" : activeDirection == -1 ? "SHORT" : "FLAT"
+    color dirColor = activeDirection == 1 ? COLOR_BULL_STRONG : activeDirection == -1 ? COLOR_BEAR_STRONG : COLOR_NEUTRAL
+    appendDashRow(dashPanel, 13, "Position",     dirText, dirColor, dashFontSizeInput)
+    string tpHitCount = str.tostring(
+         (target1Reached ? 1 : 0) + (target2Reached ? 1 : 0) + (target3Reached ? 1 : 0) +
+         (target4Reached ? 1 : 0) + (target5Reached ? 1 : 0)) + "/" + str.tostring(targetCountInput)
+    appendDashRow(dashPanel, 14, "Targets Hit",  tpHitCount,
+         target1Reached ? COLOR_TARGET_HIT : COLOR_NEUTRAL, dashFontSizeInput)
+    appendDashRow(dashPanel, 15, "SL Status",
+         slMovedToBreakeven ? "BREAKEVEN" : (activeDirection != 0 ? "ACTIVE" : "---"),
+         slMovedToBreakeven ? COLOR_ENTRY : COLOR_STOPLOSS, dashFontSizeInput)
+    appendDashRow(dashPanel, 16, "Signal",
+         entryLongSignal or entryShortSignal ? "NEW" : "WATCHING",
+         entryLongSignal or entryShortSignal ? COLOR_BULL_STRONG : COLOR_NEUTRAL, dashFontSizeInput)
+
+// ──────────────────────────────────────────────────────────────────────────────
+// ALERTS
+// ──────────────────────────────────────────────────────────────────────────────
+alertcondition(entryLongSignal,
+     title="Long Entry Signal",
+     message="[Viprasol Sniper] LONG entry on {{ticker}} at {{close}} | TF: {{interval}}")
+
+alertcondition(entryShortSignal,
+     title="Short Entry Signal",
+     message="[Viprasol Sniper] SHORT entry on {{ticker}} at {{close}} | TF: {{interval}}")
+
+alertcondition(entryLongSignal or entryShortSignal,
+     title="Any Entry Signal",
+     message="[Viprasol Sniper] Signal on {{ticker}} at {{close}} | TF: {{interval}}")
+
+alertcondition(ta.crossover(bullishPct, 70),
+     title="Strong Bull Bias Detected",
+     message="[Viprasol Sniper] Strong BULLISH bias on {{ticker}} — Bull score crossed above 70% | TF: {{interval}}")
+
+alertcondition(ta.crossover(bearishPct, 70),
+     title="Strong Bear Bias Detected",
+     message="[Viprasol Sniper] Strong BEARISH bias on {{ticker}} — Bear score crossed above 70% | TF: {{interval}}")

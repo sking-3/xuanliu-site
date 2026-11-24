@@ -1,0 +1,551 @@
+// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Viprasol
+
+//@version=6
+indicator("Viprasol Absorption Radar Pro for Smart Money", shorttitle="Viprasol Absorption Radar Pro for Smart Money", overlay=true, max_labels_count=500, max_boxes_count=20, max_lines_count=30)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 00. CONSTANTS & OPTIONS
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+SCRIPT_NAME = "Viprasol Absorption Radar Pro for Smart Money"
+
+// Absorption strength weights and grade cut-offs
+W_EFFORT    = 0.40
+W_WICK      = 0.30
+W_CLOSE     = 0.30
+GRADE_A_MIN = 75
+GRADE_B_MIN = 65
+
+PANEL_BG  = color.rgb(14, 20, 32)
+HEADER_BG = color.rgb(20, 30, 48)
+
+enum MinGrade
+    allGrades = "A, B and C"
+    abOnly    = "A and B"
+    aOnly     = "A only"
+
+enum SignalStyle
+    compact = "Compact: BUY / SELL + grade"
+    classic = "Plain BUY / SELL (classic)"
+
+enum ZoneMode
+    track = "Track state: live, retested, failed"
+    fixed = "Fixed length (classic)"
+
+enum AlertFormat
+    plainText   = "Text"
+    jsonPayload = "JSON"
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 01. USER SETTINGS
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+groupAbs = "Absorption Engine"
+volLength = input.int(20, "Volume Average Length", minval=5, group=groupAbs, display=display.none, tooltip="Length of the simple moving average of volume that a volume spike is measured against.")
+volMultiplier = input.float(1.5, "Volume Spike Multiplier", minval=1.0, step=0.1, group=groupAbs, display=display.none, tooltip="A candle is a volume spike when its volume is at least this multiple of the volume average.")
+wickRatio = input.float(0.40, "Minimum Rejection Wick Ratio", minval=0.1, maxval=0.9, step=0.05, group=groupAbs, display=display.none, tooltip="Buyer absorption needs a lower wick of at least this share of the candle's range and a close in the top 40% of the range. Seller absorption is the mirror.")
+rangeLength = input.int(20, "Liquidity Lookback", minval=5, group=groupAbs, display=display.none, tooltip="Bars used for the prior high / low. A sweep is a wick beyond it with a close back inside.")
+
+groupFilter = "Signal Filters"
+useTrendFilter = input.bool(false, "Use EMA Trend Filter", group=groupFilter, tooltip="When on, BUY needs the close above the EMA and SELL needs the close below it.")
+emaLength = input.int(200, "EMA Length", minval=20, group=groupFilter, display=display.none, tooltip="EMA used by the trend filter and the dashboard trend row.")
+useSweepFilter = input.bool(false, "Require Liquidity Sweep", group=groupFilter, tooltip="When on, the absorption candle must also sweep the prior low (BUY) or the prior high (SELL).")
+cooldown = input.int(10, "Signal Cooldown Bars", minval=0, group=groupFilter, display=display.none, tooltip="Minimum number of candles between two signals, in either direction. The classic version used 8.")
+minGrade = input.enum(MinGrade.allGrades, "Minimum Signal Grade", group=groupFilter, display=display.none, tooltip="Hide weaker absorptions by strength grade: A = score 75+, B = 65-74, C = below 65. Filtered candles do not start a cooldown.")
+
+groupVisual = "Chart Visuals"
+showZones = input.bool(true, "Show Absorption Zones", group=groupVisual, tooltip="Box on the absorption candle: buyer zone from the low to the top of the body, seller zone from the high to the bottom of the body.")
+zoneMode = input.enum(ZoneMode.track, "Zone Mode", group=groupVisual, display=display.none, tooltip="Track state: a zone stays live until a candle closes beyond its far edge (FAILED: the box stops there and fades); price leaving a live zone and coming back into it marks it RETESTED. Fixed length: the classic box of Zone Extension Bars. The zone retest / failed alerts need Show Absorption Zones on and Track state.")
+zoneExtension = input.int(20, "Zone Extension Bars", minval=1, maxval=200, group=groupVisual, display=display.none, tooltip="Track state: how far right of the current bar live zones reach. Fixed length: how many bars the box runs from the signal.")
+showSweep = input.bool(false, "Show Liquidity Sweeps", group=groupVisual, tooltip="SW markers on every sweep of the prior high / low. Off by default to keep the chart clean; the sweep alerts work either way, and a signal's tooltip says when it was also a sweep.")
+showEMA = input.bool(false, "Show EMA", group=groupVisual, tooltip="Plots the trend EMA.")
+showSignals = input.bool(true, "Show BUY / SELL Signals", group=groupVisual, tooltip="Signal labels on the chart.")
+signalStyle = input.enum(SignalStyle.compact, "Signal Labels", group=groupVisual, display=display.none, tooltip="Compact: a small one-line BUY / SELL label with the strength grade; hover it for the breakdown. Plain: the classic BUY / SELL markers.")
+
+groupDash = "Radar Dashboard"
+showDashboard = input.bool(true, "Show Dashboard", group=groupDash, tooltip="Volume, buyer and seller absorption, live pressure, EMA trend, last event and the latest zone's state.")
+dashPos = input.string("Top Right", "Dashboard Position", options=["Top Left", "Top Center", "Top Right", "Middle Left", "Middle Center", "Middle Right", "Bottom Left", "Bottom Center", "Bottom Right"], group=groupDash, display=display.none, tooltip="Move the dashboard if it covers price or the symbol header.")
+
+groupTargets = "Auto Targets"
+showTargets = input.bool(true, "Show Auto Targets", group=groupTargets, tooltip="Entry, stop and three target lines with price labels for the latest signal.")
+targetATR = input.float(1.5, "Stop Loss ATR Multiplier", minval=0.2, step=0.1, group=groupTargets, display=display.none, tooltip="Stop distance = this many ATR(14) from the entry close.")
+targetRR1 = input.float(1.0, "TP1 Risk Reward", minval=0.5, step=0.5, group=groupTargets, display=display.none, tooltip="Target 1 as a multiple of the risk (entry to stop).")
+targetRR2 = input.float(2.0, "TP2 Risk Reward", minval=1.0, step=0.5, group=groupTargets, display=display.none, tooltip="Target 2 as a multiple of the risk.")
+targetRR3 = input.float(3.0, "TP3 Risk Reward", minval=1.5, step=0.5, group=groupTargets, display=display.none, tooltip="Target 3 as a multiple of the risk.")
+targetExtension = input.int(20, "Target Line Extension", minval=5, maxval=200, group=groupTargets, display=display.none, tooltip="While a trade is open, how far right of the current bar its lines and labels reach. With End Levels at Stop / Target off: where the labels sit, this many bars after the signal.")
+stopAtHit = input.bool(true, "End Levels at Stop / Target", group=groupTargets, tooltip="On: the lines run from the signal bar until the trade ends. A target line stops with a tick on the bar price reaches it; all lines stop on the bar the stop (cross) or TP3 is hit. A bar that touches both the stop and a target counts as the stop. Off: the classic lines that extend right forever.")
+
+groupAlerts = "Alerts"
+alertLevels = input.bool(true, "BUY / SELL Alerts with Levels", group=groupAlerts, tooltip="Sends each BUY / SELL with its grade, entry, stop and three targets through alert(). Create the alert with the condition: Any alert() function call.")
+alertFormat = input.enum(AlertFormat.plainText, "Alert Message Format", group=groupAlerts, display=display.none, tooltip="Text reads well in app and email notifications. JSON suits webhooks and automation tools.")
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// HELPERS
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+tablePosition(string pos) =>
+    switch pos
+        "Top Left"      => position.top_left
+        "Top Center"    => position.top_center
+        "Top Right"     => position.top_right
+        "Middle Left"   => position.middle_left
+        "Middle Center" => position.middle_center
+        "Middle Right"  => position.middle_right
+        "Bottom Left"   => position.bottom_left
+        "Bottom Center" => position.bottom_center
+        => position.bottom_right
+
+priceText(float value) =>
+    str.tostring(value, format.mintick)
+
+barsAgo(int eventBar) =>
+    na(eventBar) ? "" : bar_index == eventBar ? " · this bar" : " · " + str.tostring(bar_index - eventBar) + (bar_index - eventBar == 1 ? " bar ago" : " bars ago")
+
+strengthGrade(float score) =>
+    score >= GRADE_A_MIN ? "A" : score >= GRADE_B_MIN ? "B" : "C"
+
+gradeRank(string grade) =>
+    grade == "A" ? 3 : grade == "B" ? 2 : 1
+
+zoneStateText(int state) =>
+    state == 1 ? "LIVE" : state == 2 ? "RETESTED" : state == 3 ? "FAILED" : "NONE"
+
+// Plain EXCHANGE:SYMBOL, so modified tickers (extended hours, adjustments) keep the JSON valid
+symbolText() =>
+    syminfo.prefix + ":" + syminfo.ticker
+
+signalMessage(string side, string grade, float entryPrice, float stopPrice, float target1, float target2, float target3) =>
+    string message = ""
+    if alertFormat == AlertFormat.jsonPayload
+        message := '{"indicator":"' + SCRIPT_NAME + '","signal":"' + side + '","grade":"' + grade + '","ticker":"' + symbolText() + '","timeframe":"' + timeframe.period + '","entry":' + priceText(entryPrice) + ',"sl":' + priceText(stopPrice) + ',"tp1":' + priceText(target1) + ',"tp2":' + priceText(target2) + ',"tp3":' + priceText(target3) + '}'
+    else
+        message := SCRIPT_NAME + " | " + side + " " + grade + " | " + symbolText() + " | " + timeframe.period + " | Entry " + priceText(entryPrice) + " | SL " + priceText(stopPrice) + " | TP1 " + priceText(target1) + " | TP2 " + priceText(target2) + " | TP3 " + priceText(target3)
+    message
+
+fadeZone(box zone, color baseColor, string zoneText) =>
+    box.set_right(zone, bar_index)
+    box.set_bgcolor(zone, color.new(baseColor, 95))
+    box.set_border_color(zone, color.new(baseColor, 65))
+    box.set_border_style(zone, line.style_dotted)
+    box.set_text(zone, zoneText)
+    box.set_text_color(zone, color.new(baseColor, 45))
+
+// Stops a level line and its price label on the current bar, optionally marking it
+endLevel(line levelLine, label levelLabel, string mark) =>
+    line.set_x2(levelLine, bar_index)
+    label.set_x(levelLabel, bar_index)
+    if mark != ""
+        label.set_text(levelLabel, label.get_text(levelLabel) + " " + mark)
+
+NO_STATUS_LINE = display.all - display.status_line
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 02. VOLUME AND PRICE ANALYSIS
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+atr = ta.atr(14)
+ema = ta.ema(close, emaLength)
+avgVolume = ta.sma(volume, volLength)
+
+validVolume = not na(volume) and not na(avgVolume) and avgVolume > 0
+volumeSpike = validVolume and volume >= avgVolume * volMultiplier
+
+candleRange = math.max(high - low, syminfo.mintick)
+body = math.abs(close - open)
+
+upperWick = high - math.max(open, close)
+lowerWick = math.min(open, close) - low
+
+upperWickRatio = upperWick / candleRange
+lowerWickRatio = lowerWick / candleRange
+
+closePosition = (close - low) / candleRange
+
+bullRejection = lowerWickRatio >= wickRatio and closePosition >= 0.60
+bearRejection = upperWickRatio >= wickRatio and closePosition <= 0.40
+
+plot(showEMA ? ema : na, "Trend EMA", color=color.orange, linewidth=2, display=showEMA ? display.all : display.none)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 03. LIQUIDITY SWEEP ENGINE
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+previousLow = ta.lowest(low[1], rangeLength)
+previousHigh = ta.highest(high[1], rangeLength)
+
+bullSweep = not na(previousLow) and low < previousLow and close > previousLow
+bearSweep = not na(previousHigh) and high > previousHigh and close < previousHigh
+
+plotshape(showSweep and bullSweep and barstate.isconfirmed, title="Bullish Liquidity Sweep", style=shape.triangleup, location=location.belowbar, color=color.aqua, size=size.tiny, text="SW", display=NO_STATUS_LINE)
+plotshape(showSweep and bearSweep and barstate.isconfirmed, title="Bearish Liquidity Sweep", style=shape.triangledown, location=location.abovebar, color=color.orange, size=size.tiny, text="SW", display=NO_STATUS_LINE)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 04. ABSORPTION DETECTION
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+// Estimated price-volume absorption.
+// Pine does not provide universal historical bid/ask order flow.
+
+bullAbsorption = volumeSpike and bullRejection
+bearAbsorption = volumeSpike and bearRejection
+
+// Absorption strength (0-100): effort = relative volume capped at 3x, rejection wick share,
+// close location in the signal direction. Grades: A >= GRADE_A_MIN, B >= GRADE_B_MIN, else C.
+relVolume  = validVolume ? volume / avgVolume : na
+effortTerm = validVolume ? math.min(relVolume / 3.0, 1.0) : 0.0
+bullScore  = math.round(100.0 * (W_EFFORT * effortTerm + W_WICK * lowerWickRatio + W_CLOSE * closePosition))
+bearScore  = math.round(100.0 * (W_EFFORT * effortTerm + W_WICK * upperWickRatio + W_CLOSE * (1.0 - closePosition)))
+bullGrade  = strengthGrade(bullScore)
+bearGrade  = strengthGrade(bearScore)
+
+minRank     = minGrade == MinGrade.aOnly ? 3 : minGrade == MinGrade.abOnly ? 2 : 1
+bullGradeOK = gradeRank(bullGrade) >= minRank
+bearGradeOK = gradeRank(bearGrade) >= minRank
+
+trendBull = not useTrendFilter or close > ema
+trendBear = not useTrendFilter or close < ema
+
+sweepBullValid = not useSweepFilter or bullSweep
+sweepBearValid = not useSweepFilter or bearSweep
+
+rawBuy = bullAbsorption and trendBull and sweepBullValid and bullGradeOK
+rawSell = bearAbsorption and trendBear and sweepBearValid and bearGradeOK
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 05. SIGNAL COOLDOWN
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+var int lastSignalBar = na
+
+cooldownPassed = na(lastSignalBar) or bar_index - lastSignalBar > cooldown
+
+buySignal = rawBuy and cooldownPassed and barstate.isconfirmed
+sellSignal = rawSell and cooldownPassed and barstate.isconfirmed
+
+if buySignal or sellSignal
+    lastSignalBar := bar_index
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 06. ABSORPTION ZONES
+// Track state: live until a close beyond the far edge (FAILED); leaving and coming back marks RETESTED.
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+var box bullZone = na
+var box bearZone = na
+
+// Zone state: 0 none, 1 live, 2 retested, 3 failed
+var int  bullZoneState = 0
+var int  bearZoneState = 0
+var bool bullZoneLeft  = false
+var bool bearZoneLeft  = false
+var int  bullZoneBar   = na
+var int  bearZoneBar   = na
+
+trackZones = zoneMode == ZoneMode.track
+
+if showZones and buySignal
+    if not na(bullZone)
+        box.delete(bullZone)
+    bullZone := box.new(left=bar_index, top=math.max(open, close), right=bar_index + zoneExtension, bottom=low, border_color=color.new(color.aqua, 15), bgcolor=color.new(color.aqua, 87), text="BUYER ABSORPTION", text_color=color.aqua, text_size=size.tiny)
+    bullZoneState := 1
+    bullZoneLeft := false
+    bullZoneBar := bar_index
+
+if showZones and sellSignal
+    if not na(bearZone)
+        box.delete(bearZone)
+    bearZone := box.new(left=bar_index, top=high, right=bar_index + zoneExtension, bottom=math.min(open, close), border_color=color.new(color.red, 15), bgcolor=color.new(color.red, 87), text="SELLER ABSORPTION", text_color=color.red, text_size=size.tiny)
+    bearZoneState := 1
+    bearZoneLeft := false
+    bearZoneBar := bar_index
+
+bullZoneRetest = false
+bullZoneFailed = false
+bearZoneRetest = false
+bearZoneFailed = false
+
+if trackZones and barstate.isconfirmed and not na(bullZone) and (bullZoneState == 1 or bullZoneState == 2) and bar_index > bullZoneBar
+    float zoneTop = box.get_top(bullZone)
+    float zoneBottom = box.get_bottom(bullZone)
+    if close < zoneBottom
+        bullZoneState := 3
+        bullZoneFailed := true
+        fadeZone(bullZone, color.aqua, "BUYER ABSORPTION · FAILED")
+    else if low > zoneTop
+        bullZoneLeft := true
+    else if bullZoneLeft
+        bullZoneLeft := false
+        bullZoneState := 2
+        bullZoneRetest := true
+        box.set_text(bullZone, "BUYER ABSORPTION · RETESTED")
+
+if trackZones and barstate.isconfirmed and not na(bearZone) and (bearZoneState == 1 or bearZoneState == 2) and bar_index > bearZoneBar
+    float zoneTop = box.get_top(bearZone)
+    float zoneBottom = box.get_bottom(bearZone)
+    if close > zoneTop
+        bearZoneState := 3
+        bearZoneFailed := true
+        fadeZone(bearZone, color.red, "SELLER ABSORPTION · FAILED")
+    else if high < zoneBottom
+        bearZoneLeft := true
+    else if bearZoneLeft
+        bearZoneLeft := false
+        bearZoneState := 2
+        bearZoneRetest := true
+        box.set_text(bearZone, "SELLER ABSORPTION · RETESTED")
+
+// Live zones keep reaching past the current bar
+if trackZones and barstate.islast
+    if not na(bullZone) and (bullZoneState == 1 or bullZoneState == 2)
+        box.set_right(bullZone, bar_index + zoneExtension)
+    if not na(bearZone) and (bearZoneState == 1 or bearZoneState == 2)
+        box.set_right(bearZone, bar_index + zoneExtension)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 07. BUY / SELL SIGNALS
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+classicLabels = signalStyle == SignalStyle.classic
+
+plotshape(showSignals and classicLabels and buySignal, title="BUY Absorption", style=shape.labelup, location=location.belowbar, color=color.rgb(0, 150, 120), text="BUY", textcolor=color.white, size=size.small, display=NO_STATUS_LINE)
+
+plotshape(showSignals and classicLabels and sellSignal, title="SELL Absorption", style=shape.labeldown, location=location.abovebar, color=color.rgb(200, 55, 65), text="SELL", textcolor=color.white, size=size.small, display=NO_STATUS_LINE)
+
+if showSignals and not classicLabels and buySignal
+    string buyTip = "Absorption strength " + str.tostring(bullScore) + " (grade " + bullGrade + ")\nVolume " + str.tostring(relVolume, "#.##") + "x its average\nLower wick " + str.tostring(lowerWickRatio * 100, "#") + "% of range, close at " + str.tostring(closePosition * 100, "#") + "% of range" + (bullSweep ? "\nAlso swept the prior " + str.tostring(rangeLength) + "-bar low" : "")
+    label.new(bar_index, low, "BUY " + bullGrade, yloc=yloc.belowbar, style=label.style_label_up, color=color.rgb(0, 150, 120), textcolor=color.white, size=size.tiny, tooltip=buyTip)
+
+if showSignals and not classicLabels and sellSignal
+    string sellTip = "Absorption strength " + str.tostring(bearScore) + " (grade " + bearGrade + ")\nVolume " + str.tostring(relVolume, "#.##") + "x its average\nUpper wick " + str.tostring(upperWickRatio * 100, "#") + "% of range, close at " + str.tostring(closePosition * 100, "#") + "% of range" + (bearSweep ? "\nAlso swept the prior " + str.tostring(rangeLength) + "-bar high" : "")
+    label.new(bar_index, high, "SELL " + bearGrade, yloc=yloc.abovebar, style=label.style_label_down, color=color.rgb(200, 55, 65), textcolor=color.white, size=size.tiny, tooltip=sellTip)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 08. RADAR DASHBOARD
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+var table radar = table.new(tablePosition(dashPos), 2, 8, bgcolor=PANEL_BG, border_width=1, frame_color=color.new(color.gray, 50))
+
+if barstate.isfirst
+    table.merge_cells(radar, 0, 0, 1, 0)
+
+var string lastEvent = "WAITING"
+var string lastGrade = ""
+var int    lastSide  = 0
+
+if buySignal
+    lastEvent := "BUYER ABSORPTION"
+    lastGrade := bullGrade
+    lastSide := 1
+
+if sellSignal
+    lastEvent := "SELLER ABSORPTION"
+    lastGrade := bearGrade
+    lastSide := -1
+
+var int lastBullAbsBar = na
+var int lastBearAbsBar = na
+
+if bullAbsorption and barstate.isconfirmed
+    lastBullAbsBar := bar_index
+
+if bearAbsorption and barstate.isconfirmed
+    lastBearAbsBar := bar_index
+
+volumeStatus = not validVolume ? "NO VOLUME DATA" : volumeSpike ? "HIGH VOLUME" : "NORMAL"
+volumeColor = not validVolume ? color.new(color.red, 40) : volumeSpike ? color.new(color.orange, 30) : color.new(color.gray, 65)
+
+pressureStatus = bullAbsorption ? "BUY PRESSURE" : bearAbsorption ? "SELL PRESSURE" : "NEUTRAL"
+
+pressureColor = bullAbsorption ? color.new(color.green, 40) : bearAbsorption ? color.new(color.red, 40) : color.new(color.gray, 65)
+
+trendStatus = close > ema ? "BULLISH" : close < ema ? "BEARISH" : "NEUTRAL"
+
+if barstate.islast and showDashboard
+    string volumeText = volumeStatus + (validVolume ? " · " + str.tostring(relVolume, "#.##") + "x" : "")
+    string buyText = bullAbsorption ? "DETECTED" : na(lastBullAbsBar) ? "NOT DETECTED" : "LAST" + barsAgo(lastBullAbsBar)
+    string sellText = bearAbsorption ? "DETECTED" : na(lastBearAbsBar) ? "NOT DETECTED" : "LAST" + barsAgo(lastBearAbsBar)
+    string eventText = lastSide == 0 ? lastEvent : lastEvent + " " + lastGrade + barsAgo(lastSignalBar)
+    int    zoneState = lastSide == 1 ? bullZoneState : lastSide == -1 ? bearZoneState : 0
+    string zoneText = not showZones ? "OFF" : not trackZones ? "FIXED LENGTH" : lastSide == 0 ? "NONE" : (lastSide == 1 ? "BUY ZONE " : "SELL ZONE ") + zoneStateText(zoneState)
+    color  zoneColor = not showZones or not trackZones ? color.new(color.gray, 65) : zoneState == 3 ? color.new(color.gray, 55) : zoneState == 2 ? color.new(color.yellow, 60) : zoneState == 1 ? (lastSide == 1 ? color.new(color.green, 50) : color.new(color.red, 50)) : color.new(color.gray, 65)
+
+    table.cell(radar, 0, 0, "Viprasol Absorption Radar Pro\nfor Smart Money", bgcolor=HEADER_BG, text_color=color.white)
+
+    table.cell(radar, 0, 1, "Volume", bgcolor=color.new(color.gray, 80), text_color=color.white)
+    table.cell(radar, 1, 1, volumeText, bgcolor=volumeColor, text_color=color.white)
+
+    table.cell(radar, 0, 2, "Buy Pressure", bgcolor=color.new(color.gray, 80), text_color=color.white)
+    table.cell(radar, 1, 2, buyText, bgcolor=bullAbsorption ? color.new(color.green, 40) : color.new(color.gray, 65), text_color=color.white)
+
+    table.cell(radar, 0, 3, "Sell Pressure", bgcolor=color.new(color.gray, 80), text_color=color.white)
+    table.cell(radar, 1, 3, sellText, bgcolor=bearAbsorption ? color.new(color.red, 40) : color.new(color.gray, 65), text_color=color.white)
+
+    table.cell(radar, 0, 4, "Pressure", bgcolor=color.new(color.gray, 80), text_color=color.white)
+    table.cell(radar, 1, 4, pressureStatus, bgcolor=pressureColor, text_color=color.white)
+
+    table.cell(radar, 0, 5, "EMA Trend", bgcolor=color.new(color.gray, 80), text_color=color.white)
+    table.cell(radar, 1, 5, trendStatus, bgcolor=close > ema ? color.new(color.green, 50) : color.new(color.red, 50), text_color=color.white)
+
+    table.cell(radar, 0, 6, "Last Event", bgcolor=HEADER_BG, text_color=color.white)
+    table.cell(radar, 1, 6, eventText, bgcolor=color.new(color.blue, 60), text_color=color.white)
+
+    table.cell(radar, 0, 7, "Zone", bgcolor=color.new(color.gray, 80), text_color=color.white)
+    table.cell(radar, 1, 7, zoneText, bgcolor=zoneColor, text_color=color.white)
+
+if barstate.islast and not showDashboard
+    table.clear(radar, 0, 0, 1, 7)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 09. ALERTS
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+alertcondition(buySignal, title="Viprasol Absorption Radar Pro for Smart Money - Buyer Absorption", message="Viprasol Absorption Radar Pro for Smart Money: buyer absorption confirmed on candle close | {{ticker}} | {{interval}} | Close {{close}}")
+alertcondition(sellSignal, title="Viprasol Absorption Radar Pro for Smart Money - Seller Absorption", message="Viprasol Absorption Radar Pro for Smart Money: seller absorption confirmed on candle close | {{ticker}} | {{interval}} | Close {{close}}")
+alertcondition(bullSweep and barstate.isconfirmed, title="Viprasol Absorption Radar Pro for Smart Money - Bullish Sweep", message="Viprasol Absorption Radar Pro for Smart Money: bullish liquidity sweep detected | {{ticker}} | {{interval}} | Close {{close}}")
+alertcondition(bearSweep and barstate.isconfirmed, title="Viprasol Absorption Radar Pro for Smart Money - Bearish Sweep", message="Viprasol Absorption Radar Pro for Smart Money: bearish liquidity sweep detected | {{ticker}} | {{interval}} | Close {{close}}")
+alertcondition(volumeSpike and barstate.isconfirmed, title="Viprasol Absorption Radar Pro for Smart Money - Volume Spike", message="Viprasol Absorption Radar Pro for Smart Money: volume spike detected | {{ticker}} | {{interval}} | Close {{close}}")
+alertcondition(bullZoneRetest, title="Viprasol Absorption Radar Pro for Smart Money - Buyer Zone Retest", message="Viprasol Absorption Radar Pro for Smart Money: price came back into the buyer absorption zone | {{ticker}} | {{interval}} | Close {{close}}")
+alertcondition(bearZoneRetest, title="Viprasol Absorption Radar Pro for Smart Money - Seller Zone Retest", message="Viprasol Absorption Radar Pro for Smart Money: price came back into the seller absorption zone | {{ticker}} | {{interval}} | Close {{close}}")
+alertcondition(bullZoneFailed, title="Viprasol Absorption Radar Pro for Smart Money - Buyer Zone Failed", message="Viprasol Absorption Radar Pro for Smart Money: buyer absorption zone failed (close below the zone) | {{ticker}} | {{interval}} | Close {{close}}")
+alertcondition(bearZoneFailed, title="Viprasol Absorption Radar Pro for Smart Money - Seller Zone Failed", message="Viprasol Absorption Radar Pro for Smart Money: seller absorption zone failed (close above the zone) | {{ticker}} | {{interval}} | Close {{close}}")
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 10. Viprasol AUTO TARGET SYSTEM
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+var line autoEntryLine = na
+var line autoSLLine = na
+var line autoTP1Line = na
+var line autoTP2Line = na
+var line autoTP3Line = na
+
+var label autoEntryLabel = na
+var label autoSLLabel = na
+var label autoTP1Label = na
+var label autoTP2Label = na
+var label autoTP3Label = na
+
+var float autoEntry = na
+var float autoSL = na
+var float autoTP1 = na
+var float autoTP2 = na
+var float autoTP3 = na
+
+lineExtend = stopAtHit ? extend.none : extend.right
+
+if buySignal or sellSignal
+    if not na(autoEntryLine)
+        line.delete(autoEntryLine)
+        line.delete(autoSLLine)
+        line.delete(autoTP1Line)
+        line.delete(autoTP2Line)
+        line.delete(autoTP3Line)
+
+        label.delete(autoEntryLabel)
+        label.delete(autoSLLabel)
+        label.delete(autoTP1Label)
+        label.delete(autoTP2Label)
+        label.delete(autoTP3Label)
+
+    autoEntry := close
+    riskDistance = math.max(atr * targetATR, syminfo.mintick)
+
+    if buySignal
+        autoSL := autoEntry - riskDistance
+        autoTP1 := autoEntry + riskDistance * targetRR1
+        autoTP2 := autoEntry + riskDistance * targetRR2
+        autoTP3 := autoEntry + riskDistance * targetRR3
+    else
+        autoSL := autoEntry + riskDistance
+        autoTP1 := autoEntry - riskDistance * targetRR1
+        autoTP2 := autoEntry - riskDistance * targetRR2
+        autoTP3 := autoEntry - riskDistance * targetRR3
+
+    if showTargets
+        autoEntryLine := line.new(bar_index, autoEntry, bar_index + targetExtension, autoEntry, extend=lineExtend, color=color.blue, width=2)
+        autoSLLine := line.new(bar_index, autoSL, bar_index + targetExtension, autoSL, extend=lineExtend, color=color.red, width=2)
+        autoTP1Line := line.new(bar_index, autoTP1, bar_index + targetExtension, autoTP1, extend=lineExtend, color=color.lime, width=1)
+        autoTP2Line := line.new(bar_index, autoTP2, bar_index + targetExtension, autoTP2, extend=lineExtend, color=color.lime, width=1)
+        autoTP3Line := line.new(bar_index, autoTP3, bar_index + targetExtension, autoTP3, extend=lineExtend, color=color.green, width=2)
+
+        autoEntryLabel := label.new(bar_index + targetExtension, autoEntry, "ENTRY " + str.tostring(autoEntry, format.mintick), style=label.style_label_left, color=color.blue, textcolor=color.white, size=size.small)
+        autoSLLabel := label.new(bar_index + targetExtension, autoSL, "SL " + str.tostring(autoSL, format.mintick), style=label.style_label_left, color=color.red, textcolor=color.white, size=size.small)
+        autoTP1Label := label.new(bar_index + targetExtension, autoTP1, "TP1 " + str.tostring(autoTP1, format.mintick), style=label.style_label_left, color=color.green, textcolor=color.white, size=size.small)
+        autoTP2Label := label.new(bar_index + targetExtension, autoTP2, "TP2 " + str.tostring(autoTP2, format.mintick), style=label.style_label_left, color=color.green, textcolor=color.white, size=size.small)
+        autoTP3Label := label.new(bar_index + targetExtension, autoTP3, "TP3 " + str.tostring(autoTP3, format.mintick), style=label.style_label_left, color=color.green, textcolor=color.white, size=size.small)
+
+    if alertLevels
+        alert(signalMessage(buySignal ? "BUY" : "SELL", buySignal ? bullGrade : bearGrade, autoEntry, autoSL, autoTP1, autoTP2, autoTP3), alert.freq_once_per_bar_close)
+
+// Trade tracking: the latest signal's lines run until the stop or TP3 is hit
+var bool tradeOpen = false
+var int  tradeDir  = 0
+var int  tradeBar  = na
+var bool tp1Done   = false
+var bool tp2Done   = false
+var bool tp3Done   = false
+
+if buySignal or sellSignal
+    tradeOpen := true
+    tradeDir  := buySignal ? 1 : -1
+    tradeBar  := bar_index
+    tp1Done   := false
+    tp2Done   := false
+    tp3Done   := false
+
+if stopAtHit and tradeOpen and barstate.isconfirmed and bar_index > tradeBar
+    bool isLong  = tradeDir == 1
+    bool drawn   = not na(autoEntryLine)
+    bool stopHit = isLong ? low <= autoSL : high >= autoSL
+    bool hit1    = not tp1Done and (isLong ? high >= autoTP1 : low <= autoTP1)
+    bool hit2    = not tp2Done and (isLong ? high >= autoTP2 : low <= autoTP2)
+    bool hit3    = not tp3Done and (isLong ? high >= autoTP3 : low <= autoTP3)
+
+    // A bar that touches the stop and a target is counted as the stop (conservative)
+    if stopHit
+        tradeOpen := false
+        if drawn
+            endLevel(autoSLLine, autoSLLabel, "✗")
+    else
+        if hit1
+            tp1Done := true
+            if drawn
+                endLevel(autoTP1Line, autoTP1Label, "✓")
+        if hit2
+            tp2Done := true
+            if drawn
+                endLevel(autoTP2Line, autoTP2Label, "✓")
+        if hit3
+            tp3Done := true
+            tradeOpen := false
+            if drawn
+                endLevel(autoTP3Line, autoTP3Label, "✓")
+
+    if not tradeOpen and drawn
+        endLevel(autoEntryLine, autoEntryLabel, "")
+        if not stopHit
+            endLevel(autoSLLine, autoSLLabel, "")
+        if not tp1Done
+            endLevel(autoTP1Line, autoTP1Label, "")
+        if not tp2Done
+            endLevel(autoTP2Line, autoTP2Label, "")
+        if not tp3Done
+            endLevel(autoTP3Line, autoTP3Label, "")
+
+// Open trade: keep its levels reaching past the current bar
+if stopAtHit and barstate.islast and tradeOpen and showTargets and not na(autoEntryLine)
+    int openEnd = bar_index + targetExtension
+    line.set_x2(autoEntryLine, openEnd)
+    label.set_x(autoEntryLabel, openEnd)
+    line.set_x2(autoSLLine, openEnd)
+    label.set_x(autoSLLabel, openEnd)
+    if not tp1Done
+        line.set_x2(autoTP1Line, openEnd)
+        label.set_x(autoTP1Label, openEnd)
+    if not tp2Done
+        line.set_x2(autoTP2Line, openEnd)
+        label.set_x(autoTP2Label, openEnd)
+    if not tp3Done
+        line.set_x2(autoTP3Line, openEnd)
+        label.set_x(autoTP3Label, openEnd)

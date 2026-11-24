@@ -1,0 +1,460 @@
+// This Pine Script™ v6 indicator is subject to the terms of the Mozilla Public License 2.0
+// https://mozilla.org/MPL/2.0/
+// (c) Viprasol
+//
+// MA CONFLUENCE ENGINE — 15-MA Consensus Ribbon (Indicator)
+//
+// Instead of one fragile crossover, this runs a ribbon of 15 moving averages and
+// signals on the CONSENSUS: it only fires when most of the ribbon agrees on
+// direction, and stays quiet when the ribbon compresses (chop). On the latest
+// signal it projects a full trade plan — Entry, TP1, TP2, TP3 and Stop Loss.
+// Pick any of 21 verified, license-clean MA types.
+//
+// MA math credits (public-domain / published): Wilder (RMA), Mulloy (DEMA/TEMA),
+// Hull (HMA), Legoux & Kouzis-Loukas (ALMA), Tillson (T3), McGinley, Kaufman
+// (KAMA/ER), Ehlers (ZLEMA/SuperSmoother/Gaussian/Laguerre/FRAMA), Chande (VIDYA),
+// Kálmán (Kalman). No proprietary Jurik/JMA. All Pine code original to Viprasol.
+
+//@version=6
+indicator("MA Confluence Engine [Viprasol]", shorttitle = "VP - MA Confluence", overlay = true, max_lines_count = 500, max_labels_count = 500)
+
+// ══════════════════════════════════════════════════════════════
+// Constants
+// ══════════════════════════════════════════════════════════════
+const int    N        = 15
+const color  DASH_BG  = #0d1117
+const color  DASH_HEAD= #18233a
+const color  COL_BULL = #00ffaa
+const color  COL_BEAR = #ff4060
+const color  COL_GOOD = #00e676
+const color  COL_BAD  = #ff5252
+const color  COL_MUTE = #8b949e
+const color  COL_TP   = #26a69a
+const color  COL_SL   = #ef5350
+const color  COL_ENTRY= #b0b3b8
+
+// ══════════════════════════════════════════════════════════════
+// Inputs — Ribbon
+// ══════════════════════════════════════════════════════════════
+grpRib = "MA Ribbon (15 averages)"
+maType  = input.string("EMA", "MA Type", options = ["SMA","EMA","WMA","RMA","VWMA","DEMA","TEMA","HMA","ALMA","T3","McGinley","ZLEMA","KAMA","FRAMA","VIDYA","SuperSmoother","Gaussian","Laguerre","Kalman","LSMA","Median"], group = grpRib, tooltip = "Applied to all 15 ribbon lines.")
+baseLen = input.int(10, "Base (fastest) Length", minval = 2, group = grpRib)
+stepLen = input.int(8, "Step Between MAs", minval = 1, group = grpRib, tooltip = "Each ribbon line is this many bars longer than the last. Base 10, step 8 → lengths 10,18,26 … 122.")
+srcInput = input.source(close, "Source", group = grpRib)
+
+grpAdv = "Advanced MA Parameters"
+almaOffset = input.float(0.85, "ALMA Offset", minval = 0, maxval = 1, step = 0.05, group = grpAdv)
+almaSigma  = input.float(6.0, "ALMA Sigma", minval = 0.1, group = grpAdv)
+t3Factor   = input.float(0.7, "T3 Volume Factor", minval = 0, maxval = 1, step = 0.05, group = grpAdv)
+mcgK       = input.float(0.6, "McGinley K", minval = 0.1, step = 0.1, group = grpAdv)
+kamaFast   = input.int(2, "KAMA Fast", minval = 1, group = grpAdv)
+kamaSlow   = input.int(30, "KAMA Slow", minval = 1, group = grpAdv)
+vidyaCmo   = input.int(9, "VIDYA CMO Length", minval = 1, group = grpAdv)
+gaussPoles = input.int(2, "Gaussian Poles", minval = 1, maxval = 4, group = grpAdv)
+lagGamma   = input.float(0.7, "Laguerre Gamma", minval = 0.1, maxval = 0.99, step = 0.05, group = grpAdv)
+kalQ       = input.float(0.05, "Kalman Process Noise (Q)", minval = 0.0001, step = 0.01, group = grpAdv)
+kalR       = input.float(0.01, "Kalman Measure Noise (R)", minval = 0.0001, step = 0.01, group = grpAdv)
+
+// ══════════════════════════════════════════════════════════════
+// Inputs — Consensus & Chop Filter
+// ══════════════════════════════════════════════════════════════
+grpCon = "Consensus & Chop Filter"
+bullTh = input.int(75, "Bullish Consensus (%)", minval = 50, maxval = 100, group = grpCon, tooltip = "Long when the ribbon consensus rises through this. 100% = price above all 15 MAs AND all 15 rising.")
+bearTh = input.int(25, "Bearish Consensus (%)", minval = 0, maxval = 50, group = grpCon, tooltip = "Short when consensus falls through this.")
+useWidth = input.bool(true, "Skip When Ribbon Compressed", group = grpCon, tooltip = "When the 15 MAs squeeze together (small ATR-normalized width), the market is choppy — signals are skipped. The ribbon's built-in chop filter.")
+minWidth = input.float(0.8, "Min Ribbon Width (ATR)", minval = 0.0, step = 0.1, group = grpCon)
+useRegime = input.bool(true, "Require Trending Regime", group = grpCon, tooltip = "Kaufman Efficiency Ratio gate — only signal when price is moving cleanly.")
+erLen = input.int(20, "Efficiency Lookback", minval = 2, group = grpCon)
+erMin = input.float(0.30, "Min Efficiency (0-1)", minval = 0.0, maxval = 1.0, step = 0.05, group = grpCon)
+
+grpDir = "Direction"
+dirInput = input.string("Both", "Signal Direction", options = ["Both","Longs Only","Shorts Only"], group = grpDir)
+
+// ══════════════════════════════════════════════════════════════
+// Inputs — Trade Levels (shown on last signal)
+// ══════════════════════════════════════════════════════════════
+grpLvl = "Trade Levels (last signal)"
+showLevels = input.bool(true, "Show Entry / TP / SL", group = grpLvl)
+slMode  = input.string("ATR", "Stop Unit", options = ["ATR","Percent"], group = grpLvl)
+atrLen  = input.int(14, "ATR Length", minval = 1, group = grpLvl)
+slVal   = input.float(2.5, "Stop Distance (ATR× / %)", minval = 0.1, step = 0.1, group = grpLvl, tooltip = "Risk distance from entry to stop. Defines 1R; the TP levels are multiples of this risk.")
+tp1R    = input.float(1.0, "TP1 (R multiple)", minval = 0.1, step = 0.1, group = grpLvl)
+tp2R    = input.float(2.0, "TP2 (R multiple)", minval = 0.1, step = 0.1, group = grpLvl)
+tp3R    = input.float(3.0, "TP3 (R multiple)", minval = 0.1, step = 0.1, group = grpLvl)
+lineLen = input.int(40, "Level Line Length (bars)", minval = 5, maxval = 300, group = grpLvl)
+
+grpVis = "Visuals"
+showRibbon = input.bool(true, "Show Ribbon", group = grpVis)
+gradientRibbon = input.bool(true, "Color Ribbon by Consensus", group = grpVis, tooltip = "On = ribbon shifts red→green with consensus. Off = simple bull/bear color.")
+showSignals = input.bool(true, "Signal Markers", group = grpVis)
+shadeChop = input.bool(true, "Shade Choppy Background", group = grpVis)
+showDash = input.bool(true, "Dashboard", group = grpVis)
+dashPos = input.string("Top Right", "Dashboard Position", options = ["Top Right","Top Left","Bottom Right","Bottom Left"], group = grpVis)
+dashSize = input.string("Small", "Dashboard Size", options = ["Tiny","Small","Normal"], group = grpVis)
+
+// ══════════════════════════════════════════════════════════════
+// MA helper functions (verified, from published formulas)
+// ══════════════════════════════════════════════════════════════
+f_dema(float src, simple int len) =>
+    e1 = ta.ema(src, len)
+    e2 = ta.ema(e1, len)
+    2 * e1 - e2
+
+f_tema(float src, simple int len) =>
+    e1 = ta.ema(src, len)
+    e2 = ta.ema(e1, len)
+    e3 = ta.ema(e2, len)
+    3 * e1 - 3 * e2 + e3
+
+f_t3(float src, simple int len, float a) =>
+    e1 = ta.ema(src, len)
+    e2 = ta.ema(e1, len)
+    e3 = ta.ema(e2, len)
+    e4 = ta.ema(e3, len)
+    e5 = ta.ema(e4, len)
+    e6 = ta.ema(e5, len)
+    c1 = -a * a * a
+    c2 = 3 * a * a + 3 * a * a * a
+    c3 = -6 * a * a - 3 * a - 3 * a * a * a
+    c4 = 1 + 3 * a + 3 * a * a + a * a * a
+    c1 * e6 + c2 * e5 + c3 * e4 + c4 * e3
+
+f_mcginley(float src, simple int len, float k) =>
+    var float md = na
+    md := na(md[1]) ? src : md[1] + (src - md[1]) / (k * len * math.pow(src / md[1], 4))
+    md
+
+f_zlema(float src, simple int len) =>
+    int lag = math.round((len - 1) / 2.0)
+    float k = 2.0 / (len + 1)
+    var float z = na
+    z := k * (2 * src - nz(src[lag], src)) + (1 - k) * nz(z[1], src)
+    z
+
+f_kama(float src, simple int len, simple int fast, simple int slow) =>
+    mom = math.abs(ta.change(src, len))
+    vol = math.sum(math.abs(ta.change(src)), len)
+    er  = vol != 0 ? mom / vol : 0.0
+    sc  = math.pow(er * (2.0 / (fast + 1) - 2.0 / (slow + 1)) + 2.0 / (slow + 1), 2)
+    var float out = na
+    out := nz(out[1], src) + sc * (src - nz(out[1], src))
+    out
+
+f_frama(float src, simple int len) =>
+    int half = math.max(len / 2, 1)
+    n1 = (ta.highest(high, half) - ta.lowest(low, half)) / half
+    n2 = (ta.highest(high, half)[half] - ta.lowest(low, half)[half]) / half
+    n3 = (ta.highest(high, len) - ta.lowest(low, len)) / len
+    dim = (n1 > 0 and n2 > 0 and n3 > 0) ? (math.log(n1 + n2) - math.log(n3)) / math.log(2) : 1.0
+    a = math.max(math.min(math.exp(-4.6 * (dim - 1)), 1.0), 0.01)
+    var float out = na
+    out := a * src + (1 - a) * nz(out[1], src)
+    out
+
+f_vidya(float src, simple int len, simple int cmoLen) =>
+    mom = ta.change(src)
+    up  = math.sum(mom > 0 ? mom : 0.0, cmoLen)
+    dn  = math.sum(mom < 0 ? -mom : 0.0, cmoLen)
+    cmo = (up + dn) != 0 ? math.abs((up - dn) / (up + dn)) : 0.0
+    a = 2.0 / (len + 1)
+    var float out = na
+    out := a * cmo * src + (1 - a * cmo) * nz(out[1], src)
+    out
+
+f_ss(float src, simple int len) =>
+    a1 = math.exp(-1.414 * math.pi / len)
+    b1 = 2 * a1 * math.cos(1.414 * math.pi / len)
+    c2 = b1
+    c3 = -a1 * a1
+    c1 = 1 - c2 - c3
+    var float s = na
+    s := c1 * (src + nz(src[1], src)) / 2 + c2 * nz(s[1], src) + c3 * nz(s[2], src)
+    s
+
+f_gauss(float src, simple int len, simple int poles) =>
+    beta = (1 - math.cos(2 * math.pi / len)) / (math.pow(1.414, 2.0 / poles) - 1)
+    alpha = -beta + math.sqrt(beta * beta + 2 * beta)
+    oma = 1 - alpha
+    var float f = na
+    p1 = nz(f[1], src)
+    p2 = nz(f[2], src)
+    p3 = nz(f[3], src)
+    p4 = nz(f[4], src)
+    float res = poles == 1 ? alpha * src + oma * p1 : poles == 2 ? math.pow(alpha, 2) * src + 2 * oma * p1 - math.pow(oma, 2) * p2 : poles == 3 ? math.pow(alpha, 3) * src + 3 * oma * p1 - 3 * math.pow(oma, 2) * p2 + math.pow(oma, 3) * p3 : math.pow(alpha, 4) * src + 4 * oma * p1 - 6 * math.pow(oma, 2) * p2 + 4 * math.pow(oma, 3) * p3 - math.pow(oma, 4) * p4
+    f := res
+    f
+
+f_laguerre(float src, float gamma) =>
+    var float l0 = na
+    var float l1 = na
+    var float l2 = na
+    var float l3 = na
+    l0p = nz(l0[1], src)
+    l1p = nz(l1[1], src)
+    l2p = nz(l2[1], src)
+    l3p = nz(l3[1], src)
+    l0 := (1 - gamma) * src + gamma * l0p
+    l1 := -gamma * l0 + l0p + gamma * l1p
+    l2 := -gamma * l1 + l1p + gamma * l2p
+    l3 := -gamma * l2 + l2p + gamma * l3p
+    (l0 + 2 * l1 + 2 * l2 + l3) / 6
+
+f_kalman(float src, float Q, float R) =>
+    var float est = na
+    var float P = 1.0
+    if na(est)
+        est := src
+        P := 1.0
+    else
+        Pp = P + Q
+        K = Pp / (Pp + R)
+        est := est + K * (src - est)
+        P := (1 - K) * Pp
+    est
+
+getMA(simple string t, float src, simple int len) =>
+    switch t
+        "SMA"           => ta.sma(src, len)
+        "EMA"           => ta.ema(src, len)
+        "WMA"           => ta.wma(src, len)
+        "RMA"           => ta.rma(src, len)
+        "VWMA"          => ta.vwma(src, len)
+        "DEMA"          => f_dema(src, len)
+        "TEMA"          => f_tema(src, len)
+        "HMA"           => ta.hma(src, len)
+        "ALMA"          => ta.alma(src, len, almaOffset, almaSigma)
+        "T3"            => f_t3(src, len, t3Factor)
+        "McGinley"      => f_mcginley(src, len, mcgK)
+        "ZLEMA"         => f_zlema(src, len)
+        "KAMA"          => f_kama(src, len, kamaFast, kamaSlow)
+        "FRAMA"         => f_frama(src, len)
+        "VIDYA"         => f_vidya(src, len, vidyaCmo)
+        "SuperSmoother" => f_ss(src, len)
+        "Gaussian"      => f_gauss(src, len, gaussPoles)
+        "Laguerre"      => f_laguerre(src, lagGamma)
+        "Kalman"        => f_kalman(src, kalQ, kalR)
+        "LSMA"          => ta.linreg(src, len, 0)
+        "Median"        => ta.median(src, len)
+        => ta.sma(src, len)
+
+// ══════════════════════════════════════════════════════════════
+// Build the 15-MA ribbon (unrolled so lengths stay 'simple int')
+// ══════════════════════════════════════════════════════════════
+ma1  = getMA(maType, srcInput, baseLen + 0  * stepLen)
+ma2  = getMA(maType, srcInput, baseLen + 1  * stepLen)
+ma3  = getMA(maType, srcInput, baseLen + 2  * stepLen)
+ma4  = getMA(maType, srcInput, baseLen + 3  * stepLen)
+ma5  = getMA(maType, srcInput, baseLen + 4  * stepLen)
+ma6  = getMA(maType, srcInput, baseLen + 5  * stepLen)
+ma7  = getMA(maType, srcInput, baseLen + 6  * stepLen)
+ma8  = getMA(maType, srcInput, baseLen + 7  * stepLen)
+ma9  = getMA(maType, srcInput, baseLen + 8  * stepLen)
+ma10 = getMA(maType, srcInput, baseLen + 9  * stepLen)
+ma11 = getMA(maType, srcInput, baseLen + 10 * stepLen)
+ma12 = getMA(maType, srcInput, baseLen + 11 * stepLen)
+ma13 = getMA(maType, srcInput, baseLen + 12 * stepLen)
+ma14 = getMA(maType, srcInput, baseLen + 13 * stepLen)
+ma15 = getMA(maType, srcInput, baseLen + 14 * stepLen)
+
+mas = array.from(ma1, ma2, ma3, ma4, ma5, ma6, ma7, ma8, ma9, ma10, ma11, ma12, ma13, ma14, ma15)
+var float[] prevMas = array.new_float(N, na)
+
+// ══════════════════════════════════════════════════════════════
+// Consensus score 0-100
+// ══════════════════════════════════════════════════════════════
+int aboveN = 0
+int upN = 0
+for i = 0 to N - 1
+    m = array.get(mas, i)
+    pm = array.get(prevMas, i)
+    aboveN += close > m ? 1 : 0
+    upN += m > nz(pm, m) ? 1 : 0
+prevMas := array.copy(mas)
+
+float consensus = (aboveN + upN) / (2.0 * N) * 100.0
+
+atr = ta.atr(atrLen)
+ribbonWidth = atr > 0 ? (array.max(mas) - array.min(mas)) / atr : 0.0
+
+erMom = math.abs(ta.change(close, erLen))
+erVolat = math.sum(math.abs(ta.change(close)), erLen)
+er = erVolat != 0 ? erMom / erVolat : 0.0
+regimeOk = not useRegime or er >= erMin
+widthOk = not useWidth or ribbonWidth >= minWidth
+isChop = (useRegime and er < erMin) or (useWidth and ribbonWidth < minWidth)
+
+// ══════════════════════════════════════════════════════════════
+// Signals
+// ══════════════════════════════════════════════════════════════
+rawLong = ta.crossover(consensus, bullTh)
+rawShort = ta.crossunder(consensus, bearTh)
+
+var int whipsAvoided = 0
+if (rawLong or rawShort) and not (regimeOk and widthOk)
+    whipsAvoided += 1
+
+allowLong = dirInput != "Shorts Only"
+allowShort = dirInput != "Longs Only"
+
+longSig = rawLong and regimeOk and widthOk and allowLong
+shortSig = rawShort and regimeOk and widthOk and allowShort
+
+// ══════════════════════════════════════════════════════════════
+// Trade levels on the LAST signal — Entry / TP1 / TP2 / TP3 / SL
+// ══════════════════════════════════════════════════════════════
+var line lnEntry = na
+var line lnSL = na
+var line lnTP1 = na
+var line lnTP2 = na
+var line lnTP3 = na
+var label lbEntry = na
+var label lbSL = na
+var label lbTP1 = na
+var label lbTP2 = na
+var label lbTP3 = na
+var float eEntry = na
+var float eSL = na
+var float eTP1 = na
+var float eTP2 = na
+var float eTP3 = na
+var int eDir = 0
+
+if (longSig or shortSig) and showLevels
+    if not na(lnEntry)
+        line.delete(lnEntry)
+    if not na(lnSL)
+        line.delete(lnSL)
+    if not na(lnTP1)
+        line.delete(lnTP1)
+    if not na(lnTP2)
+        line.delete(lnTP2)
+    if not na(lnTP3)
+        line.delete(lnTP3)
+    if not na(lbEntry)
+        label.delete(lbEntry)
+    if not na(lbSL)
+        label.delete(lbSL)
+    if not na(lbTP1)
+        label.delete(lbTP1)
+    if not na(lbTP2)
+        label.delete(lbTP2)
+    if not na(lbTP3)
+        label.delete(lbTP3)
+
+    bool isLong = longSig
+    eDir := isLong ? 1 : -1
+    eEntry := close
+    risk = slMode == "ATR" ? slVal * atr : close * slVal / 100.0
+    eSL  := isLong ? eEntry - risk : eEntry + risk
+    eTP1 := isLong ? eEntry + tp1R * risk : eEntry - tp1R * risk
+    eTP2 := isLong ? eEntry + tp2R * risk : eEntry - tp2R * risk
+    eTP3 := isLong ? eEntry + tp3R * risk : eEntry - tp3R * risk
+
+    int x1 = bar_index
+    int x2 = bar_index + lineLen
+
+    lnEntry := line.new(x1, eEntry, x2, eEntry, color = COL_ENTRY, width = 1, style = line.style_dashed)
+    lnSL    := line.new(x1, eSL,  x2, eSL,  color = COL_SL, width = 2)
+    lnTP1   := line.new(x1, eTP1, x2, eTP1, color = COL_TP, width = 1)
+    lnTP2   := line.new(x1, eTP2, x2, eTP2, color = COL_TP, width = 1)
+    lnTP3   := line.new(x1, eTP3, x2, eTP3, color = COL_TP, width = 2)
+
+    lbEntry := label.new(x2, eEntry, "Entry " + str.tostring(eEntry, format.mintick), style = label.style_label_left, color = color.new(COL_ENTRY, 20), textcolor = #0d1117, size = size.small)
+    lbSL    := label.new(x2, eSL,  "SL " + str.tostring(eSL, format.mintick), style = label.style_label_left, color = color.new(COL_SL, 10), textcolor = color.white, size = size.small)
+    lbTP1   := label.new(x2, eTP1, "TP1 " + str.tostring(eTP1, format.mintick), style = label.style_label_left, color = color.new(COL_TP, 25), textcolor = color.white, size = size.small)
+    lbTP2   := label.new(x2, eTP2, "TP2 " + str.tostring(eTP2, format.mintick), style = label.style_label_left, color = color.new(COL_TP, 15), textcolor = color.white, size = size.small)
+    lbTP3   := label.new(x2, eTP3, "TP3 " + str.tostring(eTP3, format.mintick), style = label.style_label_left, color = color.new(COL_TP, 0), textcolor = color.white, size = size.small)
+
+// ══════════════════════════════════════════════════════════════
+// Visuals — the ribbon
+// ══════════════════════════════════════════════════════════════
+ribCol = gradientRibbon ? color.from_gradient(consensus, 20, 80, COL_BEAR, COL_BULL) : (consensus >= 50 ? COL_BULL : COL_BEAR)
+p1  = plot(showRibbon ? ma1  : na, "MA1",  color.new(ribCol, 20))
+p2  = plot(showRibbon ? ma2  : na, "MA2",  color.new(ribCol, 25))
+p3  = plot(showRibbon ? ma3  : na, "MA3",  color.new(ribCol, 30))
+p4  = plot(showRibbon ? ma4  : na, "MA4",  color.new(ribCol, 35))
+p5  = plot(showRibbon ? ma5  : na, "MA5",  color.new(ribCol, 40))
+p6  = plot(showRibbon ? ma6  : na, "MA6",  color.new(ribCol, 45))
+p7  = plot(showRibbon ? ma7  : na, "MA7",  color.new(ribCol, 50))
+p8  = plot(showRibbon ? ma8  : na, "MA8",  color.new(ribCol, 55))
+p9  = plot(showRibbon ? ma9  : na, "MA9",  color.new(ribCol, 60))
+p10 = plot(showRibbon ? ma10 : na, "MA10", color.new(ribCol, 65))
+p11 = plot(showRibbon ? ma11 : na, "MA11", color.new(ribCol, 70))
+p12 = plot(showRibbon ? ma12 : na, "MA12", color.new(ribCol, 75))
+p13 = plot(showRibbon ? ma13 : na, "MA13", color.new(ribCol, 80))
+p14 = plot(showRibbon ? ma14 : na, "MA14", color.new(ribCol, 85))
+p15 = plot(showRibbon ? ma15 : na, "MA15", color.new(ribCol, 90))
+fill(p1, p15, showRibbon ? color.new(ribCol, 88) : na, title = "Ribbon Fill")
+
+bgcolor(shadeChop and isChop ? color.new(COL_MUTE, 92) : na, title = "Chop Shade")
+
+plotshape(showSignals and longSig ? low : na, "Long", shape.triangleup, location.belowbar, COL_BULL, size = size.small)
+plotshape(showSignals and shortSig ? high : na, "Short", shape.triangledown, location.abovebar, COL_BEAR, size = size.small)
+plotshape(showSignals and (rawLong or rawShort) and not (regimeOk and widthOk) ? hl2 : na, "Filtered", shape.xcross, location.absolute, color.new(COL_MUTE, 30), size = size.tiny)
+
+// ══════════════════════════════════════════════════════════════
+// Dashboard — consensus + active trade plan
+// ══════════════════════════════════════════════════════════════
+posn = dashPos == "Top Right" ? position.top_right : dashPos == "Top Left" ? position.top_left : dashPos == "Bottom Right" ? position.bottom_right : position.bottom_left
+dsz = dashSize == "Tiny" ? size.tiny : dashSize == "Small" ? size.small : size.normal
+
+var table dash = table.new(posn, 2, 13, bgcolor = color.new(DASH_BG, 12), border_color = color.new(#30363d, 60), border_width = 1, frame_color = #000000, frame_width = 1)
+
+if showDash and barstate.islast
+    table.clear(dash, 0, 0, 1, 12)
+    cM = color.new(COL_MUTE, 0)
+    cW = color.new(#ffffff, 0)
+    conCol = color.from_gradient(consensus, 20, 80, COL_BAD, COL_GOOD)
+
+    table.cell(dash, 0, 0, "  MA CONFLUENCE ENGINE  ", text_color = cW, text_size = dsz, bgcolor = DASH_HEAD, text_halign = text.align_left)
+    table.cell(dash, 1, 0, "VIPRASOL", text_color = color.new(#bb86fc, 0), text_size = dsz, bgcolor = DASH_HEAD)
+
+    table.cell(dash, 0, 1, "Ribbon", text_color = cM, text_size = dsz, text_halign = text.align_left)
+    table.cell(dash, 1, 1, str.tostring(N) + "× " + maType, text_color = cW, text_size = dsz)
+
+    table.cell(dash, 0, 2, "Consensus", text_color = cM, text_size = dsz, text_halign = text.align_left)
+    table.cell(dash, 1, 2, str.tostring(consensus, "#") + "%", text_color = conCol, text_size = dsz)
+
+    table.cell(dash, 0, 3, "Above / Up", text_color = cM, text_size = dsz, text_halign = text.align_left)
+    table.cell(dash, 1, 3, str.tostring(aboveN) + " / " + str.tostring(upN) + " of " + str.tostring(N), text_color = cW, text_size = dsz)
+
+    table.cell(dash, 0, 4, "Ribbon Width", text_color = cM, text_size = dsz, text_halign = text.align_left)
+    table.cell(dash, 1, 4, str.tostring(ribbonWidth, "0.0") + " ATR" + (isChop ? " (CHOP)" : ""), text_color = isChop ? COL_BAD : COL_GOOD, text_size = dsz)
+
+    table.cell(dash, 0, 5, "Regime", text_color = cM, text_size = dsz, text_halign = text.align_left)
+    table.cell(dash, 1, 5, (er >= erMin ? "TRENDING " : "CHOPPY ") + str.tostring(er, "0.00"), text_color = er >= erMin ? COL_GOOD : COL_BAD, text_size = dsz)
+
+    dirTxt = eDir == 1 ? "▲ LONG" : eDir == -1 ? "▼ SHORT" : "— NONE"
+    dirCol = eDir == 1 ? COL_BULL : eDir == -1 ? COL_BEAR : cM
+    table.cell(dash, 0, 6, "Last Signal", text_color = cM, text_size = dsz, text_halign = text.align_left)
+    table.cell(dash, 1, 6, dirTxt, text_color = dirCol, text_size = dsz)
+
+    table.cell(dash, 0, 7, "Entry", text_color = cM, text_size = dsz, text_halign = text.align_left)
+    table.cell(dash, 1, 7, na(eEntry) ? "—" : str.tostring(eEntry, format.mintick), text_color = cW, text_size = dsz)
+
+    table.cell(dash, 0, 8, "TP1", text_color = cM, text_size = dsz, text_halign = text.align_left)
+    table.cell(dash, 1, 8, na(eTP1) ? "—" : str.tostring(eTP1, format.mintick), text_color = COL_GOOD, text_size = dsz)
+
+    table.cell(dash, 0, 9, "TP2", text_color = cM, text_size = dsz, text_halign = text.align_left)
+    table.cell(dash, 1, 9, na(eTP2) ? "—" : str.tostring(eTP2, format.mintick), text_color = COL_GOOD, text_size = dsz)
+
+    table.cell(dash, 0, 10, "TP3", text_color = cM, text_size = dsz, text_halign = text.align_left)
+    table.cell(dash, 1, 10, na(eTP3) ? "—" : str.tostring(eTP3, format.mintick), text_color = COL_GOOD, text_size = dsz)
+
+    table.cell(dash, 0, 11, "Stop Loss", text_color = cM, text_size = dsz, text_halign = text.align_left)
+    table.cell(dash, 1, 11, na(eSL) ? "—" : str.tostring(eSL, format.mintick), text_color = COL_BAD, text_size = dsz)
+
+    table.cell(dash, 0, 12, "Whipsaws Filtered", text_color = cM, text_size = dsz, text_halign = text.align_left)
+    table.cell(dash, 1, 12, str.tostring(whipsAvoided), text_color = COL_GOOD, text_size = dsz)
+
+// ══════════════════════════════════════════════════════════════
+// Alerts
+// ══════════════════════════════════════════════════════════════
+alertcondition(longSig, "Long Signal", "MA Confluence: LONG consensus on {{ticker}} {{interval}}")
+alertcondition(shortSig, "Short Signal", "MA Confluence: SHORT consensus on {{ticker}} {{interval}}")
+alertcondition(isChop and not isChop[1], "Chop / Ribbon Compressed", "MA Confluence: ribbon compressed (chop) on {{ticker}} {{interval}}")
+
+if longSig
+    alert("MA Confluence LONG " + syminfo.ticker + " | Entry " + str.tostring(eEntry, format.mintick) + " | SL " + str.tostring(eSL, format.mintick) + " | TP1 " + str.tostring(eTP1, format.mintick) + " | TP2 " + str.tostring(eTP2, format.mintick) + " | TP3 " + str.tostring(eTP3, format.mintick), alert.freq_once_per_bar)
+if shortSig
+    alert("MA Confluence SHORT " + syminfo.ticker + " | Entry " + str.tostring(eEntry, format.mintick) + " | SL " + str.tostring(eSL, format.mintick) + " | TP1 " + str.tostring(eTP1, format.mintick) + " | TP2 " + str.tostring(eTP2, format.mintick) + " | TP3 " + str.tostring(eTP3, format.mintick), alert.freq_once_per_bar)

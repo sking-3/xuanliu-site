@@ -1,0 +1,702 @@
+// This Pine Script(TM) v6 indicator is subject to the terms of the Mozilla Public License 2.0
+// https://mozilla.org/MPL/2.0/
+// (c) Viprasol
+//
+// [Viprasol] Gold Sniper Confluence — gold-only edition of the Viprasol Sniper engine.
+// Derived from the open-source "Sniper Entry/Exit with SL&TP by KhanSaab V.02" by KhanSaab.
+// From that script: EMA 9/21 crossover trigger, ATR stop / take-profit ladder, VWAP overlay,
+// RSI + MACD read-outs, secondary-timeframe RSI and EMA-retest candle highlighting.
+// Viprasol layers: confluence scoring gate, bar-close confirmation, per-trade tracker (every trade
+// runs to its own stop or final target, ladders stay on the chart, breakeven after TP1, outcome tally),
+// gold symbol guard, DXY inverse-correlation factor, London / New York session filter and
+// ADR exhaustion filter, minimum-bar trade spacing and $ / point risk read-out. Published open-source per TradingView House Rules.
+
+//@version=6
+indicator("[Viprasol] Gold Sniper Confluence", shorttitle = "VP - GSC", overlay = true,
+     max_labels_count = 500, max_boxes_count = 500, max_lines_count = 500, max_bars_back = 1000)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// CONSTANTS
+// ══════════════════════════════════════════════════════════════════════════════
+const int    MAX_TARGETS      = 3
+const color  CLR_BULL         = #00ffaa
+const color  CLR_BEAR         = #ff3d71
+const color  CLR_GOLD         = #FFD700
+const color  CLR_AMBER        = #FFD54F
+const color  CLR_INFO         = #7B68EE
+const color  CLR_MUTED        = #8a94a6
+const color  CLR_TEXT         = #e6e9f0
+const color  CLR_ENTRY        = #00bcd4
+const color  CLR_STOP         = #ef4444
+const color  CLR_TARGET       = #22c55e
+const color  CLR_TARGET_HIT   = #40E0D0
+const color  CLR_RETEST       = #FF9800
+const color  CLR_PANEL_BG     = #111725
+const color  CLR_PANEL_HDR    = #18233a
+const color  CLR_PANEL_BORDER = #000000
+const string BRAND_TAG        = "VIPRASOL"
+
+// ══════════════════════════════════════════════════════════════════════════════
+// INPUTS
+// ══════════════════════════════════════════════════════════════════════════════
+string GRP_SIGNAL = "1 · Signal Engine"
+int  fastEmaLenInput      = input.int(9, "Fast EMA", minval = 2, maxval = 50, group = GRP_SIGNAL,
+     tooltip = "Length of the fast exponential moving average. The fast EMA crossing the slow EMA is the entry trigger. Lower = more responsive, more crosses.")
+int  slowEmaLenInput      = input.int(21, "Slow EMA", minval = 5, maxval = 200, group = GRP_SIGNAL,
+     tooltip = "Length of the slow exponential moving average. Higher = smoother trend line, fewer crosses.")
+bool requireBarCloseInput = input.bool(true, "Bar-close confirmation", group = GRP_SIGNAL,
+     tooltip = "When on, a crossover only counts once the bar has closed, so an intra-bar wick that reverses cannot fire a signal.")
+int  minTradeGapInput     = input.int(10, "Minimum bars between trades", minval = 1, maxval = 500, group = GRP_SIGNAL,
+     tooltip = "Minimum number of chart candles from one entry to the next. For example, 10 allows a new trade from the 10th bar after the previous entry.")
+
+string GRP_SCORE = "2 · Confluence Filter"
+bool confluenceGateOnInput = input.bool(true, "Require minimum confluence score", group = GRP_SCORE,
+     tooltip = "When on, a crossover only becomes a signal if enough of the 8 factors agree with its direction.")
+int  minScoreInput         = input.int(5, "Minimum score (out of 8)", minval = 1, maxval = 8, group = GRP_SCORE,
+     tooltip = "How many of the 8 factors must line up: VWAP side, RSI side, MACD side, EMA alignment, ADX trend power, volume push, confirmation-timeframe RSI and the DXY inverse factor. Higher = fewer, cleaner signals. If the DXY factor is off the score is out of 7.")
+
+string GRP_GUARD = "3 · Gold Symbol Guard"
+bool   goldOnlyInput    = input.bool(true, "Gold-only mode", group = GRP_GUARD,
+     tooltip = "Detects gold from the symbol: XAU base currency, XAU or GOLD in the ticker, or GC / MGC futures. On any other chart the dashboard turns red and signals are suppressed. Turn off to run the engine on other markets.")
+string goldKeywordInput = input.string("", "Extra gold ticker keyword", group = GRP_GUARD,
+     tooltip = "Optional. If your broker names gold unusually (for example a custom CFD symbol) type part of that ticker here and it will be treated as gold.")
+
+string GRP_DXY = "4 · DXY Dollar Factor"
+bool   dxyFactorOnInput   = input.bool(true, "Use DXY inverse-correlation factor", group = GRP_DXY,
+     tooltip = "Gold and the US Dollar Index usually move in opposite directions. When on, a weak or falling dollar adds one bull point and a strong dollar adds one bear point, but only while the inverse link is actually active.")
+string dxySymbolInput     = input.symbol("TVC:DXY", "Dollar index symbol", group = GRP_DXY,
+     tooltip = "Symbol used for the dollar index. TVC:DXY is the default; CAPITALCOM:DXY or ICEUS:DX1! also work.")
+int    dxyEmaLenInput     = input.int(21, "DXY trend EMA", minval = 2, maxval = 200, group = GRP_DXY,
+     tooltip = "The dollar is treated as weak when DXY is below this EMA and strong when above it. Calculated on the chart timeframe.")
+int    corrLenInput       = input.int(20, "Correlation lookback (bars)", minval = 5, maxval = 200, group = GRP_DXY,
+     tooltip = "Number of bars used to measure the rolling correlation between gold and DXY.")
+float  corrThresholdInput = input.float(-0.3, "Inverse-link threshold", minval = -1.0, maxval = 0.0, step = 0.05, group = GRP_DXY,
+     tooltip = "The DXY factor only scores while the rolling correlation is at or below this value (negative = inverse). When gold and the dollar decouple, the factor gives zero to both sides instead of guessing.")
+
+string GRP_SESSION = "5 · Gold Sessions"
+bool   sessionFilterOnInput = input.bool(true, "Trade only during London / New York", group = GRP_SESSION,
+     tooltip = "Gold's liquidity is concentrated in the London and New York sessions. When on, crossovers outside both windows are blocked and marked with a small x. Ignored on daily and higher charts.")
+string londonSessionInput   = input.session("0300-1200", "London window", group = GRP_SESSION,
+     tooltip = "London trading window, in the timezone selected below. Default 03:00-12:00 New York time (08:00-17:00 London).")
+string nySessionInput       = input.session("0800-1700", "New York window", group = GRP_SESSION,
+     tooltip = "New York trading window, in the timezone selected below. Default 08:00-17:00 New York time. The 08:00-12:00 overlap with London is gold's most liquid period.")
+string sessionTzInput       = input.string("America/New_York", "Session timezone", options = ["America/New_York", "Europe/London", "UTC", "Exchange"], group = GRP_SESSION,
+     tooltip = "Timezone the two windows are written in. 'Exchange' uses the chart symbol's own timezone.")
+bool   shadeSessionsInput   = input.bool(true, "Shade active session", group = GRP_SESSION,
+     tooltip = "Light background tint: violet for London, gold for New York, brighter gold for the overlap.")
+
+string GRP_ADR = "6 · ADR Exhaustion"
+bool  adrFilterOnInput = input.bool(true, "Block entries when ADR is exhausted", group = GRP_ADR,
+     tooltip = "ADR = average daily range over the last N completed days. Once today's high-to-low range has already used the percentage below, gold has usually done its move for the day, so new entries are blocked. Ignored on weekly and monthly charts.")
+int   adrLenInput      = input.int(14, "ADR lookback (days)", minval = 2, maxval = 100, group = GRP_ADR,
+     tooltip = "Number of completed daily ranges averaged into the ADR. Only finished days are used, so the value never looks ahead.")
+float adrBlockPctInput = input.float(100, "Block at % of ADR used", minval = 30, maxval = 300, step = 5, group = GRP_ADR,
+     tooltip = "Entries are blocked once today's range is at or above this percentage of ADR. 100 = the average day is fully used. Lower it to be more conservative.")
+float pipSizeInput     = input.float(0.10, "Point size (1 pt)", minval = 0.001, step = 0.01, group = GRP_ADR,
+     tooltip = "Price distance that equals one point in the SL / TP labels and the $ / pts read-outs. 0.10 (10 cents) matches how most gold brokers count points, so a $5.00 stop reads as 50 pts. Use 0.01 if your broker counts cents as points.")
+
+string GRP_RISK = "7 · Risk Management"
+float slAtrMultInput      = input.float(1.5, "Stop-loss ATR multiplier", minval = 0.1, step = 0.1, group = GRP_RISK,
+     tooltip = "Stop distance = ATR x this value. Each take-profit level sits one stop distance further from entry (1R, 2R, 3R).")
+int   atrLenInput         = input.int(14, "ATR period", minval = 1, maxval = 50, group = GRP_RISK,
+     tooltip = "Lookback for the Average True Range used for the stop and target ladder.")
+int   tpLevelsInput       = input.int(3, "Take-profit levels", minval = 1, maxval = 3, group = GRP_RISK,
+     tooltip = "How many take-profit levels to draw (1 to 3). Targets sit at 1R, 2R and 3R from entry. A trade is closed when its last level is touched.")
+bool  breakevenAtTp1Input = input.bool(true, "Move stop to breakeven at TP1", group = GRP_RISK,
+     tooltip = "When TP1 is touched the working stop moves to the entry price. The red SL line stays visible; the entry line turns into a dotted cyan breakeven stop. A return to entry then closes the trade as BE.")
+int   maxTradesInput      = input.int(50, "Trades kept on chart", minval = 1, maxval = 100, group = GRP_RISK,
+     tooltip = "How many trade ladders (entry, stop, targets) stay drawn. The oldest are removed first. Each trade uses up to 5 lines and 5 labels; 100 is the TradingView drawing limit. The dashboard tally covers the same trades.")
+
+string GRP_MTF = "8 · Confirmation Timeframe"
+string confirmTfInput = input.timeframe("5", "RSI confirmation timeframe", group = GRP_MTF,
+     tooltip = "Timeframe of the secondary 14-period RSI factor. Default 5 minutes.")
+
+string GRP_DASH = "9 · Dashboard"
+bool   showDashboardInput = input.bool(true, "Show dashboard", group = GRP_DASH,
+     tooltip = "Live read-out of every factor, the gold gates, the open trades and the outcome tally.")
+string dashPosInput       = input.string("Top Right", "Dashboard position", options = ["Top Left", "Top Center", "Top Right", "Middle Left", "Middle Center", "Middle Right", "Bottom Left", "Bottom Center", "Bottom Right"], group = GRP_DASH,
+     tooltip = "Where the dashboard sits. Every on-chart panel has its own position setting, so all four can be arranged without overlap.")
+string dashTextSizeInput  = input.string("small", "Dashboard text size", options = ["tiny", "small", "normal", "large", "huge"], group = GRP_DASH,
+     tooltip = "Text size for the dashboard cells.")
+
+string GRP_PANELS = "10 · On-Chart Panels"
+bool   showHowToInput     = input.bool(true, "Show HOW IT WORKS legend", group = GRP_PANELS,
+     tooltip = "Static legend that explains the signal flow in seven lines.")
+string howToPosInput      = input.string("Top Left", "HOW IT WORKS position", options = ["Top Left", "Top Center", "Top Right", "Middle Left", "Middle Center", "Middle Right", "Bottom Left", "Bottom Center", "Bottom Right"], group = GRP_PANELS,
+     tooltip = "Where the legend sits. Move it if it overlaps the TradingView symbol header or another panel.")
+bool   showChecklistInput = input.bool(true, "Show live confluence checklist", group = GRP_PANELS,
+     tooltip = "Tick / cross list of the 8 factors and the 3 gold gates for the currently stronger side.")
+string checklistPosInput  = input.string("Bottom Left", "Checklist position", options = ["Top Left", "Top Center", "Top Right", "Middle Left", "Middle Center", "Middle Right", "Bottom Left", "Bottom Center", "Bottom Right"], group = GRP_PANELS,
+     tooltip = "Where the checklist sits. Bottom Left keeps it clear of the legend above it.")
+bool   showSummaryInput   = input.bool(true, "Show strategy summary footer", group = GRP_PANELS,
+     tooltip = "Three-cell footer: strategy, best-for, works-on.")
+string summaryPosInput    = input.string("Bottom Center", "Summary position", options = ["Top Left", "Top Center", "Top Right", "Middle Left", "Middle Center", "Middle Right", "Bottom Left", "Bottom Center", "Bottom Right"], group = GRP_PANELS,
+     tooltip = "Where the summary footer sits.")
+
+string GRP_VISUAL = "11 · Visuals"
+bool   showRibbonInput     = input.bool(true, "EMA ribbon fill", group = GRP_VISUAL,
+     tooltip = "Fill between the two EMAs: green when the fast EMA is above the slow EMA, red when below.")
+int    ribbonAlphaInput    = input.int(75, "Ribbon transparency", minval = 0, maxval = 100, group = GRP_VISUAL,
+     tooltip = "0 = solid, 100 = invisible.")
+bool   showVwapInput       = input.bool(true, "VWAP line", group = GRP_VISUAL,
+     tooltip = "Volume-weighted average price, coloured by whether price is above or below it.")
+bool   showTradeLinesInput = input.bool(true, "Entry / SL / TP lines and labels", group = GRP_VISUAL,
+     tooltip = "Draws the entry, stop and take-profit ladder of every signal. Each ladder runs from its signal bar to the bar where the trade closed; the open trade keeps extending with price.")
+string tradeTextSizeInput  = input.string("small", "Trade label size", options = ["tiny", "small", "normal", "large", "huge"], group = GRP_VISUAL,
+     tooltip = "Text size of the entry / stop / target labels.")
+int    labelOffsetInput    = input.int(12, "Label offset (bars right)", minval = 1, maxval = 50, group = GRP_VISUAL,
+     tooltip = "How many bars to the right of the last candle the labels of an OPEN trade are placed. Closed trades keep their labels at the bar where they closed.")
+bool   showRetestInput     = input.bool(true, "Highlight EMA retest candles", group = GRP_VISUAL,
+     tooltip = "Colours a candle orange when price pulls back into the fast EMA while the latest trade is still open (possible add-on).")
+bool   showBlockedInput    = input.bool(true, "Mark blocked crossovers", group = GRP_VISUAL,
+     tooltip = "Draws a small grey x where a qualifying crossover was blocked by the symbol, session, ADR or minimum-bars-between-trades filter.")
+
+// ══════════════════════════════════════════════════════════════════════════════
+// FUNCTIONS
+// ══════════════════════════════════════════════════════════════════════════════
+textSizeOf(string sizeName) =>
+    switch sizeName
+        "tiny"   => size.tiny
+        "small"  => size.small
+        "normal" => size.normal
+        "large"  => size.large
+        "huge"   => size.huge
+        => size.small
+
+tablePositionOf(string positionName) =>
+    switch positionName
+        "Top Left"      => position.top_left
+        "Top Center"    => position.top_center
+        "Top Right"     => position.top_right
+        "Middle Left"   => position.middle_left
+        "Middle Center" => position.middle_center
+        "Middle Right"  => position.middle_right
+        "Bottom Left"   => position.bottom_left
+        "Bottom Center" => position.bottom_center
+        "Bottom Right"  => position.bottom_right
+        => position.top_right
+
+// Dollar and point read-out for a price distance
+fmtDollarPts(float distance, float pointSize) =>
+    na(distance) ? "—" : "$" + str.tostring(distance, "#.##") + " / " + str.tostring(distance / pointSize, "#") + " pts"
+
+// Signed point distance for the trade labels, e.g. " (-50 pts)" or " (+40 pts)"
+ptsText(float distance, float pointSize, bool isGain) =>
+    na(distance) ? "" : " (" + (isGain ? "+" : "-") + str.tostring(math.abs(distance) / pointSize, "#") + " pts)"
+
+tickText(bool ok) =>
+    ok ? "✓" : "✕"
+
+tickColor(bool ok) =>
+    ok ? CLR_BULL : CLR_MUTED
+
+// Two-column dashboard row (v6 method on the built-in table type)
+method setRow(table tbl, int rowIdx, string keyText, string valueText, color valueColor, string textSize) =>
+    table.cell(tbl, 0, rowIdx, keyText, text_color = CLR_TEXT, text_halign = text.align_left, text_size = textSize, bgcolor = CLR_PANEL_BG)
+    table.cell(tbl, 1, rowIdx, valueText, text_color = valueColor, text_halign = text.align_right, text_size = textSize, bgcolor = CLR_PANEL_BG)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// CALCULATIONS — Core indicators (from original)
+// ══════════════════════════════════════════════════════════════════════════════
+float emaFast        = ta.ema(close, fastEmaLenInput)
+float emaSlow        = ta.ema(close, slowEmaLenInput)
+float sessionVwap    = ta.vwap(hlc3)
+float atrValue       = ta.atr(atrLenInput)
+float rsiNow         = ta.rsi(close, 14)
+float rsiConfirmTf   = request.security(syminfo.tickerid, confirmTfInput, ta.rsi(close, 14), lookahead = barmerge.lookahead_off)
+[macdLine, macdSignalLine, macdHistogram] = ta.macd(close, 12, 26, 9)
+[diPlus, diMinus, adxNow] = ta.dmi(14, 14)
+float volumeBaseline = ta.sma(volume, 20)
+bool  hasVolume      = not na(volume) and volume > 0
+
+// ══════════════════════════════════════════════════════════════════════════════
+// CALCULATIONS — Gold symbol guard (new)
+// ══════════════════════════════════════════════════════════════════════════════
+string tickerUpper  = str.upper(syminfo.ticker)
+bool   goldByBase   = syminfo.basecurrency == "XAU"
+bool   goldByName   = (str.contains(tickerUpper, "XAU") or str.contains(tickerUpper, "GOLD")) and syminfo.type != "stock"
+bool   goldByRoot   = syminfo.root == "GC" or syminfo.root == "MGC"
+bool   goldByCustom = str.length(goldKeywordInput) > 0 and str.contains(tickerUpper, str.upper(goldKeywordInput))
+bool   isGoldChart  = goldByBase or goldByName or goldByRoot or goldByCustom
+bool   symbolGateOk = not goldOnlyInput or isGoldChart
+string goldKindText = goldByRoot ? "GC FUTURES" : isGoldChart and (goldByBase or syminfo.type == "forex" or syminfo.type == "cfd") ? "SPOT XAU" : isGoldChart ? "GOLD" : "NOT GOLD"
+
+// ══════════════════════════════════════════════════════════════════════════════
+// CALCULATIONS — DXY inverse-correlation factor (new)
+// ══════════════════════════════════════════════════════════════════════════════
+[dxyClose, dxyEma] = request.security(dxySymbolInput, timeframe.period, [close, ta.ema(close, dxyEmaLenInput)], lookahead = barmerge.lookahead_off, ignore_invalid_symbol = true)
+float goldDxyCorr       = ta.correlation(close, dxyClose, corrLenInput)
+bool  dxyDataOk         = not na(dxyClose) and not na(dxyEma)
+bool  inverseLinkActive = dxyDataOk and not na(goldDxyCorr) and goldDxyCorr <= corrThresholdInput
+bool  dollarWeak        = dxyDataOk and dxyClose < dxyEma
+bool  dollarStrong      = dxyDataOk and dxyClose > dxyEma
+bool  dxyBullPoint      = dxyFactorOnInput and inverseLinkActive and dollarWeak
+bool  dxyBearPoint      = dxyFactorOnInput and inverseLinkActive and dollarStrong
+int   factorTotal       = dxyFactorOnInput ? 8 : 7
+int   minScoreEff       = math.min(minScoreInput, factorTotal)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// CALCULATIONS — Confluence scoring (7 factors from original + DXY factor)
+// ══════════════════════════════════════════════════════════════════════════════
+bool fVwapBull = close > sessionVwap
+bool fRsiBull  = rsiNow > 50
+bool fMacdBull = macdLine > macdSignalLine
+bool fEmaBull  = emaFast > emaSlow
+bool fAdxBull  = adxNow > 25 and close > emaFast
+bool fVolBull  = hasVolume and volume > volumeBaseline and close > open
+bool fMtfBull  = rsiConfirmTf > 50
+bool fDxyBull  = dxyBullPoint
+
+bool fVwapBear = close < sessionVwap
+bool fRsiBear  = rsiNow < 50
+bool fMacdBear = macdLine < macdSignalLine
+bool fEmaBear  = emaFast < emaSlow
+bool fAdxBear  = adxNow > 25 and close < emaFast
+bool fVolBear  = hasVolume and volume > volumeBaseline and close < open
+bool fMtfBear  = rsiConfirmTf < 50
+bool fDxyBear  = dxyBearPoint
+
+int bullScore = (fVwapBull ? 1 : 0) + (fRsiBull ? 1 : 0) + (fMacdBull ? 1 : 0) + (fEmaBull ? 1 : 0) +
+     (fAdxBull ? 1 : 0) + (fVolBull ? 1 : 0) + (fMtfBull ? 1 : 0) + (fDxyBull ? 1 : 0)
+int bearScore = (fVwapBear ? 1 : 0) + (fRsiBear ? 1 : 0) + (fMacdBear ? 1 : 0) + (fEmaBear ? 1 : 0) +
+     (fAdxBear ? 1 : 0) + (fVolBear ? 1 : 0) + (fMtfBear ? 1 : 0) + (fDxyBear ? 1 : 0)
+float bullPct = bullScore / factorTotal * 100
+float bearPct = bearScore / factorTotal * 100
+
+// ══════════════════════════════════════════════════════════════════════════════
+// CALCULATIONS — Market bias
+// ══════════════════════════════════════════════════════════════════════════════
+float  biasGap  = bullPct - bearPct
+string biasText = biasGap >= 40 ? "STRONG BULL" : biasGap <= -40 ? "STRONG BEAR" : biasGap > 0 ? "MILD BULL" : biasGap < 0 ? "MILD BEAR" : "NEUTRAL"
+color  biasColor = biasText == "STRONG BULL" ? CLR_BULL : biasText == "MILD BULL" ? color.new(CLR_BULL, 45) :
+     biasText == "STRONG BEAR" ? CLR_BEAR : biasText == "MILD BEAR" ? color.new(CLR_BEAR, 45) : CLR_MUTED
+
+// ══════════════════════════════════════════════════════════════════════════════
+// CALCULATIONS — London / New York session filter (new)
+// ══════════════════════════════════════════════════════════════════════════════
+string sessionTz     = sessionTzInput == "Exchange" ? syminfo.timezone : sessionTzInput
+bool   inLondon      = not na(time(timeframe.period, londonSessionInput, sessionTz))
+bool   inNewYork     = not na(time(timeframe.period, nySessionInput, sessionTz))
+bool   inGoldSession = inLondon or inNewYork
+bool   sessionGateOk = not sessionFilterOnInput or timeframe.isdwm or inGoldSession
+string sessionText   = timeframe.isdwm ? "N/A (D+ chart)" : inLondon and inNewYork ? "LDN + NY OVERLAP" : inLondon ? "LONDON" : inNewYork ? "NEW YORK" : "ASIA / OFF-HOURS"
+
+// ══════════════════════════════════════════════════════════════════════════════
+// CALCULATIONS — ADR exhaustion filter (new)
+// ══════════════════════════════════════════════════════════════════════════════
+// Completed days only: the [1] offset on the daily feed means the value never includes the developing day.
+float adrValue = request.security(syminfo.tickerid, "D", ta.sma(high - low, adrLenInput)[1], lookahead = barmerge.lookahead_on)
+
+// Today's range is built from the chart's own bars, so it cannot repaint.
+int   dayStamp      = timeframe.isintraday ? time("D") : time
+bool  newTradingDay = not timeframe.isintraday or nz(ta.change(dayStamp), 0) != 0
+var float dayHigh = na
+var float dayLow  = na
+if newTradingDay or na(dayHigh)
+    dayHigh := high
+    dayLow  := low
+else
+    dayHigh := math.max(dayHigh, high)
+    dayLow  := math.min(dayLow, low)
+float todayRange    = dayHigh - dayLow
+float adrUsedPct    = not na(adrValue) and adrValue > 0 ? todayRange / adrValue * 100 : na
+bool  adrApplicable = adrFilterOnInput and not timeframe.isweekly and not timeframe.ismonthly
+bool  adrExhausted  = adrApplicable and not na(adrUsedPct) and adrUsedPct >= adrBlockPctInput
+bool  adrGateOk     = not adrExhausted
+
+// ══════════════════════════════════════════════════════════════════════════════
+// TRADE TRACKER — type and methods (new)
+// One object per signal. Every trade runs to its own stop or final target, so ladders can overlap.
+// Ladders stay on the chart and end at the bar where the trade closed.
+// ══════════════════════════════════════════════════════════════════════════════
+type TradeSetup
+    int    side
+    int    entryBar
+    float  entry
+    float  stop
+    float  risk
+    array<float> targets
+    array<bool>  hits
+    bool   beActive
+    bool   closed
+    int    closeBar
+    string outcome
+    line   entryLine
+    line   stopLine
+    array<line>  tpLines
+    label  entryLabel
+    label  stopLabel
+    array<label> tpLabels
+
+createTrade(int side) =>
+    float risk = atrValue * slAtrMultInput
+    array<float> levels = array.new<float>()
+    array<bool>  flags  = array.new<bool>()
+    for i = 1 to MAX_TARGETS
+        array.push(levels, side == 1 ? close + risk * i : close - risk * i)
+        array.push(flags, false)
+    TradeSetup.new(side = side, entryBar = bar_index, entry = close, stop = side == 1 ? close - risk : close + risk, risk = risk,
+     targets = levels, hits = flags, beActive = false, closed = false, closeBar = na, outcome = "OPEN",
+     entryLine = na, stopLine = na, tpLines = array.new<line>(), entryLabel = na, stopLabel = na, tpLabels = array.new<label>())
+
+// Working stop: the original SL until TP1, then the entry price
+method workingStop(TradeSetup t) =>
+    t.beActive ? t.entry : t.stop
+
+// Draw the ladder at signal time
+method drawLadder(TradeSetup t) =>
+    string sz = textSizeOf(tradeTextSizeInput)
+    int    x2 = t.entryBar + 1
+    t.entryLine  := line.new(t.entryBar, t.entry, x2, t.entry, color = CLR_ENTRY, width = 1, style = line.style_dashed)
+    t.stopLine   := line.new(t.entryBar, t.stop,  x2, t.stop,  color = CLR_STOP,  width = 2)
+    t.entryLabel := label.new(x2, t.entry, "", color = CLR_ENTRY, textcolor = color.white, style = label.style_label_left, size = sz)
+    t.stopLabel  := label.new(x2, t.stop,  "", color = CLR_STOP,  textcolor = color.white, style = label.style_label_left, size = sz)
+    for i = 0 to tpLevelsInput - 1
+        float lvl = array.get(t.targets, i)
+        array.push(t.tpLines,  line.new(t.entryBar, lvl, x2, lvl, color = CLR_TARGET, width = 1, style = line.style_dashed))
+        array.push(t.tpLabels, label.new(x2, lvl, "", color = CLR_TARGET, textcolor = color.white, style = label.style_label_left, size = sz))
+
+// Advance an open trade by one bar. The stop is checked first (conservative when a bar touches both),
+// then the targets, then breakeven. The entry bar itself is skipped because the entry is at its close.
+method advance(TradeSetup t) =>
+    if not t.closed and bar_index > t.entryBar
+        float stopLvl = t.workingStop()
+        bool  stopHit = t.side == 1 ? low <= stopLvl : high >= stopLvl
+        if stopHit
+            t.closed   := true
+            t.closeBar := bar_index
+            t.outcome  := t.beActive ? "BE" : "SL"
+        else
+            for i = 0 to MAX_TARGETS - 1
+                float lvl     = array.get(t.targets, i)
+                bool  touched = t.side == 1 ? high >= lvl : low <= lvl
+                if touched
+                    array.set(t.hits, i, true)
+            if breakevenAtTp1Input and array.get(t.hits, 0)
+                t.beActive := true
+            if array.get(t.hits, tpLevelsInput - 1)
+                t.closed   := true
+                t.closeBar := bar_index
+                t.outcome  := "TP" + str.tostring(tpLevelsInput)
+
+// Keep lines and labels in step with the trade. Open trades extend to the current bar with labels
+// floating to the right; closed trades end at their closing bar with labels parked there.
+method refresh(TradeSetup t) =>
+    int endX = t.closed ? t.closeBar : bar_index
+    int lblX = t.closed ? t.closeBar : bar_index + labelOffsetInput
+    if not na(t.entryLine)
+        line.set_x2(t.entryLine, endX)
+        if t.beActive
+            line.set_style(t.entryLine, line.style_dotted)
+            line.set_width(t.entryLine, 2)
+    if not na(t.stopLine)
+        line.set_x2(t.stopLine, endX)
+    if not na(t.entryLabel)
+        label.set_xy(t.entryLabel, lblX, t.entry)
+        label.set_text(t.entryLabel, "ENTRY: " + str.tostring(t.entry, format.mintick) + (t.outcome == "BE" ? " (BE EXIT)" : t.beActive ? " (BE ACTIVE)" : ""))
+    if not na(t.stopLabel)
+        label.set_xy(t.stopLabel, lblX, t.stop)
+        label.set_text(t.stopLabel, "SL: " + str.tostring(t.stop, format.mintick) + ptsText(t.risk, pipSizeInput, false) + (t.outcome == "SL" ? " ❌" : ""))
+    int n = array.size(t.tpLines)
+    if n > 0
+        for i = 0 to n - 1
+            float lvl    = array.get(t.targets, i)
+            bool  wasHit = array.get(t.hits, i)
+            line  ln     = array.get(t.tpLines, i)
+            label lb     = array.get(t.tpLabels, i)
+            if not na(ln)
+                line.set_x2(ln, endX)
+                line.set_color(ln, wasHit ? CLR_TARGET_HIT : CLR_TARGET)
+            if not na(lb)
+                label.set_xy(lb, lblX, lvl)
+                label.set_text(lb, "TP" + str.tostring(i + 1) + ": " + str.tostring(lvl, format.mintick) + ptsText(lvl - t.entry, pipSizeInput, true) + (wasHit ? " ✅" : ""))
+                label.set_color(lb, wasHit ? CLR_TARGET_HIT : CLR_TARGET)
+
+// Remove the drawings of a trade that is being pruned
+method erase(TradeSetup t) =>
+    line.delete(t.entryLine)
+    line.delete(t.stopLine)
+    label.delete(t.entryLabel)
+    label.delete(t.stopLabel)
+    int n = array.size(t.tpLines)
+    if n > 0
+        for i = 0 to n - 1
+            line.delete(array.get(t.tpLines, i))
+            label.delete(array.get(t.tpLabels, i))
+
+// ══════════════════════════════════════════════════════════════════════════════
+// CALCULATIONS — Advance open trades (before any new signal on this bar)
+// ══════════════════════════════════════════════════════════════════════════════
+var array<TradeSetup> trades = array.new<TradeSetup>()
+var int lastSignalSide = 0
+var int lastTradeBar   = na
+
+bool stopHitNow = false
+bool beExitNow  = false
+bool finalTpNow = false
+if array.size(trades) > 0
+    for i = 0 to array.size(trades) - 1
+        TradeSetup t = array.get(trades, i)
+        if not t.closed
+            t.advance()
+            if t.closed
+                stopHitNow := stopHitNow or t.outcome == "SL"
+                beExitNow  := beExitNow or t.outcome == "BE"
+                finalTpNow := finalTpNow or (t.outcome != "SL" and t.outcome != "BE")
+
+// ══════════════════════════════════════════════════════════════════════════════
+// CALCULATIONS — Signal logic (crossover from original, gates new)
+// ══════════════════════════════════════════════════════════════════════════════
+bool rawBullCross = ta.crossover(emaFast, emaSlow)
+bool rawBearCross = ta.crossunder(emaFast, emaSlow)
+bool bullCross    = requireBarCloseInput ? rawBullCross and barstate.isconfirmed : rawBullCross
+bool bearCross    = requireBarCloseInput ? rawBearCross and barstate.isconfirmed : rawBearCross
+
+bool bullScoreOk = not confluenceGateOnInput or bullScore >= minScoreEff
+bool bearScoreOk = not confluenceGateOnInput or bearScore >= minScoreEff
+bool goldGatesOk = symbolGateOk and sessionGateOk and adrGateOk
+bool tradeGapOk  = na(lastTradeBar) or bar_index - lastTradeBar >= minTradeGapInput
+bool allGatesOk  = goldGatesOk and tradeGapOk
+
+// Crossovers alternate by definition. A qualifying cross opens its own trade only when all filters,
+// including the minimum bar gap from the previous entry, are satisfied; open trades keep running.
+bool longCandidate  = bullCross and bullScoreOk
+bool shortCandidate = bearCross and bearScoreOk
+bool longEntry      = longCandidate and allGatesOk
+bool shortEntry     = shortCandidate and allGatesOk
+bool longBlocked    = longCandidate and not allGatesOk
+bool shortBlocked   = shortCandidate and not allGatesOk
+
+string blockReason = not symbolGateOk ? "NOT GOLD" : not sessionGateOk ? "OFF-SESSION" : not adrGateOk ? "ADR EXHAUSTED" : not tradeGapOk ? "TRADE GAP" : "NONE"
+var string lastBlockText = "—"
+if longBlocked or shortBlocked
+    lastBlockText := (longBlocked ? "LONG · " : "SHORT · ") + blockReason
+
+if longEntry or shortEntry
+    TradeSetup fresh = createTrade(longEntry ? 1 : -1)
+    lastSignalSide := fresh.side
+    lastTradeBar := bar_index
+    if showTradeLinesInput
+        fresh.drawLadder()
+    array.push(trades, fresh)
+    while array.size(trades) > maxTradesInput
+        TradeSetup oldest = array.shift(trades)
+        oldest.erase()
+
+// Latest trade snapshot for the candles and the dashboard
+TradeSetup latest = na
+if array.size(trades) > 0
+    latest := array.get(trades, array.size(trades) - 1)
+bool   latestOpen    = false
+int    latestSide    = 0
+float  latestRisk    = na
+int    latestHits    = 0
+bool   latestBe      = false
+string latestOutcome = "—"
+if not na(latest)
+    latestOpen    := not latest.closed
+    latestSide    := latest.side
+    latestRisk    := latest.risk
+    latestBe      := latest.beActive
+    latestOutcome := latest.outcome
+    for i = 0 to tpLevelsInput - 1
+        latestHits += array.get(latest.hits, i) ? 1 : 0
+
+float riskDistance = latestOpen ? latestRisk : atrValue * slAtrMultInput
+
+// ══════════════════════════════════════════════════════════════════════════════
+// VISUALS — Session shading, EMA ribbon, VWAP
+// ══════════════════════════════════════════════════════════════════════════════
+color sessionShade = shadeSessionsInput and not timeframe.isdwm ?
+     (inLondon and inNewYork ? color.new(CLR_GOLD, 88) : inLondon ? color.new(CLR_INFO, 93) : inNewYork ? color.new(CLR_GOLD, 93) : color(na)) : color(na)
+bgcolor(sessionShade, title = "Gold session shading")
+
+plotFast = plot(emaFast, "Fast EMA", color = color.new(CLR_BULL, 20), linewidth = 1)
+plotSlow = plot(emaSlow, "Slow EMA", color = color.new(CLR_BEAR, 20), linewidth = 1)
+fill(plotFast, plotSlow, color = showRibbonInput ? (emaFast > emaSlow ? color.new(CLR_BULL, ribbonAlphaInput) : color.new(CLR_BEAR, ribbonAlphaInput)) : color(na), title = "EMA Ribbon")
+
+plot(showVwapInput ? sessionVwap : na, "VWAP", color = close > sessionVwap ? color.new(CLR_BULL, 25) : color.new(CLR_BEAR, 25), linewidth = 2)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// VISUALS — Candles & signal markers
+// ══════════════════════════════════════════════════════════════════════════════
+bool retestCandle = latestOpen and ((latestSide == 1 and low <= emaFast and low > emaSlow) or (latestSide == -1 and high >= emaFast and high < emaSlow))
+barcolor(longEntry or shortEntry ? CLR_GOLD : showRetestInput and retestCandle ? CLR_RETEST : na, title = "Signal / retest candles")
+
+plotshape(longEntry, title = "Buy Signal", style = shape.labelup, location = location.belowbar, color = CLR_BULL, textcolor = color.black, text = "BUY", size = size.small)
+plotshape(shortEntry, title = "Sell Signal", style = shape.labeldown, location = location.abovebar, color = CLR_BEAR, textcolor = color.white, text = "SELL", size = size.small)
+plotshape(showBlockedInput and longBlocked, title = "Long blocked by entry filter", style = shape.xcross, location = location.belowbar, color = CLR_MUTED, size = size.tiny)
+plotshape(showBlockedInput and shortBlocked, title = "Short blocked by entry filter", style = shape.xcross, location = location.abovebar, color = CLR_MUTED, size = size.tiny)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// VISUALS — Trade ladders (open trades extend, closed trades stay where they ended)
+// ══════════════════════════════════════════════════════════════════════════════
+if showTradeLinesInput and array.size(trades) > 0
+    for i = 0 to array.size(trades) - 1
+        TradeSetup t = array.get(trades, i)
+        if not t.closed or t.closeBar == bar_index
+            t.refresh()
+
+// ══════════════════════════════════════════════════════════════════════════════
+// VISUALS — Dashboard
+// ══════════════════════════════════════════════════════════════════════════════
+var table dashTable = table.new(tablePositionOf(dashPosInput), 2, 23, bgcolor = CLR_PANEL_BG, border_width = 1, border_color = CLR_PANEL_BORDER, frame_color = CLR_PANEL_BORDER, frame_width = 1)
+
+if barstate.islast and showDashboardInput
+    string ts       = textSizeOf(dashTextSizeInput)
+    color  hdrColor = symbolGateOk ? CLR_PANEL_HDR : color.new(CLR_BEAR, 30)
+    table.cell(dashTable, 0, 0, BRAND_TAG, text_color = CLR_GOLD, bgcolor = hdrColor, text_size = ts, text_halign = text.align_center)
+    table.cell(dashTable, 1, 0, "GOLD SNIPER", text_color = CLR_GOLD, bgcolor = hdrColor, text_size = ts, text_halign = text.align_center)
+    dashTable.setRow(1, "Instrument", symbolGateOk ? goldKindText : "NOT GOLD · SIGNALS OFF", symbolGateOk ? CLR_GOLD : CLR_BEAR, ts)
+    table.cell(dashTable, 0, 2, "BULL SCORE", text_color = color.black, bgcolor = CLR_BULL, text_size = ts)
+    table.cell(dashTable, 1, 2, str.tostring(bullPct, "#") + "% (" + str.tostring(bullScore) + "/" + str.tostring(factorTotal) + ")", text_color = color.black, bgcolor = CLR_BULL, text_size = ts)
+    table.cell(dashTable, 0, 3, "BEAR SCORE", text_color = color.white, bgcolor = CLR_BEAR, text_size = ts)
+    table.cell(dashTable, 1, 3, str.tostring(bearPct, "#") + "% (" + str.tostring(bearScore) + "/" + str.tostring(factorTotal) + ")", text_color = color.white, bgcolor = CLR_BEAR, text_size = ts)
+    table.cell(dashTable, 0, 4, "MARKET BIAS", text_color = CLR_TEXT, bgcolor = CLR_PANEL_HDR, text_size = ts)
+    table.cell(dashTable, 1, 4, biasText, text_color = color.white, bgcolor = biasColor, text_size = ts)
+    dashTable.setRow(5, "Price / VWAP", fVwapBull ? "ABOVE" : "BELOW", fVwapBull ? CLR_BULL : CLR_BEAR, ts)
+    dashTable.setRow(6, "RSI (14)", str.tostring(rsiNow, "#.#"), fRsiBull ? CLR_BULL : CLR_BEAR, ts)
+    dashTable.setRow(7, "MACD", (fMacdBull ? "BULL " : "BEAR ") + str.tostring(macdHistogram, "#.##"), fMacdBull ? CLR_BULL : CLR_BEAR, ts)
+    dashTable.setRow(8, "ADX (14)", str.tostring(adxNow, "#.#") + (diPlus > diMinus ? " ▲" : " ▼"), adxNow > 25 ? CLR_BULL : CLR_MUTED, ts)
+    dashTable.setRow(9, "EMA " + str.tostring(fastEmaLenInput) + "/" + str.tostring(slowEmaLenInput), fEmaBull ? "BULL" : "BEAR", fEmaBull ? CLR_BULL : CLR_BEAR, ts)
+    dashTable.setRow(10, "Volume", not hasVolume ? "N/A" : volume > volumeBaseline ? "HIGH" : "LOW", hasVolume and volume > volumeBaseline ? CLR_BULL : CLR_MUTED, ts)
+    dashTable.setRow(11, confirmTfInput + " RSI", str.tostring(rsiConfirmTf, "#.#"), fMtfBull ? CLR_BULL : CLR_BEAR, ts)
+    string dxyText  = not dxyFactorOnInput ? "OFF" : not dxyDataOk ? "NO DATA" : str.tostring(dxyClose, "#.##") + (dollarWeak ? " ▼" : dollarStrong ? " ▲" : " ─") + "  r " + str.tostring(goldDxyCorr, "#.##") + (inverseLinkActive ? " ✓" : " ✕")
+    color  dxyColor = not dxyFactorOnInput or not dxyDataOk ? CLR_MUTED : not inverseLinkActive ? CLR_AMBER : dollarWeak ? CLR_BULL : CLR_BEAR
+    dashTable.setRow(12, "DXY (inverse)", dxyText, dxyColor, ts)
+    dashTable.setRow(13, "Session", sessionText + (sessionFilterOnInput ? "" : " (filter off)"), not sessionFilterOnInput ? CLR_MUTED : sessionGateOk ? CLR_GOLD : CLR_AMBER, ts)
+    bool   adrChartOk = not timeframe.isweekly and not timeframe.ismonthly
+    string adrText  = not adrChartOk ? "N/A (W+ chart)" : na(adrValue) ? "N/A" : str.format("${0,number,#.#} · used {1,number,#}%", adrValue, adrUsedPct) + (adrFilterOnInput ? "" : " (off)")
+    color  adrColor = not adrChartOk or not adrFilterOnInput ? CLR_MUTED : adrExhausted ? CLR_BEAR : adrUsedPct >= adrBlockPctInput * 0.75 ? CLR_AMBER : CLR_BULL
+    dashTable.setRow(14, "ADR (" + str.tostring(adrLenInput) + "d)", adrText, adrColor, ts)
+    dashTable.setRow(15, "ATR (" + str.tostring(atrLenInput) + ")", fmtDollarPts(atrValue, pipSizeInput), CLR_TEXT, ts)
+    dashTable.setRow(16, latestOpen ? "Risk (1R)" : "Next stop distance", fmtDollarPts(riskDistance, pipSizeInput), CLR_STOP, ts)
+    dashTable.setRow(17, "Confluence", str.tostring(math.max(bullScore, bearScore)) + "/" + str.tostring(factorTotal) + "  (min " + str.tostring(minScoreEff) + ")", math.max(bullScore, bearScore) >= minScoreEff ? CLR_BULL : CLR_MUTED, ts)
+    dashTable.setRow(18, "Entry gates", allGatesOk ? "ALL OPEN ✓" : "BLOCKED · " + blockReason, allGatesOk ? CLR_BULL : CLR_BEAR, ts)
+    // Outcome tally over the trades kept on the chart
+    int openCnt   = 0
+    int openLong  = 0
+    int openShort = 0
+    int closedCnt = 0
+    int tp1Cnt    = 0
+    int fullCnt   = 0
+    int slCnt     = 0
+    int beCnt     = 0
+    if array.size(trades) > 0
+        for i = 0 to array.size(trades) - 1
+            TradeSetup t = array.get(trades, i)
+            if t.closed
+                closedCnt += 1
+                tp1Cnt    += array.get(t.hits, 0) ? 1 : 0
+                slCnt     += t.outcome == "SL" ? 1 : 0
+                beCnt     += t.outcome == "BE" ? 1 : 0
+                fullCnt   += t.outcome != "SL" and t.outcome != "BE" ? 1 : 0
+            else
+                openCnt   += 1
+                openLong  += t.side == 1 ? 1 : 0
+                openShort += t.side == -1 ? 1 : 0
+    string openText   = openCnt == 0 ? "FLAT" : str.tostring(openCnt) + " (" + str.tostring(openLong) + " L · " + str.tostring(openShort) + " S)"
+    color  openColor  = openCnt == 0 ? CLR_MUTED : openLong > openShort ? CLR_BULL : openShort > openLong ? CLR_BEAR : CLR_AMBER
+    string latestText = na(latest) ? "—" : (latestSide == 1 ? "LONG · " : "SHORT · ") + str.tostring(latestHits) + "/" + str.tostring(tpLevelsInput) + " TP · " + (latestOpen ? (latestBe ? "BE ACTIVE" : "OPEN") : "CLOSED " + latestOutcome)
+    color  latestColor = na(latest) ? CLR_MUTED : latestOpen ? (latestBe ? CLR_ENTRY : latestSide == 1 ? CLR_BULL : CLR_BEAR) : latestOutcome == "SL" ? CLR_STOP : latestOutcome == "BE" ? CLR_ENTRY : CLR_TARGET_HIT
+    string tallyText  = closedCnt == 0 ? "no closed trades yet" : str.tostring(closedCnt) + " closed · TP1 " + str.tostring(tp1Cnt) + " · full " + str.tostring(fullCnt) + " · SL " + str.tostring(slCnt) + " · BE " + str.tostring(beCnt)
+    dashTable.setRow(19, "Open trades", openText, openColor, ts)
+    dashTable.setRow(20, "Latest trade", latestText, latestColor, ts)
+    dashTable.setRow(21, "History (last " + str.tostring(maxTradesInput) + ")", tallyText, closedCnt == 0 ? CLR_MUTED : CLR_TEXT, ts)
+    dashTable.setRow(22, "Signal", longEntry or shortEntry ? "NEW" : lastBlockText != "—" ? "LAST BLOCK: " + lastBlockText : "WATCHING", longEntry or shortEntry ? CLR_BULL : CLR_MUTED, ts)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// PANEL — HOW IT WORKS (static, position configurable)
+// ══════════════════════════════════════════════════════════════════════════════
+var table howTable = table.new(tablePositionOf(howToPosInput), 1, 9, bgcolor = CLR_PANEL_BG, border_color = CLR_PANEL_BORDER, border_width = 1, frame_color = CLR_PANEL_BORDER, frame_width = 1)
+if barstate.islast and showHowToInput
+    table.cell(howTable, 0, 0, "GOLD SNIPER · HOW IT WORKS", text_color = CLR_GOLD, text_size = size.small, bgcolor = CLR_PANEL_HDR, text_halign = text.align_left)
+    table.cell(howTable, 0, 1, "1  Trigger: fast / slow EMA cross on bar close", text_color = CLR_BULL, text_size = size.small, text_halign = text.align_left)
+    table.cell(howTable, 0, 2, "2  Score: " + str.tostring(factorTotal) + " factors must reach the minimum", text_color = CLR_TEXT, text_size = size.small, text_halign = text.align_left)
+    table.cell(howTable, 0, 3, "3  DXY inverse link confirms the gold side", text_color = CLR_INFO, text_size = size.small, text_halign = text.align_left)
+    table.cell(howTable, 0, 4, "4  Trade window: London / New York only", text_color = CLR_GOLD, text_size = size.small, text_halign = text.align_left)
+    table.cell(howTable, 0, 5, "5  ADR exhausted = no late entries", text_color = CLR_AMBER, text_size = size.small, text_halign = text.align_left)
+    table.cell(howTable, 0, 6, "6  ATR stop, 3 targets, BE at TP1, each trade runs to SL / TP", text_color = CLR_TARGET, text_size = size.small, text_halign = text.align_left)
+    table.cell(howTable, 0, 7, "7  Entries stay at least " + str.tostring(minTradeGapInput) + " bars apart", text_color = CLR_RETEST, text_size = size.small, text_halign = text.align_left)
+    table.cell(howTable, 0, 8, "Gold-only: XAUUSD · GOLD · GC / MGC", text_color = CLR_MUTED, text_size = size.tiny, text_halign = text.align_left)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// PANEL — Live confluence checklist (position configurable)
+// ══════════════════════════════════════════════════════════════════════════════
+var table checkTable = table.new(tablePositionOf(checklistPosInput), 2, 15, bgcolor = CLR_PANEL_BG, border_color = CLR_PANEL_BORDER, border_width = 1, frame_color = CLR_PANEL_BORDER, frame_width = 1)
+if barstate.islast and showChecklistInput
+    bool   buySide   = bullScore >= bearScore
+    int    sideScore = buySide ? bullScore : bearScore
+    string hdr       = (buySide ? "BUY CONFLUENCE  " : "SELL CONFLUENCE  ") + str.tostring(sideScore) + "/" + str.tostring(factorTotal)
+    color  hdrCol    = buySide ? CLR_BULL : CLR_BEAR
+    table.cell(checkTable, 0, 0, hdr, text_color = color.white, text_size = size.small, bgcolor = color.new(hdrCol, 25))
+    table.cell(checkTable, 1, 0, buySide ? "▲" : "▼", text_color = color.white, text_size = size.small, bgcolor = color.new(hdrCol, 25))
+    bool c1 = buySide ? fVwapBull : fVwapBear
+    bool c2 = buySide ? fRsiBull  : fRsiBear
+    bool c3 = buySide ? fMacdBull : fMacdBear
+    bool c4 = buySide ? fEmaBull  : fEmaBear
+    bool c5 = buySide ? fAdxBull  : fAdxBear
+    bool c6 = buySide ? fVolBull  : fVolBear
+    bool c7 = buySide ? fMtfBull  : fMtfBear
+    bool c8 = buySide ? fDxyBull  : fDxyBear
+    table.cell(checkTable, 0, 1, buySide ? "1  Price above VWAP" : "1  Price below VWAP", text_color = CLR_TEXT, text_size = size.small, text_halign = text.align_left)
+    table.cell(checkTable, 1, 1, tickText(c1), text_color = tickColor(c1), text_size = size.small)
+    table.cell(checkTable, 0, 2, buySide ? "2  RSI above 50" : "2  RSI below 50", text_color = CLR_TEXT, text_size = size.small, text_halign = text.align_left)
+    table.cell(checkTable, 1, 2, tickText(c2), text_color = tickColor(c2), text_size = size.small)
+    table.cell(checkTable, 0, 3, buySide ? "3  MACD above signal" : "3  MACD below signal", text_color = CLR_TEXT, text_size = size.small, text_halign = text.align_left)
+    table.cell(checkTable, 1, 3, tickText(c3), text_color = tickColor(c3), text_size = size.small)
+    table.cell(checkTable, 0, 4, buySide ? "4  Fast EMA above slow" : "4  Fast EMA below slow", text_color = CLR_TEXT, text_size = size.small, text_halign = text.align_left)
+    table.cell(checkTable, 1, 4, tickText(c4), text_color = tickColor(c4), text_size = size.small)
+    table.cell(checkTable, 0, 5, "5  ADX > 25 with price on EMA side", text_color = CLR_TEXT, text_size = size.small, text_halign = text.align_left)
+    table.cell(checkTable, 1, 5, tickText(c5), text_color = tickColor(c5), text_size = size.small)
+    table.cell(checkTable, 0, 6, buySide ? "6  Volume push, green bar" : "6  Volume push, red bar", text_color = CLR_TEXT, text_size = size.small, text_halign = text.align_left)
+    table.cell(checkTable, 1, 6, tickText(c6), text_color = tickColor(c6), text_size = size.small)
+    table.cell(checkTable, 0, 7, "7  " + confirmTfInput + " RSI " + (buySide ? "above 50" : "below 50"), text_color = CLR_TEXT, text_size = size.small, text_halign = text.align_left)
+    table.cell(checkTable, 1, 7, tickText(c7), text_color = tickColor(c7), text_size = size.small)
+    table.cell(checkTable, 0, 8, not dxyFactorOnInput ? "8  DXY factor (off)" : buySide ? "8  DXY weak + inverse link" : "8  DXY strong + inverse link", text_color = CLR_TEXT, text_size = size.small, text_halign = text.align_left)
+    table.cell(checkTable, 1, 8, not dxyFactorOnInput ? "–" : tickText(c8), text_color = tickColor(c8), text_size = size.small)
+    table.cell(checkTable, 0, 9, "GOLD GATES", text_color = CLR_GOLD, text_size = size.small, bgcolor = CLR_PANEL_HDR, text_halign = text.align_left)
+    table.cell(checkTable, 1, 9, "", text_color = CLR_GOLD, text_size = size.small, bgcolor = CLR_PANEL_HDR)
+    table.cell(checkTable, 0, 10, "Gold chart", text_color = CLR_TEXT, text_size = size.small, text_halign = text.align_left)
+    table.cell(checkTable, 1, 10, tickText(symbolGateOk), text_color = tickColor(symbolGateOk), text_size = size.small)
+    table.cell(checkTable, 0, 11, "London / New York session", text_color = CLR_TEXT, text_size = size.small, text_halign = text.align_left)
+    table.cell(checkTable, 1, 11, tickText(sessionGateOk), text_color = tickColor(sessionGateOk), text_size = size.small)
+    table.cell(checkTable, 0, 12, "ADR not exhausted", text_color = CLR_TEXT, text_size = size.small, text_halign = text.align_left)
+    table.cell(checkTable, 1, 12, tickText(adrGateOk), text_color = tickColor(adrGateOk), text_size = size.small)
+    bool scoreOk = sideScore >= minScoreEff
+    table.cell(checkTable, 0, 13, "Score ≥ " + str.tostring(minScoreEff), text_color = CLR_TEXT, text_size = size.small, text_halign = text.align_left)
+    table.cell(checkTable, 1, 13, tickText(scoreOk), text_color = tickColor(scoreOk), text_size = size.small)
+    bool   readyNow  = scoreOk and allGatesOk
+    string footText  = longEntry or shortEntry ? "SIGNAL NOW" : readyNow ? "ARMED · waiting for EMA cross" : not allGatesOk ? "BLOCKED · " + blockReason : "Waiting for confluence"
+    color  footColor = longEntry or shortEntry or readyNow ? hdrCol : not allGatesOk ? CLR_BEAR : CLR_MUTED
+    table.cell(checkTable, 0, 14, footText, text_color = color.white, text_size = size.small, bgcolor = color.new(footColor, 30), text_halign = text.align_left)
+    table.cell(checkTable, 1, 14, readyNow ? "●" : "…", text_color = color.white, text_size = size.small, bgcolor = color.new(footColor, 30))
+
+// ══════════════════════════════════════════════════════════════════════════════
+// PANEL — Strategy summary footer (static, position configurable)
+// ══════════════════════════════════════════════════════════════════════════════
+var table sumTable = table.new(tablePositionOf(summaryPosInput), 3, 2, bgcolor = CLR_PANEL_BG, border_color = CLR_PANEL_BORDER, border_width = 1, frame_color = CLR_PANEL_BORDER, frame_width = 1)
+if barstate.islast and showSummaryInput
+    table.cell(sumTable, 0, 0, "STRATEGY", text_color = CLR_TEXT, text_size = size.small, bgcolor = CLR_PANEL_HDR)
+    table.cell(sumTable, 1, 0, "BEST FOR", text_color = CLR_TEXT, text_size = size.small, bgcolor = CLR_PANEL_HDR)
+    table.cell(sumTable, 2, 0, "WORKS ON", text_color = CLR_TEXT, text_size = size.small, bgcolor = CLR_PANEL_HDR)
+    table.cell(sumTable, 0, 1, "8-Factor Gold Confluence", text_color = CLR_MUTED, text_size = size.tiny)
+    table.cell(sumTable, 1, 1, "XAUUSD 5m - 1H intraday", text_color = CLR_MUTED, text_size = size.tiny)
+    table.cell(sumTable, 2, 1, "Spot XAU · GC / MGC futures", text_color = CLR_MUTED, text_size = size.tiny)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ALERTS
+// ══════════════════════════════════════════════════════════════════════════════
+alertcondition(longEntry, title = "Gold Long Entry", message = "[Viprasol Gold Sniper] LONG entry on {{ticker}} at {{close}} | TF: {{interval}}")
+alertcondition(shortEntry, title = "Gold Short Entry", message = "[Viprasol Gold Sniper] SHORT entry on {{ticker}} at {{close}} | TF: {{interval}}")
+alertcondition(longEntry or shortEntry, title = "Any Gold Entry", message = "[Viprasol Gold Sniper] Entry signal on {{ticker}} at {{close}} | TF: {{interval}}")
+alertcondition(ta.crossover(bullPct, 70), title = "Strong Bull Bias", message = "[Viprasol Gold Sniper] Bull confluence crossed above 70% on {{ticker}} at {{close}} | TF: {{interval}}")
+alertcondition(ta.crossover(bearPct, 70), title = "Strong Bear Bias", message = "[Viprasol Gold Sniper] Bear confluence crossed above 70% on {{ticker}} at {{close}} | TF: {{interval}}")
+alertcondition(inverseLinkActive and not inverseLinkActive[1], title = "DXY Inverse Link Active", message = "[Viprasol Gold Sniper] Gold / DXY inverse correlation is active again on {{ticker}} at {{close}} | TF: {{interval}}")
+alertcondition(not inverseLinkActive and inverseLinkActive[1], title = "DXY Inverse Link Lost", message = "[Viprasol Gold Sniper] Gold / DXY decoupled on {{ticker}} at {{close}} - DXY factor paused | TF: {{interval}}")
+alertcondition(not timeframe.isdwm and inGoldSession and not inGoldSession[1], title = "Gold Session Opened", message = "[Viprasol Gold Sniper] London / New York window opened on {{ticker}} at {{close}} | TF: {{interval}}")
+alertcondition(adrExhausted and not adrExhausted[1], title = "ADR Exhausted", message = "[Viprasol Gold Sniper] Average daily range exhausted on {{ticker}} at {{close}} - new entries blocked | TF: {{interval}}")
+alertcondition(longBlocked or shortBlocked, title = "Signal Blocked by Entry Filter", message = "[Viprasol Gold Sniper] EMA cross on {{ticker}} at {{close}} was blocked by an entry filter | TF: {{interval}}")
+alertcondition(finalTpNow, title = "Final Target Hit", message = "[Viprasol Gold Sniper] A trade reached its final take-profit on {{ticker}} at {{close}} | TF: {{interval}}")
+alertcondition(stopHitNow, title = "Stop-Loss Hit", message = "[Viprasol Gold Sniper] A trade hit its stop-loss on {{ticker}} at {{close}} | TF: {{interval}}")
+alertcondition(beExitNow, title = "Breakeven Exit", message = "[Viprasol Gold Sniper] A trade returned to entry after TP1 and closed at breakeven on {{ticker}} at {{close}} | TF: {{interval}}")

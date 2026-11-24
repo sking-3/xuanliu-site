@@ -1,0 +1,152 @@
+//@version=6
+// Khabib Takedown — "Fractal Nest Breakdown" 🤼  ·  Viprasol   ·  ORIGINAL geometry (short)
+// ─────────────────────────────────────────────────────────────────────────────
+// The idea: SELF-SIMILARITY. A big bearish leg (lower high → lower low) with a smaller bearish
+// leg nested inside it that is a scaled copy (same shape, a fraction of the size). When the
+// small fractal completes in the direction of the big one — a break of the last low — the
+// structure "grounds" price → SHORT. It's a fractal-echo measurement, not a plain lower-low.
+// Pure geometry. Non-repainting (confirmed pivots; entry on bar close).
+// Draws the big leg + the nested small leg. Filled TP/SL zones extend until hit.
+indicator("Khabib Takedown Fractal Nest Breakdown (Viprasol)", "Khabib", overlay=true, max_labels_count=500, max_lines_count=500, max_boxes_count=200)
+
+// ── The nest (self-similar legs) ─────────────────────────
+gA = "The nest (self-similar legs)"
+pL      = input.int(3,    "Swing pivot — left bars", minval=1, group=gA)
+pR      = input.int(3,    "Swing pivot — right bars", minval=1, group=gA)
+ratLo   = input.float(0.30,"Small leg ≥ this × big leg", minval=0.1, step=0.05, group=gA)
+ratHi   = input.float(0.75,"Small leg ≤ this × big leg", minval=0.2, step=0.05, group=gA)
+minBigATR = input.float(1.5,"Min big leg (× ATR)", minval=0.3, step=0.1, group=gA)
+atrLen  = input.int(14,   "ATR length", minval=1, group=gA)
+
+// ── The takedown (entry & exits) ─────────────────────────
+gE = "The takedown (entry & exits)"
+rr         = input.float(2.0, "TP = R multiple (× risk)", minval=0.5, step=0.5, group=gE)
+slBuf      = input.float(0.3, "SL buffer (× ATR)", minval=0.0, step=0.1, group=gE)
+sigGap     = input.int(15,   "Min bars between signals", minval=0, group=gE)
+oneAtATime = input.bool(true, "One trade at a time", group=gE)
+
+// ── Visuals ──────────────────────────────────────────────
+gV = "Visuals"
+cBig   = input.color(color.new(#ef5350,0), "Big leg", group=gV)
+cSmall = input.color(color.new(#ffca28,0), "Nested leg", group=gV)
+cEntry = input.color(color.blue,   "Entry line", group=gV)
+cTP    = input.color(color.green,  "TP zone", group=gV)
+cSL    = input.color(color.red,    "SL zone", group=gV)
+labelOff= input.float(1.0, "Label offset (× ATR)", minval=0.0, step=0.1, group=gV)
+zoneTrans= input.int(85, "TP/SL zone fill transparency (0-100)", minval=0, maxval=100, group=gV)
+
+atr = ta.atr(atrLen)
+var int lastSig = -100000
+
+// ── Zigzag ───────────────────────────────────────────────
+var array<float> zP = array.new_float()
+var array<int>   zB = array.new_int()
+var array<int>   zT = array.new_int()
+
+ph = ta.pivothigh(pL, pR)
+pl = ta.pivotlow(pL, pR)
+pvPrice = not na(ph) ? ph : pl
+pvType  = not na(ph) ? 1 : (not na(pl) ? -1 : 0)
+if pvType != 0
+    nn = array.size(zT)
+    if nn > 0 and array.get(zT, nn - 1) == pvType
+        li = nn - 1
+        lp = array.get(zP, li)
+        if (pvType == 1 and pvPrice > lp) or (pvType == -1 and pvPrice < lp)
+            array.set(zP, li, pvPrice)
+            array.set(zB, li, bar_index - pR)
+    else
+        array.push(zP, pvPrice)
+        array.push(zB, bar_index - pR)
+        array.push(zT, pvType)
+        if array.size(zP) > 12
+            array.shift(zP)
+            array.shift(zB)
+            array.shift(zT)
+
+// ── Read last 4 swings: high, low, high, low ─────────────
+float s3 = na
+float s2 = na
+float s1 = na
+float s0 = na
+int   b3 = na
+int   b2 = na
+int   b1 = na
+int   b0 = na
+bool  haveNest = false
+n = array.size(zP)
+if n >= 4 and array.get(zT, n - 1) == -1 and array.get(zT, n - 2) == 1 and array.get(zT, n - 3) == -1 and array.get(zT, n - 4) == 1
+    s0 := array.get(zP, n - 1)
+    s1 := array.get(zP, n - 2)
+    s2 := array.get(zP, n - 3)
+    s3 := array.get(zP, n - 4)
+    b0 := array.get(zB, n - 1)
+    b1 := array.get(zB, n - 2)
+    b2 := array.get(zB, n - 3)
+    b3 := array.get(zB, n - 4)
+    haveNest := true
+
+bool valid = false
+if haveNest
+    bigLeg   = s3 - s2
+    smallLeg = s1 - s0
+    lowerHigh = s1 < s3
+    lowerLow  = s0 < s2
+    ratio = bigLeg > 0 ? smallLeg / bigLeg : na
+    nested = bigLeg >= minBigATR * atr and smallLeg > 0 and ratio >= ratLo and ratio <= ratHi
+    valid := lowerHigh and lowerLow and nested and close < s0 and close < open
+
+// ── Trade scaffold (filled TP/SL zones, extend-until-hit) ─
+var array<line>  tEntry = array.new<line>()
+var array<box>   tTPb   = array.new<box>()
+var array<box>   tSLb   = array.new<box>()
+var array<float> tTPl   = array.new_float()
+var array<float> tSLl   = array.new_float()
+
+openTrades = array.size(tTPl)
+blocked    = oneAtATime and openTrades > 0
+
+sig = valid and not blocked and (bar_index - lastSig) > sigGap and barstate.isconfirmed
+
+if sig
+    lastSig := bar_index
+    entry   = close
+    slLvl   = s1 + atr * slBuf
+    tpLvl   = entry - rr * (slLvl - entry)
+    line.new(b3, s3, b2, s2, xloc=xloc.bar_index, color=color.new(cBig, 0), width=3)
+    line.new(b1, s1, b0, s0, xloc=xloc.bar_index, color=color.new(cSmall, 0), width=2)
+    label.new(bar_index, high + atr * labelOff, "TAKEDOWN 🤼⬇", xloc=xloc.bar_index, yloc=yloc.price, style=label.style_label_down, color=color.new(color.red, 0), textcolor=color.white, size=size.normal)
+    array.push(tEntry, line.new(bar_index, entry, bar_index, entry, xloc=xloc.bar_index, color=color.new(cEntry, 0), width=1))
+    array.push(tTPb,   box.new(bar_index, math.max(entry, tpLvl), bar_index, math.min(entry, tpLvl), xloc=xloc.bar_index, border_color=color.new(cTP, 0), border_width=1, bgcolor=color.new(cTP, zoneTrans)))
+    array.push(tSLb,   box.new(bar_index, math.max(entry, slLvl), bar_index, math.min(entry, slLvl), xloc=xloc.bar_index, border_color=color.new(cSL, 0), border_width=1, bgcolor=color.new(cSL, zoneTrans)))
+    array.push(tTPl,   tpLvl)
+    array.push(tSLl,   slLvl)
+
+if barstate.isconfirmed and array.size(tTPl) > 0
+    idx = array.size(tTPl) - 1
+    while idx >= 0
+        le = array.get(tEntry, idx)
+        bt = array.get(tTPb, idx)
+        bs = array.get(tSLb, idx)
+        tp = array.get(tTPl, idx)
+        sl = array.get(tSLl, idx)
+        line.set_x2(le, bar_index)
+        box.set_right(bt, bar_index)
+        box.set_right(bs, bar_index)
+        hitTP = low  <= tp
+        hitSL = high >= sl
+        if hitTP or hitSL
+            box.set_border_width(hitTP ? bt : bs, 2)
+            array.remove(tEntry, idx)
+            array.remove(tTPb, idx)
+            array.remove(tSLb, idx)
+            array.remove(tTPl, idx)
+            array.remove(tSLl, idx)
+        idx := idx - 1
+
+alertcondition(sig, "Khabib Fractal Nest", "Khabib Takedown — fractal nest (sell) on {{ticker}}")
+
+var table tb = table.new(position.top_right, 1, 2, border_width=1)
+if barstate.islast
+    table.cell(tb, 0, 0, "Khabib · Fractal Nest 🤼", bgcolor=color.new(color.red, 0), text_color=color.white, text_size=size.small)
+    table.cell(tb, 0, 1, "Open trades: " + str.tostring(array.size(tTPl)), bgcolor=color.new(color.black, 20), text_color=color.white, text_size=size.small)
