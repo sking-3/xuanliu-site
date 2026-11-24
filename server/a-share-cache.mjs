@@ -52,7 +52,7 @@ export function createAShareCache({directory}){
     const reply=(status,value)=>json(res,status,value,{'cache-control':'no-cache'});
     if(req.method!=='GET'){reply(405,{error:'method_not_allowed'});return true;}
     const route=path.slice(prefix.length),params=url.searchParams;
-    if(!['state','result','dataset','market'].includes(route)){reply(404,{error:'not_found'});return true;}
+    if(!['state','result','dataset','market','patterns'].includes(route)){reply(404,{error:'not_found'});return true;}
     const allowed=route==='state'?[]:route==='result'?['mode','lookback','sampleSize','benchmark','generation']:route==='dataset'?['sampleSize','benchmark','generation']:['generation'];
     if(!validQuery(params,allowed)){reply(400,{error:'invalid_query'});return true;}
     const requestedGeneration=params.get('generation');
@@ -66,7 +66,7 @@ export function createAShareCache({directory}){
       const sample=params.get('sampleSize')||'120',benchmark=params.get('benchmark')||'000300.SH';
       if(!samples.has(sample)||!benchmarks.has(benchmark)){reply(400,{error:'invalid_query'});return true;}
       filename=`dataset-${sample}-${benchmark}.json`;
-    }else filename='market.json';
+    }else filename=route==='patterns'?'pattern-regimes.json':'market.json';
     try{
       const full=await pointer('current.json'),historical=await pointer('historical-current.json',true),published=full||historical;
       if(route==='state'){
@@ -82,6 +82,14 @@ export function createAShareCache({directory}){
       if(!completed){reply(requestedGeneration?404:503,{error:'generation_unavailable'});return true;}
       if(completed.completion.dataPolicy?.rawPublic===false&&['dataset','market'].includes(route)){reply(403,{error:route==='dataset'?'source_policy_raw_export_disabled':'source_policy_raw_market_disabled'});return true;}
       if(route==='market'&&completed.completion.scope==='historical-sample'){reply(503,{error:'historical_market_unavailable'});return true;}
+      if(route==='patterns'){
+        const value=await readJson(join(completed.location,filename)),marker=completed.completion;
+        if(!value){reply(503,{error:'pattern_statistics_unavailable'});return true;}
+        if(value.schema!=='books.a-share.pattern-regimes.v1'||value.generation!==generation||value.day!==marker.day||value.asOf!==marker.asOf||value.sourceId!==marker.sourceId||!Array.isArray(value.patterns)||!Array.isArray(value.candidates)){
+          reply(503,{error:'pattern_statistics_mismatch'});return true;
+        }
+        reply(200,value);return true;
+      }
       const compressed=gzipAccepted(req.headers['accept-encoding']);
       let body;
       try{body=await readFile(join(completed.location,filename+(compressed?'.gz':'')));}
