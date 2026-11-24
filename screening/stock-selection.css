@@ -119,6 +119,32 @@
 .pick-desk .trend-stock-meta {margin:6px 0 0;font-size:11px;color:var(--desk-muted)}
 .pick-desk .trend-empty {grid-column:1/-1;margin:12px 0 16px;font-size:13px;color:var(--desk-muted)}
 #trend-pagination {margin:16px 0 0}
+.pattern-regimes {padding:12px 0;border-top:1px solid var(--desk-border);font-variant-numeric:tabular-nums}
+.pattern-regimes-heading {display:flex;align-items:center;justify-content:space-between;gap:8px 16px;flex-wrap:wrap}
+.pick-desk .pattern-regimes h4 {margin:0;font-size:14px;line-height:1.5}
+.pick-desk .pattern-regimes-heading button {min-height:44px;font-size:12px}
+.pick-desk .pattern-regimes p {font-size:12px;line-height:1.6;overflow-wrap:anywhere}
+.pick-desk .pattern-regimes-source {font-size:11px;margin:4px 0;color:var(--desk-muted)}
+.pattern-regimes-source:empty {display:none}
+.pattern-regimes-options {display:flex;align-items:stretch;gap:8px;flex-wrap:wrap;margin:8px 0}
+.pattern-regimes-options:empty {display:none}
+.pick-desk .pattern-regimes-options button {min-height:44px;text-align:left;font-size:12px;padding:8px 10px;max-width:100%;white-space:normal}
+.pattern-regimes-options button span {display:block;font-size:11px;font-weight:400;line-height:1.6}
+.pick-desk .pattern-regimes-review {margin:4px 0}
+.pick-desk .pattern-regimes-review>summary {font-size:12px;min-height:44px;align-content:center}
+.pattern-regimes-record {border-top:1px solid var(--desk-border);padding:10px 0}
+.pattern-regimes-record-title {display:flex;align-items:baseline;justify-content:space-between;gap:8px 16px;flex-wrap:wrap;font-size:13px}
+.pattern-regimes-record-title small {font-size:11px;color:var(--desk-muted)}
+.pattern-regimes-stat {display:grid;grid-template-columns:90px repeat(4,minmax(0,1fr));gap:6px 12px;margin:8px 0;font-size:12px}
+.pattern-regimes-stat>span:first-child {color:var(--desk-muted)}
+.pattern-regimes-stat small {display:block;font-size:11px;color:var(--desk-muted);line-height:1.5}
+.pick-desk .pattern-regimes-reason {font-size:11px;margin:4px 0}
+@media(max-width:650px){
+ .pattern-regimes-heading {gap:8px}
+ .pattern-regimes-options {display:grid;grid-template-columns:minmax(0,1fr)}
+ .pattern-regimes-stat {grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 12px}
+ .pattern-regimes-stat>span:first-child {grid-column:1/-1}
+}
 .trend-monitor-status {padding:12px 0;border-top:1px solid var(--desk-border);font-variant-numeric:tabular-nums}
 .trend-scheme-review-controls label {display:grid;gap:4px;min-width:0;font-size:12px;color:var(--desk-muted)}
 .pick-desk .trend-scheme-review select {min-height:44px;font-size:12px;font-variant-numeric:tabular-nums}
