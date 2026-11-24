@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#f2f3f6">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
+  <title>熬鹰交易档案 · Books</title>
+  <link rel="stylesheet" href="../../books-ui.css?v=40832f3c">
+  <link rel="stylesheet" href="../../index-ticker.css?v=compact-20261123-1">
+  <link rel="stylesheet" href="../../desk-skin.css?v=ui-motion-20261124-1">
+  <link rel="stylesheet" href="archive.css?v=1">
+  <script src="../../books-shell.js?v=shell-motion-20261124-2"></script>
+  <script defer src="../../index-ticker.js?v=compact-20261123-1"></script>
+  <script defer src="archive.js?v=1"></script>
+<link rel="stylesheet" href="../../content-materials.css?v=content-20261123-2"></head>
+<body class="books-shell archive-page">
+  <section class="index-ticker" id="index-ticker" aria-label="全球指数行情"><iframe src="../../market-strip.html?v=compact-20261123-1" title="全球指数行情"></iframe></section>
+  <a class="skip-link" href="#content">跳至内容</a>
+  <aside class="books-sidebar" aria-label="研究导航">
+    <a class="books-brand" href="../../index.html">Books</a>
+    <nav class="books-nav" aria-label="工作区">
+      <a href="../../index.html">市场总览</a>
+      <a href="../../screening/index.html">A股选股</a>
+      <a href="../../us.html">美股选股</a>
+      <a href="../../trader/index.html">带单员广场</a>
+      <a href="../../research.html">公司研究</a>
+      <a href="../../screening/history.html">历史研究</a>
+      <a href="../../academy/index.html">交易员研习</a><a href="../../tools.html" aria-current="location">研究工具</a>
+    </nav>
+    <nav class="books-shortcuts" aria-label="行情快捷入口"><a href="../../a-shares.html">A 股行情</a><a href="../../us-live.html">美股监控</a><a href="../../crypto.html">加密行情</a></nav>
+  </aside>
+  <main id="content" class="archive-shell">
+    <a class="archive-back" href="../../tools.html">研究工具</a>
+    <header class="archive-heading">
+      <div><h1>熬鹰交易档案</h1><p>按主题查阅原帖、微博与访谈，保留原文及配图。</p></div>
+      <p class="archive-date">历史资料 · 2026 年 11 月 22 日存档</p>
+    </header>
+    <section class="archive-controls" aria-label="查找档案">
+      <label class="archive-search">搜索档案<input id="archive-search" type="search" placeholder="搜索观点、标的或关键词" autocomplete="off"></label>
+      <label>来源<select id="archive-source"><option value="all">全部来源</option><option value="x">X 原帖</option><option value="weibo">微博</option><option value="interview">深度访谈</option></select></label>
+      <label>主题<select id="archive-category"><option value="all">全部主题</option></select></label>
+      <label class="archive-featured"><input id="archive-featured" type="checkbox">精选内容</label>
+    </section>
+    <div class="archive-list-heading"><p id="archive-status" role="status" aria-live="polite">正在读取档案…</p><button id="archive-retry" type="button" hidden>重新获取</button></div>
+    <section id="archive-list" class="archive-list" aria-label="档案内容"></section>
+    <nav class="archive-pagination" aria-label="档案分页"><span id="archive-count"></span><button type="button" id="archive-previous" disabled>上一页</button><button type="button" id="archive-next" disabled>下一页</button></nav>
+    <footer class="archive-attribution">
+      <p>资料由 梭哈.AI 与 Trader-Archives 社区整理。本站保存了独立副本，阅读与搜索使用本站资源。</p>
+      <p><a href="https://github.com/suoha888/Trader-Archives/tree/5e18e9a752719264508dc00be093e75c8b7f1824/thankucrypto" target="_blank" rel="noopener noreferrer">来源存档</a><a href="LICENSE" target="_blank" rel="noopener noreferrer">MIT 许可证</a></p>
+    </footer>
+  </main>
+  <dialog class="archive-reader" id="archive-reader" aria-labelledby="archive-reader-title">
+    <header class="archive-reader-toolbar"><p id="archive-reader-meta"></p><button id="archive-reader-close" type="button">关闭</button></header>
+    <article><h2 id="archive-reader-title"></h2><div id="archive-reader-body" class="archive-reader-body"></div><div id="archive-reader-images" class="archive-reader-images"></div><a id="archive-reader-original" target="_blank" rel="noopener noreferrer">查看原始来源</a></article>
+  </dialog>
+</body>
+</html>

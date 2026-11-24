@@ -2,11 +2,11 @@
 const assert = require('node:assert/strict');
 const api = require('../trader/binance/redirect.js');
 const base = 'https://45-77-39-98.sslip.io/trader/binance/';
-assert.equal(api.destination(base), 'https://45-77-39-98.sslip.io/trader/?exchange=Binance');
+assert.equal(api.destination(base), 'https://45-77-39-98.sslip.io/trader/index.html?exchange=Binance');
 assert.ok(api.IDS.includes('5075281354358777856'));
 for (const id of api.IDS) {
   const target = new URL(api.destination(base + '?portfolioId=' + id));
-  assert.equal(target.pathname, '/trader/');
+  assert.equal(target.pathname, '/trader/index.html');
   assert.equal(target.searchParams.get('exchange'), 'Binance');
   assert.equal(target.searchParams.get('q'), id);
   assert.equal(target.searchParams.get('account'), id);
