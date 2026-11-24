@@ -34,6 +34,11 @@
    if(attempt){const names={collecting:'采集中',complete:'完成',completed:'完成',held:'来源已停止',waiting:'等待下一轮',no_new_day:'无新收盘日'};lines.push('本轮 '+(attempt.day||'日期未提供')+' · '+(names[attempt.status]||statusNames[attempt.status]||attempt.status||'未运行')+' · '+progressText(attempt)+' · 有效 '+(attempt.ready??0)+' · 缺失 '+(attempt.missing??0)+' · 请求 '+(attempt.requests??0)+(attempt.currentCode?' · '+attempt.currentCode:'')+(attempt.error?' · '+attempt.error:'')+'。');}
    const last=automation.lastSuccess;
    lines.push(last?'最近完成 '+last.day+' · '+last.ready+'/'+last.total+' 只有效 · '+stamp(last.finishedAt)+'（北京）'+(automation.available?'。':'；缓存暂不可用。'):'尚无已发布的完整收盘批次。');
+   const archive=automation.retention;
+   if(archive){
+    const stages={'archive-backup':'方案备份','archive-compress':'旧批次压缩','archive-cache':'来源缓存冷归档','archive-vacuum':'热缓存空间整理'};
+    lines.push('存储维护：'+(archive.status==='failed'?'失败 · '+archive.error:archive.status==='running'?'进行中 · '+(stages[archive.stage]||archive.stage):'完成 · 热保留 '+archive.hotGenerations+' 代，冷归档 '+archive.coldGenerations+' 代')+(archive.generation?' · '+archive.generation:'')+(archive.day?' · '+archive.day:'')+(Number.isFinite(archive.savedFileBytes)?' · 本轮释放 '+num(archive.savedFileBytes/1024/1024)+' MiB':'')+'。');
+   }
   }
   $('automation-status').textContent=lines.length?lines.join(' '):'正在读取服务器收盘采集状态。';
  }
