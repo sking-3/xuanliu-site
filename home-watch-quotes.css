@@ -3,6 +3,7 @@
   color: #25323a;
   background: #fff;
   font-size: 14px;
+  font-variant-numeric: tabular-nums;
 }
 * { box-sizing: border-box; }
 body { margin: 0; }
@@ -35,3 +36,5 @@ tv-ticker-tag:not(:defined) { color: #657680; font-size: 11px; }
 
 /* Share the quote viewport with the US board without an empty lower half. */
 @media (min-width:390px) { li { min-height: clamp(36px, calc((100vh - 29px)/4), 56px); } }
+
+@media(max-width:760px){li{min-height:44px}.stock{min-height:44px;align-items:center}.watch-meta a{display:inline-flex;min-height:44px;align-items:center}}
