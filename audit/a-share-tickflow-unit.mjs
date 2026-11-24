@@ -1,7 +1,8 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {createTickflowSource,sourceId,dataPolicy,barSchema,hasOHLC} from '../server/a-share-tickflow.mjs';
+import {createTickflowSource,sourceId,dataPolicy,barSchema,hasOHLC,historyCount} from '../server/a-share-tickflow.mjs';
+import {readTickflowUniverse,universeSourceId,universeSchema,universeUrls} from '../server/a-share-universe.mjs';
 
 const day='2026-11-20',now=()=>Date.parse('2026-11-21T01:00:00Z');
 const stocks=[{code:'600519.SH'},{code:'000333.SZ'}];
@@ -20,10 +21,10 @@ test('one injected request maps all requested symbols and preserves actual close
   const raw=series(),h=fixture({'600519.SH':raw,'000333.SZ':copy(raw)}),result=await h.api.historyBatch(stocks,day);
   assert.equal(h.calls.length,1);assert.equal(result.size,2);const {url,options}=h.calls[0];
   assert.equal(url.origin,'https://free-api.tickflow.org');assert.equal(url.pathname,'/v1/klines/batch');assert.equal(url.searchParams.get('symbols'),'600519.SH,000333.SZ');
-  assert.equal(url.searchParams.get('period'),'1d');assert.equal(url.searchParams.get('adjust'),'forward');assert.equal(url.searchParams.get('count'),'100');assert.equal(url.searchParams.get('end_time'),'1795190400000');assert.equal(options.redirect,'error');
+  assert.equal(url.searchParams.get('period'),'1d');assert.equal(url.searchParams.get('adjust'),'forward');assert.equal(url.searchParams.get('count'),'500');assert.equal(url.searchParams.get('end_time'),'1795190400000');assert.equal(options.redirect,'error');
   for(const source of result.values()){
-    assert.equal(source.status,'ready');assert.equal(source.bars.length,61);assert.equal(source.bars.at(-1).date,day);assert.equal(source.bars[0].close,raw.close.at(-61));assert.equal(source.bars.at(-1).volume,raw.volume.at(-1));
-    assert.deepEqual(source.bars[0],{date:source.bars[0].date,open:raw.open.at(-61),high:raw.high.at(-61),low:raw.low.at(-61),close:raw.close.at(-61),volume:raw.volume.at(-61)});
+    assert.equal(source.status,'ready');assert.equal(source.bars.length,raw.timestamp.length);assert.equal(source.bars.at(-1).date,day);assert.equal(source.bars[0].close,raw.close[0]);assert.equal(source.bars.at(-1).volume,raw.volume.at(-1));assert.equal(source.historyRequested,500);
+    assert.deepEqual(source.bars[0],{date:source.bars[0].date,open:raw.open[0],high:raw.high[0],low:raw.low[0],close:raw.close[0],volume:raw.volume[0]});
     assert.deepEqual(source.bars.at(-1),{date:day,open:raw.open.at(-1),high:raw.high.at(-1),low:raw.low.at(-1),close:raw.close.at(-1),volume:raw.volume.at(-1)});assert.equal(hasOHLC(source.bars),true);
     assert.equal(source.sourceId,sourceId);assert.equal(source.adjustment,'qfq');assert.equal(source.adjustmentMethod,'比例前复权');assert.equal(source.volumeUnit,'手');assert.equal(source.fetchedAt,new Date(now()).toISOString());
   }
@@ -45,12 +46,12 @@ test('the three index symbols share one unadjusted batch and retain index proven
 });
 test('missing symbols, empty histories and insufficient listing history stay individually unavailable',async()=>{
   const h=fixture({'600519.SH':series()}),result=await h.api.historyBatch(stocks,day);assert.equal(result.get('600519.SH').status,'ready');assert.equal(result.get('000333.SZ').status,'unavailable');assert.deepEqual(result.get('000333.SZ').bars,[]);
-  for(const size of [0,1,60]){const h=fixture({'600519.SH':series(size)}),result=await h.api.historyBatch([stocks[0]],day);assert.equal(result.get('600519.SH').status,'unavailable');assert.deepEqual(result.get('600519.SH').bars,[]);}
+  for(const size of [0,1,60]){const h=fixture({'600519.SH':series(size)}),result=await h.api.historyBatch([stocks[0]],day);assert.equal(result.get('600519.SH').status,'unavailable');assert.equal(result.get('600519.SH').bars.length,size);}
 });
 test('absent target day or zero-trade days never receive invented or carried-forward bars',async()=>{
   for(const modify of [raw=>{for(const field of Object.keys(raw))raw[field].pop();},raw=>{raw.volume[raw.volume.length-1]=0;},raw=>{raw.volume[raw.volume.length-20]=0;},raw=>{for(const field of ['open','high','low','close'])raw[field][raw.close.length-1]=0;}]){
     const raw=series();modify(raw);const h=fixture({'600519.SH':raw}),source=(await h.api.historyBatch([stocks[0]],day)).get('600519.SH');
-    assert.equal(source.status,'unavailable');assert.equal(source.bars.length,0);
+    assert.equal(source.status,'unavailable');assert.equal(source.bars.length,raw.timestamp.length);
   }
 });
 test('descending, duplicate and future dates are batch protocol failures',async()=>{
@@ -111,4 +112,29 @@ test('invalid input cannot invoke the injected fetch, and an empty batch makes z
   for(const [rows,target,options]of [[[...stocks,...stocks],day,{}],[[{code:'430047.BJ'}],day,{}],[[{code:'600519.SH\n'}],day,{}],[[{code:'600519.SH'}],day,{index:true}],[stocks,'2026-02-30',{}],[stocks,day,{index:'false'}],[Array.from({length:51},(_,i)=>({code:(600000+i)+'.SH'})),day,{}]])await assert.rejects(api.historyBatch(rows,target,options),TypeError);
   assert.equal((await api.historyBatch([],day)).size,0);assert.equal(requests,0);assert.throws(()=>createTickflowSource({}),TypeError);
   assert.doesNotMatch(readFileSync(new URL('../server/a-share-tickflow.mjs',import.meta.url),'utf8'),/globalThis\.fetch|setInterval|setTimeout|retry\s*\(/);
+});
+
+test('500 actual bars are retained once; old suspended rows remain raw while recent invalid bars stay unavailable',async()=>{
+  const raw=series(historyCount);raw.volume[0]=0;raw.open[0]=raw.high[0]=raw.low[0]=raw.close[0]=0;
+  const h=fixture({'600519.SH':raw}),source=(await h.api.historyBatch([stocks[0]],day)).get(stocks[0].code);
+  assert.equal(source.status,'ready');assert.equal(source.bars.length,500);assert.equal(source.bars[0].volume,0);assert.equal(source.bars[0].close,0);assert.equal(hasOHLC(source.bars),true);assert.equal(hasOHLC(source.bars.slice(-61)),true);
+  raw.volume[499]=0;const recent=(await fixture({'600519.SH':raw}).api.historyBatch([stocks[0]],day)).get(stocks[0].code);assert.equal(recent.status,'unavailable');assert.equal(recent.bars.length,500);assert.equal(recent.bars[499].volume,0);
+  await assert.rejects(fixture({'600519.SH':series(501)}).api.historyBatch([stocks[0]],day),/长度/);
+});
+
+function instruments(exchange){return {exchange,count:600,data:Array.from({length:600},(_,i)=>{
+  const code=String((exchange==='SH'?600000:1000)+i).padStart(6,'0');return {symbol:code+'.'+exchange,code,exchange,region:'CN',type:'stock',name:'真实名册格式'+i,ext:{listing_date:'2010-01-04'}};
+})};}
+test('official free exchange lists form the full current reference independently from dated quote snapshots',async()=>{
+  const calls=[],rows={SH:instruments('SH'),SZ:instruments('SZ')};rows.SH.data[0].name='*ST保留';rows.SH.data[1].ext.listing_date='2026-11-23';rows.SZ.data[0].ext.listing_date=null;
+  const result=await readTickflowUniverse({day,now,sectors:new Map([['600000.SH','已归档行业']]),sectorAsOf:'2026-11-11T08:00:00Z',fetch:async url=>{calls.push(url);return Response.json(rows[url.includes('/SH/')?'SH':'SZ']);}});
+  assert.deepEqual(calls,universeUrls);assert.equal(result.schema,universeSchema);assert.equal(result.day,day);assert.equal(result.retrievedAt,new Date(now()).toISOString());assert.equal(result.universe.length,1199);
+  assert.equal(result.universe.find(stock=>stock.code==='600000.SH').name,'*ST保留');assert.equal(result.universe.find(stock=>stock.code==='600000.SH').sector,'已归档行业');assert.equal(result.universe.some(stock=>stock.code==='600001.SH'),false);
+  assert.equal(result.universe.find(stock=>stock.code==='001000.SZ').listingDate,null);assert.equal(result.universePolicy.historicalMembership,false);assert.equal(result.universePolicy.sourceId,universeSourceId);assert.equal(result.universePolicy.basis,'provider_current_reference');assert.equal(result.universePolicy.sectorAsOf,'2026-11-11T08:00:00Z');
+});
+test('incomplete, inconsistent, duplicate or rejected exchange metadata stops without an alternative list',async()=>{
+  for(const change of [x=>{x.count++;},x=>{x.data.pop();},x=>{x.data[0].symbol='600000.SZ';},x=>{x.data[0].ext.listing_date='2026-02-30';},x=>{x.data[1]=copy(x.data[0]);},x=>{x.data[0].name='';},x=>{x.count=499;x.data=x.data.slice(0,499);}]){
+    let calls=0;const row=instruments('SH');change(row);await assert.rejects(readTickflowUniverse({day,now,fetch:async()=>{calls++;return Response.json(row);}}));assert.equal(calls,1);
+  }
+  for(const status of [403,418,429,451,500]){let calls=0;await assert.rejects(readTickflowUniverse({day,now,fetch:async()=>{calls++;return new Response('',{status});}}),new RegExp(String(status)));assert.equal(calls,1);}
 });

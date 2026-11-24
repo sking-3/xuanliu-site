@@ -181,6 +181,27 @@ test('derived-only source state retains provenance and rejects raw routes even i
   assert.equal((await f.request('/api/a-share-daily/market?generation='+historical.generation)).status,503);
 });
 
+test('pattern statistics read only completed matching derived batches and never start collection',async t=>{
+  const f=await fixture(t);f.publish();
+  const publication={...lastSuccess,sourceId:'tickflow-free-forward-v1',dataPolicy:{rawPublic:false,derivedPublic:true}};
+  writeJson(join(f.cache,'generations',generation,'complete.json'),{...publication,completed:true});
+  const file=join(f.cache,'generations',generation,'pattern-regimes.json');
+  const value={schema:'books.a-share.pattern-regimes.v1',generation,day:publication.day,asOf:publication.asOf,sourceId:publication.sourceId,patterns:[],candidates:[],summary:{recommendedCount:0}};
+  assert.equal((await f.request('/api/a-share-daily/patterns')).status,503);
+  writeJson(file,value);
+  const originalFetch=globalThis.fetch;let calls=0;
+  globalThis.fetch=()=>{calls++;throw Error('not allowed');};t.after(()=>{globalThis.fetch=originalFetch;});
+  const response=await f.request('/api/a-share-daily/patterns?generation='+generation,{'accept-encoding':'gzip'});
+  assert.equal(response.status,200);assert.equal(response.headers['cache-control'],'no-cache');assert.deepEqual(response.json(),value);assert.equal(calls,0);
+  for(const field of ['generation','day','asOf','sourceId']){
+    writeJson(file,{...value,[field]:'different'});
+    assert.equal((await f.request('/api/a-share-daily/patterns')).json().error,'pattern_statistics_mismatch');
+  }
+  assert.equal((await f.request('/api/a-share-daily/patterns?benchmark=000300.SH')).status,400);
+  assert.equal((await f.request('/api/a-share-daily/patterns',{},'POST')).status,405);
+  assert.equal((await f.request('/api/a-share-daily/dataset')).status,403);
+});
+
 class Element{
   constructor(tag='div'){this.tagName=tag.toUpperCase();this.children=[];this.listeners={};this.dataset={};this.value='';this.textContent='';this.hidden=false;this.disabled=false;this.checked=false;}
   addEventListener(event,fn){this.listeners[event]=fn;}
