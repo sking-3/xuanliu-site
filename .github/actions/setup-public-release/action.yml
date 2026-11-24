@@ -13,7 +13,7 @@ runs:
       run: |
         set -euo pipefail
         npm install --prefix "$RUNNER_TEMP/public-release-tools" --no-audit --no-fund --ignore-scripts playwright@1.56.1
-        for file in /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources; do
+        for file in /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources /etc/apt/apt-mirrors.txt /etc/apt/apt-mirrors-security.txt; do
           if [ -f "$file" ]; then
             sudo sed -Ei 's#https?://([a-z0-9-]+\.)*ec2\.archive\.ubuntu\.com/ubuntu/?#https://archive.ubuntu.com/ubuntu/#g' "$file"
           fi
