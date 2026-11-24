@@ -7,9 +7,9 @@
   <meta name="books-api-base" content="/">
   <meta name="description" content="Books 账户入口">
   <title>Books · 账户入口</title>
-  <link rel="stylesheet" href="auth.css?v=4c9140c4">
-</head>
-<body class="auth-page">
+  <link rel="stylesheet" href="auth.css?v=2afb68d7">
+<link rel="stylesheet" href="content-materials.css?v=content-20261123-2"></head>
+<body class="books-materials auth-page">
   <header class="auth-topbar">
     <a class="auth-brand" href="index.html" aria-label="返回 Books 首页">Books<span>RESEARCH STUDIO</span></a>
     <a class="auth-back" href="index.html">返回公开研究</a>
@@ -93,7 +93,11 @@
       password.autocomplete = registering ? 'new-password' : 'current-password';
       passwordHint.textContent = registering ? '至少 10 位，建议包含数字和符号' : '至少 10 位';
       passwordMeter.hidden = !registering;
-      document.querySelectorAll('[data-mode]').forEach((tab) => tab.setAttribute('aria-selected', String(tab.dataset.mode === mode)));
+      document.querySelectorAll('[data-mode]').forEach((tab) => {
+        const selected = tab.dataset.mode === mode;
+        tab.setAttribute('aria-selected', String(selected));
+        tab.tabIndex = selected ? 0 : -1;
+      });
       error.textContent = '';
       success.textContent = '';
     }
@@ -133,6 +137,13 @@
     }
 
     document.querySelectorAll('[data-mode]').forEach((tab) => tab.addEventListener('click', () => setMode(tab.dataset.mode)));
+    document.querySelector('.auth-tabs').addEventListener('keydown', (event) => {
+      if (!['ArrowLeft','ArrowRight','Home','End'].includes(event.key)) return;
+      event.preventDefault();
+      const next = event.key === 'Home' ? 'login' : event.key === 'End' ? 'register' : mode === 'login' ? 'register' : 'login';
+      setMode(next);
+      document.querySelector('[data-mode="'+next+'"]').focus();
+    });
     document.querySelector('#toggle-password').addEventListener('click', (event) => {
       const visible = password.type === 'text';
       password.type = visible ? 'password' : 'text';
