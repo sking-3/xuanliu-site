@@ -1,0 +1,22 @@
+.entry-bars {margin:8px 0 12px;min-width:0;color:var(--desk-ink);font-variant-numeric:tabular-nums}
+.pick-desk button.entry-bars-toggle {display:flex;align-items:center;gap:8px;width:100%;min-height:44px;padding:8px 0;border:0;border-radius:0;background:transparent;color:var(--desk-accent);text-align:left;font:inherit;font-size:13px;font-weight:600;cursor:pointer}
+.entry-bars-toggle::before {content:"";flex:0 0 7px;width:7px;height:7px;border-right:1px solid currentColor;border-bottom:1px solid currentColor;transform:rotate(-45deg);margin:0 4px 0 2px}
+.entry-bars-toggle[aria-expanded=true]::before {transform:rotate(45deg);margin-top:-4px}
+.pick-desk .entry-bars-toggle:hover {color:var(--desk-ink);background:transparent;text-decoration:underline;text-underline-offset:4px}
+.entry-bars-toggle:focus-visible {outline:2px solid var(--desk-accent);outline-offset:3px}
+.entry-bars-panel {border-top:1px solid var(--desk-border);padding-top:10px;min-width:0}
+.entry-bars-panel[hidden] {display:none}
+.pick-desk .entry-bars-status,.pick-desk .entry-bars-source,.pick-desk .entry-bars-note {margin:4px 0;font-size:12px;line-height:1.65;color:var(--desk-muted);overflow-wrap:anywhere}
+.pick-desk .entry-bars-status {color:var(--desk-ink)}
+.entry-bars-record {padding:12px 0;min-width:0}
+.entry-bars-record+.entry-bars-record {border-top:1px solid var(--desk-border)}
+.entry-bars-heading {display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap;margin:0 0 10px;font-size:13px;line-height:1.6}
+.entry-bars-heading span {font-size:12px;color:var(--desk-muted)}
+.entry-bars-facts {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:0 0 8px}
+.entry-bars-facts>div {min-width:0}
+.entry-bars-facts dt {font-size:11px;color:var(--desk-muted);line-height:1.6}
+.entry-bars-facts dd {margin:3px 0 0;font-size:15px;font-weight:600;line-height:1.5;overflow-wrap:anywhere}
+.entry-bars-chart {display:block;width:100%;height:auto;aspect-ratio:3/1;object-fit:contain;margin:10px 0 6px;background:var(--desk-paper,#fff)}
+.pick-desk .entry-bars-retry {min-height:44px;padding:8px 12px;margin:8px 0;border:1px solid var(--desk-border);background:var(--desk-paper,#fff);color:var(--desk-accent);font:inherit;font-size:12px;cursor:pointer}
+.entry-bars-retry:disabled {color:var(--desk-muted);cursor:wait}
+@media(max-width:600px){.entry-bars-facts{gap:6px}.entry-bars-facts dd{font-size:14px}.entry-bars-heading{margin-bottom:8px}.entry-bars-chart{aspect-ratio:2/1;object-fit:contain}}
