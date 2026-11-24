@@ -184,7 +184,7 @@ async function viewportCheck(browser, width) {
     const parameter = page.locator('[data-param-key="compLen"]');
     await parameter.fill('');
     await page.locator('#indicator-run').click();
-    assert.match(await page.locator('.indicator-result-head p').first().textContent(), /计算未完成：无效参数：compLen/);
+    assert.match(await page.locator('.indicator-result-head p').first().textContent(), /计算未完成：compLen超出原指标参数范围/);
     assert.equal(await page.locator('#indicator-result svg, #indicator-result .indicator-table').count(), 0, 'invalid parameters leave no misleading old signals');
     result.interactions.push({test: 'invalid parameter', parameter: 'compLen', clearError: true});
     await choose(page, 'tyson');
