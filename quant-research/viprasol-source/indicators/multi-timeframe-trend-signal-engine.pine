@@ -1,0 +1,656 @@
+// This Pine Script™ v6 indicator is subject to the terms of the Mozilla Public License 2.0
+// https://mozilla.org/MPL/2.0/
+// (c) Viprasol
+
+//@version=6
+indicator("[Viprasol] Multi-Timeframe Trend Signal Engine", overlay = true, max_labels_count = 500, max_boxes_count = 500)
+
+// ══════════════════════════════════════════════════════════════
+// Constants
+// ══════════════════════════════════════════════════════════════
+
+const color BULL_COLOR     = #00ffcc
+const color BEAR_COLOR     = #e43a72
+const color NEUTRAL_COLOR  = color.gray
+const color DASH_BG        = #111725
+const color DASH_BORDER    = #000000
+const color DASH_TEXT      = #b0b2b9
+const color DASH_HEADER_BG = #18233a
+const int   ADX_PERIOD     = 14
+const int   ADX_SMOOTH     = 14
+const float BULL_MULT      = 1.2
+const float BEAR_MULT      = 0.8
+const int   RSI_PERIOD     = 14
+const int   FILTER_MA_LEN  = 13
+const int   CHAOS_AMP      = 3
+const int   CHAOS_DEV_MULT = 2
+const int   REVERSAL_LEN   = 25
+const float OB_LEVEL       = 75.0
+const float OS_LEVEL       = 25.0
+const int   PIVOT_BARS     = 3
+const int   OB_MAX_BOXES   = 25
+const int   OB_TEST_DELAY  = 3
+const int   OB_FILL_DELAY  = 3
+
+// ══════════════════════════════════════════════════════════════
+// Inputs
+// ══════════════════════════════════════════════════════════════
+
+// — Main Settings
+sensitivityInput = input.float(2.5, "Sensitivity", tooltip = "Controls signal frequency. Lower values generate more signals. All signals use bar-close confirmation.", group = "Main Settings")
+signalModeInput  = input.string("All Signals", "Signal Mode", ["All Signals", "Filtered Signals"], tooltip = "All Signals: Every SuperTrend crossover.\nFiltered Signals: Additional EMA filter for higher quality entries.", group = "Main Settings")
+atrFactorInput   = input.int(11, "ATR Factor", minval = 1, tooltip = "Multiplier for SuperTrend ATR bands. Higher = wider bands, fewer signals.", group = "Main Settings")
+
+// — Trend Settings
+showRibbonInput      = input.bool(true, "Trend Ribbon        ", inline = "t1", group = "Trend Settings", tooltip = "5-EMA trend ribbon (20/25/35/45/55). Color shifts with trend direction.")
+showCloudInput       = input.bool(true, "Trend Cloud", inline = "t1", group = "Trend Settings", tooltip = "EMA 150/250 cloud. Green = bullish structure, red = bearish.")
+showChaosInput       = input.bool(true, "Chaos Trend Line  ", inline = "t2", group = "Trend Settings", tooltip = "Adaptive trend line using pivot-based detection. Changes color on reversals.")
+showOrderBlocksInput = input.bool(false, "Order Blocks", inline = "t2", group = "Trend Settings", tooltip = "Structural order blocks based on pivot break of structure.")
+showMainEmaInput     = input.bool(true, "Main EMA  ", inline = "t3", group = "Trend Settings", tooltip = "Primary EMA line. Green when price above, red when below.")
+mainEmaPeriodInput   = input.int(200, "", inline = "t3", group = "Trend Settings", tooltip = "Period for main EMA (200 is standard for major trend).")
+
+// — Signal Settings
+showSignalsInput  = input.bool(true, "Show Signals", group = "Signal Settings", tooltip = "Display buy/sell labels. All signals use bar-close confirmation to prevent repainting.")
+colorCandlesInput = input.bool(true, "Color Candles  ", inline = "s1", group = "Signal Settings", tooltip = "Custom candlestick coloring based on the selected mode.")
+candleModeInput   = input.string("Scalper RSI", "Candle Mode", ["Scalper RSI", "Trend Ribbon", "EMA Direction"], inline = "s1", group = "Signal Settings", tooltip = "Scalper RSI: RSI-based gradient.\nTrend Ribbon: Follow ribbon direction.\nEMA Direction: Price vs main EMA.")
+showRsiZonesInput = input.bool(false, "Show RSI Background Zones", group = "Signal Settings", tooltip = "Highlight background when RSI is overbought (>75) or oversold (<25).")
+showChannelInput  = input.bool(false, "Show Channel Breakouts", group = "Signal Settings", tooltip = "Channel high/low from recent pivot highs and lows.")
+
+// — Dashboard Settings
+showDashboardInput = input.bool(true, "Show Dashboard", group = "Dashboard Settings", tooltip = "Toggle the multi-timeframe trend dashboard.")
+dashPositionInput  = input.string("Bottom Right", "Position", ["Top Right", "Bottom Right", "Bottom Left"], group = "Dashboard Settings", tooltip = "Dashboard position on chart.")
+dashSizeInput      = input.string("Small", "Font Size", ["Tiny", "Small", "Normal", "Large"], group = "Dashboard Settings", tooltip = "Text size for dashboard cells.")
+
+// — Risk Management
+showRiskInput     = input.bool(false, "Show TP/SL Lines (Visual Only)", inline = "r1", group = "Risk Management", tooltip = "Visual-only TP and SL lines. Does NOT execute trades.")
+tpMultiplierInput = input.float(1.0, "TP Strength", minval = 0.1, step = 0.1, inline = "r1", group = "Risk Management", tooltip = "Multiplier for TP distance from entry.")
+showTp1Input      = input.bool(true, "TP 1  ", inline = "r2", group = "Risk Management", tooltip = "First take profit level.")
+showTp2Input      = input.bool(true, "TP 2  ", inline = "r2", group = "Risk Management", tooltip = "Second take profit level (2x strength).")
+showTp3Input      = input.bool(true, "TP 3  ", inline = "r2", group = "Risk Management", tooltip = "Third take profit level (3x strength).")
+
+// ══════════════════════════════════════════════════════════════
+// Functions
+// ══════════════════════════════════════════════════════════════
+
+computeSuperTrend(float src, float sensitivity, int atrLen) =>
+    float atrVal    = ta.atr(atrLen)
+    float upperBand = src + sensitivity * atrVal
+    float lowerBand = src - sensitivity * atrVal
+    float prevLower = nz(lowerBand[1])
+    float prevUpper = nz(upperBand[1])
+    lowerBand := lowerBand > prevLower or close[1] < prevLower ? lowerBand : prevLower
+    upperBand := upperBand < prevUpper or close[1] > prevUpper ? upperBand : prevUpper
+    int   trendDir  = na
+    float trendLine = na
+    float prevLine  = trendLine[1]
+    if na(atrVal[1])
+        trendDir := 2
+    else if prevLine == prevUpper
+        trendDir := close > upperBand ? -1 : 1
+    else
+        trendDir := close < lowerBand ? 1 : -1
+    trendLine := trendDir == -1 ? lowerBand : upperBand
+    [trendLine, trendDir]
+
+fetchAntiRepaint(string tf, float src) =>
+    request.security(syminfo.tickerid, tf, src[1], lookahead = barmerge.lookahead_on)
+
+formatTrendText(float val) =>
+    val > 0 ? "Bullish" : val < 0 ? "Bearish" : "Neutral"
+
+formatTrendColor(float val) =>
+    val > 0 ? color.green : val < 0 ? color.red : NEUTRAL_COLOR
+
+computeTpSignal(int tpLevel, bool buyTrigger, bool sellTrigger) =>
+    float rsiCalc    = ta.rsi(close, RSI_PERIOD)
+    int   sinceBuy   = ta.barssince(buyTrigger)
+    int   sinceSell  = ta.barssince(sellTrigger)
+    int   side       = nz(sinceBuy, bar_index) < nz(sinceSell, bar_index) ? 1 : 0
+    bool  tp1Up      = ta.crossover(rsiCalc, 70.0)
+    bool  tp2Up      = ta.crossover(rsiCalc, 85.0)
+    bool  tp3Up      = ta.crossover(rsiCalc, 100.0)
+    bool  tp1Dn      = ta.crossunder(rsiCalc, 30.0)
+    bool  tp2Dn      = ta.crossunder(rsiCalc, 15.0)
+    bool  tp3Dn      = ta.crossunder(rsiCalc, 5.0)
+    tp1Up := tp1Up and (nz(ta.barssince(tp1Up)[1], 9999) > sinceBuy)
+    tp2Up := tp2Up and (ta.barssince(tp1Up)[1] <= sinceBuy)
+    tp2Up := tp2Up and (nz(ta.barssince(tp2Up)[1], 9999) > sinceBuy)
+    tp3Up := tp3Up and (ta.barssince(tp2Up)[1] <= sinceBuy)
+    tp3Up := tp3Up and (nz(ta.barssince(tp3Up)[1], 9999) > sinceBuy)
+    tp1Dn := tp1Dn and (nz(ta.barssince(tp1Dn)[1], 9999) > sinceSell)
+    tp2Dn := tp2Dn and (ta.barssince(tp1Dn)[1] <= sinceSell)
+    tp2Dn := tp2Dn and (nz(ta.barssince(tp2Dn)[1], 9999) > sinceSell)
+    tp3Dn := tp3Dn and (ta.barssince(tp2Dn)[1] <= sinceSell)
+    tp3Dn := tp3Dn and (nz(ta.barssince(tp3Dn)[1], 9999) > sinceSell)
+    side == 1 ? (tpLevel == 1 ? tp1Up : tpLevel == 2 ? tp2Up : tp3Up) : (tpLevel == 1 ? tp1Dn : tpLevel == 2 ? tp2Dn : tp3Dn)
+
+// ══════════════════════════════════════════════════════════════
+// Core Calculations — Main EMA
+// ══════════════════════════════════════════════════════════════
+
+mainEma = ta.ema(close, mainEmaPeriodInput)
+
+// ══════════════════════════════════════════════════════════════
+// Core Calculations — SuperTrend Signals
+// ══════════════════════════════════════════════════════════════
+
+signalFilterMa = ta.sma(close, FILTER_MA_LEN)
+[stLine, stDirection] = computeSuperTrend(open, sensitivityInput, atrFactorInput)
+
+rawBuySignal  = barstate.isconfirmed and ta.crossover(close, stLine) and close >= signalFilterMa
+rawSellSignal = barstate.isconfirmed and ta.crossunder(close, stLine) and close <= signalFilterMa
+
+bool aboveMainEma = close[1] > mainEma[1] and close > mainEma
+
+unfilteredBuy  = barstate.isconfirmed and ta.crossover(close, stLine) and close >= signalFilterMa and not aboveMainEma
+unfilteredSell = barstate.isconfirmed and ta.crossunder(close, stLine) and close <= signalFilterMa and aboveMainEma
+
+filteredBuy  = barstate.isconfirmed and ta.crossover(close, stLine) and close >= signalFilterMa and aboveMainEma
+filteredSell = barstate.isconfirmed and ta.crossunder(close, stLine) and close <= signalFilterMa and not aboveMainEma
+
+barsSinceBuy  = ta.barssince(rawBuySignal)
+barsSinceSell = ta.barssince(rawSellSignal)
+activeTrend   = nz(barsSinceBuy, bar_index) < nz(barsSinceSell, bar_index) ? 1 : 0
+
+// ══════════════════════════════════════════════════════════════
+// Core Calculations — Trend Ribbon
+// ══════════════════════════════════════════════════════════════
+
+ribbonFastEma = ta.ema(close, 20)
+ribbonSlowEma = ta.ema(close, 55)
+ribbonMid1    = ta.ema(close, 45)
+ribbonMid2    = ta.ema(close, 35)
+ribbonMid3    = ta.ema(close, 25)
+
+var bool ribbonBullish = false
+ribbonCrossUp   = ta.crossover(ribbonFastEma, ribbonSlowEma)
+ribbonCrossDown = ta.crossunder(ribbonFastEma, ribbonSlowEma)
+ribbonBullish  := ribbonCrossUp ? true : ribbonCrossDown ? false : ribbonBullish
+
+// ══════════════════════════════════════════════════════════════
+// Core Calculations — ADX Trend Detection & MTF
+// ══════════════════════════════════════════════════════════════
+
+[diPlus, diMinus, adxValue] = ta.dmi(ADX_PERIOD, ADX_SMOOTH)
+medianAdx        = ta.sma(adxValue, ADX_PERIOD)
+bullishThreshold = medianAdx * BULL_MULT
+bearishThreshold = medianAdx * BEAR_MULT
+
+detectTrendQuality() =>
+    bool isBull = adxValue > bullishThreshold
+    bool isBear = adxValue < bearishThreshold
+    isBull ? 1 : isBear ? -1 : 0
+
+adxTrendVal = detectTrendQuality()
+
+mtf5m  = fetchAntiRepaint("5",    adxTrendVal)
+mtf15m = fetchAntiRepaint("15",   adxTrendVal)
+mtf1h  = fetchAntiRepaint("60",   adxTrendVal)
+mtf4h  = fetchAntiRepaint("240",  adxTrendVal)
+mtf12h = fetchAntiRepaint("720",  adxTrendVal)
+mtf1d  = fetchAntiRepaint("1440", adxTrendVal)
+
+// MTF Confluence Score (0-6)
+confluenceScore = (mtf5m > 0 ? 1 : 0) + (mtf15m > 0 ? 1 : 0) + (mtf1h > 0 ? 1 : 0) + (mtf4h > 0 ? 1 : 0) + (mtf12h > 0 ? 1 : 0) + (mtf1d > 0 ? 1 : 0)
+bearConfluence  = (mtf5m < 0 ? 1 : 0) + (mtf15m < 0 ? 1 : 0) + (mtf1h < 0 ? 1 : 0) + (mtf4h < 0 ? 1 : 0) + (mtf12h < 0 ? 1 : 0) + (mtf1d < 0 ? 1 : 0)
+bool strongBullAlign = confluenceScore >= 5
+bool strongBearAlign = bearConfluence >= 5
+
+// ══════════════════════════════════════════════════════════════
+// Core Calculations — Volatility
+// ══════════════════════════════════════════════════════════════
+
+atrRaw     = 3.0 * ta.atr(10)
+stdAtrVal  = 2.0 * ta.stdev(atrRaw, 20)
+smaAtrVal  = ta.sma(atrRaw, 20)
+topDevBand = smaAtrVal + stdAtrVal
+btmDevBand = smaAtrVal - stdAtrVal
+devRatio   = (atrRaw - btmDevBand) / (topDevBand - btmDevBand)
+volPercent  = 40.0 * devRatio + 30.0
+string volLabel = volPercent < 35 ? "Very Low" : volPercent < 50 ? "Low" : volPercent < 70 ? "High" : "Very High"
+
+// ══════════════════════════════════════════════════════════════
+// Core Calculations — RSI
+// ══════════════════════════════════════════════════════════════
+
+rsiValue    = ta.rsi(close, RSI_PERIOD)
+rsiColorVal = rsiValue > 50.0 ? color.green : color.red
+
+// ══════════════════════════════════════════════════════════════
+// Core Calculations — Chaos Trend Line
+// ══════════════════════════════════════════════════════════════
+
+var int   chaosTrend     = 0
+var int   chaosNextTrend = 0
+var float chaosMaxLow    = nz(low[1], low)
+var float chaosMinHigh   = nz(high[1], high)
+var float chaosUpLine    = 0.0
+var float chaosDownLine  = 0.0
+
+float chaosAtrHigh = 0.0
+float chaosAtrLow  = 0.0
+float chaosArrowUp = na
+float chaosArrowDn = na
+
+chaosAtr2   = ta.atr(100) / 2.0
+chaosDev    = CHAOS_DEV_MULT * chaosAtr2
+chaosHighP  = high[math.abs(ta.highestbars(CHAOS_AMP))]
+chaosLowP   = low[math.abs(ta.lowestbars(CHAOS_AMP))]
+chaosHighMa = ta.sma(high, CHAOS_AMP)
+chaosLowMa  = ta.sma(low, CHAOS_AMP)
+chaosUpRma  = ta.rma(math.max(ta.change(close), 0), RSI_PERIOD)
+
+if chaosNextTrend == 1
+    chaosMaxLow := math.max(chaosLowP, chaosMaxLow)
+    if chaosHighMa < chaosMaxLow and close < nz(low[1], low)
+        chaosTrend     := 1
+        chaosNextTrend := 0
+        chaosMinHigh   := chaosHighP
+else
+    chaosMinHigh := math.min(chaosHighP, chaosMinHigh)
+    if chaosLowMa > chaosMinHigh and close > nz(high[1], high)
+        chaosTrend     := 0
+        chaosNextTrend := 1
+        chaosMaxLow    := chaosLowP
+
+if chaosTrend == 0
+    if not na(chaosTrend[1]) and chaosTrend[1] != 0
+        chaosUpLine  := na(chaosDownLine[1]) ? chaosDownLine : chaosDownLine[1]
+        chaosArrowUp := chaosUpRma - chaosAtr2
+    else
+        chaosUpLine := na(chaosUpLine[1]) ? chaosMaxLow : math.max(chaosMaxLow, chaosUpLine[1])
+    chaosAtrHigh := chaosUpLine + chaosDev
+    chaosAtrLow  := chaosUpLine - chaosDev
+else
+    if not na(chaosTrend[1]) and chaosTrend[1] != 1
+        chaosDownLine := na(chaosUpLine[1]) ? chaosUpLine : chaosUpLine[1]
+        chaosArrowDn  := chaosDownLine + chaosAtr2
+    else
+        chaosDownLine := na(chaosDownLine[1]) ? chaosMinHigh : math.min(chaosMinHigh, chaosDownLine[1])
+    chaosAtrHigh := chaosDownLine + chaosDev
+    chaosAtrLow  := chaosDownLine - chaosDev
+
+chaosLine      = chaosTrend == 0 ? chaosUpLine : chaosDownLine
+chaosLineColor = chaosTrend == 0 ? color.green : color.red
+
+// ══════════════════════════════════════════════════════════════
+// Core Calculations — Reversal Signals
+// ══════════════════════════════════════════════════════════════
+
+revUpRma  = ta.rma(math.max(ta.change(close), 0), REVERSAL_LEN)
+revDnRma  = ta.rma(-math.min(ta.change(close), 0), REVERSAL_LEN)
+revRsi    = revDnRma == 0 ? 100.0 : revUpRma == 0 ? 0.0 : 100.0 - (100.0 / (1.0 + revUpRma / revDnRma))
+
+reversalDown = barstate.isconfirmed and ta.crossunder(revRsi, OB_LEVEL)
+reversalUp   = barstate.isconfirmed and ta.crossover(revRsi, OS_LEVEL)
+
+// ══════════════════════════════════════════════════════════════
+// Core Calculations — Channel Breakouts
+// ══════════════════════════════════════════════════════════════
+
+pivotHigh = ta.pivothigh(high, PIVOT_BARS, PIVOT_BARS)
+pivotLow  = ta.pivotlow(low, PIVOT_BARS, PIVOT_BARS)
+
+var float prevPivotHigh1 = 0.0
+var float prevPivotHigh2 = 0.0
+var float prevPivotLow1  = 0.0
+var float prevPivotLow2  = 0.0
+
+pivotHighVal = nz(pivotHigh, 0.0)
+pivotLowVal  = nz(pivotLow, 0.0)
+
+if pivotHighVal != 0
+    prevPivotHigh2 := prevPivotHigh1
+    prevPivotHigh1 := pivotHighVal
+
+if pivotLowVal != 0
+    prevPivotLow2 := prevPivotLow1
+    prevPivotLow1 := pivotLowVal
+
+channelHigh = math.max(prevPivotHigh2, prevPivotHigh1)
+channelLow  = math.min(prevPivotLow2, prevPivotLow1)
+
+// ══════════════════════════════════════════════════════════════
+// Core Calculations — Candle Coloring
+// ══════════════════════════════════════════════════════════════
+
+scalperUp   = ta.rma(math.max(ta.change(close), 0), RSI_PERIOD)
+scalperDown = ta.rma(-math.min(ta.change(close), 0), RSI_PERIOD)
+scalperRsi  = scalperDown == 0 ? 100.0 : scalperUp == 0 ? 0.0 : 100.0 - 100.0 / (1.0 + scalperUp / scalperDown)
+
+color scalperColor = na
+scalperColor := scalperRsi <= 45 ? #db3943 : scalperRsi <= 50 ? #9900ca : scalperRsi <= 55 ? #b200ff : #30b56a
+
+barcolor(colorCandlesInput ? candleModeInput == "Scalper RSI" ? scalperColor : candleModeInput == "Trend Ribbon" ? (ribbonBullish ? #00DD00 : #DD0000) : (close[1] > mainEma and close > mainEma ? #00DD00 : #DD0000) : na)
+
+// ══════════════════════════════════════════════════════════════
+// Core Calculations — Risk Management
+// ══════════════════════════════════════════════════════════════
+
+rmBarsSinceBuy  = ta.barssince(rawBuySignal)
+rmBarsSinceSell = ta.barssince(rawSellSignal)
+rmActiveSide    = nz(rmBarsSinceBuy, bar_index) < nz(rmBarsSinceSell, bar_index) ? 1 : 0
+rmAtrBand       = ta.atr(14) * 2.2
+rmStopLevel     = rmActiveSide == 1 ? low - rmAtrBand : high + rmAtrBand
+
+lastTradeVal(float src) => ta.valuewhen(rawBuySignal or rawSellSignal, src, 0)
+
+rmEntryPrice = lastTradeVal(close)
+rmStopPrice  = lastTradeVal(rmStopLevel)
+rmTp1Price   = (rmEntryPrice - rmStopPrice) * tpMultiplierInput       + rmEntryPrice
+rmTp2Price   = (rmEntryPrice - rmStopPrice) * tpMultiplierInput * 2.0 + rmEntryPrice
+rmTp3Price   = (rmEntryPrice - rmStopPrice) * tpMultiplierInput * 3.0 + rmEntryPrice
+
+// ══════════════════════════════════════════════════════════════
+// Core Calculations — Order Blocks
+// ══════════════════════════════════════════════════════════════
+
+var array<float> obPvhPrice  = array.new_float(50, na)
+var array<int>   obPvhTime   = array.new_int(50, na)
+var array<float> obPvlPrice  = array.new_float(50, na)
+var array<int>   obPvlTime   = array.new_int(50, na)
+var array<float> obPvh2Price = array.new_float(50, na)
+var array<int>   obPvh2Time  = array.new_int(50, na)
+var array<float> obPvl2Price = array.new_float(50, na)
+var array<int>   obPvl2Time  = array.new_int(50, na)
+
+var float obHighCmrLow  = na
+var int   obHighCmrTime = na
+var float obLowCmrHigh  = na
+var int   obLowCmrTime  = na
+
+var array<box> obBullBoxes = array.new_box()
+var array<box> obBearBoxes = array.new_box()
+
+var float obTempPv0 = na
+var float obTempPv1 = na
+var float obTempPv2 = na
+
+bool obPvhDetected = high < high[1] and high[1] > high[2]
+bool obPvlDetected = low > low[1] and low[1] < low[2]
+int   obPvTime     = bar_index[1]
+float obPvHigh     = high[1]
+float obPvLow      = low[1]
+
+if showOrderBlocksInput and barstate.isconfirmed
+    if obPvhDetected
+        array.pop(obPvhPrice)
+        array.pop(obPvhTime)
+        array.unshift(obPvhPrice, obPvHigh)
+        array.unshift(obPvhTime, obPvTime)
+        if array.size(obPvhPrice) > 2
+            obTempPv0 := array.get(obPvhPrice, 0)
+            obTempPv1 := array.get(obPvhPrice, 1)
+            obTempPv2 := array.get(obPvhPrice, 2)
+            if obTempPv0 > obTempPv1
+                for i = 0 to array.size(obPvlTime) - 1
+                    tempTime = array.get(obPvlTime, i)
+                    if tempTime < array.get(obPvhTime, 0)
+                        obLowCmrHigh := array.get(obPvlPrice, i)
+                        obLowCmrTime := tempTime
+                        break
+            if obTempPv0 < obTempPv1 and obTempPv1 > obTempPv2
+                array.pop(obPvh2Price)
+                array.pop(obPvh2Time)
+                array.unshift(obPvh2Price, obTempPv1)
+                array.unshift(obPvh2Time, array.get(obPvhTime, 1))
+    if obPvlDetected
+        array.pop(obPvlPrice)
+        array.pop(obPvlTime)
+        array.unshift(obPvlPrice, obPvLow)
+        array.unshift(obPvlTime, obPvTime)
+        if array.size(obPvlPrice) > 2
+            obTempPv0 := array.get(obPvlPrice, 0)
+            obTempPv1 := array.get(obPvlPrice, 1)
+            obTempPv2 := array.get(obPvlPrice, 2)
+            if obTempPv0 < obTempPv1
+                for i = 0 to array.size(obPvhTime) - 1
+                    tempTime = array.get(obPvhTime, i)
+                    if tempTime < array.get(obPvlTime, 0)
+                        obHighCmrLow := array.get(obPvhPrice, i)
+                        obHighCmrTime := tempTime
+                        break
+            if obTempPv0 > obTempPv1 and obTempPv1 < obTempPv2
+                array.pop(obPvl2Price)
+                array.pop(obPvl2Time)
+                array.unshift(obPvl2Price, obTempPv1)
+                array.unshift(obPvl2Time, array.get(obPvlTime, 1))
+    if high > obHighCmrLow
+        bullBox = box.new(left = array.get(obPvlTime, 0), top = math.min(high[bar_index - array.get(obPvlTime, 0)], high[bar_index - array.get(obPvlTime, 0) + 1]), right = bar_index, bottom = array.get(obPvlPrice, 0), bgcolor = color.new(color.green, 80), border_color = color.new(color.green, 80), extend = extend.right)
+        if array.size(obBullBoxes) >= OB_MAX_BOXES
+            box.delete(array.shift(obBullBoxes))
+        array.push(obBullBoxes, bullBox)
+        obHighCmrLow := na
+    if low < obLowCmrHigh
+        bearBox = box.new(left = array.get(obPvhTime, 0), top = array.get(obPvhPrice, 0), right = bar_index, bottom = math.max(low[bar_index - array.get(obPvhTime, 0)], low[bar_index - array.get(obPvhTime, 0) + 1]), bgcolor = color.new(color.red, 80), border_color = color.new(color.red, 80), extend = extend.right)
+        if array.size(obBearBoxes) >= OB_MAX_BOXES
+            box.delete(array.shift(obBearBoxes))
+        array.push(obBearBoxes, bearBox)
+        obLowCmrHigh := na
+    if array.size(obBearBoxes) > 0
+        for i = array.size(obBearBoxes) - 1 to 0
+            bBox = array.get(obBearBoxes, i)
+            bTop = box.get_top(bBox)
+            bBot = box.get_bottom(bBox)
+            if high > bBot and box.get_left(bBox) + OB_TEST_DELAY < bar_index
+                box.set_bgcolor(bBox, #00000000)
+                box.set_border_color(bBox, #00000000)
+            if high > bTop and box.get_left(bBox) + OB_FILL_DELAY < bar_index
+                box.set_right(bBox, bar_index)
+                box.set_extend(bBox, extend.none)
+                array.remove(obBearBoxes, i)
+    if array.size(obBullBoxes) > 0
+        for i = array.size(obBullBoxes) - 1 to 0
+            lBox = array.get(obBullBoxes, i)
+            lTop = box.get_top(lBox)
+            lBot = box.get_bottom(lBox)
+            if low < lTop and box.get_left(lBox) + OB_TEST_DELAY < bar_index
+                box.set_bgcolor(lBox, #00000000)
+                box.set_border_color(lBox, #00000000)
+            if low < lBot and box.get_left(lBox) + OB_FILL_DELAY < bar_index
+                box.set_right(lBox, bar_index)
+                box.set_extend(lBox, extend.none)
+                array.remove(obBullBoxes, i)
+
+// ══════════════════════════════════════════════════════════════
+// Visuals — Main EMA
+// ══════════════════════════════════════════════════════════════
+
+plot(showMainEmaInput ? mainEma : na, "Main EMA", color = close[1] > mainEma and close > mainEma ? color.green : color.red, linewidth = 4, editable = false)
+
+// ══════════════════════════════════════════════════════════════
+// Visuals — Trend Ribbon
+// ══════════════════════════════════════════════════════════════
+
+plot(showRibbonInput ? ribbonFastEma : na, "Ribbon Fast", color = ribbonBullish ? color.new(BULL_COLOR, 80) : color.new(BEAR_COLOR, 80), editable = false)
+plot(showRibbonInput ? ribbonMid3 : na, "Ribbon Mid 3", color = ribbonBullish ? color.new(BULL_COLOR, 70) : color.new(BEAR_COLOR, 70), editable = false)
+plot(showRibbonInput ? ribbonMid2 : na, "Ribbon Mid 2", color = ribbonBullish ? color.new(BULL_COLOR, 60) : color.new(BEAR_COLOR, 60), editable = false)
+plot(showRibbonInput ? ribbonMid1 : na, "Ribbon Mid 1", color = ribbonBullish ? color.new(BULL_COLOR, 40) : color.new(BEAR_COLOR, 40), editable = false)
+plot(showRibbonInput ? ribbonSlowEma : na, "Ribbon Slow", color = ribbonBullish ? color.new(BULL_COLOR, 10) : color.new(BEAR_COLOR, 10), editable = false)
+
+// ══════════════════════════════════════════════════════════════
+// Visuals — EMA Cloud
+// ══════════════════════════════════════════════════════════════
+
+cloudFastEma = ta.ema(close, 150)
+cloudSlowEma = ta.ema(close, 250)
+cloudFastPlot = plot(showCloudInput ? cloudFastEma : na, "Cloud Fast", na, editable = false)
+cloudSlowPlot = plot(showCloudInput ? cloudSlowEma : na, "Cloud Slow", na, editable = false)
+fill(cloudFastPlot, cloudSlowPlot, cloudFastEma > cloudSlowEma ? color.new(color.green, 70) : cloudFastEma < cloudSlowEma ? color.new(color.red, 70) : na)
+
+// ══════════════════════════════════════════════════════════════
+// Visuals — Chaos Trend
+// ══════════════════════════════════════════════════════════════
+
+plot(showChaosInput ? chaosLine : na, "Chaos Trend", linewidth = 2, color = chaosLineColor, editable = false)
+
+// ══════════════════════════════════════════════════════════════
+// Visuals — Signals
+// ══════════════════════════════════════════════════════════════
+
+plotshape(showSignalsInput and signalModeInput == "All Signals" ? unfilteredBuy : false, "Buy Signal", shape.labelup, location.belowbar, BULL_COLOR, textcolor = color.black, text = "Buy", size = size.normal, editable = false)
+plotshape(showSignalsInput and signalModeInput == "All Signals" ? unfilteredSell : false, "Sell Signal", shape.labeldown, location.abovebar, BEAR_COLOR, textcolor = color.white, text = "Sell", size = size.normal, editable = false)
+plotshape(showSignalsInput and signalModeInput == "Filtered Signals" ? filteredBuy : false, "Filtered Buy", shape.labelup, location.belowbar, BULL_COLOR, textcolor = color.black, text = "Filtered\nBuy", size = size.normal, editable = false)
+plotshape(showSignalsInput and signalModeInput == "Filtered Signals" ? filteredSell : false, "Filtered Sell", shape.labeldown, location.abovebar, BEAR_COLOR, textcolor = color.white, text = "Filtered\nSell", size = size.normal, editable = false)
+
+// ══════════════════════════════════════════════════════════════
+// Visuals — RSI Take Profit
+// ══════════════════════════════════════════════════════════════
+
+plotshape(showTp1Input and computeTpSignal(1, rawBuySignal, rawSellSignal) and activeTrend == 1, "TP1 Bull", shape.xcross, location.abovebar, color.green, 0, "TP1", color.green, false, size = size.tiny)
+plotshape(showTp2Input and computeTpSignal(2, rawBuySignal, rawSellSignal) and activeTrend == 1, "TP2 Bull", shape.xcross, location.abovebar, color.green, 0, "TP2", color.green, false, size = size.tiny)
+plotshape(showTp3Input and computeTpSignal(3, rawBuySignal, rawSellSignal) and activeTrend == 1, "TP3 Bull", shape.xcross, location.abovebar, color.green, 0, "TP3", color.green, false, size = size.tiny)
+plotshape(showTp1Input and computeTpSignal(1, rawBuySignal, rawSellSignal) and activeTrend == 0, "TP1 Bear", shape.xcross, location.belowbar, color.red, 0, "TP1", color.red, false, size = size.tiny)
+plotshape(showTp2Input and computeTpSignal(2, rawBuySignal, rawSellSignal) and activeTrend == 0, "TP2 Bear", shape.xcross, location.belowbar, color.red, 0, "TP2", color.red, false, size = size.tiny)
+plotshape(showTp3Input and computeTpSignal(3, rawBuySignal, rawSellSignal) and activeTrend == 0, "TP3 Bear", shape.xcross, location.belowbar, color.red, 0, "TP3", color.red, false, size = size.tiny)
+
+// ══════════════════════════════════════════════════════════════
+// Visuals — Reversal Signals
+// ══════════════════════════════════════════════════════════════
+
+plotshape(reversalUp, "Reversal Up", shape.labelup, location.belowbar, color.new(#b300ff, 70), text = "", size = size.small, textcolor = color.white)
+plotshape(reversalDown, "Reversal Down", shape.labeldown, location.abovebar, color.new(#ca009e, 50), text = "", size = size.small, textcolor = color.white)
+
+// ══════════════════════════════════════════════════════════════
+// Visuals — Channel Breakouts
+// ══════════════════════════════════════════════════════════════
+
+plot(showChannelInput ? channelHigh : na, "Channel High", #00DD00)
+plot(showChannelInput ? channelLow : na, "Channel Low", #DD0000)
+
+// ══════════════════════════════════════════════════════════════
+// Visuals — RSI Background
+// ══════════════════════════════════════════════════════════════
+
+rsiBgColor = rsiValue > 85 ? color.new(BULL_COLOR, 86) : rsiValue > 75 ? color.new(BULL_COLOR, 90) : rsiValue < 15 ? color.new(BEAR_COLOR, 80) : rsiValue < 25 ? color.new(BEAR_COLOR, 93) : na
+bgcolor(showRsiZonesInput ? rsiBgColor : na, title = "RSI Background")
+
+// ══════════════════════════════════════════════════════════════
+// Visuals — Risk Management Lines
+// ══════════════════════════════════════════════════════════════
+
+var label rmEntryLabel = na
+var label rmStopLabel  = na
+var label rmTp1Label   = na
+var label rmTp2Label   = na
+var label rmTp3Label   = na
+var line  rmEntryLine  = na
+var line  rmStopLine   = na
+var line  rmTp1Line    = na
+var line  rmTp2Line    = na
+var line  rmTp3Line    = na
+
+if showRiskInput and barstate.islast
+    label.delete(rmEntryLabel)
+    label.delete(rmStopLabel)
+    label.delete(rmTp1Label)
+    label.delete(rmTp2Label)
+    label.delete(rmTp3Label)
+    line.delete(rmEntryLine)
+    line.delete(rmStopLine)
+    line.delete(rmTp1Line)
+    line.delete(rmTp2Line)
+    line.delete(rmTp3Line)
+
+    int rmOffset = rmActiveSide == 1 ? rmBarsSinceBuy : rmBarsSinceSell
+
+    rmEntryLabel := label.new(bar_index + 1, rmEntryPrice, "Entry : " + str.tostring(math.round_to_mintick(rmEntryPrice)), xloc.bar_index, yloc.price, color.orange, label.style_label_left, color.white, size.normal)
+    rmStopLabel  := label.new(bar_index + 1, rmStopPrice, "Stop : " + str.tostring(math.round_to_mintick(rmStopLevel)), xloc.bar_index, yloc.price, color.red, label.style_label_left, color.white, size.normal)
+
+    rmEntryLine := line.new(bar_index - rmOffset, rmEntryPrice, bar_index + 1, rmEntryPrice, xloc.bar_index, extend.none, color.orange, line.style_dashed)
+    rmStopLine  := line.new(bar_index - rmOffset, rmStopPrice, bar_index + 1, rmStopPrice, xloc.bar_index, extend.none, color.red, line.style_solid)
+
+    if showTp1Input and tpMultiplierInput != 0
+        rmTp1Label := label.new(bar_index + 1, rmTp1Price, "TP 1 : " + str.tostring(math.round_to_mintick(rmTp1Price)), xloc.bar_index, yloc.price, color.green, label.style_label_left, color.white, size.normal)
+        rmTp1Line  := line.new(bar_index - rmOffset, rmTp1Price, bar_index + 1, rmTp1Price, xloc.bar_index, extend.none, color.green, line.style_dotted)
+    if showTp2Input and tpMultiplierInput != 0
+        rmTp2Label := label.new(bar_index + 1, rmTp2Price, "TP 2 : " + str.tostring(math.round_to_mintick(rmTp2Price)), xloc.bar_index, yloc.price, color.green, label.style_label_left, color.white, size.normal)
+        rmTp2Line  := line.new(bar_index - rmOffset, rmTp2Price, bar_index + 1, rmTp2Price, xloc.bar_index, extend.none, color.green, line.style_dotted)
+    if showTp3Input and tpMultiplierInput != 0
+        rmTp3Label := label.new(bar_index + 1, rmTp3Price, "TP 3 : " + str.tostring(math.round_to_mintick(rmTp3Price)), xloc.bar_index, yloc.price, color.green, label.style_label_left, color.white, size.normal)
+        rmTp3Line  := line.new(bar_index - rmOffset, rmTp3Price, bar_index + 1, rmTp3Price, xloc.bar_index, extend.none, color.green, line.style_dotted)
+
+// ══════════════════════════════════════════════════════════════
+// Visuals — Dashboard
+// ══════════════════════════════════════════════════════════════
+
+tablePos  = dashPositionInput == "Bottom Left" ? position.bottom_left : dashPositionInput == "Top Right" ? position.top_right : position.bottom_right
+tableSize = dashSizeInput == "Tiny" ? size.tiny : dashSizeInput == "Small" ? size.small : dashSizeInput == "Normal" ? size.normal : size.large
+
+var table dashTable = table.new(tablePos, 4, 10, bgcolor = color.new(DASH_BG, 35), border_color = color.new(#373a46, 100), border_width = 1, frame_color = DASH_BORDER, frame_width = 1)
+
+if showDashboardInput and barstate.islast
+    table.clear(dashTable, 0, 0, 3, 9)
+
+    // Row 0 — Header
+    table.cell(dashTable, 0, 0, "  Viprasol - MTF Trend Signal Engine                                ", text_color = color.white, text_halign = text.align_left, text_size = tableSize, bgcolor = DASH_HEADER_BG)
+    table.merge_cells(dashTable, 0, 0, 3, 0)
+
+    // Row 1 — Disclaimer
+    dashTable.cell(0, 1, "Educational Use Only - Not Financial Advice", text_color = color.orange, text_size = tableSize, text_halign = text.align_center, bgcolor = color.new(color.orange, 90))
+    table.merge_cells(dashTable, 0, 1, 3, 1)
+
+    // Row 2 — Volatility & RSI
+    dashTable.cell(0, 2, "Volatility", text_color = color.white, text_size = tableSize, text_halign = text.align_center)
+    dashTable.cell(1, 2, volLabel, text_color = color.white, text_size = tableSize, text_halign = text.align_center)
+    dashTable.cell(2, 2, "RSI", text_color = color.white, text_size = tableSize, text_halign = text.align_center)
+    dashTable.cell(3, 2, str.tostring(rsiValue, "#.##"), text_color = rsiColorVal, text_size = tableSize, text_halign = text.align_center)
+
+    // Row 3 — Column headers
+    dashTable.cell(0, 3, "Timeframe", text_color = DASH_TEXT, text_size = tableSize, text_halign = text.align_center)
+    dashTable.cell(1, 3, "Trend", text_color = DASH_TEXT, text_size = tableSize, text_halign = text.align_center)
+    dashTable.cell(2, 3, "Timeframe", text_color = DASH_TEXT, text_size = tableSize, text_halign = text.align_center)
+    dashTable.cell(3, 3, "Trend", text_color = DASH_TEXT, text_size = tableSize, text_halign = text.align_center)
+
+    // Row 4 — 5m / 4H
+    dashTable.cell(0, 4, "5 Min", text_color = color.white, text_size = tableSize, text_halign = text.align_center)
+    dashTable.cell(1, 4, formatTrendText(mtf5m), text_color = formatTrendColor(mtf5m), text_size = tableSize, text_halign = text.align_center)
+    dashTable.cell(2, 4, "4 Hour", text_color = color.white, text_size = tableSize, text_halign = text.align_center)
+    dashTable.cell(3, 4, formatTrendText(mtf4h), text_color = formatTrendColor(mtf4h), text_size = tableSize, text_halign = text.align_center)
+
+    // Row 5 — 15m / 12H
+    dashTable.cell(0, 5, "15 Min", text_color = color.white, text_size = tableSize, text_halign = text.align_center)
+    dashTable.cell(1, 5, formatTrendText(mtf15m), text_color = formatTrendColor(mtf15m), text_size = tableSize, text_halign = text.align_center)
+    dashTable.cell(2, 5, "12 Hour", text_color = color.white, text_size = tableSize, text_halign = text.align_center)
+    dashTable.cell(3, 5, formatTrendText(mtf12h), text_color = formatTrendColor(mtf12h), text_size = tableSize, text_halign = text.align_center)
+
+    // Row 6 — 1H / Daily
+    dashTable.cell(0, 6, "1 Hour", text_color = color.white, text_size = tableSize, text_halign = text.align_center)
+    dashTable.cell(1, 6, formatTrendText(mtf1h), text_color = formatTrendColor(mtf1h), text_size = tableSize, text_halign = text.align_center)
+    dashTable.cell(2, 6, "Daily", text_color = color.white, text_size = tableSize, text_halign = text.align_center)
+    dashTable.cell(3, 6, formatTrendText(mtf1d), text_color = formatTrendColor(mtf1d), text_size = tableSize, text_halign = text.align_center)
+
+    // Row 7 — Confluence & Ribbon
+    string confText  = str.tostring(confluenceScore) + "/6 Bullish"
+    color  confColor = confluenceScore >= 5 ? color.green : confluenceScore >= 3 ? color.yellow : color.red
+    dashTable.cell(0, 7, "MTF Confluence", text_color = color.white, text_size = tableSize, text_halign = text.align_center)
+    dashTable.cell(1, 7, confText, text_color = confColor, text_size = tableSize, text_halign = text.align_center)
+    dashTable.cell(2, 7, "Ribbon", text_color = color.white, text_size = tableSize, text_halign = text.align_center)
+    dashTable.cell(3, 7, ribbonBullish ? "Bullish" : "Bearish", text_color = ribbonBullish ? color.green : color.red, text_size = tableSize, text_halign = text.align_center)
+
+    // Row 8 — Signal & Chaos
+    string sigStatus = activeTrend == 1 ? "Last: Buy" : "Last: Sell"
+    color  sigColor  = activeTrend == 1 ? color.green : color.red
+    dashTable.cell(0, 8, "Signal", text_color = color.white, text_size = tableSize, text_halign = text.align_center)
+    dashTable.cell(1, 8, sigStatus, text_color = sigColor, text_size = tableSize, text_halign = text.align_center)
+    dashTable.cell(2, 8, "Chaos Trend", text_color = color.white, text_size = tableSize, text_halign = text.align_center)
+    dashTable.cell(3, 8, chaosTrend == 0 ? "Bullish" : "Bearish", text_color = chaosTrend == 0 ? color.green : color.red, text_size = tableSize, text_halign = text.align_center)
+
+    // Row 9 — Footer
+    dashTable.cell(0, 9, "(c) Viprasol - v1.0.0", text_color = #666666, text_size = size.tiny, text_halign = text.align_center)
+    table.merge_cells(dashTable, 0, 9, 3, 9)
+
+// ══════════════════════════════════════════════════════════════
+// Alerts
+// ══════════════════════════════════════════════════════════════
+
+alertcondition(rawBuySignal, "Buy Signal", "BUY signal on {{ticker}} at {{close}} on {{interval}}")
+alertcondition(rawSellSignal, "Sell Signal", "SELL signal on {{ticker}} at {{close}} on {{interval}}")
+alertcondition(filteredBuy, "Filtered Buy", "FILTERED BUY on {{ticker}} at {{close}} on {{interval}}")
+alertcondition(filteredSell, "Filtered Sell", "FILTERED SELL on {{ticker}} at {{close}} on {{interval}}")
+alertcondition(reversalUp, "Reversal Up", "REVERSAL UP on {{ticker}} at {{close}} on {{interval}}")
+alertcondition(reversalDown, "Reversal Down", "REVERSAL DOWN on {{ticker}} at {{close}} on {{interval}}")
+alertcondition(ribbonBullish and not ribbonBullish[1], "Ribbon Turned Bullish", "TREND RIBBON turned BULLISH on {{ticker}} at {{close}} on {{interval}}")
+alertcondition(not ribbonBullish and ribbonBullish[1], "Ribbon Turned Bearish", "TREND RIBBON turned BEARISH on {{ticker}} at {{close}} on {{interval}}")
+alertcondition(strongBullAlign, "Strong Bullish MTF Alignment", "STRONG BULLISH alignment on {{ticker}} — 5+ timeframes bullish on {{interval}}")
+alertcondition(strongBearAlign, "Strong Bearish MTF Alignment", "STRONG BEARISH alignment on {{ticker}} — 5+ timeframes bearish on {{interval}}")

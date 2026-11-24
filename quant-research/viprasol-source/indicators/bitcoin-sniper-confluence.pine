@@ -1,0 +1,728 @@
+// This Pine Script(TM) v6 indicator is subject to the terms of the Mozilla Public License 2.0
+// https://mozilla.org/MPL/2.0/
+// (c) Viprasol
+//
+// [Viprasol] Bitcoin Sniper Confluence — bitcoin-only confluence engine by Viprasol.
+// Trigger: fast / slow EMA crossover confirmed on bar close. Gate: 8-factor confluence score
+// (VWAP, RSI, MACD, EMA alignment, ADX, volume, confirmation-timeframe RSI, macro link).
+// Bitcoin layer: symbol guard, macro-link factor (Nasdaq positive / DXY inverse correlation),
+// Europe / US liquidity windows with weekend gate, ADR exhaustion filter with $ / % risk read-out,
+// BTC dominance read-out. Trade tracker: ATR stop, 1-3 targets, breakeven after TP1, every trade
+// runs to its own stop or final target, ladders stay on the chart, outcome tally.
+// Published open-source.
+
+//@version=6
+indicator("[Viprasol] Bitcoin Sniper Confluence", shorttitle = "VP - BSC", overlay = true,
+     max_labels_count = 500, max_boxes_count = 500, max_lines_count = 500, max_bars_back = 1000)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// CONSTANTS
+// ══════════════════════════════════════════════════════════════════════════════
+const int    MAX_TARGETS      = 3
+const color  CLR_BULL         = #00ffaa
+const color  CLR_BEAR         = #ff3d71
+const color  CLR_BTC          = #F7931A
+const color  CLR_AMBER        = #FFD54F
+const color  CLR_INFO         = #7B68EE
+const color  CLR_MUTED        = #8a94a6
+const color  CLR_TEXT         = #e6e9f0
+const color  CLR_ENTRY        = #00bcd4
+const color  CLR_STOP         = #ef4444
+const color  CLR_TARGET       = #22c55e
+const color  CLR_TARGET_HIT   = #40E0D0
+const color  CLR_RETEST       = #FF9800
+const color  CLR_PANEL_BG     = #111725
+const color  CLR_PANEL_HDR    = #18233a
+const color  CLR_PANEL_BORDER = #000000
+const string BRAND_TAG        = "VIPRASOL"
+const string MODE_POSITIVE    = "Positive (Nasdaq / S&P)"
+const string MODE_INVERSE     = "Inverse (DXY)"
+
+// ══════════════════════════════════════════════════════════════════════════════
+// INPUTS
+// ══════════════════════════════════════════════════════════════════════════════
+string GRP_SIGNAL = "1 · Signal Engine"
+int  fastEmaLenInput      = input.int(9, "Fast EMA", minval = 2, maxval = 50, group = GRP_SIGNAL,
+     tooltip = "Length of the fast exponential moving average. The fast EMA crossing the slow EMA is the entry trigger. Lower = more responsive, more crosses.")
+int  slowEmaLenInput      = input.int(21, "Slow EMA", minval = 5, maxval = 200, group = GRP_SIGNAL,
+     tooltip = "Length of the slow exponential moving average. Higher = smoother trend line, fewer crosses.")
+bool requireBarCloseInput = input.bool(true, "Bar-close confirmation", group = GRP_SIGNAL,
+     tooltip = "When on, a crossover only counts once the bar has closed, so an intra-bar wick that reverses cannot fire a signal. Bitcoin wicks are large, so this is on by default.")
+
+string GRP_SCORE = "2 · Confluence Filter"
+bool confluenceGateOnInput = input.bool(true, "Require minimum confluence score", group = GRP_SCORE,
+     tooltip = "When on, a crossover only becomes a signal if enough of the 8 factors agree with its direction.")
+int  minScoreInput         = input.int(5, "Minimum score (out of 8)", minval = 1, maxval = 8, group = GRP_SCORE,
+     tooltip = "How many of the 8 factors must line up: VWAP side, RSI side, MACD side, EMA alignment, ADX trend power, volume push, confirmation-timeframe RSI and the macro-link factor. Higher = fewer, cleaner signals. If the macro factor is off the score is out of 7.")
+
+string GRP_GUARD = "3 · Bitcoin Symbol Guard"
+bool   btcOnlyInput    = input.bool(true, "Bitcoin-only mode", group = GRP_GUARD,
+     tooltip = "Detects bitcoin from the symbol: BTC base currency, BTC or XBT in the ticker (spot, perpetual, CFD), or BTC / MBT CME futures. ETFs and trusts (stock type) are not treated as bitcoin. On any other chart the dashboard turns red and signals are suppressed. Turn off to run the engine on other markets.")
+string btcKeywordInput = input.string("", "Extra bitcoin ticker keyword", group = GRP_GUARD,
+     tooltip = "Optional. If your broker names bitcoin unusually (for example a custom CFD symbol) type part of that ticker here and it will be treated as bitcoin.")
+
+string GRP_MACRO = "4 · Macro Link Factor"
+bool   macroFactorOnInput = input.bool(true, "Use macro-link factor", group = GRP_MACRO,
+     tooltip = "Bitcoin trades as a risk asset: it tends to move with the Nasdaq and against the dollar. When on, the macro symbol's trend adds one bull or one bear point, but only while the chosen correlation link is actually active.")
+string macroSymbolInput   = input.symbol("CME_MINI:NQ1!", "Macro symbol", group = GRP_MACRO,
+     tooltip = "Symbol whose trend votes on the score. CME_MINI:NQ1! (Nasdaq futures, near 24h) is the default. NASDAQ:NDX, CME_MINI:ES1! or SP:SPX also work in positive mode; TVC:DXY in inverse mode.")
+string macroLinkModeInput = input.string(MODE_POSITIVE, "Link direction", options = [MODE_POSITIVE, MODE_INVERSE], group = GRP_MACRO,
+     tooltip = "Positive: the macro symbol rising is a bull point (Nasdaq, S&P). Inverse: the macro symbol falling is a bull point (DXY). Match this to the symbol above.")
+int    macroEmaLenInput   = input.int(21, "Macro trend EMA", minval = 2, maxval = 200, group = GRP_MACRO,
+     tooltip = "The macro symbol is treated as rising when its close is above this EMA and falling when below it. Calculated on the chart timeframe.")
+int    corrLenInput       = input.int(20, "Correlation lookback (bars)", minval = 5, maxval = 200, group = GRP_MACRO,
+     tooltip = "Number of bars used to measure the rolling correlation between bitcoin and the macro symbol.")
+float  corrThresholdInput = input.float(0.3, "Link strength threshold", minval = 0.0, maxval = 1.0, step = 0.05, group = GRP_MACRO,
+     tooltip = "The macro factor only scores while the rolling correlation is at least this strong in the chosen direction (above +0.3 for positive, below -0.3 for inverse). When bitcoin decouples from macro, the factor gives zero to both sides instead of guessing.")
+
+string GRP_SESSION = "5 · BTC Liquidity Windows"
+bool   sessionFilterOnInput = input.bool(true, "Trade only during Europe / US hours", group = GRP_SESSION,
+     tooltip = "Bitcoin trades 24/7 but its volume is concentrated in the European and US sessions, where CME futures, ETF flows and equity markets are open. When on, crossovers outside both windows are blocked and marked with a small x. Ignored on daily and higher charts.")
+string europeSessionInput   = input.session("0300-1200", "Europe window", group = GRP_SESSION,
+     tooltip = "European trading window, in the timezone selected below. Default 03:00-12:00 New York time (08:00-17:00 London).")
+string usSessionInput       = input.session("0800-1700", "US window", group = GRP_SESSION,
+     tooltip = "US trading window, in the timezone selected below. Default 08:00-17:00 New York time. The 08:00-12:00 overlap with Europe plus the 09:30 US equity open is bitcoin's most liquid period.")
+bool   blockWeekendInput    = input.bool(true, "Block weekend entries", group = GRP_SESSION,
+     tooltip = "Saturday and Sunday (in the timezone below) are blocked. CME futures and ETFs are closed, order books are thin and weekend moves are often retraced on Monday. Works independently of the hours filter; ignored on weekly and monthly charts.")
+string sessionTzInput       = input.string("America/New_York", "Session timezone", options = ["America/New_York", "Europe/London", "UTC", "Exchange"], group = GRP_SESSION,
+     tooltip = "Timezone the two windows and the weekend check are written in. 'Exchange' uses the chart symbol's own timezone (UTC on most crypto exchanges).")
+bool   shadeSessionsInput   = input.bool(true, "Shade active window", group = GRP_SESSION,
+     tooltip = "Light background tint: violet for Europe, orange for US, brighter orange for the overlap, grey for weekends.")
+
+string GRP_ADR = "6 · ADR Exhaustion"
+bool  adrFilterOnInput = input.bool(true, "Block entries when ADR is exhausted", group = GRP_ADR,
+     tooltip = "ADR = average daily range over the last N completed days. Once today's high-to-low range has already used the percentage below, bitcoin has usually done its move for the day, so new entries are blocked. Ignored on weekly and monthly charts.")
+int   adrLenInput      = input.int(14, "ADR lookback (days)", minval = 2, maxval = 100, group = GRP_ADR,
+     tooltip = "Number of completed daily ranges averaged into the ADR. Only finished days are used, so the value never looks ahead. Crypto days roll at 00:00 UTC on most exchanges.")
+float adrBlockPctInput = input.float(100, "Block at % of ADR used", minval = 30, maxval = 300, step = 5, group = GRP_ADR,
+     tooltip = "Entries are blocked once today's range is at or above this percentage of ADR. 100 = the average day is fully used. Bitcoin can run well past its ADR on news; raise this to stay in on trend days, lower it to be more conservative.")
+
+string GRP_RISK = "7 · Risk Management"
+float slAtrMultInput      = input.float(1.5, "Stop-loss ATR multiplier", minval = 0.1, step = 0.1, group = GRP_RISK,
+     tooltip = "Stop distance = ATR x this value. Each take-profit level sits one stop distance further from entry (1R, 2R, 3R).")
+int   atrLenInput         = input.int(14, "ATR period", minval = 1, maxval = 50, group = GRP_RISK,
+     tooltip = "Lookback for the Average True Range used for the stop and target ladder.")
+int   tpLevelsInput       = input.int(3, "Take-profit levels", minval = 1, maxval = 3, group = GRP_RISK,
+     tooltip = "How many take-profit levels to draw (1 to 3). Targets sit at 1R, 2R and 3R from entry. A trade is closed when its last level is touched.")
+bool  breakevenAtTp1Input = input.bool(true, "Move stop to breakeven at TP1", group = GRP_RISK,
+     tooltip = "When TP1 is touched the working stop moves to the entry price. The red SL line stays visible; the entry line turns into a dotted cyan breakeven stop. A return to entry then closes the trade as BE.")
+int   maxTradesInput      = input.int(50, "Trades kept on chart", minval = 1, maxval = 100, group = GRP_RISK,
+     tooltip = "How many trade ladders (entry, stop, targets) stay drawn. The oldest are removed first. Each trade uses up to 5 lines and 5 labels; 100 is the TradingView drawing limit. The dashboard tally covers the same trades.")
+
+string GRP_MTF = "8 · Confirmation Timeframe"
+string confirmTfInput = input.timeframe("15", "RSI confirmation timeframe", group = GRP_MTF,
+     tooltip = "Timeframe of the secondary 14-period RSI factor. Default 15 minutes.")
+
+string GRP_DASH = "9 · Dashboard"
+bool   showDashboardInput = input.bool(true, "Show dashboard", group = GRP_DASH,
+     tooltip = "Live read-out of every factor, the bitcoin gates, BTC dominance, the open trades and the outcome tally.")
+string dashPosInput       = input.string("Top Right", "Dashboard position", options = ["Top Left", "Top Center", "Top Right", "Middle Left", "Middle Center", "Middle Right", "Bottom Left", "Bottom Center", "Bottom Right"], group = GRP_DASH,
+     tooltip = "Where the dashboard sits. Every on-chart panel has its own position setting, so all four can be arranged without overlap.")
+string dashTextSizeInput  = input.string("small", "Dashboard text size", options = ["tiny", "small", "normal", "large", "huge"], group = GRP_DASH,
+     tooltip = "Text size for the dashboard cells.")
+bool   showDominanceInput = input.bool(true, "Show BTC dominance row", group = GRP_DASH,
+     tooltip = "Reads CRYPTOCAP:BTC.D (bitcoin's share of total crypto market cap) and shows whether it is above or below its 20-bar average. Informational only, not scored.")
+
+string GRP_PANELS = "10 · On-Chart Panels"
+bool   showHowToInput     = input.bool(true, "Show HOW IT WORKS legend", group = GRP_PANELS,
+     tooltip = "Static legend that explains the signal flow in seven lines.")
+string howToPosInput      = input.string("Top Left", "HOW IT WORKS position", options = ["Top Left", "Top Center", "Top Right", "Middle Left", "Middle Center", "Middle Right", "Bottom Left", "Bottom Center", "Bottom Right"], group = GRP_PANELS,
+     tooltip = "Where the legend sits. Move it if it overlaps the TradingView symbol header or another panel.")
+bool   showChecklistInput = input.bool(true, "Show live confluence checklist", group = GRP_PANELS,
+     tooltip = "Tick / cross list of the 8 factors and the 4 bitcoin gates for the currently stronger side.")
+string checklistPosInput  = input.string("Bottom Left", "Checklist position", options = ["Top Left", "Top Center", "Top Right", "Middle Left", "Middle Center", "Middle Right", "Bottom Left", "Bottom Center", "Bottom Right"], group = GRP_PANELS,
+     tooltip = "Where the checklist sits. Bottom Left keeps it clear of the legend above it.")
+bool   showSummaryInput   = input.bool(true, "Show strategy summary footer", group = GRP_PANELS,
+     tooltip = "Three-cell footer: strategy, best-for, works-on.")
+string summaryPosInput    = input.string("Bottom Center", "Summary position", options = ["Top Left", "Top Center", "Top Right", "Middle Left", "Middle Center", "Middle Right", "Bottom Left", "Bottom Center", "Bottom Right"], group = GRP_PANELS,
+     tooltip = "Where the summary footer sits.")
+
+string GRP_VISUAL = "11 · Visuals"
+bool   showRibbonInput     = input.bool(true, "EMA ribbon fill", group = GRP_VISUAL,
+     tooltip = "Fill between the two EMAs: green when the fast EMA is above the slow EMA, red when below.")
+int    ribbonAlphaInput    = input.int(75, "Ribbon transparency", minval = 0, maxval = 100, group = GRP_VISUAL,
+     tooltip = "0 = solid, 100 = invisible.")
+bool   showVwapInput       = input.bool(true, "VWAP line", group = GRP_VISUAL,
+     tooltip = "Volume-weighted average price, coloured by whether price is above or below it.")
+bool   showTradeLinesInput = input.bool(true, "Entry / SL / TP lines and labels", group = GRP_VISUAL,
+     tooltip = "Draws the entry, stop and take-profit ladder of every signal. Each ladder runs from its signal bar to the bar where the trade closed; the open trade keeps extending with price.")
+string tradeTextSizeInput  = input.string("small", "Trade label size", options = ["tiny", "small", "normal", "large", "huge"], group = GRP_VISUAL,
+     tooltip = "Text size of the entry / stop / target labels.")
+int    labelOffsetInput    = input.int(12, "Label offset (bars right)", minval = 1, maxval = 50, group = GRP_VISUAL,
+     tooltip = "How many bars to the right of the last candle the labels of an OPEN trade are placed. Closed trades keep their labels at the bar where they closed.")
+bool   showRetestInput     = input.bool(true, "Highlight EMA retest candles", group = GRP_VISUAL,
+     tooltip = "Colours a candle orange when price pulls back into the fast EMA while the latest trade is still open (possible add-on).")
+bool   showBlockedInput    = input.bool(true, "Mark crossovers blocked by bitcoin filters", group = GRP_VISUAL,
+     tooltip = "Draws a small grey x where a qualifying crossover was blocked by the symbol guard, the hours filter, the weekend gate or the ADR filter.")
+
+// ══════════════════════════════════════════════════════════════════════════════
+// FUNCTIONS
+// ══════════════════════════════════════════════════════════════════════════════
+textSizeOf(string sizeName) =>
+    switch sizeName
+        "tiny"   => size.tiny
+        "small"  => size.small
+        "normal" => size.normal
+        "large"  => size.large
+        "huge"   => size.huge
+        => size.small
+
+tablePositionOf(string positionName) =>
+    switch positionName
+        "Top Left"      => position.top_left
+        "Top Center"    => position.top_center
+        "Top Right"     => position.top_right
+        "Middle Left"   => position.middle_left
+        "Middle Center" => position.middle_center
+        "Middle Right"  => position.middle_right
+        "Bottom Left"   => position.bottom_left
+        "Bottom Center" => position.bottom_center
+        "Bottom Right"  => position.bottom_right
+        => position.top_right
+
+// Quote-currency prefix for the read-outs ("$" for USD / stablecoin pairs, otherwise the currency code)
+string ccyPrefix = syminfo.currency == "USD" or syminfo.currency == "USDT" or syminfo.currency == "USDC" or syminfo.currency == "BUSD" ? "$" : syminfo.currency + " "
+
+// Money and percent-of-price read-out for a price distance, e.g. "$850 (1.2%)"
+fmtMoneyPct(float distance, float refPrice) =>
+    na(distance) or na(refPrice) or refPrice == 0 ? "—" : ccyPrefix + str.tostring(distance, "#.##") + " (" + str.tostring(distance / refPrice * 100, "#.##") + "%)"
+
+// Signed percent distance for the trade labels, e.g. " (-1.2%)" or " (+2.4%)"
+pctText(float distance, float refPrice, bool isGain) =>
+    na(distance) or na(refPrice) or refPrice == 0 ? "" : " (" + (isGain ? "+" : "-") + str.tostring(math.abs(distance) / refPrice * 100, "#.##") + "%)"
+
+tickText(bool ok) =>
+    ok ? "✓" : "✕"
+
+tickColor(bool ok) =>
+    ok ? CLR_BULL : CLR_MUTED
+
+// Two-column dashboard row (v6 method on the built-in table type)
+method setRow(table tbl, int rowIdx, string keyText, string valueText, color valueColor, string textSize) =>
+    table.cell(tbl, 0, rowIdx, keyText, text_color = CLR_TEXT, text_halign = text.align_left, text_size = textSize, bgcolor = CLR_PANEL_BG)
+    table.cell(tbl, 1, rowIdx, valueText, text_color = valueColor, text_halign = text.align_right, text_size = textSize, bgcolor = CLR_PANEL_BG)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// CALCULATIONS — Core indicators
+// ══════════════════════════════════════════════════════════════════════════════
+float emaFast        = ta.ema(close, fastEmaLenInput)
+float emaSlow        = ta.ema(close, slowEmaLenInput)
+float sessionVwap    = ta.vwap(hlc3)
+float atrValue       = ta.atr(atrLenInput)
+float rsiNow         = ta.rsi(close, 14)
+float rsiConfirmTf   = request.security(syminfo.tickerid, confirmTfInput, ta.rsi(close, 14), lookahead = barmerge.lookahead_off)
+[macdLine, macdSignalLine, macdHistogram] = ta.macd(close, 12, 26, 9)
+[diPlus, diMinus, adxNow] = ta.dmi(14, 14)
+float volumeBaseline = ta.sma(volume, 20)
+bool  hasVolume      = not na(volume) and volume > 0
+
+// ══════════════════════════════════════════════════════════════════════════════
+// CALCULATIONS — Bitcoin symbol guard
+// ══════════════════════════════════════════════════════════════════════════════
+string tickerUpper   = str.upper(syminfo.ticker)
+bool   notEquityType = syminfo.type != "stock" and syminfo.type != "fund"
+bool   btcByBase     = syminfo.basecurrency == "BTC" or syminfo.basecurrency == "XBT"
+bool   btcByName     = (str.contains(tickerUpper, "BTC") or str.contains(tickerUpper, "XBT")) and notEquityType and not str.contains(tickerUpper, ".D")
+bool   btcByRoot     = syminfo.root == "BTC" or syminfo.root == "MBT"
+bool   btcByCustom   = str.length(btcKeywordInput) > 0 and str.contains(tickerUpper, str.upper(btcKeywordInput))
+bool   isBtcChart    = btcByBase or btcByName or btcByRoot or btcByCustom
+bool   symbolGateOk  = not btcOnlyInput or isBtcChart
+bool   isPerpTicker  = str.endswith(tickerUpper, ".P") or str.contains(tickerUpper, "PERP") or str.contains(tickerUpper, "SWAP")
+string btcKindText   = btcByRoot ? "CME FUTURES" : isBtcChart and isPerpTicker ? "PERPETUAL" : isBtcChart and syminfo.type == "cfd" ? "BTC CFD" : isBtcChart ? "SPOT BTC" : "NOT BITCOIN"
+
+// ══════════════════════════════════════════════════════════════════════════════
+// CALCULATIONS — Macro link factor: Nasdaq positive or DXY inverse correlation
+// ══════════════════════════════════════════════════════════════════════════════
+[macroClose, macroEma] = request.security(macroSymbolInput, timeframe.period, [close, ta.ema(close, macroEmaLenInput)], lookahead = barmerge.lookahead_off, ignore_invalid_symbol = true)
+bool  positiveLink   = macroLinkModeInput == MODE_POSITIVE
+float btcMacroCorr   = ta.correlation(close, macroClose, corrLenInput)
+bool  macroDataOk    = not na(macroClose) and not na(macroEma)
+bool  macroLinkActive = macroDataOk and not na(btcMacroCorr) and (positiveLink ? btcMacroCorr >= corrThresholdInput : btcMacroCorr <= -corrThresholdInput)
+bool  macroRising    = macroDataOk and macroClose > macroEma
+bool  macroFalling   = macroDataOk and macroClose < macroEma
+bool  macroBullPoint = macroFactorOnInput and macroLinkActive and (positiveLink ? macroRising : macroFalling)
+bool  macroBearPoint = macroFactorOnInput and macroLinkActive and (positiveLink ? macroFalling : macroRising)
+int   factorTotal    = macroFactorOnInput ? 8 : 7
+int   minScoreEff    = math.min(minScoreInput, factorTotal)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// CALCULATIONS — BTC dominance read-out (informational)
+// ══════════════════════════════════════════════════════════════════════════════
+float btcDominance    = showDominanceInput ? request.security("CRYPTOCAP:BTC.D", timeframe.period, close, lookahead = barmerge.lookahead_off, ignore_invalid_symbol = true) : na
+float btcDominanceAvg = ta.sma(btcDominance, 20)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// CALCULATIONS — Confluence scoring (7 technical factors + macro factor)
+// ══════════════════════════════════════════════════════════════════════════════
+bool fVwapBull  = close > sessionVwap
+bool fRsiBull   = rsiNow > 50
+bool fMacdBull  = macdLine > macdSignalLine
+bool fEmaBull   = emaFast > emaSlow
+bool fAdxBull   = adxNow > 25 and close > emaFast
+bool fVolBull   = hasVolume and volume > volumeBaseline and close > open
+bool fMtfBull   = rsiConfirmTf > 50
+bool fMacroBull = macroBullPoint
+
+bool fVwapBear  = close < sessionVwap
+bool fRsiBear   = rsiNow < 50
+bool fMacdBear  = macdLine < macdSignalLine
+bool fEmaBear   = emaFast < emaSlow
+bool fAdxBear   = adxNow > 25 and close < emaFast
+bool fVolBear   = hasVolume and volume > volumeBaseline and close < open
+bool fMtfBear   = rsiConfirmTf < 50
+bool fMacroBear = macroBearPoint
+
+int bullScore = (fVwapBull ? 1 : 0) + (fRsiBull ? 1 : 0) + (fMacdBull ? 1 : 0) + (fEmaBull ? 1 : 0) +
+     (fAdxBull ? 1 : 0) + (fVolBull ? 1 : 0) + (fMtfBull ? 1 : 0) + (fMacroBull ? 1 : 0)
+int bearScore = (fVwapBear ? 1 : 0) + (fRsiBear ? 1 : 0) + (fMacdBear ? 1 : 0) + (fEmaBear ? 1 : 0) +
+     (fAdxBear ? 1 : 0) + (fVolBear ? 1 : 0) + (fMtfBear ? 1 : 0) + (fMacroBear ? 1 : 0)
+float bullPct = bullScore / factorTotal * 100
+float bearPct = bearScore / factorTotal * 100
+
+// ══════════════════════════════════════════════════════════════════════════════
+// CALCULATIONS — Market bias
+// ══════════════════════════════════════════════════════════════════════════════
+float  biasGap  = bullPct - bearPct
+string biasText = biasGap >= 40 ? "STRONG BULL" : biasGap <= -40 ? "STRONG BEAR" : biasGap > 0 ? "MILD BULL" : biasGap < 0 ? "MILD BEAR" : "NEUTRAL"
+color  biasColor = biasText == "STRONG BULL" ? CLR_BULL : biasText == "MILD BULL" ? color.new(CLR_BULL, 45) :
+     biasText == "STRONG BEAR" ? CLR_BEAR : biasText == "MILD BEAR" ? color.new(CLR_BEAR, 45) : CLR_MUTED
+
+// ══════════════════════════════════════════════════════════════════════════════
+// CALCULATIONS — Europe / US liquidity windows and weekend gate
+// ══════════════════════════════════════════════════════════════════════════════
+string sessionTz     = sessionTzInput == "Exchange" ? syminfo.timezone : sessionTzInput
+bool   inEurope      = not na(time(timeframe.period, europeSessionInput, sessionTz))
+bool   inUs          = not na(time(timeframe.period, usSessionInput, sessionTz))
+bool   inBtcWindow   = inEurope or inUs
+int    barWeekday    = dayofweek(time, sessionTz)
+bool   isWeekend     = barWeekday == dayofweek.saturday or barWeekday == dayofweek.sunday
+bool   sessionGateOk = not sessionFilterOnInput or timeframe.isdwm or inBtcWindow
+bool   weekendGateOk = not blockWeekendInput or timeframe.isweekly or timeframe.ismonthly or not isWeekend
+string sessionText   = isWeekend ? "WEEKEND" : timeframe.isdwm ? "N/A (D+ chart)" : inEurope and inUs ? "EU + US OVERLAP" : inEurope ? "EUROPE" : inUs ? "US" : "ASIA / OFF-HOURS"
+
+// ══════════════════════════════════════════════════════════════════════════════
+// CALCULATIONS — ADR exhaustion filter
+// ══════════════════════════════════════════════════════════════════════════════
+// Completed days only: the [1] offset on the daily feed means the value never includes the developing day.
+float adrValue = request.security(syminfo.tickerid, "D", ta.sma(high - low, adrLenInput)[1], lookahead = barmerge.lookahead_on)
+
+// Today's range is built from the chart's own bars, so it cannot repaint.
+int   dayStamp      = timeframe.isintraday ? time("D") : time
+bool  newTradingDay = not timeframe.isintraday or nz(ta.change(dayStamp), 0) != 0
+var float dayHigh = na
+var float dayLow  = na
+if newTradingDay or na(dayHigh)
+    dayHigh := high
+    dayLow  := low
+else
+    dayHigh := math.max(dayHigh, high)
+    dayLow  := math.min(dayLow, low)
+float todayRange    = dayHigh - dayLow
+float adrUsedPct    = not na(adrValue) and adrValue > 0 ? todayRange / adrValue * 100 : na
+bool  adrApplicable = adrFilterOnInput and not timeframe.isweekly and not timeframe.ismonthly
+bool  adrExhausted  = adrApplicable and not na(adrUsedPct) and adrUsedPct >= adrBlockPctInput
+bool  adrGateOk     = not adrExhausted
+
+// ══════════════════════════════════════════════════════════════════════════════
+// TRADE TRACKER — type and methods
+// One object per signal. Every trade runs to its own stop or final target, so ladders can overlap.
+// Ladders stay on the chart and end at the bar where the trade closed.
+// ══════════════════════════════════════════════════════════════════════════════
+type TradeSetup
+    int    side
+    int    entryBar
+    float  entry
+    float  stop
+    float  risk
+    array<float> targets
+    array<bool>  hits
+    bool   beActive
+    bool   closed
+    int    closeBar
+    string outcome
+    line   entryLine
+    line   stopLine
+    array<line>  tpLines
+    label  entryLabel
+    label  stopLabel
+    array<label> tpLabels
+
+createTrade(int side) =>
+    float risk = atrValue * slAtrMultInput
+    array<float> levels = array.new<float>()
+    array<bool>  flags  = array.new<bool>()
+    for i = 1 to MAX_TARGETS
+        array.push(levels, side == 1 ? close + risk * i : close - risk * i)
+        array.push(flags, false)
+    TradeSetup.new(side = side, entryBar = bar_index, entry = close, stop = side == 1 ? close - risk : close + risk, risk = risk,
+     targets = levels, hits = flags, beActive = false, closed = false, closeBar = na, outcome = "OPEN",
+     entryLine = na, stopLine = na, tpLines = array.new<line>(), entryLabel = na, stopLabel = na, tpLabels = array.new<label>())
+
+// Working stop: the original SL until TP1, then the entry price
+method workingStop(TradeSetup t) =>
+    t.beActive ? t.entry : t.stop
+
+// Draw the ladder at signal time
+method drawLadder(TradeSetup t) =>
+    string sz = textSizeOf(tradeTextSizeInput)
+    int    x2 = t.entryBar + 1
+    t.entryLine  := line.new(t.entryBar, t.entry, x2, t.entry, color = CLR_ENTRY, width = 1, style = line.style_dashed)
+    t.stopLine   := line.new(t.entryBar, t.stop,  x2, t.stop,  color = CLR_STOP,  width = 2)
+    t.entryLabel := label.new(x2, t.entry, "", color = CLR_ENTRY, textcolor = color.white, style = label.style_label_left, size = sz)
+    t.stopLabel  := label.new(x2, t.stop,  "", color = CLR_STOP,  textcolor = color.white, style = label.style_label_left, size = sz)
+    for i = 0 to tpLevelsInput - 1
+        float lvl = array.get(t.targets, i)
+        array.push(t.tpLines,  line.new(t.entryBar, lvl, x2, lvl, color = CLR_TARGET, width = 1, style = line.style_dashed))
+        array.push(t.tpLabels, label.new(x2, lvl, "", color = CLR_TARGET, textcolor = color.white, style = label.style_label_left, size = sz))
+
+// Advance an open trade by one bar. The stop is checked first (conservative when a bar touches both),
+// then the targets, then breakeven. The entry bar itself is skipped because the entry is at its close.
+method advance(TradeSetup t) =>
+    if not t.closed and bar_index > t.entryBar
+        float stopLvl = t.workingStop()
+        bool  stopHit = t.side == 1 ? low <= stopLvl : high >= stopLvl
+        if stopHit
+            t.closed   := true
+            t.closeBar := bar_index
+            t.outcome  := t.beActive ? "BE" : "SL"
+        else
+            for i = 0 to MAX_TARGETS - 1
+                float lvl     = array.get(t.targets, i)
+                bool  touched = t.side == 1 ? high >= lvl : low <= lvl
+                if touched
+                    array.set(t.hits, i, true)
+            if breakevenAtTp1Input and array.get(t.hits, 0)
+                t.beActive := true
+            if array.get(t.hits, tpLevelsInput - 1)
+                t.closed   := true
+                t.closeBar := bar_index
+                t.outcome  := "TP" + str.tostring(tpLevelsInput)
+
+// Keep lines and labels in step with the trade. Open trades extend to the current bar with labels
+// floating to the right; closed trades end at their closing bar with labels parked there.
+method refresh(TradeSetup t) =>
+    int endX = t.closed ? t.closeBar : bar_index
+    int lblX = t.closed ? t.closeBar : bar_index + labelOffsetInput
+    if not na(t.entryLine)
+        line.set_x2(t.entryLine, endX)
+        if t.beActive
+            line.set_style(t.entryLine, line.style_dotted)
+            line.set_width(t.entryLine, 2)
+    if not na(t.stopLine)
+        line.set_x2(t.stopLine, endX)
+    if not na(t.entryLabel)
+        label.set_xy(t.entryLabel, lblX, t.entry)
+        label.set_text(t.entryLabel, "ENTRY: " + str.tostring(t.entry, format.mintick) + (t.outcome == "BE" ? " (BE EXIT)" : t.beActive ? " (BE ACTIVE)" : ""))
+    if not na(t.stopLabel)
+        label.set_xy(t.stopLabel, lblX, t.stop)
+        label.set_text(t.stopLabel, "SL: " + str.tostring(t.stop, format.mintick) + pctText(t.risk, t.entry, false) + (t.outcome == "SL" ? " ❌" : ""))
+    int n = array.size(t.tpLines)
+    if n > 0
+        for i = 0 to n - 1
+            float lvl    = array.get(t.targets, i)
+            bool  wasHit = array.get(t.hits, i)
+            line  ln     = array.get(t.tpLines, i)
+            label lb     = array.get(t.tpLabels, i)
+            if not na(ln)
+                line.set_x2(ln, endX)
+                line.set_color(ln, wasHit ? CLR_TARGET_HIT : CLR_TARGET)
+            if not na(lb)
+                label.set_xy(lb, lblX, lvl)
+                label.set_text(lb, "TP" + str.tostring(i + 1) + ": " + str.tostring(lvl, format.mintick) + pctText(lvl - t.entry, t.entry, true) + (wasHit ? " ✅" : ""))
+                label.set_color(lb, wasHit ? CLR_TARGET_HIT : CLR_TARGET)
+
+// Remove the drawings of a trade that is being pruned
+method erase(TradeSetup t) =>
+    line.delete(t.entryLine)
+    line.delete(t.stopLine)
+    label.delete(t.entryLabel)
+    label.delete(t.stopLabel)
+    int n = array.size(t.tpLines)
+    if n > 0
+        for i = 0 to n - 1
+            line.delete(array.get(t.tpLines, i))
+            label.delete(array.get(t.tpLabels, i))
+
+// ══════════════════════════════════════════════════════════════════════════════
+// CALCULATIONS — Advance open trades (before any new signal on this bar)
+// ══════════════════════════════════════════════════════════════════════════════
+var array<TradeSetup> trades = array.new<TradeSetup>()
+var int lastSignalSide = 0
+
+bool stopHitNow = false
+bool beExitNow  = false
+bool finalTpNow = false
+if array.size(trades) > 0
+    for i = 0 to array.size(trades) - 1
+        TradeSetup t = array.get(trades, i)
+        if not t.closed
+            t.advance()
+            if t.closed
+                stopHitNow := stopHitNow or t.outcome == "SL"
+                beExitNow  := beExitNow or t.outcome == "BE"
+                finalTpNow := finalTpNow or (t.outcome != "SL" and t.outcome != "BE")
+
+// ══════════════════════════════════════════════════════════════════════════════
+// CALCULATIONS — Signal logic (crossover trigger + gates)
+// ══════════════════════════════════════════════════════════════════════════════
+bool rawBullCross = ta.crossover(emaFast, emaSlow)
+bool rawBearCross = ta.crossunder(emaFast, emaSlow)
+bool bullCross    = requireBarCloseInput ? rawBullCross and barstate.isconfirmed : rawBullCross
+bool bearCross    = requireBarCloseInput ? rawBearCross and barstate.isconfirmed : rawBearCross
+
+bool bullScoreOk = not confluenceGateOnInput or bullScore >= minScoreEff
+bool bearScoreOk = not confluenceGateOnInput or bearScore >= minScoreEff
+bool btcGatesOk  = symbolGateOk and sessionGateOk and weekendGateOk and adrGateOk
+
+// Crossovers alternate by definition, so every qualifying cross opens its own trade; open trades keep running.
+bool longCandidate  = bullCross and bullScoreOk
+bool shortCandidate = bearCross and bearScoreOk
+bool longEntry      = longCandidate and btcGatesOk
+bool shortEntry     = shortCandidate and btcGatesOk
+bool longBlocked    = longCandidate and not btcGatesOk
+bool shortBlocked   = shortCandidate and not btcGatesOk
+
+string blockReason = not symbolGateOk ? "NOT BITCOIN" : not sessionGateOk ? "OFF-HOURS" : not weekendGateOk ? "WEEKEND" : not adrGateOk ? "ADR EXHAUSTED" : "NONE"
+var string lastBlockText = "—"
+if longBlocked or shortBlocked
+    lastBlockText := (longBlocked ? "LONG · " : "SHORT · ") + blockReason
+
+if longEntry or shortEntry
+    TradeSetup fresh = createTrade(longEntry ? 1 : -1)
+    lastSignalSide := fresh.side
+    if showTradeLinesInput
+        fresh.drawLadder()
+    array.push(trades, fresh)
+    while array.size(trades) > maxTradesInput
+        TradeSetup oldest = array.shift(trades)
+        oldest.erase()
+
+// Latest trade snapshot for the candles and the dashboard
+TradeSetup latest = na
+if array.size(trades) > 0
+    latest := array.get(trades, array.size(trades) - 1)
+bool   latestOpen    = false
+int    latestSide    = 0
+float  latestRisk    = na
+float  latestEntry   = na
+int    latestHits    = 0
+bool   latestBe      = false
+string latestOutcome = "—"
+if not na(latest)
+    latestOpen    := not latest.closed
+    latestSide    := latest.side
+    latestRisk    := latest.risk
+    latestEntry   := latest.entry
+    latestBe      := latest.beActive
+    latestOutcome := latest.outcome
+    for i = 0 to tpLevelsInput - 1
+        latestHits += array.get(latest.hits, i) ? 1 : 0
+
+float riskDistance = latestOpen ? latestRisk : atrValue * slAtrMultInput
+float riskRefPrice = latestOpen ? latestEntry : close
+
+// ══════════════════════════════════════════════════════════════════════════════
+// VISUALS — Session shading, EMA ribbon, VWAP
+// ══════════════════════════════════════════════════════════════════════════════
+color sessionShade = shadeSessionsInput and not timeframe.isdwm ?
+     (isWeekend ? color.new(CLR_MUTED, 92) : inEurope and inUs ? color.new(CLR_BTC, 88) : inEurope ? color.new(CLR_INFO, 93) : inUs ? color.new(CLR_BTC, 93) : color(na)) : color(na)
+bgcolor(sessionShade, title = "BTC liquidity window shading")
+
+plotFast = plot(emaFast, "Fast EMA", color = color.new(CLR_BULL, 20), linewidth = 1)
+plotSlow = plot(emaSlow, "Slow EMA", color = color.new(CLR_BEAR, 20), linewidth = 1)
+fill(plotFast, plotSlow, color = showRibbonInput ? (emaFast > emaSlow ? color.new(CLR_BULL, ribbonAlphaInput) : color.new(CLR_BEAR, ribbonAlphaInput)) : color(na), title = "EMA Ribbon")
+
+plot(showVwapInput ? sessionVwap : na, "VWAP", color = close > sessionVwap ? color.new(CLR_BULL, 25) : color.new(CLR_BEAR, 25), linewidth = 2)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// VISUALS — Candles & signal markers
+// ══════════════════════════════════════════════════════════════════════════════
+bool retestCandle = latestOpen and ((latestSide == 1 and low <= emaFast and low > emaSlow) or (latestSide == -1 and high >= emaFast and high < emaSlow))
+barcolor(longEntry or shortEntry ? CLR_BTC : showRetestInput and retestCandle ? CLR_RETEST : na, title = "Signal / retest candles")
+
+plotshape(longEntry, title = "Buy Signal", style = shape.labelup, location = location.belowbar, color = CLR_BULL, textcolor = color.black, text = "BUY", size = size.small)
+plotshape(shortEntry, title = "Sell Signal", style = shape.labeldown, location = location.abovebar, color = CLR_BEAR, textcolor = color.white, text = "SELL", size = size.small)
+plotshape(showBlockedInput and longBlocked, title = "Long blocked by bitcoin filter", style = shape.xcross, location = location.belowbar, color = CLR_MUTED, size = size.tiny)
+plotshape(showBlockedInput and shortBlocked, title = "Short blocked by bitcoin filter", style = shape.xcross, location = location.abovebar, color = CLR_MUTED, size = size.tiny)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// VISUALS — Trade ladders (open trades extend, closed trades stay where they ended)
+// ══════════════════════════════════════════════════════════════════════════════
+if showTradeLinesInput and array.size(trades) > 0
+    for i = 0 to array.size(trades) - 1
+        TradeSetup t = array.get(trades, i)
+        if not t.closed or t.closeBar == bar_index
+            t.refresh()
+
+// ══════════════════════════════════════════════════════════════════════════════
+// VISUALS — Dashboard
+// ══════════════════════════════════════════════════════════════════════════════
+var table dashTable = table.new(tablePositionOf(dashPosInput), 2, 24, bgcolor = CLR_PANEL_BG, border_width = 1, border_color = CLR_PANEL_BORDER, frame_color = CLR_PANEL_BORDER, frame_width = 1)
+
+if barstate.islast and showDashboardInput
+    string ts       = textSizeOf(dashTextSizeInput)
+    color  hdrColor = symbolGateOk ? CLR_PANEL_HDR : color.new(CLR_BEAR, 30)
+    table.cell(dashTable, 0, 0, BRAND_TAG, text_color = CLR_BTC, bgcolor = hdrColor, text_size = ts, text_halign = text.align_center)
+    table.cell(dashTable, 1, 0, "BTC SNIPER", text_color = CLR_BTC, bgcolor = hdrColor, text_size = ts, text_halign = text.align_center)
+    dashTable.setRow(1, "Instrument", symbolGateOk ? btcKindText : "NOT BITCOIN · SIGNALS OFF", symbolGateOk ? CLR_BTC : CLR_BEAR, ts)
+    table.cell(dashTable, 0, 2, "BULL SCORE", text_color = color.black, bgcolor = CLR_BULL, text_size = ts)
+    table.cell(dashTable, 1, 2, str.tostring(bullPct, "#") + "% (" + str.tostring(bullScore) + "/" + str.tostring(factorTotal) + ")", text_color = color.black, bgcolor = CLR_BULL, text_size = ts)
+    table.cell(dashTable, 0, 3, "BEAR SCORE", text_color = color.white, bgcolor = CLR_BEAR, text_size = ts)
+    table.cell(dashTable, 1, 3, str.tostring(bearPct, "#") + "% (" + str.tostring(bearScore) + "/" + str.tostring(factorTotal) + ")", text_color = color.white, bgcolor = CLR_BEAR, text_size = ts)
+    table.cell(dashTable, 0, 4, "MARKET BIAS", text_color = CLR_TEXT, bgcolor = CLR_PANEL_HDR, text_size = ts)
+    table.cell(dashTable, 1, 4, biasText, text_color = color.white, bgcolor = biasColor, text_size = ts)
+    dashTable.setRow(5, "Price / VWAP", fVwapBull ? "ABOVE" : "BELOW", fVwapBull ? CLR_BULL : CLR_BEAR, ts)
+    dashTable.setRow(6, "RSI (14)", str.tostring(rsiNow, "#.#"), fRsiBull ? CLR_BULL : CLR_BEAR, ts)
+    dashTable.setRow(7, "MACD", (fMacdBull ? "BULL " : "BEAR ") + str.tostring(macdHistogram, "#.##"), fMacdBull ? CLR_BULL : CLR_BEAR, ts)
+    dashTable.setRow(8, "ADX (14)", str.tostring(adxNow, "#.#") + (diPlus > diMinus ? " ▲" : " ▼"), adxNow > 25 ? CLR_BULL : CLR_MUTED, ts)
+    dashTable.setRow(9, "EMA " + str.tostring(fastEmaLenInput) + "/" + str.tostring(slowEmaLenInput), fEmaBull ? "BULL" : "BEAR", fEmaBull ? CLR_BULL : CLR_BEAR, ts)
+    dashTable.setRow(10, "Volume", not hasVolume ? "N/A" : volume > volumeBaseline ? "HIGH" : "LOW", hasVolume and volume > volumeBaseline ? CLR_BULL : CLR_MUTED, ts)
+    dashTable.setRow(11, confirmTfInput + " RSI", str.tostring(rsiConfirmTf, "#.#"), fMtfBull ? CLR_BULL : CLR_BEAR, ts)
+    string macroText  = not macroFactorOnInput ? "OFF" : not macroDataOk ? "NO DATA" : str.tostring(macroClose, "#.##") + (macroRising ? " ▲" : macroFalling ? " ▼" : " ─") + "  r " + str.tostring(btcMacroCorr, "#.##") + (macroLinkActive ? " ✓" : " ✕")
+    color  macroColor = not macroFactorOnInput or not macroDataOk ? CLR_MUTED : not macroLinkActive ? CLR_AMBER : macroBullPoint ? CLR_BULL : macroBearPoint ? CLR_BEAR : CLR_MUTED
+    dashTable.setRow(12, positiveLink ? "Macro (positive)" : "Macro (inverse)", macroText, macroColor, ts)
+    string domText  = not showDominanceInput ? "OFF" : na(btcDominance) ? "NO DATA" : str.tostring(btcDominance, "#.#") + "%" + (na(btcDominanceAvg) ? "" : btcDominance > btcDominanceAvg ? " ▲" : btcDominance < btcDominanceAvg ? " ▼" : " ─")
+    color  domColor = not showDominanceInput or na(btcDominance) ? CLR_MUTED : na(btcDominanceAvg) ? CLR_TEXT : btcDominance > btcDominanceAvg ? CLR_BTC : CLR_INFO
+    dashTable.setRow(13, "BTC dominance", domText, domColor, ts)
+    string sessionRowText = sessionText + (sessionFilterOnInput or blockWeekendInput ? "" : " (filters off)")
+    color  sessionColor   = isWeekend ? (weekendGateOk ? CLR_MUTED : CLR_AMBER) : not sessionFilterOnInput ? CLR_MUTED : sessionGateOk ? CLR_BTC : CLR_AMBER
+    dashTable.setRow(14, "Session", sessionRowText, sessionColor, ts)
+    bool   adrChartOk = not timeframe.isweekly and not timeframe.ismonthly
+    string adrText  = not adrChartOk ? "N/A (W+ chart)" : na(adrValue) ? "N/A" : ccyPrefix + str.tostring(adrValue, "#") + " · used " + str.tostring(adrUsedPct, "#") + "%" + (adrFilterOnInput ? "" : " (off)")
+    color  adrColor = not adrChartOk or not adrFilterOnInput ? CLR_MUTED : adrExhausted ? CLR_BEAR : adrUsedPct >= adrBlockPctInput * 0.75 ? CLR_AMBER : CLR_BULL
+    dashTable.setRow(15, "ADR (" + str.tostring(adrLenInput) + "d)", adrText, adrColor, ts)
+    dashTable.setRow(16, "ATR (" + str.tostring(atrLenInput) + ")", fmtMoneyPct(atrValue, close), CLR_TEXT, ts)
+    dashTable.setRow(17, latestOpen ? "Risk (1R)" : "Next stop distance", fmtMoneyPct(riskDistance, riskRefPrice), CLR_STOP, ts)
+    dashTable.setRow(18, "Confluence", str.tostring(math.max(bullScore, bearScore)) + "/" + str.tostring(factorTotal) + "  (min " + str.tostring(minScoreEff) + ")", math.max(bullScore, bearScore) >= minScoreEff ? CLR_BULL : CLR_MUTED, ts)
+    dashTable.setRow(19, "BTC gates", btcGatesOk ? "ALL OPEN ✓" : "BLOCKED · " + blockReason, btcGatesOk ? CLR_BULL : CLR_BEAR, ts)
+    // Outcome tally over the trades kept on the chart
+    int openCnt   = 0
+    int openLong  = 0
+    int openShort = 0
+    int closedCnt = 0
+    int tp1Cnt    = 0
+    int fullCnt   = 0
+    int slCnt     = 0
+    int beCnt     = 0
+    if array.size(trades) > 0
+        for i = 0 to array.size(trades) - 1
+            TradeSetup t = array.get(trades, i)
+            if t.closed
+                closedCnt += 1
+                tp1Cnt    += array.get(t.hits, 0) ? 1 : 0
+                slCnt     += t.outcome == "SL" ? 1 : 0
+                beCnt     += t.outcome == "BE" ? 1 : 0
+                fullCnt   += t.outcome != "SL" and t.outcome != "BE" ? 1 : 0
+            else
+                openCnt   += 1
+                openLong  += t.side == 1 ? 1 : 0
+                openShort += t.side == -1 ? 1 : 0
+    string openText   = openCnt == 0 ? "FLAT" : str.tostring(openCnt) + " (" + str.tostring(openLong) + " L · " + str.tostring(openShort) + " S)"
+    color  openColor  = openCnt == 0 ? CLR_MUTED : openLong > openShort ? CLR_BULL : openShort > openLong ? CLR_BEAR : CLR_AMBER
+    string latestText = na(latest) ? "—" : (latestSide == 1 ? "LONG · " : "SHORT · ") + str.tostring(latestHits) + "/" + str.tostring(tpLevelsInput) + " TP · " + (latestOpen ? (latestBe ? "BE ACTIVE" : "OPEN") : "CLOSED " + latestOutcome)
+    color  latestColor = na(latest) ? CLR_MUTED : latestOpen ? (latestBe ? CLR_ENTRY : latestSide == 1 ? CLR_BULL : CLR_BEAR) : latestOutcome == "SL" ? CLR_STOP : latestOutcome == "BE" ? CLR_ENTRY : CLR_TARGET_HIT
+    string tallyText  = closedCnt == 0 ? "no closed trades yet" : str.tostring(closedCnt) + " closed · TP1 " + str.tostring(tp1Cnt) + " · full " + str.tostring(fullCnt) + " · SL " + str.tostring(slCnt) + " · BE " + str.tostring(beCnt)
+    dashTable.setRow(20, "Open trades", openText, openColor, ts)
+    dashTable.setRow(21, "Latest trade", latestText, latestColor, ts)
+    dashTable.setRow(22, "History (last " + str.tostring(maxTradesInput) + ")", tallyText, closedCnt == 0 ? CLR_MUTED : CLR_TEXT, ts)
+    dashTable.setRow(23, "Signal", longEntry or shortEntry ? "NEW" : lastBlockText != "—" ? "LAST BLOCK: " + lastBlockText : "WATCHING", longEntry or shortEntry ? CLR_BULL : CLR_MUTED, ts)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// PANEL — HOW IT WORKS (static, position configurable)
+// ══════════════════════════════════════════════════════════════════════════════
+var table howTable = table.new(tablePositionOf(howToPosInput), 1, 9, bgcolor = CLR_PANEL_BG, border_color = CLR_PANEL_BORDER, border_width = 1, frame_color = CLR_PANEL_BORDER, frame_width = 1)
+if barstate.islast and showHowToInput
+    table.cell(howTable, 0, 0, "BTC SNIPER · HOW IT WORKS", text_color = CLR_BTC, text_size = size.small, bgcolor = CLR_PANEL_HDR, text_halign = text.align_left)
+    table.cell(howTable, 0, 1, "1  Trigger: fast / slow EMA cross on bar close", text_color = CLR_BULL, text_size = size.small, text_halign = text.align_left)
+    table.cell(howTable, 0, 2, "2  Score: " + str.tostring(factorTotal) + " factors must reach the minimum", text_color = CLR_TEXT, text_size = size.small, text_halign = text.align_left)
+    table.cell(howTable, 0, 3, "3  Macro link (" + (positiveLink ? "Nasdaq with" : "DXY against") + " BTC) confirms the side", text_color = CLR_INFO, text_size = size.small, text_halign = text.align_left)
+    table.cell(howTable, 0, 4, "4  Trade window: Europe / US hours, weekends blocked", text_color = CLR_BTC, text_size = size.small, text_halign = text.align_left)
+    table.cell(howTable, 0, 5, "5  ADR exhausted = no late entries", text_color = CLR_AMBER, text_size = size.small, text_halign = text.align_left)
+    table.cell(howTable, 0, 6, "6  ATR stop, 3 targets, BE at TP1, each trade runs to SL / TP", text_color = CLR_TARGET, text_size = size.small, text_halign = text.align_left)
+    table.cell(howTable, 0, 7, "7  Orange candle = EMA retest, x = blocked cross", text_color = CLR_RETEST, text_size = size.small, text_halign = text.align_left)
+    table.cell(howTable, 0, 8, "Bitcoin-only: BTCUSD · BTCUSDT · perps · BTC / MBT futures", text_color = CLR_MUTED, text_size = size.tiny, text_halign = text.align_left)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// PANEL — Live confluence checklist (position configurable)
+// ══════════════════════════════════════════════════════════════════════════════
+var table checkTable = table.new(tablePositionOf(checklistPosInput), 2, 16, bgcolor = CLR_PANEL_BG, border_color = CLR_PANEL_BORDER, border_width = 1, frame_color = CLR_PANEL_BORDER, frame_width = 1)
+if barstate.islast and showChecklistInput
+    bool   buySide   = bullScore >= bearScore
+    int    sideScore = buySide ? bullScore : bearScore
+    string hdr       = (buySide ? "BUY CONFLUENCE  " : "SELL CONFLUENCE  ") + str.tostring(sideScore) + "/" + str.tostring(factorTotal)
+    color  hdrCol    = buySide ? CLR_BULL : CLR_BEAR
+    table.cell(checkTable, 0, 0, hdr, text_color = color.white, text_size = size.small, bgcolor = color.new(hdrCol, 25))
+    table.cell(checkTable, 1, 0, buySide ? "▲" : "▼", text_color = color.white, text_size = size.small, bgcolor = color.new(hdrCol, 25))
+    bool c1 = buySide ? fVwapBull  : fVwapBear
+    bool c2 = buySide ? fRsiBull   : fRsiBear
+    bool c3 = buySide ? fMacdBull  : fMacdBear
+    bool c4 = buySide ? fEmaBull   : fEmaBear
+    bool c5 = buySide ? fAdxBull   : fAdxBear
+    bool c6 = buySide ? fVolBull   : fVolBear
+    bool c7 = buySide ? fMtfBull   : fMtfBear
+    bool c8 = buySide ? fMacroBull : fMacroBear
+    table.cell(checkTable, 0, 1, buySide ? "1  Price above VWAP" : "1  Price below VWAP", text_color = CLR_TEXT, text_size = size.small, text_halign = text.align_left)
+    table.cell(checkTable, 1, 1, tickText(c1), text_color = tickColor(c1), text_size = size.small)
+    table.cell(checkTable, 0, 2, buySide ? "2  RSI above 50" : "2  RSI below 50", text_color = CLR_TEXT, text_size = size.small, text_halign = text.align_left)
+    table.cell(checkTable, 1, 2, tickText(c2), text_color = tickColor(c2), text_size = size.small)
+    table.cell(checkTable, 0, 3, buySide ? "3  MACD above signal" : "3  MACD below signal", text_color = CLR_TEXT, text_size = size.small, text_halign = text.align_left)
+    table.cell(checkTable, 1, 3, tickText(c3), text_color = tickColor(c3), text_size = size.small)
+    table.cell(checkTable, 0, 4, buySide ? "4  Fast EMA above slow" : "4  Fast EMA below slow", text_color = CLR_TEXT, text_size = size.small, text_halign = text.align_left)
+    table.cell(checkTable, 1, 4, tickText(c4), text_color = tickColor(c4), text_size = size.small)
+    table.cell(checkTable, 0, 5, "5  ADX > 25 with price on EMA side", text_color = CLR_TEXT, text_size = size.small, text_halign = text.align_left)
+    table.cell(checkTable, 1, 5, tickText(c5), text_color = tickColor(c5), text_size = size.small)
+    table.cell(checkTable, 0, 6, buySide ? "6  Volume push, green bar" : "6  Volume push, red bar", text_color = CLR_TEXT, text_size = size.small, text_halign = text.align_left)
+    table.cell(checkTable, 1, 6, tickText(c6), text_color = tickColor(c6), text_size = size.small)
+    table.cell(checkTable, 0, 7, "7  " + confirmTfInput + " RSI " + (buySide ? "above 50" : "below 50"), text_color = CLR_TEXT, text_size = size.small, text_halign = text.align_left)
+    table.cell(checkTable, 1, 7, tickText(c7), text_color = tickColor(c7), text_size = size.small)
+    string macroRowText = not macroFactorOnInput ? "8  Macro factor (off)" : positiveLink ? (buySide ? "8  Nasdaq rising + link active" : "8  Nasdaq falling + link active") : (buySide ? "8  DXY weak + inverse link" : "8  DXY strong + inverse link")
+    table.cell(checkTable, 0, 8, macroRowText, text_color = CLR_TEXT, text_size = size.small, text_halign = text.align_left)
+    table.cell(checkTable, 1, 8, not macroFactorOnInput ? "–" : tickText(c8), text_color = tickColor(c8), text_size = size.small)
+    table.cell(checkTable, 0, 9, "BTC GATES", text_color = CLR_BTC, text_size = size.small, bgcolor = CLR_PANEL_HDR, text_halign = text.align_left)
+    table.cell(checkTable, 1, 9, "", text_color = CLR_BTC, text_size = size.small, bgcolor = CLR_PANEL_HDR)
+    table.cell(checkTable, 0, 10, "Bitcoin chart", text_color = CLR_TEXT, text_size = size.small, text_halign = text.align_left)
+    table.cell(checkTable, 1, 10, tickText(symbolGateOk), text_color = tickColor(symbolGateOk), text_size = size.small)
+    table.cell(checkTable, 0, 11, "Europe / US hours", text_color = CLR_TEXT, text_size = size.small, text_halign = text.align_left)
+    table.cell(checkTable, 1, 11, tickText(sessionGateOk), text_color = tickColor(sessionGateOk), text_size = size.small)
+    table.cell(checkTable, 0, 12, "Not a weekend", text_color = CLR_TEXT, text_size = size.small, text_halign = text.align_left)
+    table.cell(checkTable, 1, 12, tickText(weekendGateOk), text_color = tickColor(weekendGateOk), text_size = size.small)
+    table.cell(checkTable, 0, 13, "ADR not exhausted", text_color = CLR_TEXT, text_size = size.small, text_halign = text.align_left)
+    table.cell(checkTable, 1, 13, tickText(adrGateOk), text_color = tickColor(adrGateOk), text_size = size.small)
+    bool scoreOk = sideScore >= minScoreEff
+    table.cell(checkTable, 0, 14, "Score ≥ " + str.tostring(minScoreEff), text_color = CLR_TEXT, text_size = size.small, text_halign = text.align_left)
+    table.cell(checkTable, 1, 14, tickText(scoreOk), text_color = tickColor(scoreOk), text_size = size.small)
+    bool   readyNow  = scoreOk and btcGatesOk
+    string footText  = longEntry or shortEntry ? "SIGNAL NOW" : readyNow ? "ARMED · waiting for EMA cross" : not btcGatesOk ? "BLOCKED · " + blockReason : "Waiting for confluence"
+    color  footColor = longEntry or shortEntry or readyNow ? hdrCol : not btcGatesOk ? CLR_BEAR : CLR_MUTED
+    table.cell(checkTable, 0, 15, footText, text_color = color.white, text_size = size.small, bgcolor = color.new(footColor, 30), text_halign = text.align_left)
+    table.cell(checkTable, 1, 15, readyNow ? "●" : "…", text_color = color.white, text_size = size.small, bgcolor = color.new(footColor, 30))
+
+// ══════════════════════════════════════════════════════════════════════════════
+// PANEL — Strategy summary footer (static, position configurable)
+// ══════════════════════════════════════════════════════════════════════════════
+var table sumTable = table.new(tablePositionOf(summaryPosInput), 3, 2, bgcolor = CLR_PANEL_BG, border_color = CLR_PANEL_BORDER, border_width = 1, frame_color = CLR_PANEL_BORDER, frame_width = 1)
+if barstate.islast and showSummaryInput
+    table.cell(sumTable, 0, 0, "STRATEGY", text_color = CLR_TEXT, text_size = size.small, bgcolor = CLR_PANEL_HDR)
+    table.cell(sumTable, 1, 0, "BEST FOR", text_color = CLR_TEXT, text_size = size.small, bgcolor = CLR_PANEL_HDR)
+    table.cell(sumTable, 2, 0, "WORKS ON", text_color = CLR_TEXT, text_size = size.small, bgcolor = CLR_PANEL_HDR)
+    table.cell(sumTable, 0, 1, "8-Factor Bitcoin Confluence", text_color = CLR_MUTED, text_size = size.tiny)
+    table.cell(sumTable, 1, 1, "BTCUSD 5m - 1H intraday", text_color = CLR_MUTED, text_size = size.tiny)
+    table.cell(sumTable, 2, 1, "Spot · Perpetual · CME BTC / MBT", text_color = CLR_MUTED, text_size = size.tiny)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ALERTS
+// ══════════════════════════════════════════════════════════════════════════════
+alertcondition(longEntry, title = "BTC Long Entry", message = "[Viprasol BTC Sniper] LONG entry on {{ticker}} at {{close}} | TF: {{interval}}")
+alertcondition(shortEntry, title = "BTC Short Entry", message = "[Viprasol BTC Sniper] SHORT entry on {{ticker}} at {{close}} | TF: {{interval}}")
+alertcondition(longEntry or shortEntry, title = "Any BTC Entry", message = "[Viprasol BTC Sniper] Entry signal on {{ticker}} at {{close}} | TF: {{interval}}")
+alertcondition(ta.crossover(bullPct, 70), title = "Strong Bull Bias", message = "[Viprasol BTC Sniper] Bull confluence crossed above 70% on {{ticker}} at {{close}} | TF: {{interval}}")
+alertcondition(ta.crossover(bearPct, 70), title = "Strong Bear Bias", message = "[Viprasol BTC Sniper] Bear confluence crossed above 70% on {{ticker}} at {{close}} | TF: {{interval}}")
+alertcondition(macroLinkActive and not macroLinkActive[1], title = "Macro Link Active", message = "[Viprasol BTC Sniper] Bitcoin / macro correlation is active again on {{ticker}} at {{close}} | TF: {{interval}}")
+alertcondition(not macroLinkActive and macroLinkActive[1], title = "Macro Link Lost", message = "[Viprasol BTC Sniper] Bitcoin decoupled from macro on {{ticker}} at {{close}} - macro factor paused | TF: {{interval}}")
+alertcondition(not timeframe.isdwm and inBtcWindow and not inBtcWindow[1], title = "Liquidity Window Opened", message = "[Viprasol BTC Sniper] Europe / US window opened on {{ticker}} at {{close}} | TF: {{interval}}")
+alertcondition(isWeekend and not isWeekend[1], title = "Weekend Started", message = "[Viprasol BTC Sniper] Weekend started on {{ticker}} at {{close}} - new entries blocked until Monday | TF: {{interval}}")
+alertcondition(adrExhausted and not adrExhausted[1], title = "ADR Exhausted", message = "[Viprasol BTC Sniper] Average daily range exhausted on {{ticker}} at {{close}} - new entries blocked | TF: {{interval}}")
+alertcondition(longBlocked or shortBlocked, title = "Signal Blocked by BTC Filter", message = "[Viprasol BTC Sniper] EMA cross on {{ticker}} at {{close}} was blocked by a bitcoin filter | TF: {{interval}}")
+alertcondition(finalTpNow, title = "Final Target Hit", message = "[Viprasol BTC Sniper] A trade reached its final take-profit on {{ticker}} at {{close}} | TF: {{interval}}")
+alertcondition(stopHitNow, title = "Stop-Loss Hit", message = "[Viprasol BTC Sniper] A trade hit its stop-loss on {{ticker}} at {{close}} | TF: {{interval}}")
+alertcondition(beExitNow, title = "Breakeven Exit", message = "[Viprasol BTC Sniper] A trade returned to entry after TP1 and closed at breakeven on {{ticker}} at {{close}} | TF: {{interval}}")

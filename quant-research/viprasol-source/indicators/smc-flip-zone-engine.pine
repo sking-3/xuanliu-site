@@ -1,0 +1,336 @@
+// This Pine Script™ v6 indicator is subject to the terms of the Mozilla Public License 2.0
+// https://mozilla.org/MPL/2.0/
+// (c) Viprasol
+
+//@version=6
+indicator(
+    title            = "[Viprasol] SMC Flip Zone Engine",
+    shorttitle       = "VP - SMCFZ",
+    overlay          = true,
+    max_boxes_count  = 500,
+    max_labels_count = 500,
+    max_lines_count  = 100
+)
+
+// ══════════════════════════════════════════════════════════════
+// Constants — Viprasol Visual Identity
+// ══════════════════════════════════════════════════════════════
+
+const color BULL_SIGNATURE = #00ffaa     // Viprasol bull green
+const color BEAR_SIGNATURE = #ff3d71     // Viprasol bear pink-red
+const color INVALID_GRAY   = #6b7280     // broken / invalidated zone
+const color PANEL_BG        = #111725
+const color PANEL_HEADER    = #18233a
+const color PANEL_BORDER    = #000000
+const color PANEL_TEXT      = #e6e9f0
+const color PANEL_MUTED     = #8a93a6
+const color TP_LABEL_COL    = #22c55e
+const color ENTRY_LABEL_COL = #00bcd4
+const color SL_LABEL_COL    = #ef4444
+
+// ══════════════════════════════════════════════════════════════
+// Inputs
+// ══════════════════════════════════════════════════════════════
+
+string GRP_STRUCT  = "Market Structure"
+string GRP_FILTERS = "SMC Strict Filters (toggle on to filter noise)"
+string GRP_QUALITY = "Confluence & Quality (Viprasol)"
+string GRP_RISK    = "Risk Overlay (Viprasol)"
+string GRP_VISUAL  = "Visuals"
+string GRP_DASH    = "Dashboard / Display"
+
+// — Structure
+lookbackInput       = input.int(20, "Structure Lookback Period", minval = 5, group = GRP_STRUCT,
+     tooltip = "Bars used to define the swing high/low that, when broken, triggers a flip zone.")
+reactionLengthInput = input.int(7, "Reaction Leg Length", minval = 3, group = GRP_STRUCT,
+     tooltip = "Bars looked back to locate the trap / reaction leg before the break.")
+maxZonesInput       = input.int(20, "Max Zones Per Side", minval = 5, maxval = 100, group = GRP_STRUCT,
+     tooltip = "Oldest zones beyond this count are pruned from the chart.")
+
+// — SMC filters (default false so zones appear immediately — original behaviour)
+useSweepInput = input.bool(false, "1. Require Liquidity Sweep", group = GRP_FILTERS,
+     tooltip = "Only create a zone if the reaction leg swept the prior structural extreme (took liquidity).")
+useFvgInput   = input.bool(false, "2. Require FVG (Displacement)", group = GRP_FILTERS,
+     tooltip = "Only create a zone if a Fair Value Gap (displacement) is present around the break.")
+useHtfInput   = input.bool(false, "3. HTF Alignment (50 EMA)", group = GRP_FILTERS,
+     tooltip = "Only create bull zones above, and bear zones below, the higher-timeframe 50 EMA.")
+htfResInput   = input.timeframe("240", "HTF Resolution", group = GRP_FILTERS,
+     tooltip = "Higher timeframe used for the 50 EMA alignment filter.")
+useOteInput   = input.bool(false, "5. Require OTE (Discount/Premium)", group = GRP_FILTERS,
+     tooltip = "Only create a zone if its midpoint sits in the discount (bull) / premium (bear) half of the leg.")
+
+// — Confluence & quality (Viprasol)
+minScoreInput      = input.int(0, "Minimum Confluence Score (0-4)", minval = 0, maxval = 4, group = GRP_QUALITY,
+     tooltip = "Each zone scores 1 point per confluence met (sweep, FVG, OTE, HTF). Zones below this score are not drawn. 0 = draw all.")
+showGradeInput     = input.bool(true, "Show Quality Grade on Zone", group = GRP_QUALITY,
+     tooltip = "Label each zone A (>=3) / B (2) / C (<=1) based on its confluence score.")
+zoneCooldownInput  = input.int(0, "Zone Cooldown (bars)", minval = 0, maxval = 200, group = GRP_QUALITY,
+     tooltip = "Minimum bars between new zones on the same side. Prevents clustering. 0 = disabled.")
+
+// — Risk overlay (Viprasol)
+showLevelsInput      = input.bool(true, "Show SL/TP on Mitigation", group = GRP_RISK,
+     tooltip = "When price returns to (mitigates) a zone, project Entry / SL / TP lines from it.")
+showPriceLabelsInput = input.bool(true, "Show Price Labels (TP/Entry/SL)", group = GRP_RISK, active = showLevelsInput,
+     tooltip = "Draw colored price tags at the end of the Entry / SL / TP projection lines.")
+rrRatioInput         = input.float(2.0, "Risk : Reward", minval = 0.5, maxval = 10.0, step = 0.1, group = GRP_RISK, active = showLevelsInput,
+     tooltip = "Take-profit distance as a multiple of the zone height (the risk).")
+
+// — Visuals
+bullFillInput   = input.color(color.new(BULL_SIGNATURE, 85), "Bullish Fill", group = GRP_VISUAL)
+bullBorderInput = input.color(BULL_SIGNATURE, "Bullish Border", group = GRP_VISUAL)
+bearFillInput   = input.color(color.new(BEAR_SIGNATURE, 85), "Bearish Fill", group = GRP_VISUAL)
+bearBorderInput = input.color(BEAR_SIGNATURE, "Bearish Border", group = GRP_VISUAL)
+dimInvalidInput = input.bool(true, "Dim Invalidated Zones", group = GRP_VISUAL,
+     tooltip = "Recolor a zone gray once price closes through it (invalidation), instead of deleting it.")
+
+// — Dashboard
+showTableInput = input.bool(true, "Show Info Dashboard", group = GRP_DASH)
+dashPosInput   = input.string("Top Right", "Dashboard Position", options = ["Top Right", "Top Left", "Bottom Right", "Bottom Left"], group = GRP_DASH)
+
+// ══════════════════════════════════════════════════════════════
+// User-Defined Type — Flip Zone  [v6 feature]
+// ══════════════════════════════════════════════════════════════
+
+type FlipZone
+    box   bx
+    label lbl
+    float top
+    float bot
+    bool  isBull
+    int   score
+    bool  mitigated
+    bool  invalid
+    int   bornBar
+
+// ══════════════════════════════════════════════════════════════
+// Functions
+// ══════════════════════════════════════════════════════════════
+
+gradeOf(int score) =>
+    score >= 3 ? "A" : score == 2 ? "B" : "C"
+
+// ══════════════════════════════════════════════════════════════
+// Calculations — Structure & HTF
+// ══════════════════════════════════════════════════════════════
+
+float localHigh = ta.highest(high, lookbackInput)
+float localLow  = ta.lowest(low, lookbackInput)
+
+float htfEma     = nz(request.security(syminfo.tickerid, htfResInput, ta.ema(close, 50), lookahead = barmerge.lookahead_off), close)
+bool  htfBullRaw = close > htfEma
+bool  htfBearRaw = close < htfEma
+bool  htfBullOk  = not useHtfInput or htfBullRaw
+bool  htfBearOk  = not useHtfInput or htfBearRaw
+
+// State
+var array<FlipZone> bullZones = array.new<FlipZone>()
+var array<FlipZone> bearZones = array.new<FlipZone>()
+var int lastBullBar = -100000
+var int lastBearBar = -100000
+
+// Per-bar alert flags
+bool newBullZone   = false
+bool newBearZone   = false
+bool bullMitigated = false
+bool bearMitigated = false
+bool zoneInvalid   = false
+
+// Risk overlay drawings (latest only)
+var line  enLine = na
+var line  slLine = na
+var line  tpLine = na
+var label enLbl  = na
+var label slLbl  = na
+var label tpLbl  = na
+
+// ══════════════════════════════════════════════════════════════
+// Mitigation & invalidation of EXISTING zones  [new — Viprasol]
+// (processed before new-zone creation so a fresh zone is not self-mitigated)
+// ══════════════════════════════════════════════════════════════
+
+// Combined pass over both sides (inline — Pine functions cannot reassign globals)
+for z in array.concat(array.copy(bullZones), bearZones)
+    if not z.invalid
+        // Mitigation: price re-enters the zone for the first time
+        if not z.mitigated and low <= z.top and high >= z.bot
+            z.mitigated := true
+            if z.isBull
+                bullMitigated := true
+            else
+                bearMitigated := true
+            if showLevelsInput
+                float entry = z.isBull ? z.top : z.bot
+                float sl    = z.isBull ? z.bot : z.top
+                float risk  = z.top - z.bot
+                float tp    = z.isBull ? entry + risk * rrRatioInput : entry - risk * rrRatioInput
+                int x2 = bar_index + 12
+                line.delete(enLine)
+                line.delete(slLine)
+                line.delete(tpLine)
+                label.delete(enLbl)
+                label.delete(slLbl)
+                label.delete(tpLbl)
+                enLine := line.new(bar_index, entry, x2, entry, color = color.new(ENTRY_LABEL_COL, 10), width = 1)
+                slLine := line.new(bar_index, sl,    x2, sl,    color = color.new(SL_LABEL_COL, 10), width = 1, style = line.style_dashed)
+                tpLine := line.new(bar_index, tp,    x2, tp,    color = color.new(TP_LABEL_COL, 10), width = 1, style = line.style_dashed)
+                if showPriceLabelsInput
+                    enLbl := label.new(x2, entry, "ENTRY " + str.tostring(entry, format.mintick), style = label.style_label_left, color = ENTRY_LABEL_COL, textcolor = color.white, size = size.small)
+                    slLbl := label.new(x2, sl,    "SL "    + str.tostring(sl,    format.mintick), style = label.style_label_left, color = SL_LABEL_COL,    textcolor = color.white, size = size.small)
+                    tpLbl := label.new(x2, tp,    "TP "    + str.tostring(tp,    format.mintick), style = label.style_label_left, color = TP_LABEL_COL,    textcolor = color.white, size = size.small)
+        // Invalidation: price closes through the zone
+        bool broke = z.isBull ? close < z.bot : close > z.top
+        if broke
+            z.invalid := true
+            zoneInvalid := true
+            if dimInvalidInput
+                box.set_bgcolor(z.bx, color.new(INVALID_GRAY, 88))
+                box.set_border_color(z.bx, color.new(INVALID_GRAY, 40))
+
+// ══════════════════════════════════════════════════════════════
+// Bullish Flip Zone  [original logic + confluence scoring]
+// ══════════════════════════════════════════════════════════════
+
+bool supplyBroken = ta.crossover(close, localHigh[1])
+
+if supplyBroken
+    // Locate the trap / reaction leg before the breakout  [from original]
+    float flipLow  = low
+    float flipHigh = high
+    for i = 1 to reactionLengthInput
+        if low[i] < flipLow
+            flipLow  := low[i]
+            flipHigh := high[i]
+
+    // Confluence conditions (raw — independent of toggles)  [new scoring]
+    float prevStructLow = ta.lowest(low, lookbackInput)[reactionLengthInput + 1]
+    bool  sweptRaw = flipLow < prevStructLow
+    bool  fvgRaw   = low > high[2] or low[1] > high[3]
+    float legHigh  = high
+    float equilib  = flipLow + (legHigh - flipLow) * 0.5
+    float flipMid  = (flipHigh + flipLow) / 2
+    bool  oteRaw   = flipMid <= equilib
+
+    int score = (sweptRaw ? 1 : 0) + (fvgRaw ? 1 : 0) + (oteRaw ? 1 : 0) + (htfBullRaw ? 1 : 0)
+
+    // Original gating (toggle-respecting) + new quality/cooldown gates
+    bool passFilters = (not useSweepInput or sweptRaw) and (not useFvgInput or fvgRaw) and (not useOteInput or oteRaw) and htfBullOk
+    bool passQuality = score >= minScoreInput
+    bool passCool    = zoneCooldownInput == 0 or (bar_index - lastBullBar) >= zoneCooldownInput
+
+    if passFilters and passQuality and passCool
+        bool filtered = useFvgInput or useOteInput or useSweepInput or useHtfInput
+        string zoneTxt = (filtered ? "Bull Flip (Filtered)" : "Bull Flip") + (showGradeInput ? "  [" + gradeOf(score) + " " + str.tostring(score) + "/4]" : "")
+        box bx = box.new(bar_index - reactionLengthInput, flipHigh, bar_index + 15, flipLow,
+             bgcolor = bullFillInput, border_color = bullBorderInput, border_width = 2,
+             text = zoneTxt, text_color = bullBorderInput, text_size = size.small, text_valign = text.align_bottom)
+        FlipZone z = FlipZone.new(bx, na, flipHigh, flipLow, true, score, false, false, bar_index)
+        array.push(bullZones, z)
+        lastBullBar := bar_index
+        newBullZone := true
+
+// ══════════════════════════════════════════════════════════════
+// Bearish Flip Zone  [original logic + confluence scoring]
+// ══════════════════════════════════════════════════════════════
+
+bool demandBroken = ta.crossunder(close, localLow[1])
+
+if demandBroken
+    float flipHigh = high
+    float flipLow  = low
+    for i = 1 to reactionLengthInput
+        if high[i] > flipHigh
+            flipHigh := high[i]
+            flipLow  := low[i]
+
+    float prevStructHigh = ta.highest(high, lookbackInput)[reactionLengthInput + 1]
+    bool  sweptRaw = flipHigh > prevStructHigh
+    bool  fvgRaw   = high < low[2] or high[1] < low[3]
+    float legLow   = low
+    float equilib  = flipHigh - (flipHigh - legLow) * 0.5
+    float flipMid  = (flipHigh + flipLow) / 2
+    bool  oteRaw   = flipMid >= equilib
+
+    int score = (sweptRaw ? 1 : 0) + (fvgRaw ? 1 : 0) + (oteRaw ? 1 : 0) + (htfBearRaw ? 1 : 0)
+
+    bool passFilters = (not useSweepInput or sweptRaw) and (not useFvgInput or fvgRaw) and (not useOteInput or oteRaw) and htfBearOk
+    bool passQuality = score >= minScoreInput
+    bool passCool    = zoneCooldownInput == 0 or (bar_index - lastBearBar) >= zoneCooldownInput
+
+    if passFilters and passQuality and passCool
+        bool filtered = useFvgInput or useOteInput or useSweepInput or useHtfInput
+        string zoneTxt = (filtered ? "Bear Flip (Filtered)" : "Bear Flip") + (showGradeInput ? "  [" + gradeOf(score) + " " + str.tostring(score) + "/4]" : "")
+        box bx = box.new(bar_index - reactionLengthInput, flipHigh, bar_index + 15, flipLow,
+             bgcolor = bearFillInput, border_color = bearBorderInput, border_width = 2,
+             text = zoneTxt, text_color = bearBorderInput, text_size = size.small, text_valign = text.align_top)
+        FlipZone z = FlipZone.new(bx, na, flipHigh, flipLow, false, score, false, false, bar_index)
+        array.push(bearZones, z)
+        lastBearBar := bar_index
+        newBearZone := true
+
+// ══════════════════════════════════════════════════════════════
+// Cleanup — prune oldest zones  [from original, generalised]
+// ══════════════════════════════════════════════════════════════
+
+if array.size(bullZones) > maxZonesInput
+    FlipZone old = array.shift(bullZones)
+    box.delete(old.bx)
+if array.size(bearZones) > maxZonesInput
+    FlipZone old = array.shift(bearZones)
+    box.delete(old.bx)
+
+// ══════════════════════════════════════════════════════════════
+// Dashboard — active-zone counts & state
+// ══════════════════════════════════════════════════════════════
+
+countActive(array<FlipZone> zones) =>
+    int c = 0
+    for z in zones
+        if not z.invalid
+            c += 1
+    c
+
+dashPos = switch dashPosInput
+    "Top Left"     => position.top_left
+    "Bottom Right" => position.bottom_right
+    "Bottom Left"  => position.bottom_left
+    => position.top_right
+
+var table tbl = table.new(dashPos, 2, 7, bgcolor = PANEL_BG, border_color = PANEL_BORDER, border_width = 1, frame_color = PANEL_BORDER, frame_width = 1)
+
+if barstate.islast and showTableInput
+    int activeBull = countActive(bullZones)
+    int activeBear = countActive(bearZones)
+    string htfState = useHtfInput ? (htfBullRaw ? "▲ Bull" : "▼ Bear") : "Off"
+
+    table.cell(tbl, 0, 0, "VP — SMC Flip Zones", text_color = PANEL_TEXT, text_size = size.small, bgcolor = PANEL_HEADER)
+    table.cell(tbl, 1, 0, "● Live", text_color = BULL_SIGNATURE, text_size = size.small, bgcolor = PANEL_HEADER)
+
+    table.cell(tbl, 0, 1, "Active Bull Zones", text_color = PANEL_TEXT, text_size = size.small)
+    table.cell(tbl, 1, 1, str.tostring(activeBull), text_color = bullBorderInput, text_size = size.small)
+
+    table.cell(tbl, 0, 2, "Active Bear Zones", text_color = PANEL_TEXT, text_size = size.small)
+    table.cell(tbl, 1, 2, str.tostring(activeBear), text_color = bearBorderInput, text_size = size.small)
+
+    table.cell(tbl, 0, 3, "HTF (50 EMA)", text_color = PANEL_TEXT, text_size = size.small)
+    table.cell(tbl, 1, 3, htfState, text_color = useHtfInput ? (htfBullRaw ? bullBorderInput : bearBorderInput) : PANEL_MUTED, text_size = size.small)
+
+    table.cell(tbl, 0, 4, "Min Score", text_color = PANEL_TEXT, text_size = size.small)
+    table.cell(tbl, 1, 4, str.tostring(minScoreInput) + "/4", text_color = PANEL_MUTED, text_size = size.small)
+
+    int filterCount = (useSweepInput ? 1 : 0) + (useFvgInput ? 1 : 0) + (useOteInput ? 1 : 0) + (useHtfInput ? 1 : 0)
+    table.cell(tbl, 0, 5, "Filters On", text_color = PANEL_TEXT, text_size = size.small)
+    table.cell(tbl, 1, 5, str.tostring(filterCount) + "/4", text_color = filterCount > 0 ? BULL_SIGNATURE : PANEL_MUTED, text_size = size.small)
+
+    table.cell(tbl, 0, 6, "Grade", text_color = PANEL_MUTED, text_size = size.tiny)
+    table.cell(tbl, 1, 6, "A>=3 B=2 C<=1", text_color = PANEL_MUTED, text_size = size.tiny)
+
+// ══════════════════════════════════════════════════════════════
+// Alerts — dynamic messages with {{ticker}} {{close}} {{interval}}
+// ══════════════════════════════════════════════════════════════
+
+alertcondition(newBullZone, "VP SMCFZ New Bull Zone", "[Viprasol] SMC Flip Zone: new BULLISH flip zone on {{ticker}} ({{interval}}) at {{close}}")
+alertcondition(newBearZone, "VP SMCFZ New Bear Zone", "[Viprasol] SMC Flip Zone: new BEARISH flip zone on {{ticker}} ({{interval}}) at {{close}}")
+alertcondition(newBullZone or newBearZone, "VP SMCFZ Any New Zone", "[Viprasol] SMC Flip Zone: new flip zone on {{ticker}} ({{interval}}) at {{close}}")
+alertcondition(bullMitigated, "VP SMCFZ Bull Mitigation", "[Viprasol] SMC Flip Zone: price returned to a BULLISH zone (potential long) on {{ticker}} ({{interval}}) at {{close}}")
+alertcondition(bearMitigated, "VP SMCFZ Bear Mitigation", "[Viprasol] SMC Flip Zone: price returned to a BEARISH zone (potential short) on {{ticker}} ({{interval}}) at {{close}}")
+alertcondition(zoneInvalid, "VP SMCFZ Zone Invalidated", "[Viprasol] SMC Flip Zone: a flip zone was invalidated on {{ticker}} ({{interval}}) at {{close}}")

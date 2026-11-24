@@ -1,0 +1,742 @@
+// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Viprasol
+
+//@version=6
+indicator("Liquidity Hunt Pro [Viprasol]", shorttitle="Liquidity Hunt Pro Viprasol", overlay=true, max_labels_count=500, max_lines_count=100, max_boxes_count=30)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// INPUT GROUPS & OPTIONS
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+G_SIGNAL = "1 · Sweep + MSS Signal"
+G_RISK   = "2 · Entry, Stop & Targets"
+G_STRUCT = "3 · Structure & Sweeps"
+G_ZONES  = "4 · Order Blocks & FVG"
+G_LIQ    = "5 · Liquidity Lines"
+G_TREND  = "6 · EMA 50 / 200"
+G_DASH   = "7 · Dashboard"
+G_ALERT  = "8 · Alerts"
+
+enum ZoneMitigation
+    wickThrough  = "Wick through far edge"
+    closeThrough = "Close through far edge"
+    never        = "Never (always extend)"
+
+enum AlertFormat
+    plainText   = "Text"
+    jsonPayload = "JSON"
+
+enum StructureStyle
+    atLevel = "Line at the broken level"
+    onBar   = "Label on the bar (classic)"
+
+enum SweepMarks
+    signalOnly = "Only the sweep behind each signal"
+    every      = "Every sweep (classic)"
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// SETTINGS
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+swingLen     = input.int(5, "Swing Length", minval=2, group=G_SIGNAL, display=display.none, tooltip="Bars on each side that confirm a swing high / low (ta.pivothigh / ta.pivotlow). A swing is confirmed this many bars after it prints, so levels appear with that delay and do not repaint.")
+confirmBars  = input.int(10, "Max Bars After Sweep", minval=1, group=G_SIGNAL, display=display.none, tooltip="After a liquidity sweep, price has this many bars to close beyond the opposite swing (the market structure shift, MSS). If it does not, the setup expires.")
+atrLen       = input.int(14, "ATR Length", minval=1, group=G_SIGNAL, display=display.none, tooltip="ATR period used for the minimum reversal body.")
+minBodyATR   = input.float(0.15, "Min Reversal Body (ATR)", minval=0, step=0.05, group=G_SIGNAL, display=display.none, tooltip="The MSS candle must close in the signal direction with a body of at least this many ATRs. 0 accepts any body size.")
+freshShift   = input.bool(true, "Require Fresh Shift Close", group=G_SIGNAL, tooltip="On: the shift candle must be the first close beyond the opposite swing (the previous close was still on the other side). This stops repeat BUY / SELL signals a bar or two apart when price is already past the level. Off: any close beyond the level counts, as in the classic version.")
+signalGap    = input.int(10, "Bars Between Signals", minval=0, group=G_SIGNAL, display=display.none, tooltip="Minimum number of candles between two signals, in either direction. 0 = no gap (classic).")
+
+rr1 = input.float(1.0, "TP1 Risk:Reward", minval=0.5, step=0.5, group=G_RISK, display=display.none, tooltip="Target 1 distance as a multiple of the risk (entry to stop).")
+rr2 = input.float(2.0, "TP2 Risk:Reward", minval=1.0, step=0.5, group=G_RISK, display=display.none, tooltip="Target 2 distance as a multiple of the risk.")
+rr3 = input.float(3.0, "TP3 Risk:Reward", minval=1.5, step=0.5, group=G_RISK, display=display.none, tooltip="Target 3 distance as a multiple of the risk.")
+
+showLevels = input.bool(true, "Show Entry / SL / TP", group=G_RISK, tooltip="Draws entry, stop and three target lines with price labels for the latest signal. The stop sits at the sweep candle's extreme.")
+stopAtHit  = input.bool(true, "End Levels at Stop / Target", group=G_RISK, tooltip="On: the lines run from the signal bar until the trade ends. A target line stops with a tick on the bar price reaches it; all lines stop on the bar the stop (cross) or TP3 is hit. A bar that touches both the stop and a target counts as the stop. Off: the lines always reach the right edge (classic).")
+rightBars  = input.int(15, "Target Label Distance", minval=2, maxval=100, group=G_RISK, display=display.none, tooltip="How far right of the last bar the level lines and price labels reach. The liquidity labels use the same distance.")
+
+showBOS    = input.bool(true, "Show BOS / CHoCH", group=G_STRUCT, tooltip="Labels each structure break once per swing. BOS: the close breaks a swing in the direction of the current structure. CHoCH: the first break against it (a bullish break while structure was bearish, or the reverse).")
+structureStyle = input.enum(StructureStyle.atLevel, "Structure Style", group=G_STRUCT, display=display.none, tooltip="Line at the broken level: a thin dotted line from the broken swing to the break bar with a small BOS / CHoCH tag, only for the most recent breaks. Label on the bar: the classic BOS / CHoCH labels under / over every break bar.")
+structureKeep  = input.int(10, "Structure Breaks Shown", minval=1, maxval=40, group=G_STRUCT, display=display.none, tooltip="Line style only: how many of the most recent structure breaks stay on the chart. Older ones are removed so the chart stays readable.")
+showSweeps = input.bool(true, "Show Liquidity Sweeps", group=G_STRUCT, tooltip="Circle markers on liquidity sweeps (a wick beyond the latest swing high / low that closes back inside it). Which sweeps get a circle is set by Sweep Markers.")
+sweepMarks = input.enum(SweepMarks.signalOnly, "Sweep Markers", group=G_STRUCT, display=display.none, tooltip="Only the sweep behind each signal: a circle on the sweep bar that armed each BUY / SELL. Every sweep: a circle on every sweep bar.")
+strictSweeps = input.bool(false, "Ignore Sweeps of Broken Levels", group=G_STRUCT, tooltip="Off (default): a wick back through a swing level counts as a sweep even after an earlier close went beyond it, which also catches sweeps that take more than one bar (close beyond, then reclaim). On: only levels never closed through can be swept, which gives noticeably fewer BUY / SELL signals.")
+
+showOB     = input.bool(true, "Show Order Blocks", group=G_ZONES, tooltip="On each structure break, boxes the most recent opposite-colour candle before the break. The latest bullish and bearish order block are kept.")
+obLookback = input.int(15, "Order Block Search Bars", minval=2, maxval=50, group=G_ZONES, display=display.none, tooltip="How many bars before the break are searched for the order block candle.")
+showFVG    = input.bool(true, "Show Fair Value Gaps", group=G_ZONES, tooltip="Three-candle gap: bullish when the low is above the high two bars back, bearish when the high is below the low two bars back. The latest of each is kept.")
+extendBars = input.int(30, "Zone Extension Bars", minval=5, maxval=200, group=G_ZONES, display=display.none, tooltip="How far right of the last bar fresh zones are extended.")
+zoneMitigation = input.enum(ZoneMitigation.closeThrough, "Zone Mitigation", group=G_ZONES, display=display.none, tooltip="When an order block or FVG counts as used up. Bullish zones: price beyond the bottom edge. Bearish zones: price beyond the top edge. A mitigated zone stops extending and fades. Never keeps every zone extended.")
+
+showLiquidity = input.bool(true, "Show Liquidity High / Low Lines", group=G_LIQ, tooltip="Dashed line at the latest swing high (buy-side liquidity) and swing low (sell-side liquidity). The label reads SWEPT after a wick through; once a close takes the level out, the line stops there and fades.")
+
+showEMAs       = input.bool(true, "Show EMA 50 / 200", group=G_TREND, tooltip="Plots the 50 and 200 period EMAs of the close.")
+useTrendFilter = input.bool(false, "Enable EMA Trend Filter", group=G_TREND, tooltip="When on, BUY also needs EMA 50 above EMA 200 and SELL needs EMA 50 below EMA 200.")
+
+showDash     = input.bool(true, "Show Dashboard", group=G_DASH, tooltip="Last signal, timeframe, last structure break, fresh zones and EMA trend.")
+dashPosInput = input.string("Top Right", "Dashboard Position", options=["Top Left", "Top Center", "Top Right", "Middle Left", "Middle Center", "Middle Right", "Bottom Left", "Bottom Center", "Bottom Right"], group=G_DASH, display=display.none, tooltip="Move the dashboard if it covers price or the symbol header.")
+
+alertLevelsInput = input.bool(true, "BUY / SELL Alerts with Levels", group=G_ALERT, tooltip="Sends each BUY / SELL with entry, stop and the three targets through alert(). Create the alert with the condition: Any alert() function call.")
+alertFormatInput = input.enum(AlertFormat.plainText, "Alert Message Format", group=G_ALERT, display=display.none, tooltip="Text reads well in app and email notifications. JSON suits webhooks and automation tools.")
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// HELPERS
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+tablePosition(string pos) =>
+    switch pos
+        "Top Left"      => position.top_left
+        "Top Center"    => position.top_center
+        "Top Right"     => position.top_right
+        "Middle Left"   => position.middle_left
+        "Middle Center" => position.middle_center
+        "Middle Right"  => position.middle_right
+        "Bottom Left"   => position.bottom_left
+        "Bottom Center" => position.bottom_center
+        => position.bottom_right
+
+priceText(float value) =>
+    str.tostring(value, format.mintick)
+
+barsAgo(int eventBar) =>
+    na(eventBar) ? "" : " · " + str.tostring(bar_index - eventBar) + (bar_index - eventBar == 1 ? " bar ago" : " bars ago")
+
+// Plain EXCHANGE:SYMBOL, so modified tickers (extended hours, adjustments) keep the JSON valid
+symbolText() =>
+    syminfo.prefix + ":" + syminfo.ticker
+
+signalMessage(string side, float entryPrice, float stopPrice, float target1, float target2, float target3) =>
+    string message = ""
+    if alertFormatInput == AlertFormat.jsonPayload
+        message := '{"indicator":"Liquidity Hunt Pro Viprasol","signal":"' + side + '","ticker":"' + symbolText() + '","timeframe":"' + timeframe.period + '","entry":' + priceText(entryPrice) + ',"sl":' + priceText(stopPrice) + ',"tp1":' + priceText(target1) + ',"tp2":' + priceText(target2) + ',"tp3":' + priceText(target3) + '}'
+    else
+        message := "Liquidity Hunt Pro Viprasol | " + side + " | " + symbolText() + " | " + timeframe.period + " | Sweep + MSS | Entry " + priceText(entryPrice) + " | SL " + priceText(stopPrice) + " | TP1 " + priceText(target1) + " | TP2 " + priceText(target2) + " | TP3 " + priceText(target3)
+    message
+
+fadeZone(box zone, color baseColor, string zoneText) =>
+    box.set_right(zone, bar_index)
+    box.set_bgcolor(zone, color.new(baseColor, 94))
+    box.set_border_color(zone, color.new(baseColor, 60))
+    box.set_border_style(zone, line.style_dotted)
+    box.set_text(zone, zoneText + " · mitigated")
+    box.set_text_color(zone, color.new(baseColor, 45))
+
+// Stops a level line and its price label on the current bar, optionally marking it
+endLevel(line levelLine, label levelLabel, string mark) =>
+    line.set_x2(levelLine, bar_index)
+    label.set_x(levelLabel, bar_index)
+    if mark != ""
+        label.set_text(levelLabel, label.get_text(levelLabel) + " " + mark)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// SWING STRUCTURE
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ph = ta.pivothigh(high, swingLen, swingLen)
+pl = ta.pivotlow(low, swingLen, swingLen)
+
+var float swingHigh = na
+var float swingLow  = na
+var int   swingHighBar = na
+var int   swingLowBar  = na
+
+// A swing level is "taken" once a confirmed bar closes beyond it.
+// A taken level gives no further sweeps or structure breaks until a new swing replaces it.
+var bool swingHighTaken = false
+var bool swingLowTaken  = false
+
+if not na(ph)
+    swingHigh := ph
+    swingHighBar := bar_index - swingLen
+    swingHighTaken := false
+
+if not na(pl)
+    swingLow := pl
+    swingLowBar := bar_index - swingLen
+    swingLowTaken := false
+
+atr  = ta.atr(atrLen)
+body = math.abs(close - open)
+
+bullCandle = close > open and body >= atr * minBodyATR
+bearCandle = close < open and body >= atr * minBodyATR
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// LIQUIDITY HIGH / LOW LINES
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+var line liquidityHighLine = na
+var line liquidityLowLine  = na
+
+var label liquidityHighLabel = na
+var label liquidityLowLabel  = na
+
+if showLiquidity and not na(ph)
+    line.delete(liquidityHighLine)
+    label.delete(liquidityHighLabel)
+
+    liquidityHighLine := line.new(
+         x1=bar_index - swingLen,
+         y1=ph,
+         x2=bar_index + rightBars,
+         y2=ph,
+         color=color.orange,
+         width=2,
+         style=line.style_dashed)
+
+    liquidityHighLabel := label.new(
+         x=bar_index + rightBars,
+         y=ph,
+         text="BUY-SIDE LIQUIDITY",
+         style=label.style_label_left,
+         color=color.orange,
+         textcolor=color.white,
+         size=size.tiny)
+
+if showLiquidity and not na(pl)
+    line.delete(liquidityLowLine)
+    label.delete(liquidityLowLabel)
+
+    liquidityLowLine := line.new(
+         x1=bar_index - swingLen,
+         y1=pl,
+         x2=bar_index + rightBars,
+         y2=pl,
+         color=color.aqua,
+         width=2,
+         style=line.style_dashed)
+
+    liquidityLowLabel := label.new(
+         x=bar_index + rightBars,
+         y=pl,
+         text="SELL-SIDE LIQUIDITY",
+         style=label.style_label_left,
+         color=color.aqua,
+         textcolor=color.black,
+         size=size.tiny)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// EMA 50 / 200 TREND FILTER
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ema50  = ta.ema(close, 50)
+ema200 = ta.ema(close, 200)
+
+bullTrend = ema50 > ema200
+bearTrend = ema50 < ema200
+
+trendStatus = bullTrend ? "BULLISH" : bearTrend ? "BEARISH" : "NEUTRAL"
+
+plot(showEMAs ? ema50 : na, title="EMA 50", color=color.yellow, linewidth=2)
+plot(showEMAs ? ema200 : na, title="EMA 200", color=color.fuchsia, linewidth=2)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// LIQUIDITY SWEEPS
+// Wick beyond the swing level, then close back inside it.
+// With "Ignore Sweeps of Broken Levels" on, levels already closed through are skipped.
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+sweepLow  = barstate.isconfirmed and not na(swingLow) and (not strictSweeps or not swingLowTaken) and low < swingLow and close > swingLow
+sweepHigh = barstate.isconfirmed and not na(swingHigh) and (not strictSweeps or not swingHighTaken) and high > swingHigh and close < swingHigh
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// STRUCTURE BREAKS: BOS / CHoCH
+// The crosses run on every bar, outside the and-chain, so their history stays consistent.
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+crossAboveSwingHigh = ta.crossover(close, swingHigh)
+crossBelowSwingLow  = ta.crossunder(close, swingLow)
+
+bullBreak = barstate.isconfirmed and not na(swingHigh) and not swingHighTaken and crossAboveSwingHigh
+bearBreak = barstate.isconfirmed and not na(swingLow) and not swingLowTaken and crossBelowSwingLow
+
+// structureDir: 1 after a bullish break, -1 after a bearish break, 0 before the first break
+var int structureDir = 0
+
+bullCHoCH = bullBreak and structureDir == -1
+bearCHoCH = bearBreak and structureDir == 1
+bullBOS   = bullBreak and not bullCHoCH
+bearBOS   = bearBreak and not bearCHoCH
+
+var string lastStructure    = "WAITING"
+var int    lastStructureBar = na
+
+if bullBreak
+    structureDir     := 1
+    lastStructure    := bullCHoCH ? "BULLISH CHoCH" : "BULLISH BOS"
+    lastStructureBar := bar_index
+
+if bearBreak
+    structureDir     := -1
+    lastStructure    := bearCHoCH ? "BEARISH CHoCH" : "BEARISH BOS"
+    lastStructureBar := bar_index
+
+// Line style: dotted line from the broken swing to the break bar with a small tag; only the latest breaks are kept
+STRUCT_BULL_COLOR = color.teal
+STRUCT_BEAR_COLOR = color.rgb(239, 83, 80)
+
+var array<line>  structureLines = array.new<line>()
+var array<label> structureTags  = array.new<label>()
+
+useLineStyle = structureStyle == StructureStyle.atLevel
+
+if showBOS and useLineStyle and (bullBreak or bearBreak)
+    bool   isBull   = bullBreak
+    float  level    = isBull ? swingHigh : swingLow
+    int    fromBar  = isBull ? swingHighBar : swingLowBar
+    color  tagColor = isBull ? STRUCT_BULL_COLOR : STRUCT_BEAR_COLOR
+    string tagText  = (isBull ? bullCHoCH : bearCHoCH) ? "CHoCH" : "BOS"
+    array.push(structureLines, line.new(fromBar, level, bar_index, level, color=color.new(tagColor, 20), style=line.style_dotted, width=1))
+    array.push(structureTags, label.new(math.round((fromBar + bar_index) / 2), level, tagText, style=isBull ? label.style_label_down : label.style_label_up, color=color.new(tagColor, 100), textcolor=tagColor, size=size.tiny))
+    if array.size(structureLines) > structureKeep
+        line.delete(array.shift(structureLines))
+        label.delete(array.shift(structureTags))
+
+NO_STATUS_LINE = display.all - display.status_line
+
+plotshape(showBOS and not useLineStyle and bullBOS, title="Bullish BOS", text="BOS ↑", style=shape.labelup, location=location.belowbar, color=color.teal, textcolor=color.white, size=size.tiny, display=NO_STATUS_LINE)
+plotshape(showBOS and not useLineStyle and bearBOS, title="Bearish BOS", text="BOS ↓", style=shape.labeldown, location=location.abovebar, color=color.maroon, textcolor=color.white, size=size.tiny, display=NO_STATUS_LINE)
+plotshape(showBOS and not useLineStyle and bullCHoCH, title="Bullish CHoCH", text="CHoCH ↑", style=shape.labelup, location=location.belowbar, color=color.teal, textcolor=color.white, size=size.tiny, display=NO_STATUS_LINE)
+plotshape(showBOS and not useLineStyle and bearCHoCH, title="Bearish CHoCH", text="CHoCH ↓", style=shape.labeldown, location=location.abovebar, color=color.maroon, textcolor=color.white, size=size.tiny, display=NO_STATUS_LINE)
+
+everySweep = sweepMarks == SweepMarks.every
+
+plotshape(showSweeps and everySweep and sweepLow, title="Low Liquidity Sweep", style=shape.circle, location=location.belowbar, color=color.aqua, size=size.tiny, display=NO_STATUS_LINE)
+plotshape(showSweeps and everySweep and sweepHigh, title="High Liquidity Sweep", style=shape.circle, location=location.abovebar, color=color.orange, size=size.tiny, display=NO_STATUS_LINE)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// TAKEN / SWEPT LIQUIDITY
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+highTaken = barstate.isconfirmed and not na(swingHigh) and not swingHighTaken and close > swingHigh
+lowTaken  = barstate.isconfirmed and not na(swingLow) and not swingLowTaken and close < swingLow
+
+if highTaken
+    swingHighTaken := true
+
+if lowTaken
+    swingLowTaken := true
+
+if showLiquidity
+    if sweepHigh and not na(liquidityHighLabel)
+        label.set_text(liquidityHighLabel, "BUY-SIDE LIQUIDITY SWEPT")
+
+    if sweepLow and not na(liquidityLowLabel)
+        label.set_text(liquidityLowLabel, "SELL-SIDE LIQUIDITY SWEPT")
+
+    if highTaken and not na(liquidityHighLine)
+        line.set_x2(liquidityHighLine, bar_index)
+        line.set_color(liquidityHighLine, color.new(color.orange, 65))
+        line.set_style(liquidityHighLine, line.style_dotted)
+        label.delete(liquidityHighLabel)
+        liquidityHighLabel := na
+
+    if lowTaken and not na(liquidityLowLine)
+        line.set_x2(liquidityLowLine, bar_index)
+        line.set_color(liquidityLowLine, color.new(color.aqua, 65))
+        line.set_style(liquidityLowLine, line.style_dotted)
+        label.delete(liquidityLowLabel)
+        liquidityLowLabel := na
+
+// Keep live liquidity lines on the right side
+if barstate.islast and showLiquidity
+    if not na(liquidityHighLine) and not swingHighTaken
+        line.set_x2(liquidityHighLine, bar_index + rightBars)
+        label.set_x(liquidityHighLabel, bar_index + rightBars)
+
+    if not na(liquidityLowLine) and not swingLowTaken
+        line.set_x2(liquidityLowLine, bar_index + rightBars)
+        label.set_x(liquidityLowLabel, bar_index + rightBars)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// ORDER BLOCKS
+// Latest bullish and bearish OB are displayed
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+var box bullOB = na
+var box bearOB = na
+
+var bool bullOBMitigated = false
+var bool bearOBMitigated = false
+var int  bullOBBar = na
+var int  bearOBBar = na
+
+if showOB and bullBreak
+    int bullOffset = na
+    float bullTop = na
+    float bullBottom = na
+
+    for i = 1 to obLookback
+        if na(bullOffset) and close[i] < open[i]
+            bullOffset := i
+            bullTop := high[i]
+            bullBottom := low[i]
+
+    if not na(bullOffset)
+        if not na(bullOB)
+            box.delete(bullOB)
+
+        bullOB := box.new(left=bar_index - bullOffset, top=bullTop, right=bar_index + extendBars, bottom=bullBottom, xloc=xloc.bar_index, bgcolor=color.new(color.green, 85), border_color=color.lime, text="Bullish OB", text_color=color.lime, text_size=size.tiny)
+        bullOBMitigated := false
+        bullOBBar := bar_index
+
+if showOB and bearBreak
+    int bearOffset = na
+    float bearTop = na
+    float bearBottom = na
+
+    for i = 1 to obLookback
+        if na(bearOffset) and close[i] > open[i]
+            bearOffset := i
+            bearTop := high[i]
+            bearBottom := low[i]
+
+    if not na(bearOffset)
+        if not na(bearOB)
+            box.delete(bearOB)
+
+        bearOB := box.new(left=bar_index - bearOffset, top=bearTop, right=bar_index + extendBars, bottom=bearBottom, xloc=xloc.bar_index, bgcolor=color.new(color.red, 85), border_color=color.red, text="Bearish OB", text_color=color.red, text_size=size.tiny)
+        bearOBMitigated := false
+        bearOBBar := bar_index
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// FAIR VALUE GAPS (FVG)
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+var box bullFVG = na
+var box bearFVG = na
+
+var bool bullFVGMitigated = false
+var bool bearFVGMitigated = false
+var int  bullFVGBar = na
+var int  bearFVGBar = na
+
+bullGap = barstate.isconfirmed and bar_index >= 2 and low > high[2]
+bearGap = barstate.isconfirmed and bar_index >= 2 and high < low[2]
+
+if showFVG and bullGap
+    if not na(bullFVG)
+        box.delete(bullFVG)
+
+    bullFVG := box.new(left=bar_index - 2, top=low, right=bar_index + extendBars, bottom=high[2], xloc=xloc.bar_index, bgcolor=color.new(color.aqua, 86), border_color=color.aqua, text="Bullish FVG", text_color=color.aqua, text_size=size.tiny)
+    bullFVGMitigated := false
+    bullFVGBar := bar_index
+
+if showFVG and bearGap
+    if not na(bearFVG)
+        box.delete(bearFVG)
+
+    bearFVG := box.new(left=bar_index - 2, top=low[2], right=bar_index + extendBars, bottom=high, xloc=xloc.bar_index, bgcolor=color.new(color.orange, 86), border_color=color.orange, text="Bearish FVG", text_color=color.orange, text_size=size.tiny)
+    bearFVGMitigated := false
+    bearFVGBar := bar_index
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// ZONE MITIGATION
+// Bullish zones are used up when price goes below their bottom edge,
+// bearish zones when price goes above their top edge (wick or close, per setting).
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+useMitigation = zoneMitigation != ZoneMitigation.never
+wickMode      = zoneMitigation == ZoneMitigation.wickThrough
+bullZoneProbe = wickMode ? low : close
+bearZoneProbe = wickMode ? high : close
+
+if useMitigation and barstate.isconfirmed
+    if not na(bullOB) and not bullOBMitigated and bar_index > bullOBBar and bullZoneProbe < box.get_bottom(bullOB)
+        bullOBMitigated := true
+        fadeZone(bullOB, color.lime, "Bullish OB")
+
+    if not na(bearOB) and not bearOBMitigated and bar_index > bearOBBar and bearZoneProbe > box.get_top(bearOB)
+        bearOBMitigated := true
+        fadeZone(bearOB, color.red, "Bearish OB")
+
+    if not na(bullFVG) and not bullFVGMitigated and bar_index > bullFVGBar and bullZoneProbe < box.get_bottom(bullFVG)
+        bullFVGMitigated := true
+        fadeZone(bullFVG, color.aqua, "Bullish FVG")
+
+    if not na(bearFVG) and not bearFVGMitigated and bar_index > bearFVGBar and bearZoneProbe > box.get_top(bearFVG)
+        bearFVGMitigated := true
+        fadeZone(bearFVG, color.orange, "Bearish FVG")
+
+// Keep fresh zones extended to the right
+if barstate.islast
+    if not na(bullOB) and not bullOBMitigated
+        box.set_right(bullOB, bar_index + extendBars)
+
+    if not na(bearOB) and not bearOBMitigated
+        box.set_right(bearOB, bar_index + extendBars)
+
+    if not na(bullFVG) and not bullFVGMitigated
+        box.set_right(bullFVG, bar_index + extendBars)
+
+    if not na(bearFVG) and not bearFVGMitigated
+        box.set_right(bearFVG, bar_index + extendBars)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// SWEEP + MSS CONFIRMATION
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+var bool waitBull = false
+var bool waitBear = false
+
+var float bullSL = na
+var float bearSL = na
+var float bullMSS = na
+var float bearMSS = na
+
+var int bullBar = na
+var int bearBar = na
+
+if sweepLow and not na(swingHigh)
+    waitBull := true
+    waitBear := false
+    bullSL := low
+    bullMSS := swingHigh
+    bullBar := bar_index
+
+if sweepHigh and not na(swingLow)
+    waitBear := true
+    waitBull := false
+    bearSL := high
+    bearMSS := swingLow
+    bearBar := bar_index
+
+if waitBull and not na(bullBar) and bar_index - bullBar > confirmBars
+    waitBull := false
+
+if waitBear and not na(bearBar) and bar_index - bearBar > confirmBars
+    waitBear := false
+
+// Fresh shift: the previous close was still on the other side of the level, so a signal needs a new close through it
+freshBullShift = not freshShift or close[1] <= bullMSS
+freshBearShift = not freshShift or close[1] >= bearMSS
+
+var int lastSignalBar = na
+gapOK = na(lastSignalBar) or bar_index - lastSignalBar > signalGap
+
+buySignal = barstate.isconfirmed and waitBull and not na(bullMSS) and close > bullMSS and freshBullShift and bullCandle and close > bullSL
+sellSignal = barstate.isconfirmed and waitBear and not na(bearMSS) and close < bearMSS and freshBearShift and bearCandle and close < bearSL
+
+// EMA filter is applied only when enabled.
+validBuy = buySignal and close - bullSL > syminfo.mintick and (not useTrendFilter or bullTrend) and gapOK
+validSell = sellSignal and bearSL - close > syminfo.mintick and (not useTrendFilter or bearTrend) and gapOK
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// ENTRY / STOP LOSS / THREE TARGETS
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+var float entry = na
+var float sl = na
+var float tp1 = na
+var float tp2 = na
+var float tp3 = na
+
+var string lastSignal = "WAITING"
+
+if validBuy
+    entry := close
+    sl := bullSL
+
+    float riskBuy = entry - sl
+
+    tp1 := entry + riskBuy * rr1
+    tp2 := entry + riskBuy * rr2
+    tp3 := entry + riskBuy * rr3
+
+    lastSignal := "BUY"
+    lastSignalBar := bar_index
+    waitBull := false
+
+if validSell
+    entry := close
+    sl := bearSL
+
+    float riskSell = sl - entry
+
+    tp1 := entry - riskSell * rr1
+    tp2 := entry - riskSell * rr2
+    tp3 := entry - riskSell * rr3
+
+    lastSignal := "SELL"
+    lastSignalBar := bar_index
+    waitBear := false
+
+plotshape(validBuy, title="BUY Signal", text="BUY", style=shape.labelup, location=location.belowbar, color=color.green, textcolor=color.white, size=size.small, display=NO_STATUS_LINE)
+plotshape(validSell, title="SELL Signal", text="SELL", style=shape.labeldown, location=location.abovebar, color=color.red, textcolor=color.white, size=size.small, display=NO_STATUS_LINE)
+
+// Signal-only sweep markers: a circle on the sweep bar that armed this BUY / SELL
+if showSweeps and not everySweep
+    if validBuy
+        label.new(bullBar, bullSL, "", yloc=yloc.belowbar, style=label.style_circle, color=color.aqua, size=size.tiny)
+    if validSell
+        label.new(bearBar, bearSL, "", yloc=yloc.abovebar, style=label.style_circle, color=color.orange, size=size.tiny)
+
+if alertLevelsInput and validBuy
+    alert(signalMessage("BUY", entry, sl, tp1, tp2, tp3), alert.freq_once_per_bar_close)
+
+if alertLevelsInput and validSell
+    alert(signalMessage("SELL", entry, sl, tp1, tp2, tp3), alert.freq_once_per_bar_close)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// CLEAN HORIZONTAL LEVELS + RIGHT LABELS
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+var line entryLine = na
+var line slLine = na
+var line tp1Line = na
+var line tp2Line = na
+var line tp3Line = na
+
+var label entryLabel = na
+var label slLabel = na
+var label tp1Label = na
+var label tp2Label = na
+var label tp3Label = na
+
+if validBuy or validSell
+    line.delete(entryLine)
+    line.delete(slLine)
+    line.delete(tp1Line)
+    line.delete(tp2Line)
+    line.delete(tp3Line)
+
+    label.delete(entryLabel)
+    label.delete(slLabel)
+    label.delete(tp1Label)
+    label.delete(tp2Label)
+    label.delete(tp3Label)
+
+    if showLevels
+        entryLine := line.new(bar_index, entry, bar_index + rightBars, entry, color=color.blue, width=2)
+        slLine := line.new(bar_index, sl, bar_index + rightBars, sl, color=color.red, width=2)
+        tp1Line := line.new(bar_index, tp1, bar_index + rightBars, tp1, color=color.lime, width=2)
+        tp2Line := line.new(bar_index, tp2, bar_index + rightBars, tp2, color=color.green, width=2)
+        tp3Line := line.new(bar_index, tp3, bar_index + rightBars, tp3, color=color.teal, width=2)
+
+        entryLabel := label.new(bar_index + rightBars, entry, "ENTRY " + priceText(entry), style=label.style_label_left, color=color.blue, textcolor=color.white, size=size.small, text_formatting=text.format_bold)
+        slLabel := label.new(bar_index + rightBars, sl, "SL " + priceText(sl), style=label.style_label_left, color=color.red, textcolor=color.white, size=size.small, text_formatting=text.format_bold)
+        tp1Label := label.new(bar_index + rightBars, tp1, "TP1 " + priceText(tp1), style=label.style_label_left, color=color.lime, textcolor=color.black, size=size.small, text_formatting=text.format_bold)
+        tp2Label := label.new(bar_index + rightBars, tp2, "TP2 " + priceText(tp2), style=label.style_label_left, color=color.green, textcolor=color.white, size=size.small, text_formatting=text.format_bold)
+        tp3Label := label.new(bar_index + rightBars, tp3, "TP3 " + priceText(tp3), style=label.style_label_left, color=color.teal, textcolor=color.white, size=size.small, text_formatting=text.format_bold)
+
+// Trade tracking: the latest signal's lines run until the stop or TP3 is hit
+var bool tradeOpen = false
+var int  tradeDir  = 0
+var int  tradeBar  = na
+var bool tp1Done   = false
+var bool tp2Done   = false
+var bool tp3Done   = false
+
+if validBuy or validSell
+    tradeOpen := true
+    tradeDir  := validBuy ? 1 : -1
+    tradeBar  := bar_index
+    tp1Done   := false
+    tp2Done   := false
+    tp3Done   := false
+
+if stopAtHit and tradeOpen and barstate.isconfirmed and bar_index > tradeBar
+    bool isLong  = tradeDir == 1
+    bool drawn   = not na(entryLine)
+    bool stopHit = isLong ? low <= sl : high >= sl
+    bool hit1    = not tp1Done and (isLong ? high >= tp1 : low <= tp1)
+    bool hit2    = not tp2Done and (isLong ? high >= tp2 : low <= tp2)
+    bool hit3    = not tp3Done and (isLong ? high >= tp3 : low <= tp3)
+
+    // A bar that touches the stop and a target is counted as the stop (conservative)
+    if stopHit
+        tradeOpen := false
+        if drawn
+            endLevel(slLine, slLabel, "✗")
+    else
+        if hit1
+            tp1Done := true
+            if drawn
+                endLevel(tp1Line, tp1Label, "✓")
+        if hit2
+            tp2Done := true
+            if drawn
+                endLevel(tp2Line, tp2Label, "✓")
+        if hit3
+            tp3Done := true
+            tradeOpen := false
+            if drawn
+                endLevel(tp3Line, tp3Label, "✓")
+
+    if not tradeOpen and drawn
+        endLevel(entryLine, entryLabel, "")
+        if not stopHit
+            endLevel(slLine, slLabel, "")
+        if not tp1Done
+            endLevel(tp1Line, tp1Label, "")
+        if not tp2Done
+            endLevel(tp2Line, tp2Label, "")
+        if not tp3Done
+            endLevel(tp3Line, tp3Label, "")
+
+// Open trade (or classic mode): keep the levels reaching the right edge
+if barstate.islast and showLevels and not na(entryLine) and (tradeOpen or not stopAtHit)
+    int openEnd = bar_index + rightBars
+    line.set_x2(entryLine, openEnd)
+    label.set_x(entryLabel, openEnd)
+    line.set_x2(slLine, openEnd)
+    label.set_x(slLabel, openEnd)
+    if not tp1Done
+        line.set_x2(tp1Line, openEnd)
+        label.set_x(tp1Label, openEnd)
+    if not tp2Done
+        line.set_x2(tp2Line, openEnd)
+        label.set_x(tp2Label, openEnd)
+    if not tp3Done
+        line.set_x2(tp3Line, openEnd)
+        label.set_x(tp3Label, openEnd)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// DASHBOARD
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+var table dash = table.new(tablePosition(dashPosInput), 2, 7, bgcolor=color.rgb(16, 22, 36), border_width=1)
+
+if barstate.isfirst
+    table.merge_cells(dash, 0, 0, 1, 0)
+
+if barstate.islast and showDash
+    string freshZones = ""
+    if not na(bullOB) and not bullOBMitigated
+        freshZones += "Bull OB  "
+    if not na(bearOB) and not bearOBMitigated
+        freshZones += "Bear OB  "
+    if not na(bullFVG) and not bullFVGMitigated
+        freshZones += "Bull FVG  "
+    if not na(bearFVG) and not bearFVGMitigated
+        freshZones += "Bear FVG"
+    string zonesText = not showOB and not showFVG ? "OFF" : not useMitigation ? "MITIGATION OFF" : freshZones == "" ? "NONE FRESH" : str.trim(freshZones)
+
+    table.cell(dash, 0, 0, "Liquidity Hunt Pro Viprasol", bgcolor=color.rgb(25, 35, 55), text_color=color.white)
+
+    table.cell(dash, 0, 1, "Last Signal", text_color=color.white)
+    table.cell(dash, 1, 1, lastSignal + barsAgo(lastSignalBar), text_color=lastSignal == "BUY" ? color.lime : lastSignal == "SELL" ? color.red : color.white)
+
+    table.cell(dash, 0, 2, "Timeframe", text_color=color.white)
+    table.cell(dash, 1, 2, timeframe.period, text_color=color.white)
+
+    table.cell(dash, 0, 3, "Structure", text_color=color.white)
+    table.cell(dash, 1, 3, lastStructure + barsAgo(lastStructureBar), text_color=structureDir == 1 ? color.lime : structureDir == -1 ? color.red : color.white)
+
+    table.cell(dash, 0, 4, "SMC Tools", text_color=color.white)
+    table.cell(dash, 1, 4, "OB + FVG + BOS / CHoCH", text_color=color.aqua)
+
+    table.cell(dash, 0, 5, "EMA TREND", text_color=color.white)
+    table.cell(dash, 1, 5, trendStatus, text_color=bullTrend ? color.lime : bearTrend ? color.red : color.white)
+
+    table.cell(dash, 0, 6, "Fresh Zones", text_color=color.white)
+    table.cell(dash, 1, 6, zonesText, text_color=color.aqua)
+
+if barstate.islast and not showDash
+    table.clear(dash, 0, 0, 1, 6)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// ALERTS
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+alertcondition(validBuy, title="Liquidity Hunt Pro Viprasol - BUY", message="BUY | {{ticker}} | {{interval}} | Close: {{close}} | Sweep + MSS")
+alertcondition(validSell, title="Liquidity Hunt Pro Viprasol - SELL", message="SELL | {{ticker}} | {{interval}} | Close: {{close}} | Sweep + MSS")
+
+alertcondition(bullBOS, title="Liquidity Hunt Pro Viprasol - Bullish BOS", message="Bullish BOS | {{ticker}} | {{interval}} | Close: {{close}}")
+alertcondition(bearBOS, title="Liquidity Hunt Pro Viprasol - Bearish BOS", message="Bearish BOS | {{ticker}} | {{interval}} | Close: {{close}}")
+
+alertcondition(bullBreak, title="Liquidity Hunt Pro Viprasol - Bullish Structure Break (BOS or CHoCH)", message="Bullish structure break (BOS or CHoCH) | {{ticker}} | {{interval}} | Close: {{close}}")
+alertcondition(bearBreak, title="Liquidity Hunt Pro Viprasol - Bearish Structure Break (BOS or CHoCH)", message="Bearish structure break (BOS or CHoCH) | {{ticker}} | {{interval}} | Close: {{close}}")
+
+alertcondition(bullCHoCH, title="Liquidity Hunt Pro Viprasol - Bullish CHoCH", message="Bullish CHoCH | {{ticker}} | {{interval}} | Close: {{close}}")
+alertcondition(bearCHoCH, title="Liquidity Hunt Pro Viprasol - Bearish CHoCH", message="Bearish CHoCH | {{ticker}} | {{interval}} | Close: {{close}}")
+
+alertcondition(sweepLow, title="Liquidity Hunt Pro Viprasol - Sell-Side Liquidity Sweep", message="Sell-side liquidity sweep (wick below swing low, close back above) | {{ticker}} | {{interval}} | Close: {{close}}")
+alertcondition(sweepHigh, title="Liquidity Hunt Pro Viprasol - Buy-Side Liquidity Sweep", message="Buy-side liquidity sweep (wick above swing high, close back below) | {{ticker}} | {{interval}} | Close: {{close}}")
+
+alertcondition(bullGap, title="Liquidity Hunt Pro Viprasol - Bullish FVG", message="Bullish FVG formed | {{ticker}} | {{interval}} | Close: {{close}}")
+alertcondition(bearGap, title="Liquidity Hunt Pro Viprasol - Bearish FVG", message="Bearish FVG formed | {{ticker}} | {{interval}} | Close: {{close}}")
+
+alertcondition(ta.crossover(ema50, ema200), title="Liquidity Hunt Pro Viprasol - EMA Bullish Trend", message="EMA 50 crossed above EMA 200 | {{ticker}} | {{interval}}")
+alertcondition(ta.crossunder(ema50, ema200), title="Liquidity Hunt Pro Viprasol - EMA Bearish Trend", message="EMA 50 crossed below EMA 200 | {{ticker}} | {{interval}}")

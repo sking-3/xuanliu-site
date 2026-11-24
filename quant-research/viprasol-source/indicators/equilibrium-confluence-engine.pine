@@ -1,0 +1,470 @@
+// This Pine Script™ v6 indicator is subject to the terms of the Mozilla Public License 2.0
+// https://mozilla.org/MPL/2.0/
+// (c) Viprasol
+//
+// Original Viprasol indicator. Combines standard, public-domain trading concepts
+// (EMA trend, Fibonacci equilibrium, market-structure CHoCH/BOS, liquidity sweeps,
+// fair value gaps) into a single multi-factor confluence engine.
+
+//@version=6
+indicator(
+    title            = "[Viprasol] Equilibrium Confluence Engine",
+    shorttitle       = "VP - ECE",
+    overlay          = true,
+    max_lines_count  = 500,
+    max_labels_count = 500,
+    max_boxes_count  = 500
+)
+
+// ══════════════════════════════════════════════════════════════
+// Constants — Viprasol Visual Identity
+// ══════════════════════════════════════════════════════════════
+
+const color BULL_SIGNATURE = #00ffaa
+const color BEAR_SIGNATURE = #ff3d71
+const color EMA_FAST_COL   = #2962FF
+const color EMA_SLOW_COL   = #FF6D00
+const color PREMIUM_COL     = #ff3d71
+const color DISCOUNT_COL     = #00ffaa
+const color EQ_COL          = #FFD54F
+const color FVG_BULL_COL     = #26c6da
+const color FVG_BEAR_COL     = #ef5350
+const color PANEL_BG         = #111725
+const color PANEL_HEADER     = #18233a
+const color PANEL_BORDER     = #000000
+const color PANEL_TEXT       = #e6e9f0
+const color PANEL_MUTED      = #8a93a6
+const color TP_LABEL_COL     = #22c55e
+const color ENTRY_LABEL_COL  = #00bcd4
+const color SL_LABEL_COL     = #ef4444
+
+// ══════════════════════════════════════════════════════════════
+// Inputs
+// ══════════════════════════════════════════════════════════════
+
+string GRP_TREND  = "1 · EMA Trend Filter"
+string GRP_FIB    = "2 · Fibonacci Equilibrium"
+string GRP_STRUCT = "3 · Market Structure (CHoCH/BOS)"
+string GRP_LIQ    = "4 · Liquidity Sweep"
+string GRP_FVG    = "5 · Fair Value Gap"
+string GRP_CONF   = "Confluence Engine"
+string GRP_RISK   = "Risk Overlay"
+string GRP_VIS    = "Visuals"
+string GRP_PANEL  = "On-Chart Panels"
+string GRP_DASH   = "Dashboard"
+
+// 1 — EMA trend
+emaFastInput = input.int(9,  "Fast EMA", minval = 1, group = GRP_TREND, tooltip = "Fast EMA. BUY bias when Fast EMA is above Slow EMA.")
+emaSlowInput = input.int(15, "Slow EMA", minval = 2, group = GRP_TREND, tooltip = "Slow EMA. Trend baseline for the EMA filter.")
+useTrendInput = input.bool(true, "Use in confluence", group = GRP_TREND)
+
+// 2 — Fibonacci equilibrium
+swingLenInput   = input.int(12, "Swing Pivot Length", minval = 2, group = GRP_FIB, tooltip = "Pivot length used to detect the swing high/low that define the dealing range, structure, and liquidity.")
+useLocationInput = input.bool(true, "Use Discount/Premium in confluence", group = GRP_FIB, tooltip = "BUY only in discount (below 0.5 equilibrium), SELL only in premium (above 0.5).")
+showFibInput     = input.bool(true, "Show Dealing Range & Fib Levels", group = GRP_FIB)
+showZonesInput   = input.bool(true, "Shade Premium / Discount Zones", group = GRP_FIB)
+
+// 3 — Structure
+useStructInput = input.bool(true, "Use CHoCH in confluence", group = GRP_STRUCT, tooltip = "Require a recent bullish CHoCH for BUY (bearish for SELL).")
+showStructInput = input.bool(true, "Show CHoCH / BOS labels", group = GRP_STRUCT)
+
+// 4 — Liquidity
+useLiqInput  = input.bool(true, "Use Liquidity Sweep in confluence", group = GRP_LIQ, tooltip = "Require sell-side liquidity swept (wick below a swing low, close back above) for BUY; mirror for SELL.")
+showLiqInput = input.bool(true, "Show Liquidity Sweep labels", group = GRP_LIQ)
+
+// 5 — FVG
+useFvgInput   = input.bool(true, "Use FVG in confluence", group = GRP_FVG, tooltip = "Require a recent/active bullish Fair Value Gap for BUY (bearish for SELL).")
+showFvgInput  = input.bool(true, "Show FVG zones", group = GRP_FVG)
+
+// Confluence engine
+recencyInput  = input.int(15, "Confluence Window (bars)", minval = 1, maxval = 100, group = GRP_CONF, tooltip = "How many bars a CHoCH / sweep / FVG event stays 'active' so the conditions can line up. Larger = looser confluence.")
+cooldownInput = input.int(10, "Signal Cooldown (bars)", minval = 0, maxval = 200, group = GRP_CONF, tooltip = "Minimum bars between confirmed signals. 0 = disabled.")
+
+// Risk overlay
+showLevelsInput      = input.bool(true, "Show Entry / SL / TP", group = GRP_RISK)
+showPriceLabelsInput = input.bool(true, "Show Price Labels", group = GRP_RISK, active = showLevelsInput)
+atrPeriodInput       = input.int(14, "ATR Period (SL buffer)", minval = 2, maxval = 100, group = GRP_RISK)
+slBufferAtrInput     = input.float(0.5, "SL ATR Buffer", minval = 0.0, maxval = 5.0, step = 0.1, group = GRP_RISK)
+rrRatioInput         = input.float(2.0, "Risk : Reward", minval = 0.5, maxval = 10.0, step = 0.1, group = GRP_RISK)
+
+// Visuals
+showEmaInput  = input.bool(true, "Show EMA lines", group = GRP_VIS)
+bullColorInput = input.color(BULL_SIGNATURE, "Bull Colour", group = GRP_VIS)
+bearColorInput = input.color(BEAR_SIGNATURE, "Bear Colour", group = GRP_VIS)
+
+// Panels
+showHowToInput   = input.bool(true, "Show 'HOW IT WORKS' panel", group = GRP_PANEL)
+showChecklistInput = input.bool(true, "Show Confluence Checklist", group = GRP_PANEL)
+showSummaryInput = input.bool(true, "Show Strategy Summary footer", group = GRP_PANEL)
+
+// Dashboard
+showTableInput = input.bool(true, "Show Live Dashboard", group = GRP_DASH)
+dashPosInput   = input.string("Top Right", "Dashboard Position", options = ["Top Right", "Top Left", "Bottom Right", "Bottom Left"], group = GRP_DASH)
+
+// ══════════════════════════════════════════════════════════════
+// 1 · EMA Trend Filter
+// ══════════════════════════════════════════════════════════════
+
+float emaFast = ta.ema(close, emaFastInput)
+float emaSlow = ta.ema(close, emaSlowInput)
+bool  trendBull = emaFast > emaSlow
+bool  trendBear = emaFast < emaSlow
+
+// ══════════════════════════════════════════════════════════════
+// Swing points (shared by Fib range, structure, liquidity)
+// ══════════════════════════════════════════════════════════════
+
+float pivotHigh = ta.pivothigh(swingLenInput, swingLenInput)
+float pivotLow  = ta.pivotlow(swingLenInput, swingLenInput)
+
+var float lastSwingHigh = na
+var float lastSwingLow  = na
+var int   lastSwingHighBar = na
+var int   lastSwingLowBar  = na
+
+if not na(pivotHigh)
+    lastSwingHigh := pivotHigh
+    lastSwingHighBar := bar_index - swingLenInput
+if not na(pivotLow)
+    lastSwingLow := pivotLow
+    lastSwingLowBar := bar_index - swingLenInput
+
+// ══════════════════════════════════════════════════════════════
+// 2 · Fibonacci Equilibrium (dealing range)
+// ══════════════════════════════════════════════════════════════
+
+bool  haveRange = not na(lastSwingHigh) and not na(lastSwingLow) and lastSwingHigh > lastSwingLow
+float rangeHigh = lastSwingHigh
+float rangeLow  = lastSwingLow
+float equilibrium = haveRange ? (rangeHigh + rangeLow) / 2 : na
+float fib236 = haveRange ? rangeLow + (rangeHigh - rangeLow) * 0.236 : na
+float fib786 = haveRange ? rangeLow + (rangeHigh - rangeLow) * 0.786 : na
+
+bool inDiscount = haveRange and close < equilibrium
+bool inPremium  = haveRange and close > equilibrium
+
+// ══════════════════════════════════════════════════════════════
+// 3 · Market Structure — CHoCH / BOS
+// ══════════════════════════════════════════════════════════════
+
+var int structDir = 0
+bool bullCHoCH = false
+bool bearCHoCH = false
+bool bullBOS = false
+bool bearBOS = false
+
+if not na(lastSwingHigh) and ta.crossover(close, lastSwingHigh)
+    if structDir <= 0
+        bullCHoCH := true
+    else
+        bullBOS := true
+    structDir := 1
+if not na(lastSwingLow) and ta.crossunder(close, lastSwingLow)
+    if structDir >= 0
+        bearCHoCH := true
+    else
+        bearBOS := true
+    structDir := -1
+
+// ══════════════════════════════════════════════════════════════
+// 4 · Liquidity Sweep
+// ══════════════════════════════════════════════════════════════
+
+// Sell-side liquidity swept: wick below a prior swing low, close back above it
+bool bullSweep = not na(lastSwingLow) and low < lastSwingLow and close > lastSwingLow
+// Buy-side liquidity swept: wick above a prior swing high, close back below it
+bool bearSweep = not na(lastSwingHigh) and high > lastSwingHigh and close < lastSwingHigh
+
+// ══════════════════════════════════════════════════════════════
+// 5 · Fair Value Gap (3-candle imbalance)
+// ══════════════════════════════════════════════════════════════
+
+bool bullFvgNew = low > high[2]
+bool bearFvgNew = high < low[2]
+
+var float bullFvgTop = na
+var float bullFvgBot = na
+var float bearFvgTop = na
+var float bearFvgBot = na
+var box   bullFvgBox = na
+var box   bearFvgBox = na
+
+if bullFvgNew
+    bullFvgTop := low
+    bullFvgBot := high[2]
+    if showFvgInput
+        bullFvgBox := box.new(bar_index - 2, bullFvgTop, bar_index, bullFvgBot, border_color = color.new(FVG_BULL_COL, 40), bgcolor = color.new(FVG_BULL_COL, 82))
+if bearFvgNew
+    bearFvgTop := low[2]
+    bearFvgBot := high
+    if showFvgInput
+        bearFvgBox := box.new(bar_index - 2, bearFvgTop, bar_index, bearFvgBot, border_color = color.new(FVG_BEAR_COL, 40), bgcolor = color.new(FVG_BEAR_COL, 82))
+
+// Keep the active FVG box tracking price until filled
+if not na(bullFvgBox) and showFvgInput
+    box.set_right(bullFvgBox, bar_index)
+if not na(bearFvgBox) and showFvgInput
+    box.set_right(bearFvgBox, bar_index)
+
+bool inBullFvg = not na(bullFvgBot) and not na(bullFvgTop) and close <= bullFvgTop and close >= bullFvgBot
+bool inBearFvg = not na(bearFvgBot) and not na(bearFvgTop) and close <= bearFvgTop and close >= bearFvgBot
+
+// ══════════════════════════════════════════════════════════════
+// Confluence Engine
+// ══════════════════════════════════════════════════════════════
+
+int barsBullCHoCH = ta.barssince(bullCHoCH)
+int barsBearCHoCH = ta.barssince(bearCHoCH)
+int barsBullSweep = ta.barssince(bullSweep)
+int barsBearSweep = ta.barssince(bearSweep)
+int barsBullFvg   = ta.barssince(bullFvgNew)
+int barsBearFvg   = ta.barssince(bearFvgNew)
+
+recent(int barsSince) =>
+    not na(barsSince) and barsSince <= recencyInput
+
+// Per-condition booleans (a disabled condition auto-passes)
+bool cBuyTrend  = not useTrendInput    or trendBull
+bool cBuyLoc    = not useLocationInput or inDiscount
+bool cBuyStruct = not useStructInput   or recent(barsBullCHoCH)
+bool cBuyLiq    = not useLiqInput      or recent(barsBullSweep)
+bool cBuyFvg    = not useFvgInput      or inBullFvg or recent(barsBullFvg)
+
+bool cSellTrend  = not useTrendInput    or trendBear
+bool cSellLoc    = not useLocationInput or inPremium
+bool cSellStruct = not useStructInput   or recent(barsBearCHoCH)
+bool cSellLiq    = not useLiqInput      or recent(barsBearSweep)
+bool cSellFvg    = not useFvgInput      or inBearFvg or recent(barsBearFvg)
+
+int buyScore  = (cBuyTrend ? 1 : 0)  + (cBuyLoc ? 1 : 0)  + (cBuyStruct ? 1 : 0)  + (cBuyLiq ? 1 : 0)  + (cBuyFvg ? 1 : 0)
+int sellScore = (cSellTrend ? 1 : 0) + (cSellLoc ? 1 : 0) + (cSellStruct ? 1 : 0) + (cSellLiq ? 1 : 0) + (cSellFvg ? 1 : 0)
+
+bool buyAligned  = cBuyTrend  and cBuyLoc  and cBuyStruct  and cBuyLiq  and cBuyFvg
+bool sellAligned = cSellTrend and cSellLoc and cSellStruct and cSellLiq and cSellFvg
+
+var int lastSignalBar = -100000
+bool coolOk = cooldownInput == 0 or (bar_index - lastSignalBar) >= cooldownInput
+
+bool confirmBuy  = buyAligned  and not buyAligned[1]  and coolOk
+bool confirmSell = sellAligned and not sellAligned[1] and coolOk
+if confirmBuy or confirmSell
+    lastSignalBar := bar_index
+
+float atrVal = ta.atr(atrPeriodInput)
+
+// ══════════════════════════════════════════════════════════════
+// Visuals — EMAs
+// ══════════════════════════════════════════════════════════════
+
+plot(showEmaInput ? emaFast : na, "Fast EMA", color = EMA_FAST_COL, linewidth = 2)
+plot(showEmaInput ? emaSlow : na, "Slow EMA", color = EMA_SLOW_COL, linewidth = 2)
+
+// ══════════════════════════════════════════════════════════════
+// Visuals — Dealing range, Fib levels, Premium/Discount zones
+// ══════════════════════════════════════════════════════════════
+
+var line lnHigh = na
+var line lnEq   = na
+var line lnLow  = na
+var line ln236  = na
+var line ln786  = na
+var label lbHigh = na
+var label lbEq   = na
+var label lbLow  = na
+var box  premiumBox  = na
+var box  discountBox = na
+
+if haveRange
+    int lb = int(math.min(nz(lastSwingHighBar, bar_index), nz(lastSwingLowBar, bar_index)))
+    int rb = bar_index + 5
+    if showFibInput
+        if na(lnHigh)
+            lnHigh := line.new(lb, rangeHigh, rb, rangeHigh, color = color.new(PREMIUM_COL, 0), width = 1)
+            lnEq   := line.new(lb, equilibrium, rb, equilibrium, color = color.new(EQ_COL, 0), width = 1, style = line.style_dashed)
+            lnLow  := line.new(lb, rangeLow, rb, rangeLow, color = color.new(DISCOUNT_COL, 0), width = 1)
+            ln236  := line.new(lb, fib236, rb, fib236, color = color.new(DISCOUNT_COL, 50), width = 1, style = line.style_dotted)
+            ln786  := line.new(lb, fib786, rb, fib786, color = color.new(PREMIUM_COL, 50), width = 1, style = line.style_dotted)
+            lbHigh := label.new(rb, rangeHigh, "1 (" + str.tostring(rangeHigh, format.mintick) + ")", style = label.style_label_left, color = color.new(PREMIUM_COL, 20), textcolor = color.white, size = size.small)
+            lbEq   := label.new(rb, equilibrium, "0.5 Equilibrium (" + str.tostring(equilibrium, format.mintick) + ")", style = label.style_label_left, color = color.new(EQ_COL, 20), textcolor = color.black, size = size.small)
+            lbLow  := label.new(rb, rangeLow, "0 (" + str.tostring(rangeLow, format.mintick) + ")", style = label.style_label_left, color = color.new(DISCOUNT_COL, 20), textcolor = color.black, size = size.small)
+        line.set_xy1(lnHigh, lb, rangeHigh)
+        line.set_xy2(lnHigh, rb, rangeHigh)
+        line.set_xy1(lnEq, lb, equilibrium)
+        line.set_xy2(lnEq, rb, equilibrium)
+        line.set_xy1(lnLow, lb, rangeLow)
+        line.set_xy2(lnLow, rb, rangeLow)
+        line.set_xy1(ln236, lb, fib236)
+        line.set_xy2(ln236, rb, fib236)
+        line.set_xy1(ln786, lb, fib786)
+        line.set_xy2(ln786, rb, fib786)
+        label.set_xy(lbHigh, rb, rangeHigh)
+        label.set_text(lbHigh, "1 (" + str.tostring(rangeHigh, format.mintick) + ")")
+        label.set_xy(lbEq, rb, equilibrium)
+        label.set_text(lbEq, "0.5 Equilibrium (" + str.tostring(equilibrium, format.mintick) + ")")
+        label.set_xy(lbLow, rb, rangeLow)
+        label.set_text(lbLow, "0 (" + str.tostring(rangeLow, format.mintick) + ")")
+    if showZonesInput
+        if na(premiumBox)
+            premiumBox  := box.new(lb, rangeHigh, rb, equilibrium, border_color = color.new(PREMIUM_COL, 80), bgcolor = color.new(PREMIUM_COL, 90))
+            discountBox := box.new(lb, equilibrium, rb, rangeLow, border_color = color.new(DISCOUNT_COL, 80), bgcolor = color.new(DISCOUNT_COL, 90))
+        box.set_lefttop(premiumBox, lb, rangeHigh)
+        box.set_rightbottom(premiumBox, rb, equilibrium)
+        box.set_lefttop(discountBox, lb, equilibrium)
+        box.set_rightbottom(discountBox, rb, rangeLow)
+
+// ══════════════════════════════════════════════════════════════
+// Visuals — Structure & liquidity labels
+// ══════════════════════════════════════════════════════════════
+
+if showStructInput and bullCHoCH
+    label.new(bar_index, low, "CHoCH", style = label.style_label_up, color = color.new(bullColorInput, 20), textcolor = color.white, size = size.small)
+if showStructInput and bearCHoCH
+    label.new(bar_index, high, "CHoCH", style = label.style_label_down, color = color.new(bearColorInput, 20), textcolor = color.white, size = size.small)
+if showStructInput and bullBOS
+    label.new(bar_index, low, "BOS", style = label.style_label_up, color = color.new(bullColorInput, 55), textcolor = color.white, size = size.tiny)
+if showStructInput and bearBOS
+    label.new(bar_index, high, "BOS", style = label.style_label_down, color = color.new(bearColorInput, 55), textcolor = color.white, size = size.tiny)
+
+if showLiqInput and bullSweep
+    label.new(bar_index, low, "Liquidity Sweep", style = label.style_label_up, color = color.new(EQ_COL, 30), textcolor = color.black, size = size.tiny)
+if showLiqInput and bearSweep
+    label.new(bar_index, high, "Liquidity Sweep", style = label.style_label_down, color = color.new(EQ_COL, 30), textcolor = color.black, size = size.tiny)
+
+// ══════════════════════════════════════════════════════════════
+// Visuals — Confirmed signals + risk overlay
+// ══════════════════════════════════════════════════════════════
+
+plotshape(confirmBuy,  "Confirmed BUY",  shape.labelup,   location.belowbar, bullColorInput, text = "BUY",  textcolor = color.white, size = size.normal)
+plotshape(confirmSell, "Confirmed SELL", shape.labeldown, location.abovebar, bearColorInput, text = "SELL", textcolor = color.white, size = size.normal)
+
+var line  enLine = na
+var line  slLine = na
+var line  tpLine = na
+var label enLbl  = na
+var label slLbl  = na
+var label tpLbl  = na
+
+if (confirmBuy or confirmSell) and showLevelsInput
+    float entry = close
+    float sl = confirmBuy ? (nz(lastSwingLow, low) - atrVal * slBufferAtrInput) : (nz(lastSwingHigh, high) + atrVal * slBufferAtrInput)
+    float risk = math.abs(entry - sl)
+    float tp = confirmBuy ? entry + risk * rrRatioInput : entry - risk * rrRatioInput
+    int x2 = bar_index + 18
+    line.delete(enLine)
+    line.delete(slLine)
+    line.delete(tpLine)
+    label.delete(enLbl)
+    label.delete(slLbl)
+    label.delete(tpLbl)
+    enLine := line.new(bar_index, entry, x2, entry, color = color.new(ENTRY_LABEL_COL, 10), width = 1)
+    slLine := line.new(bar_index, sl,    x2, sl,    color = color.new(SL_LABEL_COL, 10), width = 1, style = line.style_dashed)
+    tpLine := line.new(bar_index, tp,    x2, tp,    color = color.new(TP_LABEL_COL, 10), width = 1, style = line.style_dashed)
+    if showPriceLabelsInput
+        enLbl := label.new(x2, entry, "ENTRY " + str.tostring(entry, format.mintick), style = label.style_label_left, color = ENTRY_LABEL_COL, textcolor = color.white, size = size.small)
+        slLbl := label.new(x2, sl,    "SL "    + str.tostring(sl,    format.mintick), style = label.style_label_left, color = SL_LABEL_COL,    textcolor = color.white, size = size.small)
+        tpLbl := label.new(x2, tp,    "TP "    + str.tostring(tp,    format.mintick), style = label.style_label_left, color = TP_LABEL_COL,    textcolor = color.white, size = size.small)
+
+// ══════════════════════════════════════════════════════════════
+// Panel — HOW IT WORKS (top-left, static)
+// ══════════════════════════════════════════════════════════════
+
+var table howTbl = table.new(position.middle_left, 1, 6, bgcolor = PANEL_BG, border_color = PANEL_BORDER, border_width = 1, frame_color = PANEL_BORDER, frame_width = 1)
+if barstate.islast and showHowToInput
+    table.cell(howTbl, 0, 0, "HOW IT WORKS", text_color = PANEL_TEXT, text_size = size.normal, bgcolor = PANEL_HEADER, text_halign = text.align_left)
+    table.cell(howTbl, 0, 1, "1  EMA TREND FILTER — BUY when Fast EMA is above Slow EMA (bullish momentum).", text_color = EMA_FAST_COL, text_size = size.small, text_halign = text.align_left)
+    table.cell(howTbl, 0, 2, "2  FIB EQUILIBRIUM — auto dealing range. BUY in Discount (<0.5), SELL in Premium (>0.5).", text_color = DISCOUNT_COL, text_size = size.small, text_halign = text.align_left)
+    table.cell(howTbl, 0, 3, "3  MARKET STRUCTURE — CHoCH marks a real shift when price breaks the prior swing.", text_color = #b39ddb, text_size = size.small, text_halign = text.align_left)
+    table.cell(howTbl, 0, 4, "4  LIQUIDITY SWEEP — liquidity taken beyond a swing before the real move.", text_color = EQ_COL, text_size = size.small, text_halign = text.align_left)
+    table.cell(howTbl, 0, 5, "5  FAIR VALUE GAP — institutional imbalance zones price tends to react to.", text_color = FVG_BULL_COL, text_size = size.small, text_halign = text.align_left)
+
+// ══════════════════════════════════════════════════════════════
+// Panel — Confluence Checklist (live, right side)
+// ══════════════════════════════════════════════════════════════
+
+tickMark(bool ok) =>
+    ok ? "✓" : "✕"
+tickCol(bool ok) =>
+    ok ? BULL_SIGNATURE : PANEL_MUTED
+
+var table chkTbl = table.new(position.middle_right, 2, 7, bgcolor = PANEL_BG, border_color = PANEL_BORDER, border_width = 1, frame_color = PANEL_BORDER, frame_width = 1)
+if barstate.islast and showChecklistInput
+    bool sideBuy = buyScore >= sellScore
+    string hdr = sideBuy ? "BUY CONFLUENCE  " + str.tostring(buyScore) + "/5" : "SELL CONFLUENCE  " + str.tostring(sellScore) + "/5"
+    color hdrCol = sideBuy ? bullColorInput : bearColorInput
+    table.cell(chkTbl, 0, 0, hdr, text_color = color.white, text_size = size.small, bgcolor = color.new(hdrCol, 20))
+    table.cell(chkTbl, 1, 0, sideBuy ? "▲" : "▼", text_color = color.white, text_size = size.small, bgcolor = color.new(hdrCol, 20))
+
+    bool t = sideBuy ? cBuyTrend : cSellTrend
+    bool l = sideBuy ? cBuyLoc : cSellLoc
+    bool s = sideBuy ? cBuyStruct : cSellStruct
+    bool q = sideBuy ? cBuyLiq : cSellLiq
+    bool f = sideBuy ? cBuyFvg : cSellFvg
+
+    table.cell(chkTbl, 0, 1, "EMA Trend", text_color = PANEL_TEXT, text_size = size.small)
+    table.cell(chkTbl, 1, 1, tickMark(t), text_color = tickCol(t), text_size = size.small)
+    table.cell(chkTbl, 0, 2, sideBuy ? "Price in Discount" : "Price in Premium", text_color = PANEL_TEXT, text_size = size.small)
+    table.cell(chkTbl, 1, 2, tickMark(l), text_color = tickCol(l), text_size = size.small)
+    table.cell(chkTbl, 0, 3, "CHoCH Structure", text_color = PANEL_TEXT, text_size = size.small)
+    table.cell(chkTbl, 1, 3, tickMark(s), text_color = tickCol(s), text_size = size.small)
+    table.cell(chkTbl, 0, 4, "Liquidity Sweep", text_color = PANEL_TEXT, text_size = size.small)
+    table.cell(chkTbl, 1, 4, tickMark(q), text_color = tickCol(q), text_size = size.small)
+    table.cell(chkTbl, 0, 5, "FVG Confluence", text_color = PANEL_TEXT, text_size = size.small)
+    table.cell(chkTbl, 1, 5, tickMark(f), text_color = tickCol(f), text_size = size.small)
+    bool allOk = sideBuy ? buyAligned : sellAligned
+    table.cell(chkTbl, 0, 6, allOk ? "ALL ALIGNED — SIGNAL" : "Waiting for alignment", text_color = allOk ? color.white : PANEL_MUTED, text_size = size.small, bgcolor = allOk ? color.new(hdrCol, 20) : PANEL_BG)
+    table.cell(chkTbl, 1, 6, allOk ? "●" : "…", text_color = allOk ? color.white : PANEL_MUTED, text_size = size.small, bgcolor = allOk ? color.new(hdrCol, 20) : PANEL_BG)
+
+// ══════════════════════════════════════════════════════════════
+// Panel — Strategy Summary footer (static)
+// ══════════════════════════════════════════════════════════════
+
+var table sumTbl = table.new(position.bottom_center, 3, 2, bgcolor = PANEL_BG, border_color = PANEL_BORDER, border_width = 1, frame_color = PANEL_BORDER, frame_width = 1)
+if barstate.islast and showSummaryInput
+    table.cell(sumTbl, 0, 0, "STRATEGY", text_color = PANEL_TEXT, text_size = size.small, bgcolor = PANEL_HEADER)
+    table.cell(sumTbl, 1, 0, "BEST FOR", text_color = PANEL_TEXT, text_size = size.small, bgcolor = PANEL_HEADER)
+    table.cell(sumTbl, 2, 0, "WORKS ON", text_color = PANEL_TEXT, text_size = size.small, bgcolor = PANEL_HEADER)
+    table.cell(sumTbl, 0, 1, "Trend + Equilibrium + CHoCH + Liquidity + FVG confluence", text_color = PANEL_MUTED, text_size = size.tiny)
+    table.cell(sumTbl, 1, 1, "Pullback entries into discount/premium with structure", text_color = PANEL_MUTED, text_size = size.tiny)
+    table.cell(sumTbl, 2, 1, "All timeframes & markets", text_color = PANEL_MUTED, text_size = size.tiny)
+
+// ══════════════════════════════════════════════════════════════
+// Dashboard — live status
+// ══════════════════════════════════════════════════════════════
+
+dashPos = switch dashPosInput
+    "Top Left"     => position.top_left
+    "Bottom Right" => position.bottom_right
+    "Bottom Left"  => position.bottom_left
+    => position.top_right
+
+var table tbl = table.new(dashPos, 2, 6, bgcolor = PANEL_BG, border_color = PANEL_BORDER, border_width = 1, frame_color = PANEL_BORDER, frame_width = 1)
+if barstate.islast and showTableInput
+    string trendTxt = trendBull ? "▲ Bull" : trendBear ? "▼ Bear" : "— Flat"
+    color  trendCol = trendBull ? bullColorInput : trendBear ? bearColorInput : PANEL_MUTED
+    string locTxt   = not haveRange ? "—" : inDiscount ? "Discount" : inPremium ? "Premium" : "Equilibrium"
+    color  locCol   = inDiscount ? bullColorInput : inPremium ? bearColorInput : PANEL_MUTED
+
+    table.cell(tbl, 0, 0, "VP — Confluence Engine", text_color = PANEL_TEXT, text_size = size.small, bgcolor = PANEL_HEADER)
+    table.cell(tbl, 1, 0, "● Live", text_color = BULL_SIGNATURE, text_size = size.small, bgcolor = PANEL_HEADER)
+    table.cell(tbl, 0, 1, "EMA Trend", text_color = PANEL_TEXT, text_size = size.small)
+    table.cell(tbl, 1, 1, trendTxt, text_color = trendCol, text_size = size.small)
+    table.cell(tbl, 0, 2, "Dealing Range", text_color = PANEL_TEXT, text_size = size.small)
+    table.cell(tbl, 1, 2, locTxt, text_color = locCol, text_size = size.small)
+    table.cell(tbl, 0, 3, "BUY Score", text_color = PANEL_TEXT, text_size = size.small)
+    table.cell(tbl, 1, 3, str.tostring(buyScore) + "/5", text_color = buyScore == 5 ? bullColorInput : PANEL_MUTED, text_size = size.small)
+    table.cell(tbl, 0, 4, "SELL Score", text_color = PANEL_TEXT, text_size = size.small)
+    table.cell(tbl, 1, 4, str.tostring(sellScore) + "/5", text_color = sellScore == 5 ? bearColorInput : PANEL_MUTED, text_size = size.small)
+    table.cell(tbl, 0, 5, "Last Signal", text_color = PANEL_TEXT, text_size = size.small)
+    table.cell(tbl, 1, 5, lastSignalBar < 0 ? "—" : str.tostring(bar_index - lastSignalBar) + " bars ago", text_color = PANEL_MUTED, text_size = size.small)
+
+// ══════════════════════════════════════════════════════════════
+// Alerts — dynamic messages with {{ticker}} {{close}} {{interval}}
+// ══════════════════════════════════════════════════════════════
+
+alertcondition(confirmBuy,  "VP ECE Confirmed BUY",  "[Viprasol] Confluence Engine: CONFIRMED BUY (all 5 aligned) on {{ticker}} ({{interval}}) at {{close}}")
+alertcondition(confirmSell, "VP ECE Confirmed SELL", "[Viprasol] Confluence Engine: CONFIRMED SELL (all 5 aligned) on {{ticker}} ({{interval}}) at {{close}}")
+alertcondition(confirmBuy or confirmSell, "VP ECE Any Signal", "[Viprasol] Confluence Engine: confirmed signal on {{ticker}} ({{interval}}) at {{close}}")
+alertcondition(bullCHoCH, "VP ECE Bullish CHoCH", "[Viprasol] Confluence Engine: bullish CHoCH on {{ticker}} ({{interval}}) at {{close}}")
+alertcondition(bearCHoCH, "VP ECE Bearish CHoCH", "[Viprasol] Confluence Engine: bearish CHoCH on {{ticker}} ({{interval}}) at {{close}}")
+alertcondition(bullSweep, "VP ECE Bullish Liquidity Sweep", "[Viprasol] Confluence Engine: sell-side liquidity swept on {{ticker}} ({{interval}}) at {{close}}")
+alertcondition(bearSweep, "VP ECE Bearish Liquidity Sweep", "[Viprasol] Confluence Engine: buy-side liquidity swept on {{ticker}} ({{interval}}) at {{close}}")

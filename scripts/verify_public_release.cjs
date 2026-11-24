@@ -45,6 +45,8 @@ async function main() {
       await run(process.execPath,['audit/release-browser.cjs'],extra);
       await run(process.execPath,['audit/selection-release-browser.cjs'],extra);
       await run(process.execPath,['audit/active-stocks-browser.cjs'],extra);
+      await run(process.execPath,['audit/site-wide-browser.cjs'],extra);
+      await run(process.execPath,['audit/viprasol-browser.cjs'],extra);
     }
   }finally{if(server)await new Promise(resolve=>server.close(resolve));}
 }

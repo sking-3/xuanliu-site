@@ -1,0 +1,354 @@
+// This Pine Script™ v6 indicator is subject to the terms of the Mozilla Public License 2.0
+// https://mozilla.org/MPL/2.0/
+// (c) Viprasol
+//
+// APEX TREND & SIGNAL ENGINE — regime-aware dual-mode toolkit
+//
+// THE IDEA: most signal tools blindly apply one style. The biggest mistake in trading
+// is trend-following a range or mean-reverting a trend. Apex first reads the REGIME,
+// tells you which style fits RIGHT NOW (trend-follow vs mean-revert), and only fires
+// signals that match the regime, the location (premium/discount), and the trend stack.
+//
+// Built from public-domain methods, implemented from their formulas (original code):
+//   Supertrend (Olivier Seban) · Ichimoku (Goichi Hosoda) · Bollinger/%B (John Bollinger)
+//   ADX/DMI (Welles Wilder) · Efficiency Ratio (Perry Kaufman) · ICT premium/discount.
+// No third-party Pine code reused; no proprietary algorithms.
+
+//@version=6
+indicator("APEX Trend & Signal Engine [Viprasol]", shorttitle = "VP - APEX", overlay = true, max_labels_count = 500, max_lines_count = 500)
+
+// ══════════════════════════════════════════════════════════════
+// Palette
+// ══════════════════════════════════════════════════════════════
+const color C_LONG  = #2962ff
+const color C_SHORT = #e91e63
+const color C_NEUT  = #787b86
+const color C_BG    = #0d1117
+const color C_HEAD  = #18233a
+const color C_GOOD  = #00e676
+const color C_BAD   = #ff5252
+
+// ══════════════════════════════════════════════════════════════
+// Inputs — Engine
+// ══════════════════════════════════════════════════════════════
+gE = "Engine"
+mode    = input.string("Auto (regime-aware)", "Mode", options = ["Auto (regime-aware)", "Trend-Following", "Mean-Reversion"], group = gE, tooltip = "Auto = trend-follow when the market is trending, mean-revert when it's ranging. This is the core idea.")
+maType  = input.string("HMA", "Baseline MA Type", options = ["SMA","EMA","WMA","RMA","HMA","ALMA","T3","KAMA"], group = gE)
+trendLen = input.int(40, "Trend Length", minval = 2, group = gE)
+fastLen = input.int(20, "Fast Length", minval = 2, group = gE)
+srcIn   = input.source(close, "Source", group = gE)
+adxThr  = input.float(23.0, "Trend/Range Threshold (ADX)", minval = 5, maxval = 50, group = gE, tooltip = "ADX above this = trending regime (favor trend-following). Below = ranging (favor mean-reversion).")
+
+gAdv = "Advanced MA Params"
+almaOff = input.float(0.85, "ALMA Offset", group = gAdv)
+almaSig = input.float(6.0, "ALMA Sigma", group = gAdv)
+t3Fac   = input.float(0.7, "T3 Factor", group = gAdv)
+kamaF   = input.int(2, "KAMA Fast", group = gAdv)
+kamaS   = input.int(30, "KAMA Slow", group = gAdv)
+
+// ══════════════════════════════════════════════════════════════
+// Inputs — Location filter (premium/discount)
+// ══════════════════════════════════════════════════════════════
+gL = "Location Filter (Premium/Discount)"
+useLoc  = input.bool(true, "Filter by Location", group = gL, tooltip = "Longs only in discount (below equilibrium), shorts only in premium (above). ICT fair-value concept.")
+rangeLen = input.int(50, "Range Lookback", minval = 5, group = gL)
+
+// ══════════════════════════════════════════════════════════════
+// Inputs — Overlays
+// ══════════════════════════════════════════════════════════════
+gO = "Overlays"
+showMid   = input.bool(true,  "Trend Midline", group = gO)
+showCloud = input.bool(false, "Trend Cloud (Ichimoku)", group = gO)
+showZone  = input.bool(true,  "Adaptive Zone (Supertrend S/R)", group = gO)
+showExt   = input.bool(false, "Extreme Zones (mean-reversion)", group = gO)
+stFactor  = input.float(3.0, "Adaptive Zone Factor", minval = 0.5, step = 0.1, group = gO)
+stAtr     = input.int(10, "Adaptive Zone ATR", minval = 1, group = gO)
+extLen    = input.int(20, "Extreme Zones Length", minval = 5, group = gO)
+cloudType = input.string("Donchian", "Cloud Engine", options = ["Donchian","EMA","HMA"], group = gO)
+
+// ══════════════════════════════════════════════════════════════
+// Inputs — Visuals / Signals
+// ══════════════════════════════════════════════════════════════
+gV = "Signals & Visuals"
+colorBars = input.bool(true, "5-State Candle Coloring", group = gV)
+showSig   = input.bool(true, "Signals", group = gV)
+sigGap    = input.int(10, "Min Bars Between Signals", minval = 0, maxval = 500, group = gV, tooltip = "Cooldown — minimum bars between consecutive signal dots, so they don't cluster. 0 = no gap.")
+showTP    = input.bool(true, "Take-Profit Markers", group = gV)
+tpMult    = input.float(2.0, "TP Distance (ATR)", minval = 0.5, step = 0.5, group = gV)
+slMult    = input.float(2.0, "Stop Distance (ATR)", minval = 0.5, step = 0.5, group = gV)
+showDash  = input.bool(true, "Dashboard", group = gV)
+dashPos   = input.string("Top Right", "Dashboard Position", options = ["Top Right","Top Left","Bottom Right","Bottom Left"], group = gV)
+
+// ══════════════════════════════════════════════════════════════
+// MA helpers
+// ══════════════════════════════════════════════════════════════
+f_t3(float s, simple int len, float a) =>
+    e1 = ta.ema(s, len)
+    e2 = ta.ema(e1, len)
+    e3 = ta.ema(e2, len)
+    e4 = ta.ema(e3, len)
+    e5 = ta.ema(e4, len)
+    e6 = ta.ema(e5, len)
+    c1 = -a * a * a
+    c2 = 3 * a * a + 3 * a * a * a
+    c3 = -6 * a * a - 3 * a - 3 * a * a * a
+    c4 = 1 + 3 * a + 3 * a * a + a * a * a
+    c1 * e6 + c2 * e5 + c3 * e4 + c4 * e3
+
+f_kama(float s, simple int len, simple int fast, simple int slow) =>
+    mom = math.abs(ta.change(s, len))
+    vol = math.sum(math.abs(ta.change(s)), len)
+    er  = vol != 0 ? mom / vol : 0.0
+    sc  = math.pow(er * (2.0 / (fast + 1) - 2.0 / (slow + 1)) + 2.0 / (slow + 1), 2)
+    var float o = na
+    o := nz(o[1], s) + sc * (s - nz(o[1], s))
+    o
+
+getMA(simple string t, float s, simple int len) =>
+    switch t
+        "SMA"  => ta.sma(s, len)
+        "EMA"  => ta.ema(s, len)
+        "WMA"  => ta.wma(s, len)
+        "RMA"  => ta.rma(s, len)
+        "HMA"  => ta.hma(s, len)
+        "ALMA" => ta.alma(s, len, almaOff, almaSig)
+        "T3"   => f_t3(s, len, t3Fac)
+        "KAMA" => f_kama(s, len, kamaF, kamaS)
+        => ta.ema(s, len)
+
+f_cloudLine(simple string t, simple int len) =>
+    switch t
+        "EMA" => ta.ema(hl2, len)
+        "HMA" => ta.hma(hl2, len)
+        => math.avg(ta.highest(high, len), ta.lowest(low, len))
+
+// ══════════════════════════════════════════════════════════════
+// Core calculations
+// ══════════════════════════════════════════════════════════════
+baseline = getMA(maType, srcIn, trendLen)
+fastMA   = getMA(maType, srcIn, fastLen)
+atr      = ta.atr(14)
+
+// Regime — ADX (trend vs range) + Efficiency Ratio
+[diP, diM, adx] = ta.dmi(14, 14)
+trending = adx > adxThr
+erMom = math.abs(ta.change(close, 20))
+erVol = math.sum(math.abs(ta.change(close)), 20)
+er = erVol != 0 ? erMom / erVol : 0.0
+
+// Direction
+trendUp = close > baseline and ta.rising(baseline, 2)
+trendDn = close < baseline and ta.falling(baseline, 2)
+regimeBull = diP > diM
+
+// Volatility state
+volRising = atr > ta.sma(atr, 20)
+
+// Session (UTC)
+tz = "Etc/UTC"
+inTokyo  = not na(time(timeframe.period, "0000-0900:23456", tz))
+inLondon = not na(time(timeframe.period, "0800-1700:23456", tz))
+inNY     = not na(time(timeframe.period, "1300-2200:23456", tz))
+sessName = inLondon and inNY ? "London/NY" : inNY ? "New York" : inLondon ? "London" : inTokyo ? "Tokyo" : "Void"
+
+// Location — premium/discount
+rngHi = ta.highest(high, rangeLen)
+rngLo = ta.lowest(low, rangeLen)
+eq = math.avg(rngHi, rngLo)
+loc = (close - rngLo) / math.max(rngHi - rngLo, syminfo.mintick)
+isPremium = close > eq
+isDiscount = close < eq
+
+// Trend strength 0-10 (self-normalizing blend)
+f_mm(float x, simple int lb) => (x - ta.lowest(x, lb)) / math.max(ta.highest(x, lb) - ta.lowest(x, lb), syminfo.mintick)
+f1 = f_mm((close - baseline) / atr, 200)
+f2 = f_mm((baseline - baseline[1]) / atr, 200)
+f3 = math.min(adx / 50.0, 1.0)
+f4 = er
+maF = ta.ema(close, 10)
+maM = ta.ema(close, 30)
+maSl = ta.ema(close, 60)
+stkUp = (maF > maM ? 1 : 0) + (maM > maSl ? 1 : 0) + (close > maF ? 1 : 0)
+stkDn = (maF < maM ? 1 : 0) + (maM < maSl ? 1 : 0) + (close < maF ? 1 : 0)
+f5 = math.max(stkUp, stkDn) / 3.0
+strength = (0.25 * f1 + 0.20 * f2 + 0.20 * f3 + 0.20 * f4 + 0.15 * f5) * 10.0
+
+// ══════════════════════════════════════════════════════════════
+// Adaptive Zone (Supertrend as S/R)
+// ══════════════════════════════════════════════════════════════
+[stLine, stDir] = ta.supertrend(stFactor, stAtr)
+zoneUp = stDir < 0     // NB inverted: <0 = uptrend
+zHi = stLine + (zoneUp ? atr * 0.5 : 0.0)
+zLo = stLine - (zoneUp ? 0.0 : atr * 0.5)
+pzh = plot(showZone ? zHi : na, "Zone Hi", color = na)
+pzl = plot(showZone ? zLo : na, "Zone Lo", color = na)
+fill(pzh, pzl, showZone ? color.new(zoneUp ? C_LONG : C_SHORT, 80) : na, title = "Adaptive Zone")
+plot(showZone ? stLine : na, "Adaptive Zone Line", color = zoneUp ? C_LONG : C_SHORT, linewidth = 2)
+
+// ══════════════════════════════════════════════════════════════
+// Trend Cloud (modified Ichimoku)
+// ══════════════════════════════════════════════════════════════
+disp = 26
+tenkan  = f_cloudLine(cloudType, 9)
+kijun   = f_cloudLine(cloudType, 26)
+senkA   = math.avg(tenkan, kijun)
+senkB   = f_cloudLine(cloudType, 52)
+bullCloud = senkA > senkB
+pca = plot(showCloud ? senkA : na, "Senkou A", color = na, offset = disp)
+pcb = plot(showCloud ? senkB : na, "Senkou B", color = na, offset = disp)
+fill(pca, pcb, showCloud ? (bullCloud ? color.new(C_LONG, 85) : color.new(C_SHORT, 85)) : na, title = "Trend Cloud")
+aboveCloud = close > math.max(senkA[disp], senkB[disp])
+belowCloud = close < math.min(senkA[disp], senkB[disp])
+
+// ══════════════════════════════════════════════════════════════
+// Extreme Zones (mean-reversion gradient bands)
+// ══════════════════════════════════════════════════════════════
+exBasis = ta.sma(close, extLen)
+exSd = ta.stdev(close, extLen)
+u1 = exBasis + 1.5 * exSd
+u2 = exBasis + 2.25 * exSd
+u3 = exBasis + 3.0 * exSd
+l1 = exBasis - 1.5 * exSd
+l2 = exBasis - 2.25 * exSd
+l3 = exBasis - 3.0 * exSd
+pu1 = plot(showExt ? u1 : na, "U1", color = na)
+pu2 = plot(showExt ? u2 : na, "U2", color = na)
+pu3 = plot(showExt ? u3 : na, "U3", color = na)
+pl1 = plot(showExt ? l1 : na, "L1", color = na)
+pl2 = plot(showExt ? l2 : na, "L2", color = na)
+pl3 = plot(showExt ? l3 : na, "L3", color = na)
+fill(pu1, pu2, showExt ? color.new(C_SHORT, 86) : na, title = "Up Ext 1")
+fill(pu2, pu3, showExt ? color.new(C_SHORT, 74) : na, title = "Up Ext 2")
+fill(pl1, pl2, showExt ? color.new(C_LONG, 86) : na, title = "Lo Ext 1")
+fill(pl2, pl3, showExt ? color.new(C_LONG, 74) : na, title = "Lo Ext 2")
+
+// ══════════════════════════════════════════════════════════════
+// Trend Midline (colored by multi-factor consensus)
+// ══════════════════════════════════════════════════════════════
+votesUp = (close > baseline ? 1 : 0) + (ta.rising(baseline, 2) ? 1 : 0) + (diP > diM ? 1 : 0)
+votesDn = (close < baseline ? 1 : 0) + (ta.falling(baseline, 2) ? 1 : 0) + (diM > diP ? 1 : 0)
+midCol = votesUp >= 2 ? C_LONG : votesDn >= 2 ? C_SHORT : C_NEUT
+pMid = plot(showMid ? baseline : na, "Trend Midline", color = midCol, linewidth = 2)
+pRef = plot(showMid ? close : na, "ref", color = na, display = display.none)
+fill(pMid, pRef, showMid ? color.new(midCol, 88) : na, title = "Midline Fill")
+
+// ══════════════════════════════════════════════════════════════
+// Signal engine — regime-aware dual mode
+// ══════════════════════════════════════════════════════════════
+activeMode = mode == "Auto (regime-aware)" ? (trending ? "TF" : "MR") : mode == "Trend-Following" ? "TF" : "MR"
+
+locLongOk  = not useLoc or isDiscount
+locShortOk = not useLoc or isPremium
+
+// Trend-following: momentum in trend direction, regime trending
+tfLong  = activeMode == "TF" and ta.crossover(close, baseline)  and ta.rising(baseline, 2)  and diP > diM and trending and locLongOk
+tfShort = activeMode == "TF" and ta.crossunder(close, baseline) and ta.falling(baseline, 2) and diM > diP and trending and locShortOk
+
+// Mean-reversion: tag extreme band + revert, regime ranging
+mrLong  = activeMode == "MR" and not trending and low <= l1 and ta.crossover(close, l1) and locLongOk
+mrShort = activeMode == "MR" and not trending and high >= u1 and ta.crossunder(close, u1) and locShortOk
+
+rawLong  = tfLong or mrLong
+rawShort = tfShort or mrShort
+
+// Confluence with the cloud (when shown) → colored vs neutral
+confLong  = not showCloud or aboveCloud
+confShort = not showCloud or belowCloud
+
+longCand  = rawLong and confLong
+shortCand = rawShort and confShort
+neutLong = rawLong and not confLong    // signal w/o confluence = exit-opposite hint
+neutShort = rawShort and not confShort
+
+// Cooldown — enforce a minimum gap between consecutive signals
+var int lastSigBar = -100000
+gapOk = (bar_index - lastSigBar) >= sigGap
+longSig  = longCand and gapOk
+shortSig = shortCand and gapOk
+if longSig or shortSig
+    lastSigBar := bar_index
+
+// ══════════════════════════════════════════════════════════════
+// Take-profit / trade tracking
+// ══════════════════════════════════════════════════════════════
+var int actDir = 0
+var float actEntry = na
+buyTP = false
+sellTP = false
+if longSig
+    actDir := 1
+    actEntry := close
+if shortSig
+    actDir := -1
+    actEntry := close
+if actDir == 1 and not na(actEntry) and high >= actEntry + tpMult * atr
+    buyTP := true
+    actDir := 0
+if actDir == -1 and not na(actEntry) and low <= actEntry - tpMult * atr
+    sellTP := true
+    actDir := 0
+
+// ══════════════════════════════════════════════════════════════
+// 5-state candle coloring
+// ══════════════════════════════════════════════════════════════
+bull = close > baseline
+barCol = bull ? (strength >= 7 ? color.new(C_LONG, 0) : strength >= 4 ? color.new(C_LONG, 45) : color.new(C_NEUT, 55)) : (strength >= 7 ? color.new(C_SHORT, 0) : strength >= 4 ? color.new(C_SHORT, 45) : color.new(C_NEUT, 55))
+barcolor(colorBars ? barCol : na, title = "5-State Candles")
+
+// ══════════════════════════════════════════════════════════════
+// Signal markers
+// ══════════════════════════════════════════════════════════════
+plotshape(showSig and longSig  ? low  : na, "Buy",  shape.circle, location.belowbar, C_LONG,  size = size.small)
+plotshape(showSig and shortSig ? high : na, "Sell", shape.circle, location.abovebar, C_SHORT, size = size.small)
+plotshape(showSig and (neutLong or neutShort) ? hl2 : na, "No-Confluence (exit)", shape.xcross, location.absolute, color.new(C_NEUT, 20), size = size.tiny)
+plotshape(showTP and buyTP  ? high : na, "Buy TP",  shape.diamond, location.abovebar, color.new(C_NEUT, 10), size = size.tiny)
+plotshape(showTP and sellTP ? low  : na, "Sell TP", shape.diamond, location.belowbar, color.new(C_NEUT, 10), size = size.tiny)
+
+// ══════════════════════════════════════════════════════════════
+// Dashboard
+// ══════════════════════════════════════════════════════════════
+posn = dashPos == "Top Right" ? position.top_right : dashPos == "Top Left" ? position.top_left : dashPos == "Bottom Right" ? position.bottom_right : position.bottom_left
+var table d = table.new(posn, 2, 9, bgcolor = color.new(C_BG, 12), border_color = color.new(#30363d, 60), border_width = 1, frame_color = #000000, frame_width = 1)
+
+if showDash and barstate.islast
+    table.clear(d, 0, 0, 1, 8)
+    cM = color.new(C_NEUT, 0)
+    cW = color.new(#ffffff, 0)
+
+    table.cell(d, 0, 0, "  APEX ENGINE  ", text_color = cW, bgcolor = C_HEAD, text_size = size.small, text_halign = text.align_left)
+    table.cell(d, 1, 0, "VIPRASOL", text_color = color.new(#bb86fc, 0), bgcolor = C_HEAD, text_size = size.small)
+
+    table.cell(d, 0, 1, "Favored Mode", text_color = cM, text_size = size.small, text_halign = text.align_left)
+    table.cell(d, 1, 1, activeMode == "TF" ? "TREND-FOLLOW" : "MEAN-REVERT", text_color = activeMode == "TF" ? C_LONG : C_SHORT, text_size = size.small)
+
+    table.cell(d, 0, 2, "Regime", text_color = cM, text_size = size.small, text_halign = text.align_left)
+    table.cell(d, 1, 2, (trending ? "TRENDING " : "RANGING ") + (regimeBull ? "▲" : "▼"), text_color = trending ? C_GOOD : C_NEUT, text_size = size.small)
+
+    table.cell(d, 0, 3, "Trend", text_color = cM, text_size = size.small, text_halign = text.align_left)
+    table.cell(d, 1, 3, trendUp ? "▲ INCREASING" : trendDn ? "▼ DECREASING" : "— FLAT", text_color = trendUp ? C_LONG : trendDn ? C_SHORT : cM, text_size = size.small)
+
+    table.cell(d, 0, 4, "Strength", text_color = cM, text_size = size.small, text_halign = text.align_left)
+    table.cell(d, 1, 4, str.tostring(strength, "0.0") + " / 10", text_color = color.from_gradient(strength, 2, 8, C_BAD, C_GOOD), text_size = size.small)
+
+    table.cell(d, 0, 5, "Volatility", text_color = cM, text_size = size.small, text_halign = text.align_left)
+    table.cell(d, 1, 5, volRising ? "INCREASING" : "DECREASING", text_color = cW, text_size = size.small)
+
+    table.cell(d, 0, 6, "Location", text_color = cM, text_size = size.small, text_halign = text.align_left)
+    table.cell(d, 1, 6, isPremium ? "PREMIUM" : "DISCOUNT", text_color = isPremium ? C_SHORT : C_LONG, text_size = size.small)
+
+    table.cell(d, 0, 7, "Session", text_color = cM, text_size = size.small, text_halign = text.align_left)
+    table.cell(d, 1, 7, sessName, text_color = sessName == "Void" ? cM : cW, text_size = size.small)
+
+    sigTxt = longSig ? "▲ BUY" : shortSig ? "▼ SELL" : buyTP ? "BUY TP" : sellTP ? "SELL TP" : "— WAIT"
+    table.cell(d, 0, 8, "Signal", text_color = cM, text_size = size.small, text_halign = text.align_left)
+    table.cell(d, 1, 8, sigTxt, text_color = longSig ? C_LONG : shortSig ? C_SHORT : cM, text_size = size.small)
+
+// ══════════════════════════════════════════════════════════════
+// Alerts
+// ══════════════════════════════════════════════════════════════
+alertcondition(longSig,  "Buy",  "APEX: BUY on {{ticker}} {{interval}}")
+alertcondition(shortSig, "Sell", "APEX: SELL on {{ticker}} {{interval}}")
+alertcondition(buyTP,    "Buy TP",  "APEX: Buy take-profit on {{ticker}} {{interval}}")
+alertcondition(sellTP,   "Sell TP", "APEX: Sell take-profit on {{ticker}} {{interval}}")
+alertcondition(trending and not trending[1], "Regime → Trending", "APEX: regime turned TRENDING on {{ticker}} {{interval}}")
+alertcondition(not trending and trending[1], "Regime → Ranging", "APEX: regime turned RANGING on {{ticker}} {{interval}}")

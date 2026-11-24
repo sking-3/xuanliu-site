@@ -1,0 +1,485 @@
+// This Pine Script(TM) v6 indicator is subject to the terms of the Mozilla Public License 2.0
+// https://mozilla.org/MPL/2.0/
+// (c) Viprasol
+//
+// [Viprasol] Higher Timeframe Peak Session Volume
+// One ATR-row, kernel-blurred volume histogram per higher-timeframe session, up to five sessions stacked in the
+// right margin. Each session's peak row (POC) is traced back to the session's first bar, its acceptance band
+// (Value Area) is shaded, untested peaks are flagged, secondary high / low volume nodes are marked, the session
+// tag reports peak migration and profile shape, and a filled composite outline shows all sessions together.
+// Published open-source.
+
+//@version=6
+indicator("[Viprasol] Higher Timeframe Peak Session Volume", shorttitle = "VP - HTF Peak Volume", overlay = true,
+     max_boxes_count = 500, max_lines_count = 150, max_labels_count = 150, max_polylines_count = 100, max_bars_back = 5000)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// CONSTANTS
+// ══════════════════════════════════════════════════════════════════════════════
+const int   ATR_LOOKBACK   = 100
+const int   MAX_SESSIONS   = 5
+const int   MAX_NODES      = 6
+const color HUE_S1         = #00ffaa
+const color HUE_S2         = #00bcd4
+const color HUE_S3         = #7B68EE
+const color HUE_S4         = #FFD54F
+const color HUE_S5         = #ff3d71
+const color HUE_COMPOSITE  = #7B68EE
+const color HUE_PEAK_ROW   = #ffffff
+const color HUE_DELTA_UP   = #00ffaa
+const color HUE_DELTA_DOWN = #ff3d71
+
+// ══════════════════════════════════════════════════════════════════════════════
+// INPUTS
+// ══════════════════════════════════════════════════════════════════════════════
+string GRP_SESSION = "1 · Session Profile"
+string sessionTfInput    = input.timeframe("D", "Session Timeframe", group = GRP_SESSION,
+     tooltip = "Higher timeframe that defines one session (720 = 12h, D = daily, W = weekly). Each session gets its own stacked histogram.")
+int    sessionCountInput = input.int(3, "Sessions Shown", minval = 1, maxval = MAX_SESSIONS, group = GRP_SESSION,
+     tooltip = "How many recent sessions are displayed at once. Session 1 is the one in progress. Maximum 5 (one hue each).")
+float  rowDivisorInput   = input.float(8.0, "ATR Divisor (Higher = Thinner Rows)", minval = 1.0, group = GRP_SESSION,
+     tooltip = "Row height = ATR(100) / Divisor, fixed when the session opens. Higher values give thinner rows and more detail; lower values give thicker, smoother rows.")
+int    kernelRadiusInput = input.int(6, "Blur Radius (0 = Off)", minval = 0, maxval = 10, group = GRP_SESSION,
+     tooltip = "Radius of the Gaussian kernel that blurs the rows. 0 disables blurring. Higher values give a smoother, more generalised shape.")
+int    marginBarsInput   = input.int(40, "Right Margin Width (Bars)", minval = 5, maxval = 200, group = GRP_SESSION,
+     tooltip = "How far to the right of the last bar the histograms are drawn, in bars. Also the length of the peak row.")
+
+string GRP_BAND = "2 · Value Area"
+bool  showVaBandInput  = input.bool(true, "Shade Value Area", group = GRP_BAND,
+     tooltip = "Shades each session's Value Area: the price band around the peak row that holds the chosen share of that session's volume. Rows outside the band are drawn faded.")
+float vaPercentInput   = input.float(70, "Value Area (% of session volume)", minval = 10, maxval = 95, step = 5, group = GRP_BAND,
+     tooltip = "Share of the session's volume the Value Area must contain. 70% is the conventional setting. Rows are added outward from the peak, larger neighbour first, until the share is reached.")
+int   vaEdgeWidthInput = input.int(1, "Value Area Edge Width", minval = 1, maxval = 3, group = GRP_BAND,
+     tooltip = "Thickness of the dotted Value Area High and Low edges.")
+int   vaFillInput      = input.int(90, "Value Area Fill Transparency", minval = 50, maxval = 100, group = GRP_BAND,
+     tooltip = "Transparency of the band fill between Value Area High and Low. 100 = no fill.")
+
+string GRP_NODES = "3 · Untested Peaks, Nodes & Delta"
+bool  flagUntestedPeakInput = input.bool(true, "Flag Untested (naked) POCs", group = GRP_NODES,
+     tooltip = "A closed session's peak row that price has not traded through since the session ended is an untested (naked) POC. Its tag says UNTESTED and an alert fires when it is finally touched.")
+bool  markHighNodesInput    = input.bool(true, "Mark High Volume Nodes (HVN)", group = GRP_NODES,
+     tooltip = "Secondary peaks in the histogram, other than the POC, holding at least the percentage below of the peak row's volume. Drawn as short solid ticks across the histogram. Price tends to slow and rotate there.")
+float highNodePctInput      = input.float(80, "HVN threshold (% of POC volume)", minval = 30, maxval = 99, step = 5, group = GRP_NODES,
+     tooltip = "A local peak must hold at least this share of the POC row's volume to count as a High Volume Node.")
+bool  markLowNodesInput     = input.bool(true, "Mark Low Volume Nodes (LVN)", group = GRP_NODES,
+     tooltip = "Valleys in the histogram holding at most the percentage below of the peak row's volume. Drawn as short dotted ticks across the histogram. Price tends to move through them quickly or reject.")
+float lowNodePctInput       = input.float(30, "LVN threshold (% of POC volume)", minval = 1, maxval = 70, step = 5, group = GRP_NODES,
+     tooltip = "A local valley must hold at most this share of the POC row's volume to count as a Low Volume Node.")
+bool  showShiftTagsInput    = input.bool(true, "Peak migration & shape in tags", group = GRP_NODES,
+     tooltip = "Adds to each session tag the POC change versus the previous session (value migrating up or down) and the profile shape: P = volume concentrated high (buyers in control), b = concentrated low (sellers), D = balanced, DD = double distribution (two separate volume clusters).")
+bool  deltaTintInput        = input.bool(false, "Tint rows by delta (buy vs sell volume)", group = GRP_NODES,
+     tooltip = "Tints each row by the share of its volume that traded on up-closing bars (green) versus down-closing bars (red) instead of the session hue. Shows whether a peak was built by buyers or sellers. Peak and Value Area lines keep the session hue.")
+
+string GRP_VIS = "4 · Visibility & Style"
+bool   drawHistogramInput    = input.bool(true, "Draw Histograms", group = GRP_VIS,
+     tooltip = "Show the stacked volume rows in the right margin.")
+color  peakRowAccentInput    = input.color(HUE_PEAK_ROW, "POC Row Accent", group = GRP_VIS,
+     tooltip = "Colour of the peak (POC) row in every histogram, so the highest-volume price stands out from the session hue.")
+bool   drawPeakLinesInput    = input.bool(true, "Draw POC Lines", group = GRP_VIS,
+     tooltip = "Trace each session's POC from the session's first bar to its histogram.")
+string peakLineStyleInput    = input.string("Arrow", "POC Line Style", options = ["Arrow", "Solid", "Dashed", "Dotted"], group = GRP_VIS,
+     tooltip = "Arrow draws the POC line with an arrow head pointing at the histogram.")
+int    peakLineWidthInput    = input.int(2, "POC Line Width", minval = 1, group = GRP_VIS,
+     tooltip = "Thickness of the POC lines.")
+bool   drawSessionLinesInput = input.bool(true, "Draw Session Separators", group = GRP_VIS,
+     tooltip = "Faint dotted vertical line at each session's first bar, spanning the session's range.")
+bool   drawTagsInput         = input.bool(true, "Draw Session Tags", group = GRP_VIS,
+     tooltip = "Diamond marker at the session's first bar and an info tag at the right margin (session, volume, POC migration, shape, UNTESTED).")
+string tagSizeInput          = input.string("Small", "Tag Size", options = ["Auto", "Tiny", "Small", "Normal", "Large"], group = GRP_VIS,
+     tooltip = "Size of the markers and tags.")
+bool   rowOutlineInput       = input.bool(false, "Outline Rows", group = GRP_VIS,
+     tooltip = "Draw a thin outline around each histogram row in the session hue.")
+bool   drawCompositeInput    = input.bool(true, "Draw Composite Outline", group = GRP_VIS,
+     tooltip = "Outline the combined histogram of all displayed sessions as one filled silhouette.")
+
+string GRP_HUES = "5 · Session Hues"
+color  sessionHue1Input    = input.color(HUE_S1, "Session 1 (current)", group = GRP_HUES, tooltip = "Hue of the session in progress.")
+color  sessionHue2Input    = input.color(HUE_S2, "Session 2", group = GRP_HUES, tooltip = "Hue of the previous session.")
+color  sessionHue3Input    = input.color(HUE_S3, "Session 3", group = GRP_HUES, tooltip = "Hue of the 3rd most recent session.")
+color  sessionHue4Input    = input.color(HUE_S4, "Session 4", group = GRP_HUES, tooltip = "Hue of the 4th most recent session.")
+color  sessionHue5Input    = input.color(HUE_S5, "Session 5", group = GRP_HUES, tooltip = "Hue of the 5th most recent session.")
+color  compositeColorInput = input.color(HUE_COMPOSITE, "Composite Color", group = GRP_HUES, tooltip = "Colour of the composite outline and its fill.")
+string compositeStyleInput = input.string("Solid", "Composite Line Style", options = ["Solid", "Dotted", "Dashed"], group = GRP_HUES, tooltip = "Line style of the composite outline.")
+int    compositeWidthInput = input.int(1, "Composite Line Width", minval = 1, maxval = 5, group = GRP_HUES, tooltip = "Line width of the composite outline.")
+int    compositeFillInput  = input.int(90, "Composite Fill Transparency", minval = 50, maxval = 100, group = GRP_HUES, tooltip = "Transparency of the composite silhouette fill. 100 = outline only.")
+
+// ══════════════════════════════════════════════════════════════════════════════
+// FUNCTIONS
+// ══════════════════════════════════════════════════════════════════════════════
+styleFromName(string styleName) =>
+    switch styleName
+        "Arrow"  => line.style_arrow_right
+        "Dotted" => line.style_dotted
+        "Dashed" => line.style_dashed
+        => line.style_solid
+
+sizeFromName(string sizeName) =>
+    switch sizeName
+        "Auto"   => size.auto
+        "Tiny"   => size.tiny
+        "Normal" => size.normal
+        "Large"  => size.large
+        => size.small
+
+// "720" -> "12h", "1440" -> "1D", "15" -> "15m"; non-numeric strings such as "D" or "W" pass through
+sessionTag(string tf) =>
+    float minutes = str.tonumber(tf)
+    string tag = tf
+    if not na(minutes)
+        if minutes >= 1440 and (minutes % 1440 == 0)
+            tag := str.tostring(math.floor(minutes / 1440)) + "D"
+        else if minutes >= 60 and (minutes % 60 == 0)
+            tag := str.tostring(math.floor(minutes / 60)) + "h"
+        else
+            tag := str.tostring(minutes) + "m"
+    tag
+
+// Gaussian blur of a row array; radius 0 returns a copy
+kernelBlur(array<float> rows, int radius) =>
+    int n = array.size(rows)
+    array<float> blurred = array.new_float(n, 0.0)
+    if radius > 0
+        for k = 0 to n - 1
+            float acc = 0.0
+            float wsum = 0.0
+            for r = -radius to radius
+                int j = k + r
+                if j >= 0 and j < n
+                    float w = math.exp(-0.5 * math.pow(r / (radius / 2.0), 2))
+                    acc  += array.get(rows, j) * w
+                    wsum += w
+            array.set(blurred, k, acc / wsum)
+    else
+        for k = 0 to n - 1
+            array.set(blurred, k, array.get(rows, k))
+    blurred
+
+// Index and volume of the largest row
+locatePeak(array<float> rows) =>
+    float peakVol = 0.0
+    int   peakIdx = 0
+    for k = 0 to array.size(rows) - 1
+        float v = array.get(rows, k)
+        if v > peakVol
+            peakVol := v
+            peakIdx := k
+    [peakIdx, peakVol]
+
+// Value Area: expand from the peak row, taking the larger neighbour each step, until pct of the total is covered
+acceptanceBounds(array<float> rows, int peakIdx, float pct) =>
+    int   n      = array.size(rows)
+    float target = array.sum(rows) * pct / 100.0
+    float acc    = array.get(rows, peakIdx)
+    int   lo     = peakIdx
+    int   hi     = peakIdx
+    while acc < target and (lo > 0 or hi < n - 1)
+        float below = lo > 0     ? array.get(rows, lo - 1) : -1.0
+        float above = hi < n - 1 ? array.get(rows, hi + 1) : -1.0
+        if above > below
+            hi  += 1
+            acc += above
+        else
+            lo  -= 1
+            acc += below
+    [lo, hi]
+
+// Local peaks (other than the POC) at or above highPct of the peak volume, and local valleys at or below lowPct
+findNodes(array<float> rows, int peakIdx, float peakVol, float highPct, float lowPct) =>
+    array<int> highNodes = array.new_int()
+    array<int> lowNodes  = array.new_int()
+    int n = array.size(rows)
+    if n >= 3 and peakVol > 0
+        for k = 1 to n - 2
+            float v    = array.get(rows, k)
+            float prev = array.get(rows, k - 1)
+            float next = array.get(rows, k + 1)
+            if k != peakIdx and v > prev and v >= next and v >= peakVol * highPct / 100.0 and array.size(highNodes) < MAX_NODES
+                array.push(highNodes, k)
+            if v < prev and v <= next and v <= peakVol * lowPct / 100.0 and array.size(lowNodes) < MAX_NODES
+                array.push(lowNodes, k)
+    [highNodes, lowNodes]
+
+// Has any bar after closeBar traded through the level? (scan of the chart history on the last bar)
+touchedSince(float level, int closeBar) =>
+    bool touched = false
+    int  firstBar = closeBar + 1
+    if firstBar <= bar_index
+        for b = firstBar to bar_index
+            int back = bar_index - b
+            if low[back] <= level and high[back] >= level
+                touched := true
+                break
+    touched
+
+// P = peak in the upper third, b = lower third, D = middle; DD when a strong secondary node sits far from the peak
+shapeCode(float peakPos, bool farNode) =>
+    farNode ? "DD" : peakPos >= 0.66 ? "P" : peakPos <= 0.34 ? "b" : "D"
+
+// ══════════════════════════════════════════════════════════════════════════════
+// CALCULATIONS — Session tracking
+// ══════════════════════════════════════════════════════════════════════════════
+float rangeAtr = ta.atr(ATR_LOOKBACK)
+var float sessionAtr = na
+var float rowHeight  = na
+
+var array<color> sessionHues = array.new_color(MAX_SESSIONS)
+if barstate.isfirst
+    array.set(sessionHues, 0, sessionHue1Input)
+    array.set(sessionHues, 1, sessionHue2Input)
+    array.set(sessionHues, 2, sessionHue3Input)
+    array.set(sessionHues, 3, sessionHue4Input)
+    array.set(sessionHues, 4, sessionHue5Input)
+
+bool sessionRoll = timeframe.change(sessionTfInput)
+
+var array<int>   sessionOpenBars  = array.new_int()
+var array<int>   sessionCloseBars = array.new_int()
+var array<float> sessionHighs     = array.new_float()
+var array<float> sessionLows      = array.new_float()
+
+if sessionRoll
+    sessionAtr := rangeAtr
+    rowHeight  := sessionAtr / rowDivisorInput
+
+    if array.size(sessionOpenBars) > 0
+        array.unshift(sessionCloseBars, bar_index[1])
+    else
+        array.unshift(sessionCloseBars, bar_index)
+
+    array.unshift(sessionOpenBars, bar_index)
+    array.unshift(sessionHighs, high)
+    array.unshift(sessionLows, low)
+
+    if array.size(sessionOpenBars) > sessionCountInput
+        array.pop(sessionOpenBars)
+        array.pop(sessionCloseBars)
+        array.pop(sessionHighs)
+        array.pop(sessionLows)
+else if array.size(sessionHighs) > 0
+    array.set(sessionHighs, 0, math.max(array.get(sessionHighs, 0), high))
+    array.set(sessionLows, 0, math.min(array.get(sessionLows, 0), low))
+    if array.size(sessionCloseBars) > 0
+        array.set(sessionCloseBars, 0, bar_index)
+    else
+        array.unshift(sessionCloseBars, bar_index)
+
+// Drawing storage (rebuilt on the last bar)
+var array<box>   histRows         = array.new_box()
+var array<line>  levelLines       = array.new_line()
+var array<label> tagLabels        = array.new_label()
+var polyline     compositeOutline = na
+
+// Live-session levels kept for the alerts
+var float livePeak = na
+var float liveVah  = na
+var float liveVal  = na
+var array<float> untestedPeaks = array.new_float()
+
+// An untested peak from the previous evaluation is being traded through on this bar
+bool untestedPeakHit = false
+if barstate.islast and array.size(untestedPeaks) > 0
+    for i = 0 to array.size(untestedPeaks) - 1
+        float lvl = array.get(untestedPeaks, i)
+        if low <= lvl and high >= lvl
+            untestedPeakHit := true
+
+// ══════════════════════════════════════════════════════════════════════════════
+// VISUALS — Histograms, POC, Value Area, nodes, untested peaks, composite outline
+// ══════════════════════════════════════════════════════════════════════════════
+if barstate.islast and array.size(sessionOpenBars) > 0 and rowHeight > 0
+
+    if array.size(histRows) > 0
+        for i = 0 to array.size(histRows) - 1
+            box.delete(array.get(histRows, i))
+        array.clear(histRows)
+
+    if array.size(levelLines) > 0
+        for i = 0 to array.size(levelLines) - 1
+            line.delete(array.get(levelLines, i))
+        array.clear(levelLines)
+
+    if array.size(tagLabels) > 0
+        for i = 0 to array.size(tagLabels) - 1
+            label.delete(array.get(tagLabels, i))
+        array.clear(tagLabels)
+
+    if not na(compositeOutline)
+        polyline.delete(compositeOutline)
+
+    array.clear(untestedPeaks)
+
+    int    sessionCount = array.size(sessionOpenBars)
+    int    marginRight  = bar_index + marginBarsInput
+    int    marginLeft   = marginRight - marginBarsInput
+    string tfTag        = sessionTag(sessionTfInput)
+    string tagSize      = sizeFromName(tagSizeInput)
+    string peakStyle    = styleFromName(peakLineStyleInput)
+
+    float spanHigh = array.max(sessionHighs)
+    float spanLow  = array.min(sessionLows)
+
+    int spanMinRow = math.floor(spanLow / rowHeight)
+    int spanMaxRow = math.floor(spanHigh / rowHeight)
+    int spanRows   = spanMaxRow - spanMinRow + 1
+
+    array<float> spanVolumes = array.new_float(spanRows, 0.0)
+
+    // Oldest session first so each session can compare its peak with the one before it
+    float priorPeak = na
+    for s = sessionCount - 1 to 0
+        int   openBar  = array.get(sessionOpenBars, s)
+        int   closeBar = array.get(sessionCloseBars, s)
+        float sHigh    = array.get(sessionHighs, s)
+        float sLow     = array.get(sessionLows, s)
+
+        color hue      = array.get(sessionHues, s % array.size(sessionHues))
+        color hueSolid = color.new(hue, 0)
+
+        int rowBase  = math.floor(sLow / rowHeight)
+        int rowTop   = math.floor(sHigh / rowHeight)
+        int rowCount = rowTop - rowBase + 1
+
+        if rowCount > 0
+            array<float> rowVolumes   = array.new_float(rowCount, 0.0)
+            array<float> rowUpVolumes = array.new_float(rowCount, 0.0)
+            float sessionVolume = 0.0
+
+            // Each chart bar's volume goes into the row of its close, strictly inside [openBar, closeBar]
+            for b = openBar to closeBar
+                int back = bar_index - b
+                if back >= 0
+                    float closeAt = close[back]
+                    float volAt   = volume[back]
+                    bool  upBar   = close[back] >= open[back]
+
+                    int rowIdx = math.floor(closeAt / rowHeight) - rowBase
+                    rowIdx := math.min(math.max(rowIdx, 0), rowCount - 1)
+                    array.set(rowVolumes, rowIdx, array.get(rowVolumes, rowIdx) + volAt)
+                    if upBar
+                        array.set(rowUpVolumes, rowIdx, array.get(rowUpVolumes, rowIdx) + volAt)
+                    sessionVolume += volAt
+
+                    int spanIdx = math.floor(closeAt / rowHeight) - spanMinRow
+                    spanIdx := math.min(math.max(spanIdx, 0), spanRows - 1)
+                    array.set(spanVolumes, spanIdx, array.get(spanVolumes, spanIdx) + volAt)
+
+            array<float> blurred   = kernelBlur(rowVolumes, kernelRadiusInput)
+            array<float> blurredUp = kernelBlur(rowUpVolumes, kernelRadiusInput)
+            [peakIdx, peakVol] = locatePeak(blurred)
+            [highNodes, lowNodes] = findNodes(blurred, peakIdx, peakVol, highNodePctInput, lowNodePctInput)
+
+            // Value Area bounds (row indices) are needed before the rows are drawn so out-of-band rows can be faded
+            int vaLo = 0
+            int vaHi = rowCount - 1
+            if showVaBandInput and peakVol > 0
+                [lo, hi] = acceptanceBounds(blurred, peakIdx, vaPercentInput)
+                vaLo := lo
+                vaHi := hi
+
+            float peakPrice  = (rowBase + peakIdx + 0.5) * rowHeight
+            float bandTop    = showVaBandInput ? (rowBase + vaHi + 1) * rowHeight : na
+            float bandBottom = showVaBandInput ? (rowBase + vaLo) * rowHeight : na
+
+            // Histogram: row length scaled to the peak, brightness ramps with volume, out-of-band rows faded, peak row accented
+            if drawHistogramInput
+                for k = 0 to rowCount - 1
+                    float vol = array.get(blurred, k)
+                    if vol > 0 and peakVol > 0
+                        float ratio    = vol / peakVol
+                        int   rowLen   = math.round(ratio * marginBarsInput)
+                        float rowLow   = (rowBase + k) * rowHeight
+                        float rowHigh  = rowLow + rowHeight
+                        bool  inBand   = not showVaBandInput or (k >= vaLo and k <= vaHi)
+                        color rowHue   = hue
+                        if deltaTintInput
+                            float upShare = array.get(blurredUp, k) / vol
+                            rowHue := color.from_gradient(upShare, 0.3, 0.7, HUE_DELTA_DOWN, HUE_DELTA_UP)
+                        color rowFill = k == peakIdx ? color.new(peakRowAccentInput, 10) :
+                             inBand ? color.from_gradient(ratio, 0.0, 1.0, color.new(rowHue, 82), color.new(rowHue, 25)) : color.new(rowHue, 90)
+                        color rowEdge = rowOutlineInput ? color.new(rowHue, 55) : na
+                        array.push(histRows, box.new(left = marginRight - rowLen, top = rowHigh, right = marginRight, bottom = rowLow, bgcolor = rowFill, border_color = rowEdge, border_width = 1))
+
+            // High / low volume nodes as short ticks across the histogram
+            if markHighNodesInput and array.size(highNodes) > 0
+                for i = 0 to array.size(highNodes) - 1
+                    float lvl = (rowBase + array.get(highNodes, i) + 0.5) * rowHeight
+                    array.push(levelLines, line.new(x1 = marginLeft, y1 = lvl, x2 = marginRight, y2 = lvl, color = color.new(hue, 15), width = 1, style = line.style_solid))
+            if markLowNodesInput and array.size(lowNodes) > 0
+                for i = 0 to array.size(lowNodes) - 1
+                    float lvl = (rowBase + array.get(lowNodes, i) + 0.5) * rowHeight
+                    array.push(levelLines, line.new(x1 = marginLeft, y1 = lvl, x2 = marginRight, y2 = lvl, color = color.new(hue, 40), width = 1, style = line.style_dotted))
+
+            // Value Area band: dotted edges from the session open to the margin, light fill
+            if showVaBandInput and peakVol > 0
+                array.push(levelLines, line.new(x1 = openBar, y1 = bandTop, x2 = marginRight, y2 = bandTop, color = color.new(hue, 35), width = vaEdgeWidthInput, style = line.style_dotted))
+                array.push(levelLines, line.new(x1 = openBar, y1 = bandBottom, x2 = marginRight, y2 = bandBottom, color = color.new(hue, 35), width = vaEdgeWidthInput, style = line.style_dotted))
+                if vaFillInput < 100
+                    array.push(histRows, box.new(left = openBar, top = bandTop, right = marginRight, bottom = bandBottom, bgcolor = color.new(hue, vaFillInput), border_color = na))
+
+            // Session separator at the first bar of the session
+            if drawSessionLinesInput
+                array.push(levelLines, line.new(x1 = openBar, y1 = sLow, x2 = openBar, y2 = sHigh, color = color.new(hue, 60), width = 1, style = line.style_dotted))
+
+            // Untested peak: a closed session whose POC has not been traded through since the session ended
+            bool isClosedSession = s > 0
+            bool isUntested      = flagUntestedPeakInput and isClosedSession and not touchedSince(peakPrice, closeBar)
+            if isUntested
+                array.push(untestedPeaks, peakPrice)
+
+            if drawPeakLinesInput
+                array.push(levelLines, line.new(x1 = openBar, y1 = peakPrice, x2 = marginRight, y2 = peakPrice, color = hueSolid, width = peakLineWidthInput, style = peakStyle))
+
+            // Peak migration versus the previous session and the profile shape
+            string shiftTxt = ""
+            if showShiftTagsInput
+                float peakPos = sHigh > sLow ? (peakPrice - sLow) / (sHigh - sLow) : 0.5
+                bool  farNode = false
+                if array.size(highNodes) > 0
+                    for i = 0 to array.size(highNodes) - 1
+                        if math.abs(array.get(highNodes, i) - peakIdx) >= rowCount * 0.5
+                            farNode := true
+                string shapeTag = shapeCode(peakPos, farNode)
+                string peakMove = na(priorPeak) ? "POC —" : "POC " + (peakPrice > priorPeak ? "▲ +" : peakPrice < priorPeak ? "▼ " : "= ") + str.tostring((peakPrice - priorPeak) / priorPeak * 100, "#.##") + "%"
+                shiftTxt := "\n" + peakMove + " · " + shapeTag
+            priorPeak := peakPrice
+
+            // Tags: diamond at the session open, info tag at the right margin
+            if drawTagsInput
+                string tagTxt = tfTag + " #" + str.tostring(s + 1) + " · " + str.tostring(peakPrice, format.mintick) + "\nVol " + str.tostring(sessionVolume, "#.##") + shiftTxt + (isUntested ? "\n◆ UNTESTED" : "")
+                array.push(tagLabels, label.new(x = openBar, y = peakPrice, color = hueSolid, style = label.style_diamond, size = size.tiny, force_overlay = true))
+                array.push(tagLabels, label.new(x = marginRight, y = peakPrice, text = tagTxt, color = color.new(hue, isUntested ? 0 : 55), textcolor = isUntested ? color.black : chart.fg_color, style = label.style_label_left, size = tagSize, force_overlay = true))
+
+            if s == 0
+                livePeak := peakPrice
+                liveVah  := bandTop
+                liveVal  := bandBottom
+
+    // Composite silhouette of all displayed sessions
+    if drawCompositeInput and spanRows > 0
+        array<float> blurredSpan = kernelBlur(spanVolumes, kernelRadiusInput)
+        float spanPeak = array.max(blurredSpan)
+
+        if spanPeak > 0
+            array<chart.point> outlinePts = array.new<chart.point>()
+            float floorPrice = spanMinRow * rowHeight
+            array.push(outlinePts, chart.point.from_index(marginRight, floorPrice))
+            for k = 0 to spanRows - 1
+                float v   = array.get(blurredSpan, k)
+                int   len = math.round((v / spanPeak) * marginBarsInput)
+                array.push(outlinePts, chart.point.from_index(marginRight - len, (spanMinRow + k + 0.5) * rowHeight))
+            float ceilPrice = (spanMaxRow + 1) * rowHeight
+            array.push(outlinePts, chart.point.from_index(marginRight, ceilPrice))
+
+            compositeOutline := polyline.new(points = outlinePts, line_color = compositeColorInput, fill_color = color.new(compositeColorInput, compositeFillInput),
+                 line_width = compositeWidthInput, line_style = styleFromName(compositeStyleInput), force_overlay = true)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ALERTS — based on the levels drawn on the live bar, active from the live bar onward
+// ══════════════════════════════════════════════════════════════════════════════
+bool insideBand = not na(liveVah) and not na(liveVal) and close <= liveVah and close >= liveVal
+
+alertcondition(sessionRoll, "New Session", "[Viprasol HTF Peak Volume] New session started on {{ticker}} at {{close}} | TF: {{interval}}")
+alertcondition(ta.cross(close, livePeak), "Price Crossed Current POC", "[Viprasol HTF Peak Volume] Price crossed the current session's POC on {{ticker}} at {{close}} | TF: {{interval}}")
+alertcondition(insideBand and not insideBand[1], "Price Entered Value Area", "[Viprasol HTF Peak Volume] Price entered the current session's Value Area on {{ticker}} at {{close}} | TF: {{interval}}")
+alertcondition(not insideBand and insideBand[1], "Price Left Value Area", "[Viprasol HTF Peak Volume] Price left the current session's Value Area on {{ticker}} at {{close}} | TF: {{interval}}")
+alertcondition(untestedPeakHit, "Untested POC Touched", "[Viprasol HTF Peak Volume] Price is testing a previously untested (naked) POC on {{ticker}} at {{close}} | TF: {{interval}}")

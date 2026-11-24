@@ -1,0 +1,199 @@
+//@version=6
+// This source code is subject to the terms of the Mozilla Public License 2.0
+// (c) viprasol
+indicator("Fair Value Gap Indicator with Fill Tracking and HTF Gaps [Viprasol]", "Fair Value Gap [Viprasol]", overlay = true, max_boxes_count = 500, max_lines_count = 500, max_labels_count = 200)
+
+// ============================================================ inputs
+G_DET = "Detection"
+minGapAtr  = input.float(0.25, "Minimum gap size (x ATR)", minval = 0.0, step = 0.05, group = G_DET, tooltip = "Gaps smaller than this fraction of ATR are ignored as noise.")
+dispBody   = input.float(0.6, "Displacement: middle candle body >= (x ATR)", minval = 0.0, step = 0.1, group = G_DET, tooltip = "The candle that creates the gap must be a real displacement move. Set 0 to accept every three-candle imbalance.")
+atrLen     = input.int(14, "ATR length", minval = 1, group = G_DET)
+mitigation = input.string("Full fill", "Gap is mitigated on", options = ["Full fill", "50% fill (consequent encroachment)", "Close through"], group = G_DET)
+maxGaps    = input.int(30, "Max active gaps per side", minval = 1, maxval = 100, group = G_DET)
+maxAge     = input.int(300, "Expire unfilled gaps after (bars)", minval = 10, group = G_DET)
+
+G_HTF = "Higher-timeframe gaps"
+useHtf = input.bool(false, "Show higher-timeframe FVGs", group = G_HTF)
+htf    = input.timeframe("240", "Higher timeframe", group = G_HTF, tooltip = "Only completed higher-timeframe candles are used (no lookahead), so HTF gaps appear when the HTF candle closes.")
+
+G_VIS = "Display"
+showBull  = input.bool(true, "Bullish gaps", group = G_VIS, inline = "dir")
+showBear  = input.bool(true, "Bearish gaps", group = G_VIS, inline = "dir")
+bullCol   = input.color(color.new(#26a69a, 75), "Bullish", group = G_VIS, inline = "col")
+bearCol   = input.color(color.new(#ef5350, 75), "Bearish", group = G_VIS, inline = "col")
+htfBull   = input.color(color.new(#2962ff, 80), "HTF bullish", group = G_VIS, inline = "col2")
+htfBear   = input.color(color.new(#ff9800, 80), "HTF bearish", group = G_VIS, inline = "col2")
+showMid   = input.bool(true, "Show 50% line (consequent encroachment)", group = G_VIS)
+showFill  = input.bool(true, "Show live fill % on each gap", group = G_VIS)
+keepFilled = input.bool(false, "Keep mitigated gaps on chart (faded)", group = G_VIS)
+showStats = input.bool(true, "Show fill statistics table", group = G_VIS)
+tablePos  = input.string("Bottom right", "Table position", options = ["Top right", "Bottom right", "Top left", "Bottom left"], group = G_VIS)
+
+// ============================================================ types
+type Gap
+    float top
+    float bot
+    bool  bull
+    bool  htf
+    int   born
+    float deepest            // furthest price traded back into the gap
+    bool  touched = false
+    box   bx      = na
+    line  mid     = na
+
+// ============================================================ state
+var array<Gap> gaps = array.new<Gap>()
+// statistics: [chart bull, chart bear]
+var array<int> nBorn  = array.from(0, 0)
+var array<int> nTouch = array.from(0, 0)
+var array<int> nMit   = array.from(0, 0)
+var array<int> sumBarsToMit = array.from(0, 0)
+
+float atr = ta.atr(atrLen)
+
+// ============================================================ helpers
+fillPct(Gap g) =>
+    float size = g.top - g.bot
+    size > 0 ? math.min(100.0, 100.0 * (g.bull ? g.top - g.deepest : g.deepest - g.bot) / size) : 0.0
+
+gapColor(bool bull, bool isHtf) => isHtf ? (bull ? htfBull : htfBear) : (bull ? bullCol : bearCol)
+
+newGap(float top, float bot, bool bull, bool isHtf, int leftBar) =>
+    color c  = gapColor(bull, isHtf)
+    box   bx = box.new(leftBar, top, bar_index, bot, border_color = color.new(c, 40), bgcolor = c, extend = extend.right, text = isHtf ? "HTF " + htf : "", text_size = size.tiny, text_color = color.new(color.gray, 20), text_halign = text.align_right)
+    line  md = showMid ? line.new(leftBar, (top + bot) / 2, bar_index, (top + bot) / 2, extend = extend.right, color = color.new(c, 20), style = line.style_dotted) : na
+    gaps.push(Gap.new(top = top, bot = bot, bull = bull, htf = isHtf, born = bar_index, deepest = bull ? top : bot, bx = bx, mid = md))
+    // cap the number of active gaps per side and type
+    int count  = 0
+    int oldest = -1
+    for i = 0 to gaps.size() - 1
+        Gap q = gaps.get(i)
+        if q.bull == bull and q.htf == isHtf
+            count += 1
+            if oldest == -1
+                oldest := i
+    if count > maxGaps and oldest >= 0
+        Gap o = gaps.remove(oldest)
+        o.bx.delete()
+        if not na(o.mid)
+            o.mid.delete()
+    true
+
+retire(Gap g, bool mitigated) =>
+    if mitigated and keepFilled
+        g.bx.set_extend(extend.none)
+        g.bx.set_right(bar_index)
+        g.bx.set_bgcolor(color.new(color.gray, 90))
+        g.bx.set_border_color(color.new(color.gray, 70))
+        g.bx.set_text("")
+        if not na(g.mid)
+            g.mid.set_extend(extend.none)
+            g.mid.set_x2(bar_index)
+    else
+        g.bx.delete()
+        if not na(g.mid)
+            g.mid.delete()
+    true
+
+// ============================================================ HTF data (completed candles only)
+// Values of the last three COMPLETED HTF candles: offsets [1],[2],[3] with lookahead_on do not repaint.
+[hH1, hL1, hH3, hL3, hT] = request.security(syminfo.tickerid, htf, [high[1], low[1], high[3], low[3], time[1]], lookahead = barmerge.lookahead_on)
+bool htfValid = useHtf and timeframe.in_seconds(htf) > timeframe.in_seconds()
+bool htfNew   = htfValid and not na(hT) and hT != hT[1]
+
+// ============================================================ main (bar close only)
+bool bullNew = false
+bool bearNew = false
+bool bullMit = false
+bool bearMit = false
+bool bullTap = false
+bool bearTap = false
+
+if barstate.isconfirmed and not na(atr)
+    // --- chart-timeframe gaps: candle 1 = [2], displacement candle = [1], candle 3 = current
+    float body1 = math.abs(close[1] - open[1])
+    if showBull and low > high[2] and low - high[2] >= minGapAtr * atr and body1 >= dispBody * atr and close[1] > open[1]
+        newGap(low, high[2], true, false, bar_index - 2)
+        nBorn.set(0, nBorn.get(0) + 1)
+        bullNew := true
+    if showBear and high < low[2] and low[2] - high >= minGapAtr * atr and body1 >= dispBody * atr and close[1] < open[1]
+        newGap(low[2], high, false, false, bar_index - 2)
+        nBorn.set(1, nBorn.get(1) + 1)
+        bearNew := true
+    // --- higher-timeframe gaps from the last three completed HTF candles
+    if htfNew
+        if showBull and hL1 > hH3
+            newGap(hL1, hH3, true, true, bar_index)
+        if showBear and hH1 < hL3
+            newGap(hL3, hH1, false, true, bar_index)
+
+    // --- update fill / mitigation of every active gap
+    int n = gaps.size()
+    if n > 0
+        for i = n - 1 to 0
+            Gap g = gaps.get(i)
+            if g.born == bar_index and not g.htf
+                continue
+            g.deepest := g.bull ? math.min(g.deepest, low) : math.max(g.deepest, high)
+            bool  inside = g.bull ? low <= g.top : high >= g.bot
+            float pct    = fillPct(g)
+            if inside and not g.touched
+                g.touched := true
+                if not g.htf
+                    nTouch.set(g.bull ? 0 : 1, nTouch.get(g.bull ? 0 : 1) + 1)
+                if g.bull
+                    bullTap := true
+                else
+                    bearTap := true
+            bool mitigated = switch mitigation
+                "Full fill"                          => pct >= 100.0
+                "50% fill (consequent encroachment)" => pct >= 50.0
+                => g.bull ? close < g.bot : close > g.top
+            if mitigated
+                if not g.htf
+                    int k = g.bull ? 0 : 1
+                    nMit.set(k, nMit.get(k) + 1)
+                    sumBarsToMit.set(k, sumBarsToMit.get(k) + (bar_index - g.born))
+                if g.bull
+                    bullMit := true
+                else
+                    bearMit := true
+                retire(g, true)
+                gaps.remove(i)
+            else if bar_index - g.born > maxAge
+                retire(g, false)
+                gaps.remove(i)
+            else if showFill
+                g.bx.set_text((g.htf ? "HTF " + htf + "  " : "") + (pct > 0 ? str.tostring(pct, "#") + "% filled" : ""))
+
+// ============================================================ statistics
+var table tbl = na
+if showStats and barstate.islast
+    if na(tbl)
+        string pos = tablePos == "Top right" ? position.top_right : tablePos == "Bottom right" ? position.bottom_right : tablePos == "Top left" ? position.top_left : position.bottom_left
+        tbl := table.new(pos, 3, 6, bgcolor = color.new(color.black, 20), border_color = color.new(color.gray, 60), border_width = 1)
+    color hdr = color.new(color.gray, 30)
+    table.cell(tbl, 0, 0, "Chart-TF gaps", text_color = color.white, bgcolor = hdr, text_size = size.small)
+    table.cell(tbl, 1, 0, "Bullish", text_color = color.white, bgcolor = hdr, text_size = size.small)
+    table.cell(tbl, 2, 0, "Bearish", text_color = color.white, bgcolor = hdr, text_size = size.small)
+    array<string> rows = array.from("Created", "Revisited", "Mitigated", "Avg bars to mitigate")
+    for r = 0 to 3
+        table.cell(tbl, 0, r + 1, rows.get(r), text_color = color.white, text_size = size.small)
+        for k = 0 to 1
+            string v = switch r
+                0 => str.tostring(nBorn.get(k))
+                1 => nBorn.get(k) > 0 ? str.tostring(100.0 * nTouch.get(k) / nBorn.get(k), "#") + "%" : "-"
+                2 => nBorn.get(k) > 0 ? str.tostring(100.0 * nMit.get(k) / nBorn.get(k), "#") + "%" : "-"
+                => nMit.get(k) > 0 ? str.tostring(sumBarsToMit.get(k) / nMit.get(k), "#") : "-"
+            table.cell(tbl, k + 1, r + 1, v, text_color = color.white, text_size = size.small)
+    table.cell(tbl, 0, 5, "Mitigation rule: " + mitigation + ". Historical counts on this chart only.", text_color = color.gray, text_size = size.tiny)
+    table.merge_cells(tbl, 0, 5, 2, 5)
+
+// ============================================================ alerts
+alertcondition(bullNew, "New bullish FVG", "New bullish fair value gap on {{ticker}} {{interval}}")
+alertcondition(bearNew, "New bearish FVG", "New bearish fair value gap on {{ticker}} {{interval}}")
+alertcondition(bullTap, "Price returned to bullish FVG", "Price returned into a bullish fair value gap on {{ticker}} {{interval}}")
+alertcondition(bearTap, "Price returned to bearish FVG", "Price returned into a bearish fair value gap on {{ticker}} {{interval}}")
+alertcondition(bullMit or bearMit, "FVG mitigated", "A fair value gap was mitigated on {{ticker}} {{interval}}")
+if bullNew or bearNew or bullTap or bearTap
+    alert(syminfo.ticker + " " + timeframe.period + ": " + (bullNew ? "new bullish FVG " : "") + (bearNew ? "new bearish FVG " : "") + (bullTap ? "price in bullish FVG " : "") + (bearTap ? "price in bearish FVG" : ""), alert.freq_once_per_bar_close)

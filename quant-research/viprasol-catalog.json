@@ -1,0 +1,285 @@
+{
+  "repository": "Viprasol-Tech/tradingview-indicators",
+  "commit": "a16096c1f2ba5ba5d4b8df97ff60ce8b4ce084d0",
+  "license": "MPL-2.0",
+  "portKind": "Native JavaScript closed-bar calculation",
+  "nativePineParityVerified": false,
+  "items": [
+    {
+      "id": "tyson",
+      "title": "Tyson · 压缩弹簧突破",
+      "sourceFile": "indicators/tyson-uppercut-compression-spring-breakout.pine",
+      "status": "ported",
+      "dependencies": []
+    },
+    {
+      "id": "ronaldo",
+      "title": "Ronaldo · 轨道上缘突破",
+      "sourceFile": "indicators/ronaldo-bicycle-kick-orbit-break-reversal.pine",
+      "status": "ported",
+      "dependencies": []
+    },
+    {
+      "id": "khabib",
+      "title": "Khabib · 嵌套分形破位",
+      "sourceFile": "indicators/khabib-takedown-fractal-nest-breakdown.pine",
+      "status": "ported",
+      "dependencies": []
+    },
+    {
+      "id": "double-tap-double-top-bottom",
+      "title": "Double Tap · 双顶与双底",
+      "sourceFile": "indicators/double-tap-double-top-bottom.pine",
+      "status": "ported",
+      "dependencies": []
+    },
+    {
+      "id": "wave-structure-pro-v2",
+      "title": "Wave Structure PRO v2 · 波浪结构",
+      "sourceFile": "indicators/wave-structure-pro-v2.pine",
+      "status": "ported",
+      "dependencies": []
+    },
+    {
+      "id": "z-score-stats",
+      "title": "Z-Score & Stats · 标准分与统计",
+      "sourceFile": "indicators/z-score-stats.pine",
+      "status": "ported",
+      "dependencies": []
+    },
+    {
+      "id": "goal-setting-strategies",
+      "title": "Goal Setting · 目标进度",
+      "sourceFile": "indicators/goal-setting-strategies.pine",
+      "status": "ported",
+      "dependencies": []
+    },
+    {
+      "id": "absorption-radar-pro",
+      "title": "Viprasol Absorption Radar Pro for Smart Money",
+      "sourceFile": "indicators/absorption-radar-pro.pine",
+      "status": "ported",
+      "dependencies": [
+        "ohlcv",
+        "mintick"
+      ]
+    },
+    {
+      "id": "apex-trend-signal-engine",
+      "title": "APEX Trend & Signal Engine",
+      "sourceFile": "indicators/apex-trend-signal-engine.pine",
+      "status": "ported",
+      "dependencies": [
+        "ohlcv",
+        "mintick"
+      ]
+    },
+    {
+      "id": "edge-liquidity-engine",
+      "title": "EDGE Liquidity Engine",
+      "sourceFile": "indicators/edge-liquidity-engine.pine",
+      "status": "ported",
+      "dependencies": [
+        "ohlcv"
+      ]
+    },
+    {
+      "id": "elite-flow-pro",
+      "title": "Viprasol Elite Flow Pro",
+      "sourceFile": "indicators/elite-flow-pro.pine",
+      "status": "ported",
+      "dependencies": [
+        "ohlcv"
+      ]
+    },
+    {
+      "id": "equilibrium-confluence-engine",
+      "title": "Equilibrium Confluence Engine",
+      "sourceFile": "indicators/equilibrium-confluence-engine.pine",
+      "status": "ported",
+      "dependencies": [
+        "ohlcv"
+      ]
+    },
+    {
+      "id": "liquidity-hunt-pro",
+      "title": "Liquidity Hunt Pro",
+      "sourceFile": "indicators/liquidity-hunt-pro.pine",
+      "status": "ported",
+      "dependencies": [
+        "ohlcv",
+        "mintick"
+      ]
+    },
+    {
+      "id": "ma-confluence-engine",
+      "title": "MA Confluence Engine",
+      "sourceFile": "indicators/ma-confluence-engine.pine",
+      "status": "ported",
+      "dependencies": [
+        "ohlcv"
+      ]
+    },
+    {
+      "id": "market-os",
+      "title": "MARKET OS",
+      "sourceFile": "indicators/market-os.pine",
+      "status": "ported",
+      "dependencies": [
+        "ohlcv",
+        "mintick"
+      ]
+    },
+    {
+      "id": "naive-bayes-order-flow",
+      "title": "Naive Bayes Order Flow",
+      "sourceFile": "indicators/naive-bayes-order-flow.pine",
+      "status": "ported",
+      "dependencies": [
+        "ohlcv",
+        "mintick"
+      ]
+    },
+    {
+      "id": "pressure-flow-pro",
+      "title": "Pressure Flow Pro",
+      "sourceFile": "indicators/pressure-flow-pro.pine",
+      "status": "ported",
+      "dependencies": [
+        "ohlcv",
+        "mintick"
+      ]
+    },
+    {
+      "id": "elite-advanced-pattern-scanner",
+      "title": "Viprasol Elite Advanced Pattern Scanner",
+      "sourceFile": "indicators/elite-advanced-pattern-scanner.pine",
+      "status": "ported",
+      "dependencies": [
+        "ohlcv"
+      ]
+    },
+    {
+      "id": "bitcoin-sniper-confluence",
+      "title": "Bitcoin Sniper Confluence",
+      "sourceFile": "indicators/bitcoin-sniper-confluence.pine",
+      "status": "ported",
+      "dependencies": [
+        "OHLCV",
+        "symbol metadata",
+        "exchange session timezone",
+        "confirmation timeframe OHLCV",
+        "macro OHLCV when enabled",
+        "daily OHLCV for ADR",
+        "BTC dominance when enabled"
+      ]
+    },
+    {
+      "id": "gold-sniper-confluence",
+      "title": "Gold Sniper Confluence",
+      "sourceFile": "indicators/gold-sniper-confluence.pine",
+      "status": "ported",
+      "dependencies": [
+        "OHLCV",
+        "symbol metadata",
+        "exchange session timezone",
+        "confirmation timeframe OHLCV",
+        "DXY OHLCV when enabled",
+        "daily OHLCV for ADR"
+      ]
+    },
+    {
+      "id": "cisd-delivery-shift",
+      "title": "CISD Delivery Shift",
+      "sourceFile": "indicators/cisd-delivery-shift.pine",
+      "status": "ported",
+      "dependencies": [
+        "OHLCV",
+        "HTF OHLCV for quality score"
+      ]
+    },
+    {
+      "id": "fair-value-gap-fill-tracking",
+      "title": "Fair Value Gap Fill Tracking",
+      "sourceFile": "indicators/fair-value-gap-fill-tracking.pine",
+      "status": "ported",
+      "dependencies": [
+        "OHLCV",
+        "HTF OHLCV when enabled"
+      ]
+    },
+    {
+      "id": "fib-ote-fvg-confluence",
+      "title": "Fib OTE FVG Confluence",
+      "sourceFile": "indicators/fib-ote-fvg-confluence.pine",
+      "status": "ported",
+      "dependencies": [
+        "OHLCV",
+        "previous completed HTF OHLC"
+      ]
+    },
+    {
+      "id": "multi-timeframe-trend-signal-engine",
+      "title": "Multi Timeframe Trend Signal Engine",
+      "sourceFile": "indicators/multi-timeframe-trend-signal-engine.pine",
+      "status": "ported",
+      "dependencies": [
+        "OHLCV",
+        "5/15/60/240/720/1440-minute OHLCV"
+      ]
+    },
+    {
+      "id": "real-relative-strength",
+      "title": "Real Relative Strength",
+      "sourceFile": "indicators/real-relative-strength.pine",
+      "status": "ported",
+      "dependencies": [
+        "OHLCV",
+        "benchmark same-timeframe OHLCV",
+        "second benchmark when enabled"
+      ]
+    },
+    {
+      "id": "smc-flip-zone-engine",
+      "title": "SMC Flip Zone Engine",
+      "sourceFile": "indicators/smc-flip-zone-engine.pine",
+      "status": "ported",
+      "dependencies": [
+        "OHLCV",
+        "HTF EMA50 for quality score"
+      ]
+    },
+    {
+      "id": "sniper-confluence-entry-exit",
+      "title": "Sniper Confluence Entry Exit",
+      "sourceFile": "indicators/sniper-confluence-entry-exit.pine",
+      "status": "ported",
+      "dependencies": [
+        "OHLCV",
+        "exchange session timezone",
+        "secondary-timeframe OHLCV"
+      ]
+    },
+    {
+      "id": "wyckoff-schematic",
+      "title": "Wyckoff Schematic",
+      "sourceFile": "indicators/wyckoff-schematic.pine",
+      "status": "ported",
+      "dependencies": [
+        "OHLCV",
+        "daily OHLCV when monthly wave enabled"
+      ]
+    },
+    {
+      "id": "htf-peak-session-volume",
+      "title": "Higher Timeframe Peak Session Volume",
+      "sourceFile": "indicators/htf-peak-session-volume.pine",
+      "status": "ported",
+      "dependencies": [
+        "OHLCV",
+        "exchange session timezone",
+        "chart timeframe no higher than session timeframe"
+      ]
+    }
+  ]
+}

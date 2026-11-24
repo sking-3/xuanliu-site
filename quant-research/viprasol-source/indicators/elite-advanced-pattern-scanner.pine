@@ -1,0 +1,1019 @@
+//@version=6
+// © viprasol
+
+indicator("Viprasol Elite Advanced Pattern Scanner", shorttitle="VIP Elite Patterns", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_bars_back=2000)
+
+// ═══════════════════════════════════════════════════════════════════
+// 1. VIPRASOL CONFIGURATION
+// ═══════════════════════════════════════════════════════════════════
+
+// ✅ General Settings
+vip_show_historical = input.bool(false, "Show Historical Patterns", group="⚙️ Viprasol System Config")
+
+// ✅ Pattern Activation
+vip_enable_discount = input.bool(true, "✅ Enable DISCOUNT Pattern", group="🎯 Elite Pattern Selection")
+vip_enable_premium = input.bool(true, "✅ Enable PREMIUM Pattern", group="🎯 Elite Pattern Selection")
+
+// ✅ Pattern Detection Engine
+vip_left_candles = input.int(6, "Left Pivots", minval=1, group="🔍 Viprasol Detection Engine")
+vip_right_candles = input.int(4, "Right Pivots", minval=1, group="🔍 Viprasol Detection Engine")
+vip_min_pattern_width = input.int(12, "Min Pattern Width", minval=6, group="🔍 Viprasol Detection Engine")
+vip_symmetry_tolerance = input.float(1.8, "Symmetry Tolerance %", minval=0.1, step=0.1, group="🔍 Viprasol Detection Engine")
+vip_min_structure_length = input.int(12, "Min Structure Length", minval=6, group="🔍 Viprasol Detection Engine")
+vip_min_trend_depth = input.int(12, "Min Trend Depth", minval=6, group="🔍 Viprasol Detection Engine")
+vip_trend_scan_range = input.int(55, "Trend Scan Range", group="🔍 Viprasol Detection Engine")
+vip_extension_factor = input.float(2.2, "Extension Multiplier", minval=1.0, maxval=5.0, step=0.5, group="🔍 Viprasol Detection Engine")
+
+// ✅ Quality Intelligence System
+vip_min_quality_threshold = input.int(65, "Min Quality Score", minval=0, maxval=100, group="⭐ Viprasol Quality AI")
+vip_symmetry_weight = input.float(32.0, "Symmetry Weight", minval=0, maxval=50, step=5, group="⭐ Viprasol Quality AI")
+vip_trend_weight = input.float(22.0, "Trend Weight", minval=0, maxval=50, step=5, group="⭐ Viprasol Quality AI")
+vip_volume_weight = input.float(22.0, "Volume Weight", minval=0, maxval=50, step=5, group="⭐ Viprasol Quality AI")
+vip_depth_weight = input.float(16.0, "Depth Weight", minval=0, maxval=50, step=5, group="⭐ Viprasol Quality AI")
+vip_structure_weight = input.float(16.0, "Structure Weight", minval=0, maxval=50, step=5, group="⭐ Viprasol Quality AI")
+
+// ✅ Advanced Filters
+vip_use_volatility_filter = input.bool(true, "Enable Volatility Filter", group="🔧 Elite Filters")
+vip_volatility_period = input.int(16, "Volatility Period", minval=5, maxval=50, group="🔧 Elite Filters")
+vip_use_momentum_filter = input.bool(true, "Enable Momentum Filter", group="🔧 Elite Filters")
+vip_momentum_period = input.int(16, "Momentum Period", minval=5, maxval=50, group="🔧 Elite Filters")
+vip_momentum_threshold = input.float(22.0, "Momentum Threshold", minval=10, maxval=50, step=5, group="🔧 Elite Filters")
+vip_use_liquidity_filter = input.bool(true, "Enable Liquidity Filter", group="🔧 Elite Filters")
+vip_liquidity_period = input.int(22, "Liquidity Period", minval=5, maxval=100, group="🔧 Elite Filters")
+
+// ✅ Target System - Discount Patterns
+vip_discount_long_mode = input.string("Balanced", "Discount LONG Target", options=["Conservative", "Balanced", "Aggressive"], group="💎 Viprasol Target System")
+vip_discount_short_mode = input.string("Conservative", "Discount SHORT Target", options=["Conservative", "Balanced", "Aggressive"], group="💎 Viprasol Target System")
+
+// ✅ Target System - Premium Patterns
+vip_premium_short_mode = input.string("Balanced", "Premium SHORT Target", options=["Conservative", "Balanced", "Aggressive"], group="💎 Viprasol Target System")
+vip_premium_long_mode = input.string("Conservative", "Premium LONG Target", options=["Conservative", "Balanced", "Aggressive"], group="💎 Viprasol Target System")
+
+// ✅ Premium Styling
+vip_label_scale = input.string("Small", "Label Size", options=["Small", "Normal", "Large", "Huge"], group="🌈 Viprasol Premium Style")
+
+vip_discount_text_color = input.color(color.new(#00FFA3, 0), "Discount Text Color", group="🌈 Viprasol Premium Style")
+vip_discount_bg_color = input.color(color.new(#9D4EDD, 80), "Discount Background", group="🌈 Viprasol Premium Style")
+vip_discount_elite = input.color(color.new(#00E5FF, 0), "Discount Elite Quality", group="🌈 Viprasol Premium Style")
+vip_discount_premium = input.color(color.new(#9D4EDD, 0), "Discount Premium Quality", group="🌈 Viprasol Premium Style")
+vip_discount_standard = input.color(color.new(#696969, 0), "Discount Standard Quality", group="🌈 Viprasol Premium Style")
+
+vip_premium_text_color = input.color(color.new(#FF0080, 0), "Premium Text Color", group="🌈 Viprasol Premium Style")
+vip_premium_bg_color = input.color(color.new(#FF0080, 80), "Premium Background", group="🌈 Viprasol Premium Style")
+vip_premium_elite = input.color(color.new(#FF0080, 0), "Premium Elite Quality", group="🌈 Viprasol Premium Style")
+vip_premium_mid = input.color(color.new(#9D4EDD, 0), "Premium Mid Quality", group="🌈 Viprasol Premium Style")
+vip_premium_standard = input.color(color.new(#696969, 0), "Premium Standard Quality", group="🌈 Viprasol Premium Style")
+
+vip_target_achieved_color = input.color(color.new(#00FFA3, 0), "Target Achieved Color", group="🌈 Viprasol Premium Style")
+vip_short_reversal_color = input.color(color.new(#FF0080, 0), "SHORT Reversal", group="🌈 Viprasol Premium Style")
+vip_long_reversal_color = input.color(color.new(#00E5FF, 0), "LONG Reversal", group="🌈 Viprasol Premium Style")
+
+vip_fill_alpha = input.int(88, "Fill Transparency", minval=70, maxval=95, group="🌈 Viprasol Premium Style")
+vip_show_dashboard = input.bool(true, "Show Elite Dashboard", group="🌈 Viprasol Premium Style")
+vip_dashboard_scale = input.string("Normal", "Dashboard Size", options=["Small", "Normal", "Large"], group="🌈 Viprasol Premium Style")
+vip_dashboard_position = input.string("Top Right", "Dashboard Position", options=["Top Right", "Top Left", "Bottom Right", "Bottom Left"], group="🌈 Viprasol Premium Style")
+
+// ═══════════════════════════════════════════════════════════════════
+// 2. CORE CALCULATIONS
+// ═══════════════════════════════════════════════════════════════════
+
+get_text(key) =>
+    switch key
+        "vip_discount" => "Viprasol DISCOUNT"
+        "vip_premium" => "Viprasol PREMIUM"
+        "quality_score" => " Quality Score"
+        "grade" => "Grade"
+        "target_mode" => "Target Mode"
+        "target_price" => " Target Price"
+        "elite" => " ELITE"
+        "very_strong" => " VERY STRONG"
+        "strong" => "✓ STRONG"
+        "valid" => "○ VALID"
+        "discount_failed" => "⚠ DISCOUNT FAILED - SHORT"
+        "premium_failed" => "⚠ PREMIUM FAILED - LONG"
+        "status" => " Status"
+        "reversal_short" => "Reversal SHORT"
+        "reversal_long" => "Reversal LONG"
+        "long_breakout" => "LONG Breakout"
+        "short_breakout" => "SHORT Breakout"
+        "target" => "TARGET"
+        "target_down" => "TARGET ↓"
+        "target_up" => "TARGET ↑"
+        "discount_1" => "DISCOUNT 1"
+        "discount_2" => "DISCOUNT 2"
+        "premium_1" => "PREMIUM 1"
+        "premium_2" => "PREMIUM 2"
+        "conservative" => "Conservative"
+        "balanced" => "Balanced"
+        "aggressive" => "Aggressive"
+        => ""
+
+get_label_scale() =>
+    (vip_label_scale == "Small") ? size.small : (vip_label_scale == "Normal") ? size.normal : (vip_label_scale == "Large") ? size.large : size.huge
+
+get_discount_quality_color(vip_quality) =>
+    (vip_quality >= 82) ? vip_discount_elite : (vip_quality >= 65) ? vip_discount_premium : vip_discount_standard
+
+get_premium_quality_color(vip_quality) =>
+    (vip_quality >= 82) ? vip_premium_elite : (vip_quality >= 65) ? vip_premium_mid : vip_premium_standard
+
+get_dashboard_position() =>
+    (vip_dashboard_position == "Top Right") ? position.top_right : (vip_dashboard_position == "Top Left") ? position.top_left : (vip_dashboard_position == "Bottom Right") ? position.bottom_right : position.bottom_left
+
+get_text_scale() =>
+    (vip_dashboard_scale == "Small") ? size.tiny : (vip_dashboard_scale == "Normal") ? size.small : size.normal
+
+mode_to_text(vip_mode) =>
+    (vip_mode == "Conservative") ? get_text("conservative") : (vip_mode == "Balanced") ? get_text("balanced") : get_text("aggressive")
+
+vip_volatility_value = ta.atr(vip_volatility_period)
+[vip_di_plus, vip_di_minus, vip_momentum_value] = ta.dmi(vip_momentum_period, vip_momentum_period)
+vip_liquidity_ma = ta.sma(volume, vip_liquidity_period)
+
+// ═══════════════════════════════════════════════════════════════════
+// 3. SIGNAL INTELLIGENCE
+// ═══════════════════════════════════════════════════════════════════
+
+calculate_discount_quality(vip_p1_price, vip_p2_price, vip_p3_price, vip_p4_price, vip_p2_idx, vip_p4_idx) =>
+    float vip_total_score = 0.0
+    float vip_price_diff = math.abs(vip_p2_price - vip_p4_price)
+    float vip_avg_discount = (vip_p2_price + vip_p4_price) / 2
+    float vip_symmetry_pct = (vip_price_diff / vip_avg_discount) * 100
+    float vip_symmetry_score = (vip_symmetry_pct <= vip_symmetry_tolerance) ? (vip_symmetry_weight * (1 - (vip_symmetry_pct / vip_symmetry_tolerance))) : 0.0
+    vip_total_score += vip_symmetry_score
+    float vip_trend_score = vip_use_momentum_filter ? ((vip_momentum_value >= vip_momentum_threshold and vip_di_minus > vip_di_plus) ? vip_trend_weight : vip_trend_weight * 0.3) : vip_trend_weight * 0.5
+    vip_total_score += vip_trend_score
+    float vip_volume_score = 0.0
+    if vip_use_liquidity_filter
+        int vip_lookback_p4 = bar_index - vip_p4_idx
+        int vip_lookback_p2 = bar_index - vip_p2_idx
+        if vip_lookback_p4 <= 5000 and vip_lookback_p2 <= 5000
+            float vip_vol_p4 = volume[vip_lookback_p4]
+            float vip_vol_p2 = volume[vip_lookback_p2]
+            float vip_avg_vol = (vip_vol_p4 + vip_vol_p2) / 2
+            float vip_volume_ratio = (vip_liquidity_ma > 0) ? (vip_avg_vol / vip_liquidity_ma) : 1.0
+            vip_volume_score := (vip_volume_ratio < 1.0) ? (vip_volume_weight * (1.0 - vip_volume_ratio)) : (vip_volume_weight * 0.3)
+        else
+            vip_volume_score := vip_volume_weight * 0.5
+    else
+        vip_volume_score := vip_volume_weight * 0.5
+    vip_total_score += vip_volume_score
+    float vip_pattern_depth = (vip_p3_price > vip_p4_price) ? ((vip_p3_price - vip_p4_price) / vip_p3_price) : 0.0
+    float vip_depth_score = vip_depth_weight * math.min(vip_pattern_depth * 10, 1.0)
+    vip_total_score += vip_depth_score
+    float vip_downtrend_quality = (vip_p1_price > vip_p3_price) ? 1.0 : 0.5
+    float vip_peak_position = ((vip_p3_price - vip_p4_price) / (vip_p1_price - vip_p4_price))
+    float vip_structure_score = vip_structure_weight * vip_downtrend_quality * math.min(vip_peak_position * 2, 1.0)
+    vip_total_score += vip_structure_score
+    math.min(vip_total_score, 100.0)
+
+calculate_premium_quality(vip_p1_price, vip_p2_price, vip_p3_price, vip_p4_price, vip_p2_idx, vip_p4_idx) =>
+    float vip_total_score = 0.0
+    float vip_price_diff = math.abs(vip_p2_price - vip_p4_price)
+    float vip_avg_premium = (vip_p2_price + vip_p4_price) / 2
+    float vip_symmetry_pct = (vip_price_diff / vip_avg_premium) * 100
+    float vip_symmetry_score = (vip_symmetry_pct <= vip_symmetry_tolerance) ? (vip_symmetry_weight * (1 - (vip_symmetry_pct / vip_symmetry_tolerance))) : 0.0
+    vip_total_score += vip_symmetry_score
+    float vip_trend_score = vip_use_momentum_filter ? ((vip_momentum_value >= vip_momentum_threshold and vip_di_plus > vip_di_minus) ? vip_trend_weight : vip_trend_weight * 0.3) : vip_trend_weight * 0.5
+    vip_total_score += vip_trend_score
+    float vip_volume_score = 0.0
+    if vip_use_liquidity_filter
+        int vip_lookback_p4 = bar_index - vip_p4_idx
+        int vip_lookback_p2 = bar_index - vip_p2_idx
+        if vip_lookback_p4 <= 5000 and vip_lookback_p2 <= 5000
+            float vip_vol_p4 = volume[vip_lookback_p4]
+            float vip_vol_p2 = volume[vip_lookback_p2]
+            float vip_avg_vol = (vip_vol_p4 + vip_vol_p2) / 2
+            float vip_volume_ratio = (vip_liquidity_ma > 0) ? (vip_avg_vol / vip_liquidity_ma) : 1.0
+            vip_volume_score := (vip_volume_ratio < 1.0) ? (vip_volume_weight * (1.0 - vip_volume_ratio)) : (vip_volume_weight * 0.3)
+        else
+            vip_volume_score := vip_volume_weight * 0.5
+    else
+        vip_volume_score := vip_volume_weight * 0.5
+    vip_total_score += vip_volume_score
+    float vip_pattern_depth = (vip_p2_price > vip_p3_price) ? ((vip_p2_price - vip_p3_price) / vip_p2_price) : 0.0
+    float vip_depth_score = vip_depth_weight * math.min(vip_pattern_depth * 10, 1.0)
+    vip_total_score += vip_depth_score
+    float vip_uptrend_quality = (vip_p2_price > vip_p1_price) ? 1.0 : 0.5
+    float vip_valley_position = ((vip_p2_price - vip_p3_price) / (vip_p2_price - vip_p1_price))
+    float vip_structure_score = vip_structure_weight * vip_uptrend_quality * math.min(vip_valley_position * 2, 1.0)
+    vip_total_score += vip_structure_score
+    math.min(vip_total_score, 100.0)
+
+calculate_discount_long_targets(vip_p3_price, vip_p4_price, vip_quality) =>
+    float vip_height = vip_p3_price - vip_p4_price
+    float vip_quality_factor = math.max(vip_quality / 100.0, 0.5)
+    float vip_t1 = vip_p3_price + (vip_height * 0.618 * vip_quality_factor)
+    float vip_t2 = vip_p3_price + (vip_height * 1.0 * vip_quality_factor)
+    float vip_t3 = vip_p3_price + (vip_height * 1.618 * vip_quality_factor)
+    [vip_t1, vip_t2, vip_t3]
+
+calculate_discount_short_targets(vip_p2_price, vip_p3_price, vip_p4_price) =>
+    float vip_min_discount = math.min(vip_p2_price, vip_p4_price)
+    float vip_height = vip_p3_price - vip_min_discount
+    float vip_bt1 = vip_min_discount - (vip_height * 0.618)
+    float vip_bt2 = vip_min_discount - (vip_height * 1.0)
+    float vip_bt3 = vip_min_discount - (vip_height * 1.618)
+    [vip_bt1, vip_bt2, vip_bt3]
+
+calculate_premium_short_targets(vip_p3_price, vip_p4_price, vip_quality) =>
+    float vip_height = vip_p4_price - vip_p3_price
+    float vip_quality_factor = math.max(vip_quality / 100.0, 0.5)
+    float vip_t1 = vip_p3_price - (vip_height * 0.618 * vip_quality_factor)
+    float vip_t2 = vip_p3_price - (vip_height * 1.0 * vip_quality_factor)
+    float vip_t3 = vip_p3_price - (vip_height * 1.618 * vip_quality_factor)
+    [vip_t1, vip_t2, vip_t3]
+
+calculate_premium_long_targets(vip_p2_price, vip_p3_price, vip_p4_price) =>
+    float vip_max_premium = math.max(vip_p2_price, vip_p4_price)
+    float vip_height = vip_max_premium - vip_p3_price
+    float vip_bt1 = vip_max_premium + (vip_height * 0.618)
+    float vip_bt2 = vip_max_premium + (vip_height * 1.0)
+    float vip_bt3 = vip_max_premium + (vip_height * 1.618)
+    [vip_bt1, vip_bt2, vip_bt3]
+
+// ═══════════════════════════════════════════════════════════════════
+// 4. VISUAL SYSTEM - DISCOUNT PATTERN VARIABLES
+// ═══════════════════════════════════════════════════════════════════
+
+var float[] vip_lows_price = array.new_float()
+var int[] vip_lows_idx = array.new_int()
+
+var float vip_disc_p1_price = na
+var int vip_disc_p1_idx = na
+var float vip_disc_p2_price = na
+var int vip_disc_p2_idx = na
+var float vip_disc_p3_price = na
+var int vip_disc_p3_idx = na
+var float vip_disc_p4_price = na
+var int vip_disc_p4_idx = na
+var float vip_disc_quality = na
+var color vip_disc_color = na
+var line vip_disc_neckline_left = na
+var line vip_disc_neckline_right = na
+var line vip_disc_l12 = na
+var line vip_disc_l23 = na
+var line vip_disc_l34 = na
+var line vip_disc_l45 = na
+var linefill vip_disc_fill_left = na
+var linefill vip_disc_fill_23 = na
+var linefill vip_disc_fill_34 = na
+var linefill vip_disc_fill_45 = na
+var label vip_disc_label1 = na
+var label vip_disc_label2 = na
+var label vip_disc_label3 = na
+var label vip_disc_label4 = na
+var label vip_disc_label5 = na
+var label vip_disc_labelX = na
+var bool vip_disc_breakout = false
+var int vip_disc_breakout_bar = na
+var float vip_disc_target_price = na
+var line vip_disc_target_vline = na
+var line vip_disc_target_hline = na
+var label vip_disc_target_label = na
+var bool vip_disc_target_achieved = false
+var int vip_disc_target_achieved_bar = na
+var int vip_disc_pattern_width = na
+var int vip_disc_max_wait_bars = na
+var bool vip_disc_invalidated = false
+var int vip_disc_pattern_start_bar = na
+var bool vip_disc_short_break = false
+var int vip_disc_short_bar = na
+var float vip_disc_short_target = na
+var line vip_disc_short_vline = na
+var line vip_disc_short_hline = na
+var label vip_disc_short_label = na
+var bool vip_disc_short_achieved = false
+var int vip_disc_short_achieved_bar = na
+
+// ═══════════════════════════════════════════════════════════════════
+// PREMIUM PATTERN VARIABLES
+// ═══════════════════════════════════════════════════════════════════
+
+var float[] vip_highs_price = array.new_float()
+var int[] vip_highs_idx = array.new_int()
+
+var float vip_prem_p1_price = na
+var int vip_prem_p1_idx = na
+var float vip_prem_p2_price = na
+var int vip_prem_p2_idx = na
+var float vip_prem_p3_price = na
+var int vip_prem_p3_idx = na
+var float vip_prem_p4_price = na
+var int vip_prem_p4_idx = na
+var float vip_prem_quality = na
+var color vip_prem_color = na
+var line vip_prem_neckline_left = na
+var line vip_prem_neckline_right = na
+var line vip_prem_l12 = na
+var line vip_prem_l23 = na
+var line vip_prem_l34 = na
+var line vip_prem_l45 = na
+var linefill vip_prem_fill_left = na
+var linefill vip_prem_fill_23 = na
+var linefill vip_prem_fill_34 = na
+var linefill vip_prem_fill_45 = na
+var label vip_prem_label1 = na
+var label vip_prem_label2 = na
+var label vip_prem_label3 = na
+var label vip_prem_label4 = na
+var label vip_prem_label5 = na
+var label vip_prem_labelX = na
+var bool vip_prem_breakdown = false
+var int vip_prem_breakdown_bar = na
+var float vip_prem_target_price = na
+var line vip_prem_target_vline = na
+var line vip_prem_target_hline = na
+var label vip_prem_target_label = na
+var bool vip_prem_target_achieved = false
+var int vip_prem_target_achieved_bar = na
+var int vip_prem_pattern_width = na
+var int vip_prem_max_wait_bars = na
+var bool vip_prem_invalidated = false
+var int vip_prem_pattern_start_bar = na
+var bool vip_prem_long_break = false
+var int vip_prem_long_bar = na
+var float vip_prem_long_target = na
+var line vip_prem_long_vline = na
+var line vip_prem_long_hline = na
+var label vip_prem_long_label = na
+var bool vip_prem_long_achieved = false
+var int vip_prem_long_achieved_bar = na
+
+var table vip_elite_dashboard = na
+
+// ═══════════════════════════════════════════════════════════════════
+// DISCOUNT PATTERN DETECTION
+// ═══════════════════════════════════════════════════════════════════
+
+if vip_enable_discount
+    vip_pl = ta.pivotlow(low, vip_left_candles, vip_right_candles)
+    
+    if not na(vip_pl)
+        vip_p4_price = vip_pl
+        vip_p4_idx = bar_index - vip_right_candles
+        array.push(vip_lows_price, vip_p4_price)
+        array.push(vip_lows_idx, vip_p4_idx)
+        if array.size(vip_lows_price) > 50
+            array.shift(vip_lows_price)
+            array.shift(vip_lows_idx)
+        
+        int vip_size = array.size(vip_lows_price)
+        if vip_size >= 2
+            for i = vip_size - 2 to 0
+                vip_p2_price = array.get(vip_lows_price, i)
+                vip_p2_idx = array.get(vip_lows_idx, i)
+                vip_dist = vip_p4_idx - vip_p2_idx
+                vip_diff = math.abs(vip_p4_price - vip_p2_price)
+                vip_match_pct = (vip_diff / math.min(vip_p4_price, vip_p2_price)) * 100
+                
+                if vip_dist >= vip_min_pattern_width and vip_match_pct <= vip_symmetry_tolerance
+                    vip_highest_h = -1.0
+                    vip_p3_idx = -1
+                    vip_broken_low = false
+                    
+                    for k = 1 to (vip_dist - 1)
+                        vip_check_idx = vip_p4_idx - k
+                        vip_offset = bar_index - vip_check_idx
+                        vip_val_high = high[vip_offset]
+                        vip_val_low = low[vip_offset]
+                        if vip_val_high > vip_highest_h
+                            vip_highest_h := vip_val_high
+                            vip_p3_idx := vip_check_idx
+                        vip_min_discounts = math.min(vip_p2_price, vip_p4_price)
+                        if vip_val_low < vip_min_discounts
+                            vip_broken_low := true
+                    
+                    vip_p3_price = vip_highest_h
+                    
+                    if not vip_broken_low and vip_p3_price > vip_p2_price and vip_p3_price > vip_p4_price
+                        vip_distance_2_3 = vip_p3_idx - vip_p2_idx
+                        vip_distance_3_4 = vip_p4_idx - vip_p3_idx
+                        
+                        if vip_distance_2_3 >= vip_min_structure_length and vip_distance_3_4 >= vip_min_structure_length
+                            vip_p1_price_best = -1.0
+                            vip_p1_idx_best = -1
+                            vip_found_trend = false
+                            
+                            for t = vip_min_trend_depth to vip_trend_scan_range
+                                vip_idx_check = vip_p2_idx - t
+                                vip_offset_check = bar_index - vip_idx_check
+                                if vip_offset_check >= 0 and vip_offset_check <= 5000
+                                    vip_val_h = high[vip_offset_check]
+                                    if vip_val_h > vip_p3_price and vip_val_h > vip_p1_price_best
+                                        vip_p1_price_best := vip_val_h
+                                        vip_p1_idx_best := vip_idx_check
+                                        vip_found_trend := true
+                            
+                            if vip_found_trend
+                                vip_p1_price = vip_p1_price_best
+                                vip_p1_idx = vip_p1_idx_best
+                                vip_is_p2_lowest = true
+                                
+                                for vip_check_idx = vip_p1_idx + 1 to vip_p2_idx - 1
+                                    vip_current_offset = bar_index - vip_check_idx
+                                    if vip_current_offset <= 5000 and low[vip_current_offset] < vip_p2_price
+                                        vip_is_p2_lowest := false
+                                        break
+                                
+                                if vip_is_p2_lowest
+                                    bool vip_pass_vol = true
+                                    if vip_use_volatility_filter
+                                        float vip_current_vol = vip_volatility_value
+                                        float vip_avg_vol = ta.sma(vip_volatility_value, 50)
+                                        if vip_current_vol > vip_avg_vol * 1.9
+                                            vip_pass_vol := false
+                                    
+                                    bool vip_pass_mom = true
+                                    if vip_use_momentum_filter
+                                        if vip_momentum_value < (vip_momentum_threshold * 0.7)
+                                            vip_pass_mom := false
+                                    
+                                    float vip_quality = calculate_discount_quality(vip_p1_price, vip_p2_price, vip_p3_price, vip_p4_price, vip_p2_idx, vip_p4_idx)
+                                    bool vip_pass_quality = (vip_quality >= vip_min_quality_threshold)
+                                    
+                                    if vip_pass_vol and vip_pass_mom and vip_pass_quality
+                                        if not vip_show_historical
+                                            if not na(vip_disc_neckline_left)
+                                                line.delete(vip_disc_neckline_left)
+                                            if not na(vip_disc_neckline_right)
+                                                line.delete(vip_disc_neckline_right)
+                                            if not na(vip_disc_l12)
+                                                line.delete(vip_disc_l12)
+                                            if not na(vip_disc_l23)
+                                                line.delete(vip_disc_l23)
+                                            if not na(vip_disc_l34)
+                                                line.delete(vip_disc_l34)
+                                            if not na(vip_disc_l45)
+                                                line.delete(vip_disc_l45)
+                                            if not na(vip_disc_fill_left)
+                                                linefill.delete(vip_disc_fill_left)
+                                            if not na(vip_disc_fill_23)
+                                                linefill.delete(vip_disc_fill_23)
+                                            if not na(vip_disc_fill_34)
+                                                linefill.delete(vip_disc_fill_34)
+                                            if not na(vip_disc_fill_45)
+                                                linefill.delete(vip_disc_fill_45)
+                                            if not na(vip_disc_label1)
+                                                label.delete(vip_disc_label1)
+                                            if not na(vip_disc_label2)
+                                                label.delete(vip_disc_label2)
+                                            if not na(vip_disc_label3)
+                                                label.delete(vip_disc_label3)
+                                            if not na(vip_disc_label4)
+                                                label.delete(vip_disc_label4)
+                                            if not na(vip_disc_label5)
+                                                label.delete(vip_disc_label5)
+                                            if not na(vip_disc_labelX)
+                                                label.delete(vip_disc_labelX)
+                                            if not na(vip_disc_target_vline)
+                                                line.delete(vip_disc_target_vline)
+                                            if not na(vip_disc_target_hline)
+                                                line.delete(vip_disc_target_hline)
+                                            if not na(vip_disc_target_label)
+                                                label.delete(vip_disc_target_label)
+                                            if not na(vip_disc_short_vline)
+                                                line.delete(vip_disc_short_vline)
+                                            if not na(vip_disc_short_hline)
+                                                line.delete(vip_disc_short_hline)
+                                            if not na(vip_disc_short_label)
+                                                label.delete(vip_disc_short_label)
+                                        
+                                        color vip_pattern_color = get_discount_quality_color(vip_quality)
+                                        color vip_fill_color = color.new(vip_pattern_color, vip_fill_alpha)
+                                        string vip_lbl_sz = get_label_scale()
+                                        
+                                        vip_disc_l12 := line.new(vip_p1_idx, vip_p1_price, vip_p2_idx, vip_p2_price, color=vip_pattern_color, width=2, style=line.style_solid)
+                                        vip_disc_l23 := line.new(vip_p2_idx, vip_p2_price, vip_p3_idx, vip_p3_price, color=vip_pattern_color, width=2, style=line.style_solid)
+                                        vip_disc_l34 := line.new(vip_p3_idx, vip_p3_price, vip_p4_idx, vip_p4_price, color=vip_pattern_color, width=2, style=line.style_solid)
+                                        
+                                        float vip_slope = (vip_p2_price - vip_p1_price) / (vip_p2_idx - vip_p1_idx)
+                                        float vip_neckline_left_price = vip_p3_price
+                                        int vip_neckline_left_idx = math.round(vip_p1_idx + ((vip_neckline_left_price - vip_p1_price) / vip_slope))
+                                        vip_disc_neckline_left := line.new(vip_neckline_left_idx, vip_p3_price, vip_p3_idx, vip_p3_price, color=vip_pattern_color, width=1, style=line.style_dotted)
+                                        
+                                        vip_disc_pattern_width := vip_p4_idx - vip_p2_idx
+                                        vip_disc_max_wait_bars := math.round(vip_disc_pattern_width * vip_extension_factor)
+                                        vip_disc_pattern_start_bar := vip_p4_idx
+                                        int vip_initial_end = math.min(bar_index, vip_p4_idx + vip_disc_max_wait_bars)
+                                        vip_disc_neckline_right := line.new(vip_p3_idx, vip_p3_price, vip_initial_end, vip_p3_price, color=vip_pattern_color, width=1, style=line.style_dotted)
+                                        
+                                        vip_roof_left = line.new(vip_neckline_left_idx, vip_p3_price, vip_p2_idx, vip_p3_price, color=color.new(color.white, 100))
+                                        vip_disc_fill_left := linefill.new(vip_disc_l12, vip_roof_left, color=vip_fill_color)
+                                        vip_roof_23 = line.new(vip_p2_idx, vip_p3_price, vip_p3_idx, vip_p3_price, color=color.new(color.white, 100))
+                                        vip_disc_fill_23 := linefill.new(vip_disc_l23, vip_roof_23, color=vip_fill_color)
+                                        vip_roof_34 = line.new(vip_p3_idx, vip_p3_price, vip_p4_idx, vip_p3_price, color=color.new(color.white, 100))
+                                        vip_disc_fill_34 := linefill.new(vip_disc_l34, vip_roof_34, color=vip_fill_color)
+                                        
+                                        vip_disc_label1 := label.new(vip_p1_idx, vip_p1_price, "1", color=color.new(color.white, 100), style=label.style_label_down, textcolor=vip_discount_text_color, size=vip_lbl_sz)
+                                        vip_disc_label2 := label.new(vip_p2_idx, vip_p2_price, get_text("discount_1"), color=vip_discount_bg_color, style=label.style_label_up, textcolor=vip_discount_text_color, size=vip_lbl_sz)
+                                        vip_disc_label3 := label.new(vip_p3_idx, vip_p3_price, "3", color=color.new(color.white, 100), style=label.style_label_down, textcolor=vip_discount_text_color, size=vip_lbl_sz)
+                                        vip_disc_label4 := label.new(vip_p4_idx, vip_p4_price, get_text("discount_2"), color=vip_discount_bg_color, style=label.style_label_up, textcolor=vip_discount_text_color, size=vip_lbl_sz)
+                                        
+                                        vip_disc_p1_price := vip_p1_price
+                                        vip_disc_p1_idx := vip_p1_idx
+                                        vip_disc_p2_price := vip_p2_price
+                                        vip_disc_p2_idx := vip_p2_idx
+                                        vip_disc_p3_price := vip_p3_price
+                                        vip_disc_p3_idx := vip_p3_idx
+                                        vip_disc_p4_price := vip_p4_price
+                                        vip_disc_p4_idx := vip_p4_idx
+                                        vip_disc_quality := vip_quality
+                                        vip_disc_color := vip_pattern_color
+                                        vip_disc_breakout := false
+                                        vip_disc_target_achieved := false
+                                        vip_disc_invalidated := false
+                                        vip_disc_short_break := false
+                                        vip_disc_short_achieved := false
+                                        vip_disc_short_bar := na
+                                        vip_disc_short_target := na
+                                        vip_disc_short_achieved_bar := na
+                                        break
+
+// DISCOUNT PATTERN UPDATE
+if vip_enable_discount and not na(vip_disc_p3_price)
+    if not vip_disc_short_break and not vip_disc_breakout and not vip_disc_invalidated
+        float vip_min_discount = math.min(vip_disc_p2_price, vip_disc_p4_price)
+        if close < vip_min_discount
+            vip_disc_short_break := true
+            vip_disc_short_bar := bar_index
+            
+            if not na(vip_disc_l12)
+                line.set_color(vip_disc_l12, vip_short_reversal_color)
+            if not na(vip_disc_l23)
+                line.set_color(vip_disc_l23, vip_short_reversal_color)
+            if not na(vip_disc_l34)
+                line.set_color(vip_disc_l34, vip_short_reversal_color)
+            if not na(vip_disc_neckline_left)
+                line.set_color(vip_disc_neckline_left, vip_short_reversal_color)
+            if not na(vip_disc_neckline_right)
+                line.delete(vip_disc_neckline_right)
+            vip_disc_neckline_right := line.new(vip_disc_p3_idx, vip_disc_p3_price, bar_index, vip_disc_p3_price, color=vip_short_reversal_color, width=1, style=line.style_dotted)
+            
+            [vip_bt1, vip_bt2, vip_bt3] = calculate_discount_short_targets(vip_disc_p2_price, vip_disc_p3_price, vip_disc_p4_price)
+            vip_disc_short_target := vip_discount_short_mode == "Conservative" ? vip_bt1 : vip_discount_short_mode == "Balanced" ? vip_bt2 : vip_bt3
+            
+            string vip_lbl_sz = get_label_scale()
+            vip_disc_labelX := label.new(bar_index, close, "✖", color=color.new(color.white, 100), style=label.style_label_up, textcolor=vip_short_reversal_color, size=vip_lbl_sz)
+            vip_disc_short_vline := line.new(bar_index, close, bar_index, vip_disc_short_target, color=vip_short_reversal_color, width=1, style=line.style_dotted)
+            
+            if vip_show_dashboard
+                if not na(vip_elite_dashboard)
+                    table.delete(vip_elite_dashboard)
+                vip_elite_dashboard := table.new(get_dashboard_position(), 2, 5, border_width=2, border_color=vip_short_reversal_color, frame_width=2, frame_color=vip_short_reversal_color)
+                string vip_txt_size = get_text_scale()
+                table.cell(vip_elite_dashboard, 0, 0, get_text("discount_failed"), bgcolor=color.new(vip_short_reversal_color, 10), text_color=color.white, text_size=vip_txt_size, text_halign=text.align_center)
+                table.merge_cells(vip_elite_dashboard, 0, 0, 1, 0)
+                int vip_row = 1
+                table.cell(vip_elite_dashboard, 0, vip_row, get_text("target_price"), bgcolor=color.new(vip_short_reversal_color, 80), text_color=color.white, text_size=vip_txt_size, text_halign=text.align_left)
+                table.cell(vip_elite_dashboard, 1, vip_row, str.tostring(vip_disc_short_target, format.mintick), bgcolor=color.new(vip_short_reversal_color, 90), text_color=vip_short_reversal_color, text_size=vip_txt_size, text_halign=text.align_right)
+                vip_row += 1
+                table.cell(vip_elite_dashboard, 0, vip_row, get_text("target_mode"), bgcolor=color.new(vip_short_reversal_color, 85), text_color=color.white, text_size=vip_txt_size, text_halign=text.align_left)
+                table.cell(vip_elite_dashboard, 1, vip_row, mode_to_text(vip_discount_short_mode), bgcolor=color.new(vip_short_reversal_color, 95), text_color=vip_short_reversal_color, text_size=vip_txt_size, text_halign=text.align_right)
+                vip_row += 1
+                table.cell(vip_elite_dashboard, 0, vip_row, get_text("status"), bgcolor=color.new(vip_short_reversal_color, 80), text_color=color.white, text_size=vip_txt_size, text_halign=text.align_left)
+                table.cell(vip_elite_dashboard, 1, vip_row, get_text("reversal_short"), bgcolor=color.new(vip_short_reversal_color, 90), text_color=vip_short_reversal_color, text_size=vip_txt_size, text_halign=text.align_right)
+    
+    else if not vip_disc_short_break and not vip_disc_breakout and not vip_disc_invalidated
+        if (bar_index - vip_disc_pattern_start_bar) >= vip_disc_max_wait_bars
+            vip_disc_invalidated := true
+            if not na(vip_disc_neckline_right)
+                line.delete(vip_disc_neckline_right)
+            vip_disc_neckline_right := line.new(vip_disc_p3_idx, vip_disc_p3_price, vip_disc_pattern_start_bar + vip_disc_max_wait_bars, vip_disc_p3_price, color=color.new(vip_disc_color, 50), width=1, style=line.style_dotted)
+        else
+            if not na(vip_disc_neckline_right)
+                line.delete(vip_disc_neckline_right)
+            int vip_current_end = math.min(bar_index, vip_disc_pattern_start_bar + vip_disc_max_wait_bars)
+            vip_disc_neckline_right := line.new(vip_disc_p3_idx, vip_disc_p3_price, vip_current_end, vip_disc_p3_price, color=vip_disc_color, width=1, style=line.style_dotted)
+    
+    if not vip_disc_short_break and not vip_disc_breakout and not vip_disc_invalidated
+        if close > vip_disc_p3_price
+            vip_disc_breakout := true
+            vip_disc_breakout_bar := bar_index
+            int vip_p5_idx = bar_index
+            float vip_p5_price = vip_disc_p3_price
+            
+            if not na(vip_disc_neckline_right)
+                line.delete(vip_disc_neckline_right)
+            vip_disc_neckline_right := line.new(vip_disc_p3_idx, vip_disc_p3_price, vip_p5_idx, vip_disc_p3_price, color=vip_disc_color, width=1, style=line.style_dotted)
+            
+            vip_disc_l45 := line.new(vip_disc_p4_idx, vip_disc_p4_price, vip_p5_idx, vip_p5_price, color=vip_disc_color, width=2, style=line.style_solid)
+            vip_roof_45 = line.new(vip_disc_p4_idx, vip_disc_p3_price, vip_p5_idx, vip_disc_p3_price, color=color.new(color.white, 100))
+            vip_disc_fill_45 := linefill.new(vip_disc_l45, vip_roof_45, color=color.new(vip_disc_color, vip_fill_alpha))
+            
+            [vip_target1, vip_target2, vip_target3] = calculate_discount_long_targets(vip_disc_p3_price, vip_disc_p4_price, vip_disc_quality)
+            vip_disc_target_price := vip_discount_long_mode == "Conservative" ? vip_target1 : vip_discount_long_mode == "Balanced" ? vip_target2 : vip_target3
+            vip_disc_target_vline := line.new(vip_p5_idx, vip_p5_price, vip_p5_idx, vip_disc_target_price, color=vip_disc_color, width=1, style=line.style_dotted)
+            
+            string vip_lbl_sz = get_label_scale()
+            vip_disc_label5 := label.new(vip_p5_idx, vip_p5_price, "5", color=color.new(color.white, 100), style=label.style_label_down, textcolor=vip_discount_text_color, size=vip_lbl_sz)
+            
+            if vip_show_dashboard
+                if not na(vip_elite_dashboard)
+                    table.delete(vip_elite_dashboard)
+                vip_elite_dashboard := table.new(get_dashboard_position(), 2, 6, border_width=2, border_color=vip_disc_color, frame_width=2, frame_color=vip_disc_color)
+                string vip_quality_grade = (vip_disc_quality >= 88) ? get_text("elite") : (vip_disc_quality >= 77) ? get_text("very_strong") : (vip_disc_quality >= 67) ? get_text("strong") : get_text("valid")
+                string vip_txt_size = get_text_scale()
+                table.cell(vip_elite_dashboard, 0, 0, get_text("vip_discount"), bgcolor=color.new(vip_disc_color, 10), text_color=color.white, text_size=vip_txt_size, text_halign=text.align_center)
+                table.merge_cells(vip_elite_dashboard, 0, 0, 1, 0)
+                int vip_row = 1
+                table.cell(vip_elite_dashboard, 0, vip_row, get_text("quality_score"), bgcolor=color.new(vip_disc_color, 80), text_color=color.white, text_size=vip_txt_size, text_halign=text.align_left)
+                table.cell(vip_elite_dashboard, 1, vip_row, str.tostring(vip_disc_quality, "#.#") + "/100", bgcolor=color.new(vip_disc_color, 90), text_color=vip_disc_color, text_size=vip_txt_size, text_halign=text.align_right)
+                vip_row += 1
+                table.cell(vip_elite_dashboard, 0, vip_row, get_text("grade"), bgcolor=color.new(vip_disc_color, 80), text_color=color.white, text_size=vip_txt_size, text_halign=text.align_left)
+                table.cell(vip_elite_dashboard, 1, vip_row, vip_quality_grade, bgcolor=color.new(vip_disc_color, 90), text_color=vip_disc_color, text_size=vip_txt_size, text_halign=text.align_right)
+                vip_row += 1
+                table.cell(vip_elite_dashboard, 0, vip_row, get_text("target_mode"), bgcolor=color.new(vip_disc_color, 85), text_color=color.white, text_size=vip_txt_size, text_halign=text.align_left)
+                table.cell(vip_elite_dashboard, 1, vip_row, mode_to_text(vip_discount_long_mode), bgcolor=color.new(vip_disc_color, 95), text_color=vip_disc_color, text_size=vip_txt_size, text_halign=text.align_right)
+                vip_row += 1
+                table.cell(vip_elite_dashboard, 0, vip_row, get_text("target_price"), bgcolor=color.new(vip_disc_color, 80), text_color=color.white, text_size=vip_txt_size, text_halign=text.align_left)
+                table.cell(vip_elite_dashboard, 1, vip_row, str.tostring(vip_disc_target_price, format.mintick), bgcolor=color.new(vip_disc_color, 90), text_color=vip_disc_color, text_size=vip_txt_size, text_halign=text.align_right)
+                vip_row += 1
+                table.cell(vip_elite_dashboard, 0, vip_row, get_text("status"), bgcolor=color.new(vip_disc_color, 80), text_color=color.white, text_size=vip_txt_size, text_halign=text.align_left)
+                table.cell(vip_elite_dashboard, 1, vip_row, get_text("long_breakout"), bgcolor=color.new(vip_disc_color, 90), text_color=vip_disc_color, text_size=vip_txt_size, text_halign=text.align_right)
+
+// DISCOUNT TARGET VISUALIZATION
+if vip_enable_discount and vip_disc_short_break and not na(vip_disc_short_target) and not na(vip_disc_short_bar)
+    if not vip_disc_short_achieved and low <= vip_disc_short_target
+        vip_disc_short_achieved := true
+        vip_disc_short_achieved_bar := bar_index
+    
+    if not na(vip_disc_short_hline)
+        line.delete(vip_disc_short_hline)
+    if not na(vip_disc_short_label)
+        label.delete(vip_disc_short_label)
+    
+    color vip_current_color = vip_disc_short_achieved ? vip_target_achieved_color : vip_short_reversal_color
+    int vip_end_bar = vip_disc_short_achieved ? vip_disc_short_achieved_bar : bar_index
+    int vip_bars_diff = vip_end_bar - vip_disc_short_bar
+    
+    if vip_bars_diff >= 0 and vip_bars_diff <= 500
+        vip_disc_short_hline := line.new(vip_disc_short_bar, vip_disc_short_target, vip_end_bar, vip_disc_short_target, color=vip_current_color, width=1, style=line.style_dotted)
+        string vip_lbl_sz = get_label_scale()
+        string vip_label_text = vip_disc_short_achieved ? ("✓ " + get_text("target_down")) : get_text("target_down")
+        vip_disc_short_label := label.new(vip_end_bar, vip_disc_short_target, vip_label_text, color=vip_current_color, style=label.style_label_up, textcolor=color.white, size=vip_lbl_sz)
+
+if vip_enable_discount and vip_disc_breakout and not na(vip_disc_target_price) and not na(vip_disc_breakout_bar)
+    if not vip_disc_target_achieved and high >= vip_disc_target_price
+        vip_disc_target_achieved := true
+        vip_disc_target_achieved_bar := bar_index
+    
+    if not na(vip_disc_target_hline)
+        line.delete(vip_disc_target_hline)
+    if not na(vip_disc_target_label)
+        label.delete(vip_disc_target_label)
+    
+    color vip_current_color = vip_disc_target_achieved ? vip_target_achieved_color : vip_disc_color
+    int vip_end_bar = vip_disc_target_achieved ? vip_disc_target_achieved_bar : bar_index
+    int vip_bars_diff = vip_end_bar - vip_disc_breakout_bar
+    
+    if vip_bars_diff >= 0 and vip_bars_diff <= 500
+        vip_disc_target_hline := line.new(vip_disc_breakout_bar, vip_disc_target_price, vip_end_bar, vip_disc_target_price, color=vip_current_color, width=1, style=line.style_dotted)
+        string vip_lbl_sz = get_label_scale()
+        string vip_label_text = vip_disc_target_achieved ? ("✓ " + get_text("target")) : get_text("target")
+        vip_disc_target_label := label.new(vip_end_bar, vip_disc_target_price, vip_label_text, color=vip_current_color, style=label.style_label_down, textcolor=color.white, size=vip_lbl_sz)
+
+// ═══════════════════════════════════════════════════════════════════
+// PREMIUM PATTERN DETECTION
+// ═══════════════════════════════════════════════════════════════════
+
+if vip_enable_premium
+    vip_ph = ta.pivothigh(high, vip_left_candles, vip_right_candles)
+    
+    if not na(vip_ph)
+        vip_p4_price = vip_ph
+        vip_p4_idx = bar_index - vip_right_candles
+        array.push(vip_highs_price, vip_p4_price)
+        array.push(vip_highs_idx, vip_p4_idx)
+        if array.size(vip_highs_price) > 50
+            array.shift(vip_highs_price)
+            array.shift(vip_highs_idx)
+        
+        int vip_size = array.size(vip_highs_price)
+        if vip_size >= 2
+            for i = vip_size - 2 to 0
+                vip_p2_price = array.get(vip_highs_price, i)
+                vip_p2_idx = array.get(vip_highs_idx, i)
+                vip_dist = vip_p4_idx - vip_p2_idx
+                vip_diff = math.abs(vip_p2_price - vip_p4_price)
+                vip_match_pct = (vip_diff / math.max(vip_p4_price, vip_p2_price)) * 100
+                
+                if vip_dist >= vip_min_pattern_width and vip_match_pct <= vip_symmetry_tolerance
+                    vip_lowest_l = 999999.0
+                    vip_p3_idx = -1
+                    vip_broken_high = false
+                    
+                    for k = 1 to (vip_dist - 1)
+                        vip_check_idx = vip_p4_idx - k
+                        vip_offset = bar_index - vip_check_idx
+                        vip_val_low = low[vip_offset]
+                        vip_val_high = high[vip_offset]
+                        if vip_val_low < vip_lowest_l
+                            vip_lowest_l := vip_val_low
+                            vip_p3_idx := vip_check_idx
+                        vip_max_premiums = math.max(vip_p2_price, vip_p4_price)
+                        if vip_val_high > vip_max_premiums
+                            vip_broken_high := true
+                    
+                    vip_p3_price = vip_lowest_l
+                    
+                    if not vip_broken_high and vip_p3_price < vip_p2_price and vip_p3_price < vip_p4_price
+                        vip_distance_2_3 = vip_p3_idx - vip_p2_idx
+                        vip_distance_3_4 = vip_p4_idx - vip_p3_idx
+                        
+                        if vip_distance_2_3 >= vip_min_structure_length and vip_distance_3_4 >= vip_min_structure_length
+                            vip_p1_price_best = 999999.0
+                            vip_p1_idx_best = -1
+                            vip_found_trend = false
+                            
+                            for t = vip_min_trend_depth to vip_trend_scan_range
+                                vip_idx_check = vip_p2_idx - t
+                                vip_offset_check = bar_index - vip_idx_check
+                                if vip_offset_check >= 0 and vip_offset_check <= 5000
+                                    vip_val_l = low[vip_offset_check]
+                                    if vip_val_l < vip_p3_price and vip_val_l < vip_p1_price_best
+                                        vip_p1_price_best := vip_val_l
+                                        vip_p1_idx_best := vip_idx_check
+                                        vip_found_trend := true
+                            
+                            if vip_found_trend
+                                vip_p1_price = vip_p1_price_best
+                                vip_p1_idx = vip_p1_idx_best
+                                vip_is_p2_highest = true
+                                
+                                for vip_check_idx = vip_p1_idx + 1 to vip_p2_idx - 1
+                                    vip_current_offset = bar_index - vip_check_idx
+                                    if vip_current_offset <= 5000 and high[vip_current_offset] > vip_p2_price
+                                        vip_is_p2_highest := false
+                                        break
+                                
+                                if vip_is_p2_highest
+                                    bool vip_pass_vol = true
+                                    if vip_use_volatility_filter
+                                        float vip_current_vol = vip_volatility_value
+                                        float vip_avg_vol = ta.sma(vip_volatility_value, 50)
+                                        if vip_current_vol > vip_avg_vol * 1.9
+                                            vip_pass_vol := false
+                                    
+                                    bool vip_pass_mom = true
+                                    if vip_use_momentum_filter
+                                        if vip_momentum_value < (vip_momentum_threshold * 0.7)
+                                            vip_pass_mom := false
+                                    
+                                    float vip_quality = calculate_premium_quality(vip_p1_price, vip_p2_price, vip_p3_price, vip_p4_price, vip_p2_idx, vip_p4_idx)
+                                    bool vip_pass_quality = (vip_quality >= vip_min_quality_threshold)
+                                    
+                                    if vip_pass_vol and vip_pass_mom and vip_pass_quality
+                                        if not vip_show_historical
+                                            if not na(vip_prem_neckline_left)
+                                                line.delete(vip_prem_neckline_left)
+                                            if not na(vip_prem_neckline_right)
+                                                line.delete(vip_prem_neckline_right)
+                                            if not na(vip_prem_l12)
+                                                line.delete(vip_prem_l12)
+                                            if not na(vip_prem_l23)
+                                                line.delete(vip_prem_l23)
+                                            if not na(vip_prem_l34)
+                                                line.delete(vip_prem_l34)
+                                            if not na(vip_prem_l45)
+                                                line.delete(vip_prem_l45)
+                                            if not na(vip_prem_fill_left)
+                                                linefill.delete(vip_prem_fill_left)
+                                            if not na(vip_prem_fill_23)
+                                                linefill.delete(vip_prem_fill_23)
+                                            if not na(vip_prem_fill_34)
+                                                linefill.delete(vip_prem_fill_34)
+                                            if not na(vip_prem_fill_45)
+                                                linefill.delete(vip_prem_fill_45)
+                                            if not na(vip_prem_label1)
+                                                label.delete(vip_prem_label1)
+                                            if not na(vip_prem_label2)
+                                                label.delete(vip_prem_label2)
+                                            if not na(vip_prem_label3)
+                                                label.delete(vip_prem_label3)
+                                            if not na(vip_prem_label4)
+                                                label.delete(vip_prem_label4)
+                                            if not na(vip_prem_label5)
+                                                label.delete(vip_prem_label5)
+                                            if not na(vip_prem_labelX)
+                                                label.delete(vip_prem_labelX)
+                                            if not na(vip_prem_target_vline)
+                                                line.delete(vip_prem_target_vline)
+                                            if not na(vip_prem_target_hline)
+                                                line.delete(vip_prem_target_hline)
+                                            if not na(vip_prem_target_label)
+                                                label.delete(vip_prem_target_label)
+                                            if not na(vip_prem_long_vline)
+                                                line.delete(vip_prem_long_vline)
+                                            if not na(vip_prem_long_hline)
+                                                line.delete(vip_prem_long_hline)
+                                            if not na(vip_prem_long_label)
+                                                label.delete(vip_prem_long_label)
+                                        
+                                        color vip_pattern_color = get_premium_quality_color(vip_quality)
+                                        color vip_fill_color = color.new(vip_pattern_color, vip_fill_alpha)
+                                        string vip_lbl_sz = get_label_scale()
+                                        
+                                        vip_prem_l12 := line.new(vip_p1_idx, vip_p1_price, vip_p2_idx, vip_p2_price, color=vip_pattern_color, width=2, style=line.style_solid)
+                                        vip_prem_l23 := line.new(vip_p2_idx, vip_p2_price, vip_p3_idx, vip_p3_price, color=vip_pattern_color, width=2, style=line.style_solid)
+                                        vip_prem_l34 := line.new(vip_p3_idx, vip_p3_price, vip_p4_idx, vip_p4_price, color=vip_pattern_color, width=2, style=line.style_solid)
+                                        
+                                        float vip_slope = (vip_p2_price - vip_p1_price) / (vip_p2_idx - vip_p1_idx)
+                                        float vip_neckline_left_price = vip_p3_price
+                                        int vip_neckline_left_idx = math.round(vip_p1_idx + ((vip_neckline_left_price - vip_p1_price) / vip_slope))
+                                        vip_prem_neckline_left := line.new(vip_neckline_left_idx, vip_p3_price, vip_p3_idx, vip_p3_price, color=vip_pattern_color, width=1, style=line.style_dotted)
+                                        
+                                        vip_prem_pattern_width := vip_p4_idx - vip_p2_idx
+                                        vip_prem_max_wait_bars := math.round(vip_prem_pattern_width * vip_extension_factor)
+                                        vip_prem_pattern_start_bar := vip_p4_idx
+                                        int vip_initial_end = math.min(bar_index, vip_p4_idx + vip_prem_max_wait_bars)
+                                        vip_prem_neckline_right := line.new(vip_p3_idx, vip_p3_price, vip_initial_end, vip_p3_price, color=vip_pattern_color, width=1, style=line.style_dotted)
+                                        
+                                        vip_roof_left = line.new(vip_neckline_left_idx, vip_p3_price, vip_p2_idx, vip_p3_price, color=color.new(color.white, 100))
+                                        vip_prem_fill_left := linefill.new(vip_prem_l12, vip_roof_left, color=vip_fill_color)
+                                        vip_roof_23 = line.new(vip_p2_idx, vip_p3_price, vip_p3_idx, vip_p3_price, color=color.new(color.white, 100))
+                                        vip_prem_fill_23 := linefill.new(vip_prem_l23, vip_roof_23, color=vip_fill_color)
+                                        vip_roof_34 = line.new(vip_p3_idx, vip_p3_price, vip_p4_idx, vip_p3_price, color=color.new(color.white, 100))
+                                        vip_prem_fill_34 := linefill.new(vip_prem_l34, vip_roof_34, color=vip_fill_color)
+                                        
+                                        vip_prem_label1 := label.new(vip_p1_idx, vip_p1_price, "1", color=color.new(color.white, 100), style=label.style_label_up, textcolor=vip_premium_text_color, size=vip_lbl_sz)
+                                        vip_prem_label2 := label.new(vip_p2_idx, vip_p2_price, get_text("premium_1"), color=vip_premium_bg_color, style=label.style_label_down, textcolor=vip_premium_text_color, size=vip_lbl_sz)
+                                        vip_prem_label3 := label.new(vip_p3_idx, vip_p3_price, "3", color=color.new(color.white, 100), style=label.style_label_up, textcolor=vip_premium_text_color, size=vip_lbl_sz)
+                                        vip_prem_label4 := label.new(vip_p4_idx, vip_p4_price, get_text("premium_2"), color=vip_premium_bg_color, style=label.style_label_down, textcolor=vip_premium_text_color, size=vip_lbl_sz)
+                                        
+                                        vip_prem_p1_price := vip_p1_price
+                                        vip_prem_p1_idx := vip_p1_idx
+                                        vip_prem_p2_price := vip_p2_price
+                                        vip_prem_p2_idx := vip_p2_idx
+                                        vip_prem_p3_price := vip_p3_price
+                                        vip_prem_p3_idx := vip_p3_idx
+                                        vip_prem_p4_price := vip_p4_price
+                                        vip_prem_p4_idx := vip_p4_idx
+                                        vip_prem_quality := vip_quality
+                                        vip_prem_color := vip_pattern_color
+                                        vip_prem_breakdown := false
+                                        vip_prem_target_achieved := false
+                                        vip_prem_invalidated := false
+                                        vip_prem_long_break := false
+                                        vip_prem_long_achieved := false
+                                        vip_prem_long_bar := na
+                                        vip_prem_long_target := na
+                                        vip_prem_long_achieved_bar := na
+                                        break
+
+// PREMIUM PATTERN UPDATE
+if vip_enable_premium and not na(vip_prem_p3_price)
+    if not vip_prem_long_break and not vip_prem_breakdown and not vip_prem_invalidated
+        float vip_max_premium = math.max(vip_prem_p2_price, vip_prem_p4_price)
+        if close > vip_max_premium
+            vip_prem_long_break := true
+            vip_prem_long_bar := bar_index
+            
+            if not na(vip_prem_l12)
+                line.set_color(vip_prem_l12, vip_long_reversal_color)
+            if not na(vip_prem_l23)
+                line.set_color(vip_prem_l23, vip_long_reversal_color)
+            if not na(vip_prem_l34)
+                line.set_color(vip_prem_l34, vip_long_reversal_color)
+            if not na(vip_prem_neckline_left)
+                line.set_color(vip_prem_neckline_left, vip_long_reversal_color)
+            if not na(vip_prem_neckline_right)
+                line.delete(vip_prem_neckline_right)
+            vip_prem_neckline_right := line.new(vip_prem_p3_idx, vip_prem_p3_price, bar_index, vip_prem_p3_price, color=vip_long_reversal_color, width=1, style=line.style_dotted)
+            
+            [vip_bt1, vip_bt2, vip_bt3] = calculate_premium_long_targets(vip_prem_p2_price, vip_prem_p3_price, vip_prem_p4_price)
+            vip_prem_long_target := vip_premium_long_mode == "Conservative" ? vip_bt1 : vip_premium_long_mode == "Balanced" ? vip_bt2 : vip_bt3
+            
+            string vip_lbl_sz = get_label_scale()
+            vip_prem_labelX := label.new(bar_index, close, "✖", color=color.new(color.white, 100), style=label.style_label_down, textcolor=vip_long_reversal_color, size=vip_lbl_sz)
+            vip_prem_long_vline := line.new(bar_index, close, bar_index, vip_prem_long_target, color=vip_long_reversal_color, width=1, style=line.style_dotted)
+            
+            if vip_show_dashboard
+                if not na(vip_elite_dashboard)
+                    table.delete(vip_elite_dashboard)
+                vip_elite_dashboard := table.new(get_dashboard_position(), 2, 5, border_width=2, border_color=vip_long_reversal_color, frame_width=2, frame_color=vip_long_reversal_color)
+                string vip_txt_size = get_text_scale()
+                table.cell(vip_elite_dashboard, 0, 0, get_text("premium_failed"), bgcolor=color.new(vip_long_reversal_color, 10), text_color=color.white, text_size=vip_txt_size, text_halign=text.align_center)
+                table.merge_cells(vip_elite_dashboard, 0, 0, 1, 0)
+                int vip_row = 1
+                table.cell(vip_elite_dashboard, 0, vip_row, get_text("target_price"), bgcolor=color.new(vip_long_reversal_color, 80), text_color=color.white, text_size=vip_txt_size, text_halign=text.align_left)
+                table.cell(vip_elite_dashboard, 1, vip_row, str.tostring(vip_prem_long_target, format.mintick), bgcolor=color.new(vip_long_reversal_color, 90), text_color=vip_long_reversal_color, text_size=vip_txt_size, text_halign=text.align_right)
+                vip_row += 1
+                table.cell(vip_elite_dashboard, 0, vip_row, get_text("target_mode"), bgcolor=color.new(vip_long_reversal_color, 85), text_color=color.white, text_size=vip_txt_size, text_halign=text.align_left)
+                table.cell(vip_elite_dashboard, 1, vip_row, mode_to_text(vip_premium_long_mode), bgcolor=color.new(vip_long_reversal_color, 95), text_color=vip_long_reversal_color, text_size=vip_txt_size, text_halign=text.align_right)
+                vip_row += 1
+                table.cell(vip_elite_dashboard, 0, vip_row, get_text("status"), bgcolor=color.new(vip_long_reversal_color, 80), text_color=color.white, text_size=vip_txt_size, text_halign=text.align_left)
+                table.cell(vip_elite_dashboard, 1, vip_row, get_text("reversal_long"), bgcolor=color.new(vip_long_reversal_color, 90), text_color=vip_long_reversal_color, text_size=vip_txt_size, text_halign=text.align_right)
+    
+    else if not vip_prem_long_break and not vip_prem_breakdown and not vip_prem_invalidated
+        if (bar_index - vip_prem_pattern_start_bar) >= vip_prem_max_wait_bars
+            vip_prem_invalidated := true
+            if not na(vip_prem_neckline_right)
+                line.delete(vip_prem_neckline_right)
+            vip_prem_neckline_right := line.new(vip_prem_p3_idx, vip_prem_p3_price, vip_prem_pattern_start_bar + vip_prem_max_wait_bars, vip_prem_p3_price, color=color.new(vip_prem_color, 50), width=1, style=line.style_dotted)
+        else
+            if not na(vip_prem_neckline_right)
+                line.delete(vip_prem_neckline_right)
+            int vip_current_end = math.min(bar_index, vip_prem_pattern_start_bar + vip_prem_max_wait_bars)
+            vip_prem_neckline_right := line.new(vip_prem_p3_idx, vip_prem_p3_price, vip_current_end, vip_prem_p3_price, color=vip_prem_color, width=1, style=line.style_dotted)
+    
+    if not vip_prem_long_break and not vip_prem_breakdown and not vip_prem_invalidated
+        if close < vip_prem_p3_price
+            vip_prem_breakdown := true
+            vip_prem_breakdown_bar := bar_index
+            int vip_p5_idx = bar_index
+            float vip_p5_price = vip_prem_p3_price
+            
+            if not na(vip_prem_neckline_right)
+                line.delete(vip_prem_neckline_right)
+            vip_prem_neckline_right := line.new(vip_prem_p3_idx, vip_prem_p3_price, vip_p5_idx, vip_prem_p3_price, color=vip_prem_color, width=1, style=line.style_dotted)
+            
+            vip_prem_l45 := line.new(vip_prem_p4_idx, vip_prem_p4_price, vip_p5_idx, vip_p5_price, color=vip_prem_color, width=2, style=line.style_solid)
+            vip_roof_45 = line.new(vip_prem_p4_idx, vip_prem_p3_price, vip_p5_idx, vip_prem_p3_price, color=color.new(color.white, 100))
+            vip_prem_fill_45 := linefill.new(vip_prem_l45, vip_roof_45, color=color.new(vip_prem_color, vip_fill_alpha))
+            
+            [vip_target1, vip_target2, vip_target3] = calculate_premium_short_targets(vip_prem_p3_price, vip_prem_p4_price, vip_prem_quality)
+            vip_prem_target_price := vip_premium_short_mode == "Conservative" ? vip_target1 : vip_premium_short_mode == "Balanced" ? vip_target2 : vip_target3
+            vip_prem_target_vline := line.new(vip_p5_idx, vip_p5_price, vip_p5_idx, vip_prem_target_price, color=vip_prem_color, width=1, style=line.style_dotted)
+            
+            string vip_lbl_sz = get_label_scale()
+            vip_prem_label5 := label.new(vip_p5_idx, vip_p5_price, "5", color=color.new(color.white, 100), style=label.style_label_up, textcolor=vip_premium_text_color, size=vip_lbl_sz)
+            
+            if vip_show_dashboard
+                if not na(vip_elite_dashboard)
+                    table.delete(vip_elite_dashboard)
+                vip_elite_dashboard := table.new(get_dashboard_position(), 2, 6, border_width=2, border_color=vip_prem_color, frame_width=2, frame_color=vip_prem_color)
+                string vip_quality_grade = (vip_prem_quality >= 88) ? get_text("elite") : (vip_prem_quality >= 77) ? get_text("very_strong") : (vip_prem_quality >= 67) ? get_text("strong") : get_text("valid")
+                string vip_txt_size = get_text_scale()
+                table.cell(vip_elite_dashboard, 0, 0, get_text("vip_premium"), bgcolor=color.new(vip_prem_color, 10), text_color=color.white, text_size=vip_txt_size, text_halign=text.align_center)
+                table.merge_cells(vip_elite_dashboard, 0, 0, 1, 0)
+                int vip_row = 1
+                table.cell(vip_elite_dashboard, 0, vip_row, get_text("quality_score"), bgcolor=color.new(vip_prem_color, 80), text_color=color.white, text_size=vip_txt_size, text_halign=text.align_left)
+                table.cell(vip_elite_dashboard, 1, vip_row, str.tostring(vip_prem_quality, "#.#") + "/100", bgcolor=color.new(vip_prem_color, 90), text_color=vip_prem_color, text_size=vip_txt_size, text_halign=text.align_right)
+                vip_row += 1
+                table.cell(vip_elite_dashboard, 0, vip_row, get_text("grade"), bgcolor=color.new(vip_prem_color, 80), text_color=color.white, text_size=vip_txt_size, text_halign=text.align_left)
+                table.cell(vip_elite_dashboard, 1, vip_row, vip_quality_grade, bgcolor=color.new(vip_prem_color, 90), text_color=vip_prem_color, text_size=vip_txt_size, text_halign=text.align_right)
+                vip_row += 1
+                table.cell(vip_elite_dashboard, 0, vip_row, get_text("target_mode"), bgcolor=color.new(vip_prem_color, 85), text_color=color.white, text_size=vip_txt_size, text_halign=text.align_left)
+                table.cell(vip_elite_dashboard, 1, vip_row, mode_to_text(vip_premium_short_mode), bgcolor=color.new(vip_prem_color, 95), text_color=vip_prem_color, text_size=vip_txt_size, text_halign=text.align_right)
+                vip_row += 1
+                table.cell(vip_elite_dashboard, 0, vip_row, get_text("target_price"), bgcolor=color.new(vip_prem_color, 80), text_color=color.white, text_size=vip_txt_size, text_halign=text.align_left)
+                table.cell(vip_elite_dashboard, 1, vip_row, str.tostring(vip_prem_target_price, format.mintick), bgcolor=color.new(vip_prem_color, 90), text_color=vip_prem_color, text_size=vip_txt_size, text_halign=text.align_right)
+                vip_row += 1
+                table.cell(vip_elite_dashboard, 0, vip_row, get_text("status"), bgcolor=color.new(vip_prem_color, 80), text_color=color.white, text_size=vip_txt_size, text_halign=text.align_left)
+                table.cell(vip_elite_dashboard, 1, vip_row, get_text("short_breakout"), bgcolor=color.new(vip_prem_color, 90), text_color=vip_prem_color, text_size=vip_txt_size, text_halign=text.align_right)
+
+// PREMIUM TARGET VISUALIZATION
+if vip_enable_premium and vip_prem_long_break and not na(vip_prem_long_target) and not na(vip_prem_long_bar)
+    if not vip_prem_long_achieved and high >= vip_prem_long_target
+        vip_prem_long_achieved := true
+        vip_prem_long_achieved_bar := bar_index
+    
+    if not na(vip_prem_long_hline)
+        line.delete(vip_prem_long_hline)
+    if not na(vip_prem_long_label)
+        label.delete(vip_prem_long_label)
+    
+    color vip_current_color = vip_prem_long_achieved ? vip_target_achieved_color : vip_long_reversal_color
+    int vip_end_bar = vip_prem_long_achieved ? vip_prem_long_achieved_bar : bar_index
+    int vip_bars_diff = vip_end_bar - vip_prem_long_bar
+    
+    if vip_bars_diff >= 0 and vip_bars_diff <= 500
+        vip_prem_long_hline := line.new(vip_prem_long_bar, vip_prem_long_target, vip_end_bar, vip_prem_long_target, color=vip_current_color, width=1, style=line.style_dotted)
+        string vip_lbl_sz = get_label_scale()
+        string vip_label_text = vip_prem_long_achieved ? ("✓ " + get_text("target_up")) : get_text("target_up")
+        vip_prem_long_label := label.new(vip_end_bar, vip_prem_long_target, vip_label_text, color=vip_current_color, style=label.style_label_down, textcolor=color.white, size=vip_lbl_sz)
+
+if vip_enable_premium and vip_prem_breakdown and not na(vip_prem_target_price) and not na(vip_prem_breakdown_bar)
+    if not vip_prem_target_achieved and low <= vip_prem_target_price
+        vip_prem_target_achieved := true
+        vip_prem_target_achieved_bar := bar_index
+    
+    if not na(vip_prem_target_hline)
+        line.delete(vip_prem_target_hline)
+    if not na(vip_prem_target_label)
+        label.delete(vip_prem_target_label)
+    
+    color vip_current_color = vip_prem_target_achieved ? vip_target_achieved_color : vip_prem_color
+    int vip_end_bar = vip_prem_target_achieved ? vip_prem_target_achieved_bar : bar_index
+    int vip_bars_diff = vip_end_bar - vip_prem_breakdown_bar
+    
+    if vip_bars_diff >= 0 and vip_bars_diff <= 500
+        vip_prem_target_hline := line.new(vip_prem_breakdown_bar, vip_prem_target_price, vip_end_bar, vip_prem_target_price, color=vip_current_color, width=1, style=line.style_dotted)
+        string vip_lbl_sz = get_label_scale()
+        string vip_label_text = vip_prem_target_achieved ? ("✓ " + get_text("target")) : get_text("target")
+        vip_prem_target_label := label.new(vip_end_bar, vip_prem_target_price, vip_label_text, color=vip_current_color, style=label.style_label_up, textcolor=color.white, size=vip_lbl_sz)
+
+// ═══════════════════════════════════════════════════════════════════
+// 6. ALERT SYSTEM
+// ═══════════════════════════════════════════════════════════════════
+
+alertcondition(vip_disc_breakout, title="🚀 VIPRASOL LONG: Discount Breakout", message="🚀 VIPRASOL LONG: {{ticker}} @ {{close}} - Discount Pattern Breakout!")
+alertcondition(vip_disc_target_achieved, title="✅ VIPRASOL TARGET: Discount Long", message="✅ VIPRASOL TARGET ACHIEVED: {{ticker}} @ {{close}} - Discount Long Target Hit!")
+alertcondition(vip_disc_short_break, title="⚠ VIPRASOL SHORT: Discount Failed", message="⚠ VIPRASOL SHORT: {{ticker}} @ {{close}} - Discount Pattern Failed - Bearish!")
+alertcondition(vip_disc_short_achieved, title="✅ VIPRASOL TARGET: Discount Short", message="✅ VIPRASOL TARGET ACHIEVED: {{ticker}} @ {{close}} - Discount Short Target Hit!")
+
+alertcondition(vip_prem_breakdown, title="📉 VIPRASOL SHORT: Premium Breakdown", message="📉 VIPRASOL SHORT: {{ticker}} @ {{close}} - Premium Pattern Breakdown!")
+alertcondition(vip_prem_target_achieved, title="✅ VIPRASOL TARGET: Premium Short", message="✅ VIPRASOL TARGET ACHIEVED: {{ticker}} @ {{close}} - Premium Short Target Hit!")
+alertcondition(vip_prem_long_break, title="⚠ VIPRASOL LONG: Premium Failed", message="⚠ VIPRASOL LONG: {{ticker}} @ {{close}} - Premium Pattern Failed - Bullish!")
+alertcondition(vip_prem_long_achieved, title="✅ VIPRASOL TARGET: Premium Long", message="✅ VIPRASOL TARGET ACHIEVED: {{ticker}} @ {{close}} - Premium Long Target Hit!")

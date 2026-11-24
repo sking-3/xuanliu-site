@@ -1,0 +1,290 @@
+//@version=5
+indicator("Goal Setting Strategies Viprasol", overlay=true, max_labels_count=500)
+// © viprasol
+
+//───────────────────────────────────────────────────────
+// 1. VIPRASOL CONFIGURATION
+//───────────────────────────────────────────────────────
+
+// 🎯 GOAL SETUP
+vip_goal_name = input.string("Elite Trading Goal", "Primary Goal", group="🎯 Viprasol Goal Configuration", tooltip="Define your main trading objective")
+vip_total_goals = input.int(4, "Number of Goals", minval=1, maxval=20, group="🎯 Viprasol Goal Configuration", tooltip="Select how many goals to display (1-20)")
+
+// ♣️ MILESTONE 1
+vip_milestone1_name = input.string("Milestone 1", "Goal 1 ♣️", group="📋 Goal Definitions")
+vip_milestone1_complete = input.bool(false, "✓ Goal 1", group="📋 Goal Definitions")
+
+// ♠️ MILESTONE 2
+vip_milestone2_name = input.string("Milestone 2", "Goal 2 ♠️", group="📋 Goal Definitions")
+vip_milestone2_complete = input.bool(false, "✓ Goal 2", group="📋 Goal Definitions")
+
+// ♥️ MILESTONE 3
+vip_milestone3_name = input.string("Milestone 3", "Goal 3 ♥️", group="📋 Goal Definitions")
+vip_milestone3_complete = input.bool(false, "✓ Goal 3", group="📋 Goal Definitions")
+
+// ♦️ MILESTONE 4
+vip_milestone4_name = input.string("Milestone 4", "Goal 4 ♦️", group="📋 Goal Definitions")
+vip_milestone4_complete = input.bool(false, "✓ Goal 4", group="📋 Goal Definitions")
+
+// 🌟 MILESTONE 5
+vip_milestone5_name = input.string("Milestone 5", "Goal 5 🌟", group="📋 Goal Definitions")
+vip_milestone5_complete = input.bool(false, "✓ Goal 5", group="📋 Goal Definitions")
+
+// ⭐ MILESTONE 6
+vip_milestone6_name = input.string("Milestone 6", "Goal 6 ⭐", group="📋 Goal Definitions")
+vip_milestone6_complete = input.bool(false, "✓ Goal 6", group="📋 Goal Definitions")
+
+// 💎 MILESTONE 7
+vip_milestone7_name = input.string("Milestone 7", "Goal 7 💎", group="📋 Goal Definitions")
+vip_milestone7_complete = input.bool(false, "✓ Goal 7", group="📋 Goal Definitions")
+
+// 🎯 MILESTONE 8
+vip_milestone8_name = input.string("Milestone 8", "Goal 8 🎯", group="📋 Goal Definitions")
+vip_milestone8_complete = input.bool(false, "✓ Goal 8", group="📋 Goal Definitions")
+
+// 🔥 MILESTONE 9
+vip_milestone9_name = input.string("Milestone 9", "Goal 9 🔥", group="📋 Goal Definitions")
+vip_milestone9_complete = input.bool(false, "✓ Goal 9", group="📋 Goal Definitions")
+
+// ⚡ MILESTONE 10
+vip_milestone10_name = input.string("Milestone 10", "Goal 10 ⚡", group="📋 Goal Definitions")
+vip_milestone10_complete = input.bool(false, "✓ Goal 10", group="📋 Goal Definitions")
+
+// 🚀 MILESTONE 11
+vip_milestone11_name = input.string("Milestone 11", "Goal 11 🚀", group="📋 Goal Definitions")
+vip_milestone11_complete = input.bool(false, "✓ Goal 11", group="📋 Goal Definitions")
+
+// 💪 MILESTONE 12
+vip_milestone12_name = input.string("Milestone 12", "Goal 12 💪", group="📋 Goal Definitions")
+vip_milestone12_complete = input.bool(false, "✓ Goal 12", group="📋 Goal Definitions")
+
+// 🏆 MILESTONE 13
+vip_milestone13_name = input.string("Milestone 13", "Goal 13 🏆", group="📋 Goal Definitions")
+vip_milestone13_complete = input.bool(false, "✓ Goal 13", group="📋 Goal Definitions")
+
+// 🎖️ MILESTONE 14
+vip_milestone14_name = input.string("Milestone 14", "Goal 14 🎖️", group="📋 Goal Definitions")
+vip_milestone14_complete = input.bool(false, "✓ Goal 14", group="📋 Goal Definitions")
+
+// 👑 MILESTONE 15
+vip_milestone15_name = input.string("Milestone 15", "Goal 15 👑", group="📋 Goal Definitions")
+vip_milestone15_complete = input.bool(false, "✓ Goal 15", group="📋 Goal Definitions")
+
+// 💫 MILESTONE 16
+vip_milestone16_name = input.string("Milestone 16", "Goal 16 💫", group="📋 Goal Definitions")
+vip_milestone16_complete = input.bool(false, "✓ Goal 16", group="📋 Goal Definitions")
+
+// ✨ MILESTONE 17
+vip_milestone17_name = input.string("Milestone 17", "Goal 17 ✨", group="📋 Goal Definitions")
+vip_milestone17_complete = input.bool(false, "✓ Goal 17", group="📋 Goal Definitions")
+
+// 🌠 MILESTONE 18
+vip_milestone18_name = input.string("Milestone 18", "Goal 18 🌠", group="📋 Goal Definitions")
+vip_milestone18_complete = input.bool(false, "✓ Goal 18", group="📋 Goal Definitions")
+
+// 🔱 MILESTONE 19
+vip_milestone19_name = input.string("Milestone 19", "Goal 19 🔱", group="📋 Goal Definitions")
+vip_milestone19_complete = input.bool(false, "✓ Goal 19", group="📋 Goal Definitions")
+
+// 💠 MILESTONE 20
+vip_milestone20_name = input.string("Milestone 20", "Goal 20 💠", group="📋 Goal Definitions")
+vip_milestone20_complete = input.bool(false, "✓ Goal 20", group="📋 Goal Definitions")
+
+//───────────────────────────────────────────────────────
+// 2. PREMIUM STYLING
+//───────────────────────────────────────────────────────
+
+vip_header_color = input.color(color.new(#00E5FF, 0), "Goal Header Color", group="🌈 Premium Styling")
+vip_label_color = input.color(color.white, "Label Color", group="🌈 Premium Styling")
+vip_panel_color = input.color(color.new(#1a1a2e, 0), "Panel Background", group="🌈 Premium Styling")
+vip_achievement_color = input.color(color.new(#00FFA3, 0), "Achievement Color", group="🌈 Premium Styling")
+
+vip_header_size = input.string("normal", "Header Font Size", options=["tiny", "small", "normal", "large", "huge"], group="🌈 Premium Styling")
+vip_milestone_size = input.string("small", "Milestone Font Size", options=["tiny", "small", "normal", "large", "huge"], group="🌈 Premium Styling")
+
+// 📍 ELITE DISPLAY POSITION
+vip_panel_position = input.string("Bottom Left", "Dashboard Position", options=["Top Left", "Top Right", "Bottom Left", "Bottom Right"], group="📍 Elite Display")
+vip_display_pos = switch vip_panel_position
+    "Top Left" => position.top_left
+    "Top Right" => position.top_right
+    "Bottom Left" => position.bottom_left
+    "Bottom Right" => position.bottom_right
+
+//───────────────────────────────────────────────────────
+// 3. CORE CALCULATIONS
+//───────────────────────────────────────────────────────
+
+// ✅ STATUS INDICATOR FUNCTION
+vip_status_icon(_achieved) =>
+    _achieved ? "✅" : "⬜️"
+
+//───────────────────────────────────────────────────────
+// 4. VISUAL SYSTEM
+//───────────────────────────────────────────────────────
+
+var table vip_elite_dashboard = table.new(vip_display_pos, 1, 22, border_width=2, frame_color=color.new(#9D4EDD, 30))
+
+if barstate.islast
+    // 🎯 VIPRASOL ELITE HEADER
+    table.cell(vip_elite_dashboard, 0, 0, "🎯 VIPRASOL ELITE: " + vip_goal_name, 
+              text_color=vip_label_color, 
+              bgcolor=vip_header_color, 
+              text_size=vip_header_size, 
+              text_halign=text.align_center)
+
+    // 📊 MILESTONE TRACKING - Dynamic Display
+    vip_row = 1
+    
+    if vip_total_goals >= 1
+        table.cell(vip_elite_dashboard, 0, vip_row, 
+                  "♣️ " + vip_milestone1_name + "  " + vip_status_icon(vip_milestone1_complete), 
+                  text_color=vip_label_color, bgcolor=vip_panel_color, text_size=vip_milestone_size)
+        vip_row += 1
+    
+    if vip_total_goals >= 2
+        table.cell(vip_elite_dashboard, 0, vip_row, 
+                  "♠️ " + vip_milestone2_name + "  " + vip_status_icon(vip_milestone2_complete), 
+                  text_color=vip_label_color, bgcolor=vip_panel_color, text_size=vip_milestone_size)
+        vip_row += 1
+    
+    if vip_total_goals >= 3
+        table.cell(vip_elite_dashboard, 0, vip_row, 
+                  "♥️ " + vip_milestone3_name + "  " + vip_status_icon(vip_milestone3_complete), 
+                  text_color=vip_label_color, bgcolor=vip_panel_color, text_size=vip_milestone_size)
+        vip_row += 1
+    
+    if vip_total_goals >= 4
+        table.cell(vip_elite_dashboard, 0, vip_row, 
+                  "♦️ " + vip_milestone4_name + "  " + vip_status_icon(vip_milestone4_complete), 
+                  text_color=vip_label_color, bgcolor=vip_panel_color, text_size=vip_milestone_size)
+        vip_row += 1
+    
+    if vip_total_goals >= 5
+        table.cell(vip_elite_dashboard, 0, vip_row, 
+                  "🌟 " + vip_milestone5_name + "  " + vip_status_icon(vip_milestone5_complete), 
+                  text_color=vip_label_color, bgcolor=vip_panel_color, text_size=vip_milestone_size)
+        vip_row += 1
+    
+    if vip_total_goals >= 6
+        table.cell(vip_elite_dashboard, 0, vip_row, 
+                  "⭐ " + vip_milestone6_name + "  " + vip_status_icon(vip_milestone6_complete), 
+                  text_color=vip_label_color, bgcolor=vip_panel_color, text_size=vip_milestone_size)
+        vip_row += 1
+    
+    if vip_total_goals >= 7
+        table.cell(vip_elite_dashboard, 0, vip_row, 
+                  "💎 " + vip_milestone7_name + "  " + vip_status_icon(vip_milestone7_complete), 
+                  text_color=vip_label_color, bgcolor=vip_panel_color, text_size=vip_milestone_size)
+        vip_row += 1
+    
+    if vip_total_goals >= 8
+        table.cell(vip_elite_dashboard, 0, vip_row, 
+                  "🎯 " + vip_milestone8_name + "  " + vip_status_icon(vip_milestone8_complete), 
+                  text_color=vip_label_color, bgcolor=vip_panel_color, text_size=vip_milestone_size)
+        vip_row += 1
+    
+    if vip_total_goals >= 9
+        table.cell(vip_elite_dashboard, 0, vip_row, 
+                  "🔥 " + vip_milestone9_name + "  " + vip_status_icon(vip_milestone9_complete), 
+                  text_color=vip_label_color, bgcolor=vip_panel_color, text_size=vip_milestone_size)
+        vip_row += 1
+    
+    if vip_total_goals >= 10
+        table.cell(vip_elite_dashboard, 0, vip_row, 
+                  "⚡ " + vip_milestone10_name + "  " + vip_status_icon(vip_milestone10_complete), 
+                  text_color=vip_label_color, bgcolor=vip_panel_color, text_size=vip_milestone_size)
+        vip_row += 1
+    
+    if vip_total_goals >= 11
+        table.cell(vip_elite_dashboard, 0, vip_row, 
+                  "🚀 " + vip_milestone11_name + "  " + vip_status_icon(vip_milestone11_complete), 
+                  text_color=vip_label_color, bgcolor=vip_panel_color, text_size=vip_milestone_size)
+        vip_row += 1
+    
+    if vip_total_goals >= 12
+        table.cell(vip_elite_dashboard, 0, vip_row, 
+                  "💪 " + vip_milestone12_name + "  " + vip_status_icon(vip_milestone12_complete), 
+                  text_color=vip_label_color, bgcolor=vip_panel_color, text_size=vip_milestone_size)
+        vip_row += 1
+    
+    if vip_total_goals >= 13
+        table.cell(vip_elite_dashboard, 0, vip_row, 
+                  "🏆 " + vip_milestone13_name + "  " + vip_status_icon(vip_milestone13_complete), 
+                  text_color=vip_label_color, bgcolor=vip_panel_color, text_size=vip_milestone_size)
+        vip_row += 1
+    
+    if vip_total_goals >= 14
+        table.cell(vip_elite_dashboard, 0, vip_row, 
+                  "🎖️ " + vip_milestone14_name + "  " + vip_status_icon(vip_milestone14_complete), 
+                  text_color=vip_label_color, bgcolor=vip_panel_color, text_size=vip_milestone_size)
+        vip_row += 1
+    
+    if vip_total_goals >= 15
+        table.cell(vip_elite_dashboard, 0, vip_row, 
+                  "👑 " + vip_milestone15_name + "  " + vip_status_icon(vip_milestone15_complete), 
+                  text_color=vip_label_color, bgcolor=vip_panel_color, text_size=vip_milestone_size)
+        vip_row += 1
+    
+    if vip_total_goals >= 16
+        table.cell(vip_elite_dashboard, 0, vip_row, 
+                  "💫 " + vip_milestone16_name + "  " + vip_status_icon(vip_milestone16_complete), 
+                  text_color=vip_label_color, bgcolor=vip_panel_color, text_size=vip_milestone_size)
+        vip_row += 1
+    
+    if vip_total_goals >= 17
+        table.cell(vip_elite_dashboard, 0, vip_row, 
+                  "✨ " + vip_milestone17_name + "  " + vip_status_icon(vip_milestone17_complete), 
+                  text_color=vip_label_color, bgcolor=vip_panel_color, text_size=vip_milestone_size)
+        vip_row += 1
+    
+    if vip_total_goals >= 18
+        table.cell(vip_elite_dashboard, 0, vip_row, 
+                  "🌠 " + vip_milestone18_name + "  " + vip_status_icon(vip_milestone18_complete), 
+                  text_color=vip_label_color, bgcolor=vip_panel_color, text_size=vip_milestone_size)
+        vip_row += 1
+    
+    if vip_total_goals >= 19
+        table.cell(vip_elite_dashboard, 0, vip_row, 
+                  "🔱 " + vip_milestone19_name + "  " + vip_status_icon(vip_milestone19_complete), 
+                  text_color=vip_label_color, bgcolor=vip_panel_color, text_size=vip_milestone_size)
+        vip_row += 1
+    
+    if vip_total_goals >= 20
+        table.cell(vip_elite_dashboard, 0, vip_row, 
+                  "💠 " + vip_milestone20_name + "  " + vip_status_icon(vip_milestone20_complete), 
+                  text_color=vip_label_color, bgcolor=vip_panel_color, text_size=vip_milestone_size)
+        vip_row += 1
+
+    //───────────────────────────────────────────────────────
+    // 5. ELITE DASHBOARD - PROGRESS COUNTER
+    //───────────────────────────────────────────────────────
+    
+    vip_phases_achieved = (vip_milestone1_complete and vip_total_goals >= 1 ? 1 : 0) + 
+                          (vip_milestone2_complete and vip_total_goals >= 2 ? 1 : 0) + 
+                          (vip_milestone3_complete and vip_total_goals >= 3 ? 1 : 0) + 
+                          (vip_milestone4_complete and vip_total_goals >= 4 ? 1 : 0) +
+                          (vip_milestone5_complete and vip_total_goals >= 5 ? 1 : 0) +
+                          (vip_milestone6_complete and vip_total_goals >= 6 ? 1 : 0) +
+                          (vip_milestone7_complete and vip_total_goals >= 7 ? 1 : 0) +
+                          (vip_milestone8_complete and vip_total_goals >= 8 ? 1 : 0) +
+                          (vip_milestone9_complete and vip_total_goals >= 9 ? 1 : 0) +
+                          (vip_milestone10_complete and vip_total_goals >= 10 ? 1 : 0) +
+                          (vip_milestone11_complete and vip_total_goals >= 11 ? 1 : 0) +
+                          (vip_milestone12_complete and vip_total_goals >= 12 ? 1 : 0) +
+                          (vip_milestone13_complete and vip_total_goals >= 13 ? 1 : 0) +
+                          (vip_milestone14_complete and vip_total_goals >= 14 ? 1 : 0) +
+                          (vip_milestone15_complete and vip_total_goals >= 15 ? 1 : 0) +
+                          (vip_milestone16_complete and vip_total_goals >= 16 ? 1 : 0) +
+                          (vip_milestone17_complete and vip_total_goals >= 17 ? 1 : 0) +
+                          (vip_milestone18_complete and vip_total_goals >= 18 ? 1 : 0) +
+                          (vip_milestone19_complete and vip_total_goals >= 19 ? 1 : 0) +
+                          (vip_milestone20_complete and vip_total_goals >= 20 ? 1 : 0)
+    
+    vip_progress_display = "🚀 VIPRASOL PROGRESS: " + str.tostring(vip_phases_achieved) + "/" + str.tostring(vip_total_goals) + " Phases Achieved"
+    
+    table.cell(vip_elite_dashboard, 0, vip_row, 
+              vip_progress_display, 
+              text_color=vip_achievement_color, 
+              bgcolor=color.new(vip_panel_color, 60), 
+              text_size=vip_milestone_size, 
+              text_halign=text.align_center)

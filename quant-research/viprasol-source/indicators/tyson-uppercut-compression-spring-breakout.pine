@@ -1,0 +1,110 @@
+//@version=6
+// Tyson Uppercut — "Compression Spring Breakout" 🥊  ·  Viprasol   ·  ORIGINAL geometry (long)
+// ─────────────────────────────────────────────────────────────────────────────
+// The idea: a spring loaded by VOLATILITY, not swings. We measure the recent bar-range and
+// require it to be compressed — much tighter than the window before it (energy coiling). Then
+// the uppercut: one wide-range bar that bursts up out of the compression = the release → LONG.
+// Distinct from the Helix Coil (which decays swing legs); this measures raw range contraction.
+// Pure geometry. Non-repainting (range read from closed bars; entry on bar close).
+// Draws the compression box + the breakout. Filled TP/SL zones extend until hit.
+indicator("Tyson Uppercut Compression Spring Breakout (Viprasol)", "Tyson", overlay=true, max_labels_count=500, max_lines_count=500, max_boxes_count=200)
+
+// ── The spring (range compression) ───────────────────────
+gA = "The spring (range compression)"
+compLen    = input.int(10,  "Compression window (bars)", minval=3, group=gA)
+compFrac   = input.float(0.6,"Tight ≤ this × prior window", minval=0.2, step=0.05, group=gA)
+maxCompATR = input.float(3.0,"Max compression height (× ATR)", minval=0.5, step=0.1, group=gA)
+expMult    = input.float(1.3,"Release bar range ≥ (× ATR)", minval=0.3, step=0.1, group=gA)
+atrLen     = input.int(14,  "ATR length", minval=1, group=gA)
+
+// ── The knockout (entry & exits) ─────────────────────────
+gE = "The knockout (entry & exits)"
+rr         = input.float(2.0, "TP = R multiple (× risk)", minval=0.5, step=0.5, group=gE)
+slBuf      = input.float(0.3, "SL buffer (× ATR)", minval=0.0, step=0.1, group=gE)
+sigGap     = input.int(15,   "Min bars between signals", minval=0, group=gE)
+oneAtATime = input.bool(true, "One trade at a time", group=gE)
+hideSetupInTrade = input.bool(true, "Hide new setup while a trade is active", group=gE)
+
+// ── Visuals ──────────────────────────────────────────────
+gV = "Visuals"
+cBox   = input.color(color.new(#ef5350,0), "Compression box", group=gV)
+cEntry = input.color(color.blue,   "Entry line", group=gV)
+cTP    = input.color(color.green,  "TP zone", group=gV)
+cSL    = input.color(color.red,    "SL zone", group=gV)
+labelOff= input.float(1.0, "Label offset (× ATR)", minval=0.0, step=0.1, group=gV)
+zoneTrans= input.int(85, "TP/SL zone fill transparency (0-100)", minval=0, maxval=100, group=gV)
+showLive= input.bool(true, "Show live compression (dotted)", group=gV)
+
+atr = ta.atr(atrLen)
+var int lastSig = -100000
+
+// ── Compression measured on closed bars (non-repaint) ────
+compHigh  = ta.highest(high[1], compLen)
+compLow   = ta.lowest(low[1],  compLen)
+compRange = compHigh - compLow
+wideRange = ta.highest(high[1], compLen * 2) - ta.lowest(low[1], compLen * 2)
+compressed = compRange > 0 and compRange <= compFrac * wideRange and compRange <= maxCompATR * atr
+release    = close > compHigh and (high - low) >= expMult * atr and close > open
+
+// ── Trade scaffold (filled TP/SL zones, extend-until-hit) ─
+var array<line>  tEntry = array.new<line>()
+var array<box>   tTPb   = array.new<box>()
+var array<box>   tSLb   = array.new<box>()
+var array<float> tTPl   = array.new_float()
+var array<float> tSLl   = array.new_float()
+
+openTrades = array.size(tTPl)
+blocked    = oneAtATime and openTrades > 0
+
+// live compression preview
+var box liveBox = na
+if showLive
+    if not na(liveBox)
+        box.delete(liveBox)
+        liveBox := na
+    if compressed and not blocked and not (hideSetupInTrade and openTrades > 0)
+        liveBox := box.new(bar_index - compLen, compHigh, bar_index, compLow, xloc=xloc.bar_index, border_color=color.new(cBox, 40), border_style=line.style_dotted, bgcolor=color.new(cBox, 92))
+
+sig = compressed and release and not blocked and (bar_index - lastSig) > sigGap and barstate.isconfirmed
+
+if sig
+    lastSig := bar_index
+    entry   = close
+    slLvl   = compLow - atr * slBuf
+    tpLvl   = entry + rr * (entry - slLvl)
+    box.new(bar_index - compLen, compHigh, bar_index, compLow, xloc=xloc.bar_index, border_color=color.new(cBox, 0), bgcolor=color.new(cBox, 88))
+    label.new(bar_index, low - atr * labelOff, "UPPERCUT 🥊", xloc=xloc.bar_index, yloc=yloc.price, style=label.style_label_up, color=color.new(color.green, 0), textcolor=color.white, size=size.normal)
+    array.push(tEntry, line.new(bar_index, entry, bar_index, entry, xloc=xloc.bar_index, color=color.new(cEntry, 0), width=1))
+    array.push(tTPb,   box.new(bar_index, math.max(entry, tpLvl), bar_index, math.min(entry, tpLvl), xloc=xloc.bar_index, border_color=color.new(cTP, 0), border_width=1, bgcolor=color.new(cTP, zoneTrans)))
+    array.push(tSLb,   box.new(bar_index, math.max(entry, slLvl), bar_index, math.min(entry, slLvl), xloc=xloc.bar_index, border_color=color.new(cSL, 0), border_width=1, bgcolor=color.new(cSL, zoneTrans)))
+    array.push(tTPl,   tpLvl)
+    array.push(tSLl,   slLvl)
+
+if barstate.isconfirmed and array.size(tTPl) > 0
+    idx = array.size(tTPl) - 1
+    while idx >= 0
+        le = array.get(tEntry, idx)
+        bt = array.get(tTPb, idx)
+        bs = array.get(tSLb, idx)
+        tp = array.get(tTPl, idx)
+        sl = array.get(tSLl, idx)
+        line.set_x2(le, bar_index)
+        box.set_right(bt, bar_index)
+        box.set_right(bs, bar_index)
+        hitTP = high >= tp
+        hitSL = low  <= sl
+        if hitTP or hitSL
+            box.set_border_width(hitTP ? bt : bs, 2)
+            array.remove(tEntry, idx)
+            array.remove(tTPb, idx)
+            array.remove(tSLb, idx)
+            array.remove(tTPl, idx)
+            array.remove(tSLl, idx)
+        idx := idx - 1
+
+alertcondition(sig, "Tyson Compression Spring", "Tyson Uppercut — compression spring (buy) on {{ticker}}")
+
+var table tb = table.new(position.top_right, 1, 2, border_width=1)
+if barstate.islast
+    table.cell(tb, 0, 0, "Tyson · Compression Spring 🥊", bgcolor=color.new(color.green, 0), text_color=color.white, text_size=size.small)
+    table.cell(tb, 0, 1, "Open trades: " + str.tostring(array.size(tTPl)), bgcolor=color.new(color.black, 20), text_color=color.white, text_size=size.small)

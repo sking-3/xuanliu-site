@@ -1,0 +1,13 @@
+{
+  "source": {
+    "name": "Kraken AssetPairs",
+    "url": "https://api.kraken.com/0/public/AssetPairs?pair=XBTUSD"
+  },
+  "retrievedAt": "2026-11-24T18:36:02.186648+00:00",
+  "symbol": "XBT/USD",
+  "exchangePair": "XXBTZUSD",
+  "tickSize": 0.1,
+  "pairDecimals": 1,
+  "lotDecimals": 8,
+  "status": "online"
+}

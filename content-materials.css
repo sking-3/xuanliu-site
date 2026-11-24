@@ -1,16 +1,16 @@
 /* Shared content materials. Navigation layout and behavior are page-owned. */
 :is(body.books-shell, body.books-materials) {
-  --content-paper: rgb(255 255 255 / .88);
+  --content-paper: #fff;
   --content-solid: #fff;
   --content-fill: #f0f4f9;
-  --content-edge: rgb(255 255 255 / .96);
+  --content-edge: #d5dee8;
   --content-divider: #dce3ec;
-  --content-control: rgb(243 248 255 / .8);
+  --content-control: #f3f6fa;
   --content-ink: #1b2636;
   --content-muted: #536174;
   --content-accent: #245784;
   --content-selected: #e3edf9;
-  --content-radius: 20px;
+  --content-radius: 16px;
   color: var(--content-ink);
   font-variant-numeric: tabular-nums;
 }
@@ -35,7 +35,7 @@ body.books-materials :is(.auth-card, .paper, .method, .runtime, .editor, .runs, 
   border: 1px solid var(--content-edge);
   border-radius: var(--content-radius);
   background: var(--content-paper);
-  box-shadow: 0 3px 12px rgb(31 52 83 / .035), inset 0 1px 0 #fff;
+  box-shadow: none;
 }
 
 body.books-shell :is(.research-track, .research-layer-card, .research-setup-card, .integration-card) {
@@ -68,11 +68,11 @@ body.books-shell :is(.desk-section-title, .section-head, .section-heading, .card
 :is(body.books-shell, body.books-materials) button:not(.archive-entry-button, .books-menu-toggle, .trader-name-button, .sr-security, .icon-button, .modal-close, .danger, .destructive),
 :is(body.books-shell, body.books-materials) :is(.button, .btn, .review-picker, .archive-action, .evidence-entry) {
   min-height: 40px;
-  border: 1px solid rgb(255 255 255 / .98);
-  border-radius: 999px;
+  border: 1px solid #cbd6e2;
+  border-radius: 10px;
   background: var(--content-control);
   color: var(--content-accent);
-  box-shadow: 0 2px 8px rgb(31 52 83 / .075), inset 0 1px 0 #fff;
+  box-shadow: none;
   font-family: inherit;
   font-weight: 600;
   line-height: 1.4;
@@ -84,7 +84,7 @@ body.books-shell :is(.desk-section-title, .section-head, .section-heading, .card
   border-color: var(--content-accent);
   background: var(--content-accent);
   color: #fff;
-  box-shadow: 0 3px 10px rgb(36 87 132 / .15), inset 0 1px 0 rgb(255 255 255 / .16);
+  box-shadow: none;
 }
 
 body.books-shell :is(.research-jumps, .research-sources, .research-track, .research-layer-card, .research-links, .research-sources, .desk-section-title, .desk-foot, .feed-card-heading, .feed-actions, .market-detail-actions, .chart-controls) > a,
@@ -92,11 +92,11 @@ body.books-shell :is(.us-live-entry > a, .books-account-link, .chart-outlook-jum
   min-height: 40px;
   padding: 8px 14px;
   border: 1px solid var(--content-edge);
-  border-radius: 999px;
+  border-radius: 10px;
   background: var(--content-control);
   color: var(--content-accent);
   text-decoration: none;
-  box-shadow: 0 2px 8px rgb(31 52 83 / .065), inset 0 1px 0 #fff;
+  box-shadow: none;
 }
 
 :is(body.books-shell, body.books-materials) :is(input:not([type=checkbox], [type=radio], [type=range], [type=file], [type=hidden], [type=button], [type=submit], [type=reset], [type=color]), select, textarea) {
@@ -104,7 +104,7 @@ body.books-shell :is(.us-live-entry > a, .books-account-link, .chart-outlook-jum
   min-height: 44px;
   border: 1px solid #cad5e3;
   border-radius: 12px;
-  background: rgb(246 249 253 / .96);
+  background: #fff;
   color: var(--content-ink);
   font-family: inherit;
   font-variant-numeric: tabular-nums;
@@ -121,17 +121,17 @@ body.books-shell :is(.filters, .terminal-filters, .archive-controls, .query-bar,
 body.books-materials :is(.auth-tabs, .fields) {
   border-color: var(--content-divider);
   border-radius: 16px;
-  background: rgb(235 242 251 / .76);
+  background: #f0f4f9;
 }
 
 body.books-shell :is(.tabs, .terminal-tabs, .research-view-nav, .platform-switch, .period-switch, .lead-metric-switch, .home-ranking-periods, .pulse-switch, .radar-mover-tabs) :is([aria-pressed=true], [aria-selected=true], [aria-current]),
 body.books-shell #detail :is(.tabs, #tabs, .period-switch, .lead-metric-switch) :is([aria-pressed=true], [aria-selected=true]),
 body.books-materials .auth-tabs [aria-selected=true] {
   border-color: var(--content-edge);
-  border-radius: 999px;
-  background: rgb(255 255 255 / .94);
+  border-radius: 10px;
+  background: #fff;
   color: var(--content-accent);
-  box-shadow: 0 2px 8px rgb(31 52 83 / .09), inset 0 1px 0 #fff;
+  box-shadow: none;
   font-weight: 650;
 }
 
@@ -144,28 +144,28 @@ body.books-materials .auth-tabs [aria-selected=false] {
 }
 
 /* Keep table data colors and horizontal scroll policies owned by each page. */
-:is(body.books-shell, body.books-materials) :is(.review-table, .table-wrap, .desk-table-wrap, .terminal-scroll, .ta-table-wrap, .research-source-table-wrap) table {
+:is(body.books-shell, body.books-materials) :is(.review-table, .table-wrap, .table-scroll, .desk-table-wrap, .terminal-scroll, .ta-table-wrap, .research-source-table-wrap, .pick-table-wrap, .trend-scheme-table-wrap, .live-table-wrap) table {
   background: var(--content-solid);
   font-variant-numeric: tabular-nums;
 }
 
-:is(body.books-shell, body.books-materials) :is(.review-table, .table-wrap, .desk-table-wrap, .terminal-scroll, .ta-table-wrap, .research-source-table-wrap) th {
+:is(body.books-shell, body.books-materials) :is(.review-table, .table-wrap, .table-scroll, .desk-table-wrap, .terminal-scroll, .ta-table-wrap, .research-source-table-wrap, .pick-table-wrap, .trend-scheme-table-wrap, .live-table-wrap) th {
   background: var(--content-fill);
   color: #506176;
   font-weight: 600;
 }
 
-:is(body.books-shell, body.books-materials) :is(.review-table, .table-wrap, .desk-table-wrap, .terminal-scroll, .ta-table-wrap, .research-source-table-wrap) :is(td, th) {
+:is(body.books-shell, body.books-materials) :is(.review-table, .table-wrap, .table-scroll, .desk-table-wrap, .terminal-scroll, .ta-table-wrap, .research-source-table-wrap, .pick-table-wrap, .trend-scheme-table-wrap, .live-table-wrap) :is(td, th) {
   border-color: var(--content-divider);
 }
 
 /* Detail sheets share the same reading material, without changing their size or focus logic. */
 body.books-shell :is(dialog, .modal) {
   border-color: var(--content-edge);
-  border-radius: 22px;
-  background: rgb(250 252 255 / .98);
+  border-radius: 16px;
+  background: #fafcff;
   color: var(--content-ink);
-  box-shadow: 0 18px 54px rgb(28 45 72 / .16), inset 0 1px 0 #fff;
+  box-shadow: 0 16px 48px rgb(28 45 72 / .14);
 }
 
 body.books-shell :is(.dialog-head, .modal-header, .archive-reader-toolbar) {
@@ -176,7 +176,7 @@ body.books-shell :is(.dialog-head, .modal-header, .archive-reader-toolbar) {
 body.books-shell :is(.icon-button, .modal-close) {
   min-width: 40px;
   min-height: 40px;
-  border-radius: 999px;
+  border-radius: 10px;
   color: var(--content-accent);
   background: rgb(234 242 252 / .9);
 }
@@ -197,7 +197,7 @@ body.books-shell :is(.icon-button, .modal-close) {
   :is(body.books-shell, body.books-materials) :is(.primary, .agent-primary, .btn.primary, .auth-submit, #outlook-choose-file, .chart-symbol-form button, .dossier button):not(:disabled, [aria-disabled=true]):hover {
     background-color: #1d4870;
   }
-  :is(body.books-shell, body.books-materials) :is(.review-table, .table-wrap, .desk-table-wrap, .terminal-scroll, .ta-table-wrap, .research-source-table-wrap) tbody tr:hover { background-color: #f7faff; }
+  :is(body.books-shell, body.books-materials) :is(.review-table, .table-wrap, .table-scroll, .desk-table-wrap, .terminal-scroll, .ta-table-wrap, .research-source-table-wrap, .pick-table-wrap, .trend-scheme-table-wrap, .live-table-wrap) tbody tr:hover { background-color: #f7faff; }
 }
 
 @media (max-width: 760px) {
@@ -233,3 +233,48 @@ body.books-shell :is(.icon-button, .modal-close) {
   gap: var(--content-list-gap, 12px);
 }
 .books-content-list > * { min-width: 0; min-height: 0; height: auto; margin-block: 0; }
+
+/* Shared reading rhythm; layout, source metadata and semantic states stay page-owned. */
+:is(body.books-shell, body.books-materials) :is(p, li, dd, dt, th, td) { text-underline-offset: .2em; }
+:is(body.books-shell, body.books-materials) :is(table, input, select, time, output) { font-variant-numeric: tabular-nums; }
+:is(body.books-shell, body.books-materials) :is(.table-wrap, .table-scroll, .desk-table-wrap, .terminal-scroll, .ta-table-wrap, .pick-table-wrap, .trend-scheme-table-wrap, .live-table-wrap) {
+  scrollbar-width: thin;
+  scrollbar-color: #a7b7c9 #f0f4f9;
+  overscroll-behavior-inline: contain;
+}
+:is(body.books-shell, body.books-materials) :is(button, .button, .btn, input, select, textarea) {
+  scroll-margin-block: 12px;
+}
+:is(body.books-shell, body.books-materials) summary { touch-action: manipulation; }
+:is(body.books-shell, body.books-materials) :is(.desk-heading, .stock-page-heading, .page-heading, .books-page-heading, .heading) { row-gap: 12px; }
+body.books-shell :is(.research-jumps, .research-view-nav, .market-detail-actions, .chart-controls, .agent-actions) { flex-wrap: wrap; }
+body.books-shell :is(.feed-source, .market-detail-source, .research-source-note, .public-sample-range, .public-sample-status, .performance-range) { overflow-wrap: anywhere; }
+body.books-materials {
+  --ink: var(--content-ink); --muted: var(--content-muted); --line: var(--content-divider);
+  --accent: var(--content-accent); --blue: #375b8e; --accent-active: #1d4870; --tint: var(--content-selected);
+  --bg: #e9eef4; --paper: var(--content-solid); --control-line: #cad5e3;
+  background: var(--bg);
+}
+body.books-materials.auth-page {
+  --auth-ink: var(--content-ink); --auth-muted: var(--content-muted); --auth-line: var(--content-divider);
+  --auth-accent: var(--content-accent); --auth-accent-dark: #1d4870; --auth-accent-tint: var(--content-selected);
+  --auth-soft: #e9eef4;
+}
+body.books-materials .top { border-color: var(--content-divider); }
+body.books-materials :is(.editor, .runs) { min-width: 0; }
+body.books-materials .fields { border-radius: 0; background: transparent; }
+body.books-materials .runtime { border-color: var(--content-divider); }
+body.books-materials .summary { padding: 12px 16px; margin-bottom: 18px; }
+body.books-materials .method { padding: 18px 20px; }
+body.books-shell.account-page :is(.avatar-upload:hover, .avatar-upload:focus-within) { transform: none; }
+body.books-shell.account-page .balance-row:hover { padding-inline: 0; }
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  :is(body.books-shell, body.books-materials) :is(button, .button, .btn, input, select, textarea) {
+    transition: border-color 140ms ease-out, background-color 140ms ease-out, color 140ms ease-out;
+  }
+}
+@media (max-width: 760px) {
+  :is(body.books-shell, body.books-materials) :is(.section-heading, .section-head, .card-header, .desk-section-title) { flex-wrap: wrap; gap: 10px; }
+  body.books-shell :is(.books-heading-actions, .market-detail-actions, .chart-controls) { min-width: 0; }
+  body.books-materials .method { padding: 16px 14px; }
+}

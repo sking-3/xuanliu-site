@@ -1,0 +1,33 @@
+/* Indicator research reuses the existing workspace, controls and source hierarchy. */
+.indicator-controls { grid-template-columns: minmax(0,2fr) minmax(160px,1fr); }
+.indicator-parameters { margin: 0 16px 16px; border: 1px solid var(--content-divider); border-radius: 10px; }
+.indicator-parameters .fields { grid-template-columns: repeat(3,minmax(0,1fr)); }
+.indicator-parameters label:has(input[type=checkbox]) { display:flex; align-items:center; gap:10px; }
+.indicator-parameters input[type=checkbox] { width:18px; min-height:18px; accent-color:var(--content-accent); }
+.indicator-caption, .indicator-empty { margin:0; padding:16px; color:var(--content-muted); font-size:13px; line-height:1.7; }
+.indicator-result-head { display:flex; align-items:baseline; justify-content:space-between; gap:16px; padding:16px; border-top:1px solid var(--content-divider); flex-wrap:wrap; }
+.indicator-result-head p { margin:4px 0 0; color:var(--content-muted); font-size:13px; }
+.indicator-result-head h3 { font-size:17px; }
+.indicator-chart { padding:0 16px 16px; }
+.indicator-chart svg { display:block; width:100%; height:auto; background:#fff; border:1px solid var(--content-divider); border-radius:12px; font-variant-numeric:tabular-nums; }
+.indicator-chart text { font-family:inherit; font-size:12px; fill:var(--content-muted); }
+.indicator-notes { margin:0; padding:16px 20px 16px 34px; border-top:1px solid var(--content-divider); color:var(--content-muted); font-size:13px; line-height:1.7; }
+.indicator-table :is(th,td), #indicator-library :is(th,td) { text-align:left; white-space:normal; vertical-align:top; }
+.indicator-table { min-width:700px; }
+#indicator-library { font-size:13px; }
+#indicator-library td:first-child { min-width:200px; max-width:340px; }
+#indicator-library td:nth-child(2) { min-width:230px; max-width:65ch; }
+.indicator-state { display:block; margin-bottom:4px; color:var(--content-ink); font-weight:650; }
+.indicator-goals { grid-column:1/-1; display:grid; gap:8px; }
+.indicator-goals label { display:grid!important; grid-template-columns:20px minmax(0,1fr); align-items:center; gap:10px; }
+.indicator-pane,.indicator-summary { margin:0 16px 12px; border:1px solid var(--content-divider); border-radius:10px; overflow:hidden; }
+.indicator-pane svg { display:block; width:100%; height:auto; }
+.indicator-pane svg text { fill:var(--content-muted); font-size:12px; }
+.indicator-summary dl { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:8px 16px; padding:16px; font-size:13px; }
+.indicator-summary :is(dt,dd) { margin:0; overflow-wrap:anywhere; }
+.indicator-profile { padding:16px; }
+.indicator-profile h4 { margin:12px 0; }
+.indicator-profile-rows { max-height:360px; overflow:auto; font-size:12px; font-variant-numeric:tabular-nums; }
+.indicator-profile-rows>div { display:grid; grid-template-columns:1fr 2fr 1fr; gap:12px; align-items:center; }
+.indicator-profile meter { width:100%; accent-color:var(--content-accent); }
+@media(max-width:760px) { .indicator-controls,.indicator-parameters .fields { grid-template-columns:minmax(0,1fr); } .indicator-chart { padding:0 8px 12px; } .indicator-chart svg { min-height:220px; } }

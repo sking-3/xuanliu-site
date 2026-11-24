@@ -2,7 +2,8 @@
   "releases": [
     "ui-motion-20261124-3",
     "reader-widgets-20261124-1",
-    "data-motion-20261125-1"
+    "data-motion-20261125-1",
+    "site-polish-20261125-1"
   ],
   "verifiedSource": "Published UI snapshots and HTTPS assets recovered 2026-11-24. A-share feature HTML is independently rebased against the published source.",
   "files": {
@@ -190,13 +191,15 @@
       "versions": []
     },
     "content-materials.css": {
-      "sha256": "0463ca759f357a1b651d22e9dc29b200606c472cb7404b872da8f8ccd0cb5dbf",
-      "bytes": 12049,
+      "sha256": "950b11a8809a2f818dc530e5c8a18f25427082b61afe015303ff93d923e0c59c",
+      "bytes": 15044,
       "versions": [
         "content-20261123-2",
         "directory-flow-20261124-1",
         "natural-layout-20261123-1"
-      ]
+      ],
+      "previousSha256": "0463ca759f357a1b651d22e9dc29b200606c472cb7404b872da8f8ccd0cb5dbf",
+      "change": "Preserve current published layout and data; unify shared component styling and add explicit indicator research entry."
     },
     "crypto.html": {
       "sha256": "c95702b37ca175d44554974fe0a3f9be67467620fac3458caf2b544683892012",
@@ -290,9 +293,11 @@
       ]
     },
     "tools.html": {
-      "sha256": "96d2f6264e1e2afc55a4cd5c970afd43396ebdf3f827825870931410b2181513",
-      "bytes": 4860,
-      "versions": []
+      "sha256": "048a1634cc609a62d89c147faff931e3ff8f5523e87b7da0c11804582aa2c1fe",
+      "bytes": 5063,
+      "versions": [],
+      "previousSha256": "96d2f6264e1e2afc55a4cd5c970afd43396ebdf3f827825870931410b2181513",
+      "change": "Preserve current published layout and data; unify shared component styling and add explicit indicator research entry."
     },
     "trader/binance/index.html": {
       "sha256": "0148e536afb318e13061e7c29c99ae76d21da230d290fdfddbc15c76d508d9e0",
