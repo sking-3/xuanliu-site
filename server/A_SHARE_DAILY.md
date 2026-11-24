@@ -6,7 +6,7 @@ worker 使用已核验的交易日历选择最近收盘日；断电后的补跑�
 
 采集范围为本站名册中的全部沪深主板，风险名称也保留采集记录，再单独排除筛选资格。北交所和创业板/科创板不在本任务内。
 三个筛选共享同一批前复权日线，预计算 20/60 个交易日、三个指数和 120/240/完整参考池。
-名册读取 TickFlow 官方沪深交易所证券列表，独立记录读取时间，不再依赖热力图快照日期。它是当前名册，不是历史时点成分表；已知上市日在目标日之后的证券排除，未知上市日期保留为空，行业资料未知时留为未分类。日线使用 TickFlow 官方免费服务，不需要注册或 API Key。每只保留最多500根真实日线；股票使用比例前复权，指数不复权，成交量单位为手。每批最多50个标的，串行请求间隔至少1.5秒，低于官方每IP每分钟60次上限；没有新增付费服务。
+名册读取 TickFlow 官方沪深交易所证券列表，独立记录读取时间，不再依赖热力图快照日期。接口列出所有收录标的，包含历史已摘牌代码，且未提供活跃状态字段；不能视作活跃股票名单或历史时点成分表。已知上市日在目标日之后的证券排除，未知上市日期保留为空，行业资料未知时留为未分类。日线使用 TickFlow 官方免费服务，不需要注册或 API Key。每只保留最多500根真实日线；股票使用比例前复权，指数不复权，成交量单位为手。每批最多50个标的，串行请求间隔至少1.5秒，低于官方每IP每分钟60次上限；没有新增付费服务。
 官方允许本地保存、研究及公开派生统计，禁止重新封装原始行情API：[使用范围和频率](https://docs.tickflow.org/zh-Hans/faq)。公开站只提供衍生筛选结果，日K继续由官方图表组件独立显示。原始日线保存在服务器私有目录和SQLite，不公开分发。
 新来源使用独立缓存身份；原有腾讯记录不混入新批次。同一来源同一交易日冻结名册和来源批次时间，中断后复用同批已完成记录。拒绝或限流会持久暂停来源，保留Retry-After，不立即重试。
 
@@ -22,6 +22,10 @@ install -m 644 server/a-share-tickflow.mjs /opt/books/app/a-share-tickflow.mjs
 install -m 644 server/a-share-universe.mjs /opt/books/app/a-share-universe.mjs
 install -m 644 server/a-share-pattern-regimes.mjs /opt/books/app/a-share-pattern-regimes.mjs
 install -m 644 server/a-share-pattern-precompute.mjs /opt/books/app/a-share-pattern-precompute.mjs
+install -m 644 server/a-share-entry-bars.mjs /opt/books/app/a-share-entry-bars.mjs
+install -m 644 server/a-share-entry-precompute.mjs /opt/books/app/a-share-entry-precompute.mjs
+install -m 644 server/a-share-retention.mjs /opt/books/app/a-share-retention.mjs
+install -m 644 server/a-share-worker-exit.mjs /opt/books/app/a-share-worker-exit.mjs
 install -m 644 screening/trend-patterns.js /opt/books/site/screening/trend-patterns.js
 install -m 644 server/books-a-share-daily.service /etc/systemd/system/
 install -m 644 server/books-a-share-daily.timer /etc/systemd/system/
@@ -44,6 +48,7 @@ SQLite 保存同日、同名册时点的已成功日线；重启后续读尚未�
 每次外部 HTTP 请求共用 1.5 秒门控；401/403/418/429 持久暂停整个来源，读取 429 的 `Retry-After`，不会自动重试。
 解除来源暂停须先核对原因及允许访问时间；核验之前不要删除 SQLite `settings` 中的停止记录。
 HTTP 5xx、连接失败或非 JSON 响应会结束整轮采集，失败原因保留 HTTP 状态；传输失败不计作单只股票资料缺失。
+systemd 的 `ExecStopPost` 另外接收系统退出原因：OOM、信号或超时导致 JavaScript 无法执行 catch 时，将仍在运行中的回执标成失败，保留原日期和进度，不切发布指针。
 
 完成全量请求、有效覆盖至少 80%、三个指数和全部结果文件预计算后，原子切换 `current.json`。
 未完成、名册身份或目标日期错误、拒绝访问、计算失败都只更新 `status.json`，上次成功结果不变。
