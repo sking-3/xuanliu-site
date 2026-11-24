@@ -56,8 +56,11 @@ async function main(){
     assert.ok(geometry.width<=width+1,route+' overflow '+JSON.stringify(geometry));
     const nav=page.locator('.books-nav');
     if(await nav.count()){
-     assert.equal(await nav.locator('a').count(),7,route+' navigation count');
+     const destinations=['index.html','screening/index.html','us.html','trader/index.html','research.html','screening/history.html','academy/index.html','tools.html'];
+     if(route==='account.html')destinations.push('account.html');
+     assert.equal(await nav.locator('a').count(),destinations.length,route+' navigation count');
      const links=await nav.locator('a').evaluateAll(nodes=>nodes.map(n=>n.href));
+     assert.deepEqual(links,destinations.map(destination=>new URL(destination,base).href),route+' navigation destinations');
      assert.ok(links.every(url=>new URL(url).origin===base.origin&&new URL(url).pathname.startsWith(base.pathname)),route+' navigation base path');
      if(width<768){
       await page.locator('.books-menu-toggle').click();await nav.waitFor({state:'visible'});
