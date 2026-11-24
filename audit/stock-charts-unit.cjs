@@ -6,6 +6,7 @@ class Element{
   constructor(tag='div'){this.tagName=tag;this.children=[];this.dataset={};this.events={};this.attributes={};this.className='';this.textContent='';this.hidden=false;this.rect={top:0,bottom:300,left:0,right:600};}
   append(...children){this.children.push(...children);}
   replaceChildren(...children){this.children=children;}
+  insertBefore(child,before){const index=this.children.indexOf(before);this.children.splice(index<0?this.children.length:index,0,child);}
   setAttribute(key,value){this.attributes[key]=value;}
   addEventListener(key,handler){this.events[key]=handler;}
   removeEventListener(key,handler){if(this.events[key]===handler)delete this.events[key];}
@@ -42,7 +43,8 @@ const stock={code:'600519.SH',name:'贵州茅台'};
 test('UMD and CommonJS expose the same create contract without starting any requests',()=>{
   const scope={};vm.runInNewContext(fs.readFileSync(require.resolve('../screening/stock-charts.js'),'utf8'),scope);
   assert.equal(typeof scope.BooksStockCharts.create,'function');assert.deepEqual(Object.keys(Charts),['create']);
-  assert.doesNotMatch(fs.readFileSync(require.resolve('../screening/stock-charts.js'),'utf8'),/\bfetch\s*\(|XMLHttpRequest|WebSocket|setInterval/);
+  assert.doesNotMatch(fs.readFileSync(require.resolve('../screening/stock-charts.js'),'utf8'),/XMLHttpRequest|WebSocket|setInterval/);
+  const h=harness();assert.equal(h.timers.size,0);assert.equal(h.mutations.length,0);h.api.destroy();
 });
 test('strict Shanghai and Shenzhen suffixes map to the fixed official daily candlestick widget',()=>{
   for(const [code,symbol]of [['600519.SH','SSE:600519'],['000333.SZ','SZSE:000333'],['000001.SZ','SZSE:000001']]){
@@ -209,4 +211,44 @@ test('multiple hosts have isolated timers and observers and destroy cleans all r
   const frame=h.frame(second,1);assert.equal(frame.title,'美的集团 日K（TradingView）');frame.events.load();assert.equal(second.dataset.chartState,'frame-loaded');
   h.api.destroy();h.api.destroy();assert.equal(first.children.length,0);assert.equal(second.children.length,0);assert.equal(h.timers.size,0);assert.equal(h.viewports[0].disconnected,true);
   const unused=new Element();h.api.observe(unused,stock);assert.equal(unused.children.length,0);
+});
+
+const batch={generation:'signal-generation-1',day:'2026-11-23',asOf:'2026-11-23T07:00:00Z',sourceId:'tickflow-free-forward-v1',attribution:'TickFlow'};
+const settle=async()=>{for(let i=0;i<4;i++)await new Promise(setImmediate);};
+function signalData(code=stock.code,extra={}){
+  const evidence={setupId:code+':2026-11-19',patternIds:['regain-ma-20'],status:'late_discovery',replayStatus:'triggered_observation',knownAfter:'2026-11-20T07:00:00Z',actualDiscoveryAt:'2026-11-23T07:05:00Z',lateDiscovery:true,referencePrice:10,independentlyValidated:false,actualFillVerified:false};
+  const mark=(id,kind,day)=>({id,kind,day,label:kind,reason:kind==='S'?'固定15日研究退出，不是最佳卖点':'固定触发研究观察',knownAfter:day+'T07:00:00Z',actualDiscoveryAt:'2026-11-23T07:05:00Z',lateDiscovery:true,state:'research',actualFillVerified:false,evidence:[{...evidence,knownAfter:day+'T07:00:00Z'}]});
+  return {schema:'books.a-share.entry-signals.v1',version:'entry-signals-v1',...batch,stock:{code,name:'研究股票'},sourceFetchedAt:'2026-11-23T07:05:00Z',priceBasis:{label:'前复权'},windows:[60,120],chartRanges:{60:{from:'2026-09-01',to:batch.day},120:{from:'2026-06-01',to:batch.day}},chartAvailable:true,markers:[mark('old','S','2026-07-01'),mark('buy','B','2026-11-20')],...extra};
+}
+function signalHarness(response){
+  const h=harness(),requests=[];h.env.fetch=async(path,init)=>{requests.push({path,init});return response?response(path,init):{ok:true,json:async()=>signalData(new URL(path,'https://books.test').searchParams.get('code'))};};return {...h,requests};
+}
+test('batch-bound A share charts are lazy same-origin SVGs and use at most two initialization slots',async t=>{
+  const h=signalHarness();t.after(()=>h.api.destroy());const hosts=Array.from({length:2009},()=>new Element());
+  for(const host of hosts)h.api.observe(host,stock,batch);assert.equal(h.requests.length,0);h.viewports[0].callback(hosts.slice(0,3).map(target=>({target,isIntersecting:true})));assert.equal(h.requests.length,2);await settle();
+  assert.equal(h.requests[0].path,'/api/a-share-daily/signals?generation=signal-generation-1&code=600519.SH');assert.equal(h.requests[0].init.redirect,'error');assert.equal(h.requests[0].init.cache,'no-store');assert.equal(h.requests[0].init.credentials,'same-origin');
+  const image=hosts[0].querySelector('img');assert.equal(image.src,'/api/a-share-daily/signal-chart?generation=signal-generation-1&code=600519.SH&window=60');assert.equal(hosts[0].querySelector('iframe'),null);assert.equal(hosts[0].querySelector('script'),null);assert.equal(hosts[2].querySelector('img'),null);
+  image.events.load();assert.equal(hosts[0].dataset.chartState,'signal-loaded');assert.equal(h.requests.length,3);await settle();assert.equal(hosts[0].querySelector('.stock-signal-markers').children.length,1);assert.match(hosts[0].querySelector('.stock-signal-reason').textContent,/B 2026-11-20.*晚于当日发现.*未独立验证，非成交/);assert.doesNotMatch(hosts[0].querySelector('.stock-signal-footer').children[0].textContent,/object Object/);assert.equal(hosts.slice(3).some(host=>host.querySelector('img')),false);
+});
+test('same-batch renders preserve the image;60/120 switches reuse metadata and selected short reasons do not reload it',async t=>{
+  const h=signalHarness();t.after(()=>h.api.destroy());const host=new Element();h.api.observe(host,stock,batch);h.near(host);await settle();let image=host.querySelector('img');image.events.load();h.api.observe(host,stock,{...batch});assert.equal(host.querySelector('img'),image);assert.equal(h.requests.length,1);
+  const select=host.querySelector('select');select.value='120';select.events.change();await settle();image=host.querySelector('img');assert.match(image.src,/window=120$/);image.events.load();const markers=host.querySelector('.stock-signal-markers');assert.equal(markers.children.length,2);markers.children[1].events.click();assert.match(host.querySelector('.stock-signal-reason').textContent,/S 2026-07-01.*不是最佳卖点/);assert.equal(host.querySelector('img'),image);assert.equal(h.requests.length,1);assert.equal(h.timers.size,0);
+});
+test('wrong batch stock policy and invalid markers cannot populate a signal chart',async t=>{
+  for(const patch of [{generation:'other'},{stock:{code:'000333.SZ'}},{version:'other'},{asOf:'2026-11-20T07:00:00Z'},{sourceId:'other'},{markers:[{...signalData().markers[1],day:'2026-11-24'}]},{markers:[{...signalData().markers[1],actualFillVerified:true}]},{markers:[{...signalData().markers[1],evidence:['not bound evidence']}]},{chartRanges:{60:{from:'2027-01-01',to:batch.day},120:null}}]){
+    const h=signalHarness(async()=>({ok:true,json:async()=>signalData(stock.code,patch)}));t.after(()=>h.api.destroy());const host=new Element();h.api.observe(host,stock,batch);h.near(host);await settle();assert.equal(host.dataset.chartState,'unavailable');assert.equal(host.querySelector('img'),null);assert.equal(host.querySelector('script'),null);assert.equal(h.timers.size,0);
+  }
+});
+test('missing data is an explicit source-bound gap with no invented markers',async t=>{
+  const h=signalHarness(async()=>({ok:true,json:async()=>signalData(stock.code,{chartAvailable:false,markers:[],sourceFetchedAt:null,chartRanges:{60:null,120:null}})}));t.after(()=>h.api.destroy());const host=new Element();h.api.observe(host,stock,batch);h.near(host);await settle();assert.equal(host.dataset.chartState,'signal-loaded');assert.match(host.querySelector('.stock-chart-status').textContent,/本批日线不足/);assert.equal(host.querySelector('img'),null);assert.equal(host.querySelector('.stock-signal-markers').hidden,true);assert.match(host.querySelector('.stock-signal-footer').children[0].textContent,/读取 未提供/);assert.equal(h.timers.size,0);
+});
+test('signal errors stay stopped until explicit retry, and disposal aborts metadata and ignores late responses',async t=>{
+  let okay=false;const h=signalHarness(async()=>okay?{ok:true,json:async()=>signalData()}:{ok:false,status:503});t.after(()=>h.api.destroy());const host=new Element();h.api.observe(host,stock,batch);h.near(host);await settle();assert.equal(host.dataset.chartState,'unavailable');h.near(host,false);h.near(host);assert.equal(h.requests.length,1);okay=true;host.querySelector('button').events.click();await settle();host.querySelector('img').events.error();assert.equal(host.dataset.chartState,'unavailable');assert.equal(h.timers.size,0);
+  let finish;const pending=signalHarness(()=>new Promise(resolve=>finish=resolve));t.after(()=>pending.api.destroy());const other=new Element();pending.api.observe(other,stock,batch);pending.near(other);pending.api.dispose(other);assert.equal(pending.requests[0].init.signal.aborted,true);finish({ok:true,json:async()=>signalData()});await settle();assert.equal(other.children.length,0);assert.equal(pending.timers.size,0);
+});
+test('a reused stock host rebinds its generation and cannot accept the previous late response',async t=>{
+  const pending=[];const h=signalHarness(()=>new Promise(resolve=>pending.push(resolve)));t.after(()=>h.api.destroy());const host=new Element();h.api.observe(host,stock,batch);h.near(host);const newer={...batch,generation:'signal-generation-2'};h.api.observe(host,stock,newer);assert.equal(h.requests[0].init.signal.aborted,true);h.near(host);pending[1]({ok:true,json:async()=>signalData(stock.code,newer)});await settle();const image=host.querySelector('img');assert.match(image.src,/generation=signal-generation-2/);pending[0]({ok:true,json:async()=>signalData()});await settle();assert.equal(host.querySelector('img'),image);image.events.load();assert.equal(host.dataset.chartState,'signal-loaded');
+});
+test('invalid supplied batch fails closed while calls without a batch retain TradingView',()=>{
+  const h=harness(),host=new Element();h.api.observe(host,stock,{...batch,asOf:'invalid'});h.near(host);assert.equal(host.dataset.chartState,'unavailable');assert.equal(host.querySelector('script'),null);h.api.destroy();
 });

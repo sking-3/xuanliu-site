@@ -4,6 +4,7 @@ import { mkdtemp, readFile, writeFile, rm, mkdir, readdir } from 'node:fs/promis
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { collect, createGuard, openStore, precompute, recomputeFromCache, retryAfter, INDICES } from '../server/a-share-daily.mjs';
+import {signalChartVersion} from '../server/a-share-signal-chart.mjs';
 import {sourceId,dataPolicy,barSchema,hasOHLC,historyCount} from '../server/a-share-tickflow.mjs';
 import {universeSchema,universeSourceId} from '../server/a-share-universe.mjs';
 import {gzipSync} from 'node:zlib';
@@ -243,6 +244,10 @@ test('public precomputation contains derived metrics only while raw bars stay pr
   const references=new Map(INDICES.map((code,i)=>[code,{status:'ready',sourceId,adjustment:'index',bars:bars.map(bar=>({...bar,open:bar.open*(i+1),high:bar.high*(i+1),low:bar.low*(i+1),close:bar.close*(i+1)})),fetchedAt:new Date(now()).toISOString()}]));
   const input={dir,siteDir:resolve('.'),snapshot:{updatedAt:asOf,stocks:[{price:987654321}]},universe,sources,references,sourceId,dataPolicy,day:latest.date,asOf,startedAt:asOf,now};
   const published=await precompute(input);
+  assert.equal(published.signalChartVersion,signalChartVersion);
+  assert.equal(published.entrySummary.signalChartVersion,signalChartVersion);
+  const mainChart=JSON.parse(await readFile(join(dir,'generations',published.generation,'signals',universe[1].code+'.json')));
+  assert.equal(mainChart.generation,published.generation);assert.equal(mainChart.chartAvailable,true);assert.doesNotMatch(JSON.stringify(mainChart),/"(?:bars|open|high|low|close|volume)"/);
   const location=join(dir,'generations',published.generation),files=await readdir(location);assert.equal(files.some(name=>name.startsWith('dataset-')||name.startsWith('market.')),false);
   assert.equal(published.dataPolicy.rawPublic,false);assert.equal(published.sourceId,sourceId);assert.equal(published.barSchema,barSchema);assert.equal(published.total,40);assert.equal(published.coverage,1);
   const privateData=JSON.parse(await readFile(join(dir,'private','generations',published.generation,'dataset-all-000300.SH.json')));assert.equal(privateData.records.length,40);assert.deepEqual(privateData.records[0].source.bars,bars);assert.equal(privateData.barSchema,barSchema);

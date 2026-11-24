@@ -8,6 +8,7 @@ import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {precomputeEntryEvidence,entryChart,readHistoryLines,qualifyEntryWatch} from '../server/a-share-entry-precompute.mjs';
 import {createAShareCache} from '../server/a-share-cache.mjs';
+import {signalChartVersion} from '../server/a-share-signal-chart.mjs';
 
 const require=createRequire(import.meta.url),patterns=require('../screening/trend-patterns.js'),engine=require('../screening/trend-screen.js'),{riskName}=require('../screening/market-pool.js');
 const generation='2026-11-23-1',day='2026-11-23',asOf='2026-11-23T07:00:00.000Z',sourceId='tickflow-free-forward-v1';
@@ -36,6 +37,7 @@ test('source gaps stay explicit; insufficient history is not converted into elig
   await precomputeEntryEvidence(f.options);
   const coverage=JSON.parse(await readFile(join(f.target,'coverage.json')));assert.equal(coverage.missing,1);assert.equal(coverage.records[0].diagnostic.code,'insufficient_history');
   assert.equal(coverage.records[0].diagnostic.returnedBars,5);assert.equal(coverage.records[0].diagnostic.targetDayPresent,true);
+  const signals=JSON.parse(await readFile(join(f.target,'signals','600000.SH.json')));assert.equal(signals.chartAvailable,false);assert.deepEqual(signals.markers,[]);
 });
 test('derived SVG marks actual dated key candles and escapes source labels',()=>{
   const bars=[{date:'2026-11-20',open:10,high:11,low:9,close:10,volume:1},{date:'2026-11-23',open:10,high:12,low:10,close:11,volume:2}],setup={formation:bars[0],keyBar:bars[1],trigger:{above:12},invalidation:{below:9},replayStatus:'waiting_trigger'};
@@ -55,6 +57,32 @@ test('public routes are readonly, pinned and cannot expose raw bars or traverse 
   assert.equal((await request('dataset')).status,403);
   const file=join(f.target,'entries','600000.SH.json'),value=JSON.parse(await readFile(file));await writeFile(file,JSON.stringify({...value,day:'2026-11-20'}));
   assert.equal((await request('entries?code=600000.SH')).status,503);
+});
+test('one completed batch publishes same-source signal metadata and both charts; mismatches and raw exports remain closed',async t=>{
+  const f=await fixture(t),summary=await precomputeEntryEvidence(f.options);
+  assert.equal(summary.signalChartVersion,signalChartVersion);
+  const marker={generation,sourceId,day,asOf,signalChartVersion,dataPolicy:{rawPublic:false}};
+  await writeFile(join(f.dir,'current.json'),JSON.stringify(marker));await writeFile(join(f.target,'complete.json'),JSON.stringify({...marker,completed:true}));
+  const api=createAShareCache({directory:f.dir});
+  async function request(route,headers={}){
+    const url=new URL('http://localhost/api/a-share-daily/'+route),res={writeHead(status,headers){this.status=status;this.headers=headers;},end(body){this.body=body;}};
+    await api.handle({method:'GET',headers},res,{url,path:url.pathname,json(res,status,value){res.status=status;res.value=value;}});return res;
+  }
+  const query='?generation='+generation+'&code=600000.SH',meta=await request('signals'+query);
+  assert.equal(meta.status,200);assert.equal(meta.value.chartAvailable,true);assert.equal(meta.value.asOf,asOf);assert.equal(meta.value.sourceFetchedAt,f.source.fetchedAt);
+  assert.doesNotMatch(JSON.stringify(meta.value),/"(?:bars|open|high|low|close|volume)"/);
+  for(const window of [60,120]){
+    const file=join(f.target,'signals','600000.SH-'+window+'.svg');await rm(file);
+    const image=await request('signal-chart'+query+'&window='+window);assert.equal(image.status,200);assert.match(image.headers['content-type'],/^image\/svg/);assert.match(image.body.toString(),/<svg/);
+    assert.equal((await request('signal-chart'+query+'&window='+window,{'accept-encoding':'gzip'})).headers['content-encoding'],'gzip');
+  }
+  for(const route of ['signals?code=../collector','signals?code=600000.SH&bars=1','signal-chart'+query+'&window=30','signal-chart'+query+'&window=60&window=120'])assert.equal((await request(route)).status,400,route);
+  for(const route of ['dataset','market'])assert.equal((await request(route)).status,403);
+  const metaFile=join(f.target,'signals','600000.SH.json'),original=JSON.parse(await readFile(metaFile));
+  for(const change of [{day:'2026-11-20'},{asOf:'2026-11-23T06:00:00.000Z'},{sourceId:'other'},{version:'wrong'},{stock:{code:'600001.SH'}},{markers:[{state:'live',actualFillVerified:true}]}]){
+    await writeFile(metaFile,JSON.stringify({...original,...change}));
+    assert.equal((await request('signals'+query)).status,503);assert.equal((await request('signal-chart'+query)).status,503);
+  }
 });
 test('slow consumers process 120 MB of long history lines under a 64 MB heap without read-ahead accumulation',async t=>{
   const f=await fixture(t),file=join(f.dir,'large-history.ndjson'),output=await open(file,'w'),padding='x'.repeat(80*1024);

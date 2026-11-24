@@ -34,6 +34,7 @@
  function mount(doc,options={}){
   const body=doc?.getElementById('trend-results'),env=doc?.defaultView||globalThis,app=options.app||env.BooksTrendControllerApp;
   if(!body||!app?.getState)return null;
+  const displayedBatch=()=>app.getDisplayedState?.()||app.getState();
   const cards=new Map();let destroyed=false,scheduled=false,nextId=0;
   function text(tag,content,className){const node=doc.createElement(tag);node.textContent=content;if(className)node.className=className;return node;}
   function stop(record){record.sequence++;record.controller?.abort();record.controller=null;record.loading=false;}
@@ -41,7 +42,7 @@
    const {button,panel}=record;button.setAttribute('aria-expanded',String(record.open));button.disabled=!record.binding;panel.hidden=!record.open;
    if(!record.open)return;
    const children=[],data=record.data;
-   children.push(text('p',record.loading?'正在读取本批关键K证据…':record.error||'关键K历史回放 · 当前资格见独立验证面板','entry-bars-status'));
+   children.push(text('p',record.loading?'正在读取本批关键K证据…':record.error||'本批信号依据 · 标记见上方日K','entry-bars-status'));
    if(data){
     children.push(text('p','数据日 '+data.day+' · 来源 '+data.sourceId+' · 读取 '+stamp(data.sourceFetchedAt),'entry-bars-source'));
     if(!data.items.length)children.push(text('p','本批没有已形成的关键K证据；不补造入场点。','entry-bars-note'));
@@ -54,49 +55,45 @@
       const cell=doc.createElement('div');cell.append(text('dt',label),text('dd',value));facts.append(cell);
      }
      row.append(facts,text('p','F 形成 '+item.formationDay+' · C 收盘确认 '+(item.keyBarDay||'未形成')+' · '+(item.replayStatus==='triggered_observation'?'T 越位观察 ':'终止或待观察 ')+(item.triggerDay||'—'),'entry-bars-note'));
-     if(item.chartUrl&&!record.failedCharts.has(item.id)){
-      const image=doc.createElement('img');image.className='entry-bars-chart';image.alt=(data.stock.name||data.stock.code)+'：F形成、C收盘确认和后日触发的研究回放';image.loading='lazy';image.decoding='async';image.src=item.chartUrl;
-      image.addEventListener('error',()=>{if(cards.get(record.card)===record&&record.data===data){record.failedCharts.add(item.id);render(record); }},{once:true});row.append(image);
-     }else if(item.chartUrl)row.append(text('p','关键K图表未能载入，日期和参考位证据仍保留。','entry-bars-note'));
      row.append(text('p',item.reason,'entry-bars-note'));
      if(item.monitoring?.remainingSessions>0)row.append(text('p',item.monitoring.status==='future_condition_watch'?'下一已核验交易日 '+item.monitoring.nextSessionDay+' · 剩余 '+item.monitoring.remainingSessions+' 个交易日条件观察':'仅保留剩余窗口观察，下一交易日和新日线须重新核验。','entry-bars-note'));
      row.append(text('p','实际发现 '+stamp(item.knownAt)+' · '+item.recommendationReasons.join('；'),'entry-bars-note'));children.push(row);
     }
-    children.push(text('p','这里保留历史关键K回放；独立验证结果与合格条件观察以“关键K · 当前观察”面板为准。前复权研究参考位，非实际委托报价；F为形成、C为收盘确认、T为后日越位观察。','entry-bars-note'));
+    children.push(text('p','F为形成、C为收盘确认、T为后日越位观察；研究参考位，未验证为成交。当前资格与15日统计见独立验证面板。','entry-bars-note'));
    }
    if(record.error){const retry=text('button','重新读取本批关键K','entry-bars-retry');retry.type='button';retry.dataset.entryRetry='';retry.disabled=record.loading;children.push(retry);}
    panel.replaceChildren(...children);
   }
   function sync(){
    if(destroyed)return;
-   const current=app.getState(),key=binding(current);
+   const current=displayedBatch(),key=binding(current);
    for(const [card,record]of cards)if(!body.contains(card)){stop(record);record.section.remove();cards.delete(card);}
    for(const card of body.querySelectorAll('.trend-stock[data-code]')){
     const code=card.dataset.code;if(!/^\d{6}\.(SH|SZ)$/.test(code||''))continue;
     let record=cards.get(card);
     if(!record){
-     const section=doc.createElement('section'),button=text('button','关键K · 查看确认与触发','entry-bars-toggle'),panel=doc.createElement('div');
+     const section=doc.createElement('section'),button=text('button','信号依据','entry-bars-toggle'),panel=doc.createElement('div');
      section.className='entry-bars';button.type='button';button.dataset.entryToggle='';panel.className='entry-bars-panel';panel.id='entry-bars-panel-'+(++nextId);panel.setAttribute('role','region');panel.setAttribute('aria-label',code+'关键K证据');button.setAttribute('aria-controls',panel.id);section.append(button,panel);
-     record={card,section,button,panel,code,binding:key,open:false,loading:false,data:null,error:null,controller:null,sequence:0,failedCharts:new Set()};cards.set(card,record);
-     const chart=card.querySelector('.trend-stock-chart');card.insertBefore(section,chart||null);render(record);
+     record={card,section,button,panel,code,binding:key,open:false,loading:false,data:null,error:null,controller:null,sequence:0};cards.set(card,record);
+     card.append(section);render(record);
     }else if(record.binding!==key||record.code!==code){
-     stop(record);record.code=code;record.binding=key;record.open=false;record.data=null;record.error=null;record.failedCharts.clear();record.panel.replaceChildren();record.panel.setAttribute('aria-label',code+'关键K证据');render(record);
+     stop(record);record.code=code;record.binding=key;record.open=false;record.data=null;record.error=null;record.panel.replaceChildren();record.panel.setAttribute('aria-label',code+'关键K证据');render(record);
     }
    }
   }
   function schedule(){if(destroyed||scheduled)return;scheduled=true;Promise.resolve().then(()=>{scheduled=false;sync();});}
   async function load(record){
    if(destroyed||record.loading||!record.binding)return;
-   const current=app.getState();if(binding(current)!==record.binding||!body.contains(record.card)){sync();return;}
+   const current=displayedBatch();if(binding(current)!==record.binding||!body.contains(record.card)){sync();return;}
    const sequence=++record.sequence,controller=new AbortController();record.controller=controller;record.loading=true;record.error=null;render(record);
    const timer=env.setTimeout(()=>controller.abort(),30000);
    try{
     const response=await env.fetch('/api/a-share-daily/entries?'+new URLSearchParams({generation:current.generation,code:record.code}),{method:'GET',credentials:'same-origin',cache:'no-store',redirect:'error',signal:controller.signal});
     if(!response.ok)throw Error('本批关键K证据暂不可用（HTTP '+response.status+'）。');
     const data=validate(await response.json(),current,record.code);
-    if(destroyed||sequence!==record.sequence||!body.contains(record.card)||binding(app.getState())!==record.binding)return;
-    record.data=data;record.failedCharts.clear();
-   }catch(error){if(!destroyed&&sequence===record.sequence&&body.contains(record.card)&&binding(app.getState())===record.binding)record.error=error.name==='AbortError'?'关键K读取超时，可重新读取本批证据。':error.name==='TypeError'?'关键K读取失败，可重新读取本批证据。':error.message;}
+    if(destroyed||sequence!==record.sequence||!body.contains(record.card)||binding(displayedBatch())!==record.binding)return;
+    record.data=data;
+   }catch(error){if(!destroyed&&sequence===record.sequence&&body.contains(record.card)&&binding(displayedBatch())===record.binding)record.error=error.name==='AbortError'?'关键K读取超时，可重新读取本批证据。':error.name==='TypeError'?'关键K读取失败，可重新读取本批证据。':error.message;}
    finally{env.clearTimeout(timer);if(!destroyed&&sequence===record.sequence){record.loading=false;record.controller=null;render(record);}}
   }
   function click(event){

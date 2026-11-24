@@ -309,8 +309,8 @@ function dom(){
  ids['trend-lookback'].value='20';return {env,ids,doc};
 }
 function chartSpy(){
- const observed=[],disposed=[];let destroyed=0;
- const api={create:()=>({observe(host,stock){observed.push({host,stock});host.append(new Element('iframe'));},dispose(host){disposed.push(host);host.replaceChildren();},destroy(){destroyed++;}})};
+ const observed=[],disposed=[],bindings=new Map();let destroyed=0;
+ const api={create:()=>({observe(host,stock,batch){const key=JSON.stringify([stock.code,batch?.generation,batch?.day,batch?.sourceId,batch?.asOf]);if(bindings.get(host)===key)return;bindings.set(host,key);observed.push({host,stock,batch});host.replaceChildren(new Element('iframe'));},dispose(host){bindings.delete(host);disposed.push(host);host.replaceChildren();},destroy(){destroyed++;}})};
  return {api,observed,disposed,get destroyed(){return destroyed;}};
 }
 const context=(rows=marketRows)=>({day,asOf,rows,pageRows:rows.slice(0,20),savedRows:rows.slice(0,2),allRows:marketRows,marketRows});
@@ -343,8 +343,8 @@ test('ordinary renders and same-generation progress polling keep chart hosts and
  const s=mounted();await s.app.start('consensus');const nodes=articles(s).slice(),frames=s.charts.observed.map(item=>item.host.children[0]);s.app.render();s.setMetadata({available:true,scope:'full-market',fullMarket:true,lastSuccess:{generation:'daily-generation-1',day,finishedAt:fetchedAt},attempt:{status:'running',checked:430,total:3052}});await s.app.runner.refreshIfChanged();
  assert.deepEqual(articles(s),nodes);assert.equal(s.charts.observed.length,32);assert.equal(s.charts.disposed.length,0);assert.deepEqual(s.charts.observed.map(item=>item.host.children[0]),frames);assert.doesNotMatch(s.ids['trend-status'].textContent,/430|3052|请求/);s.app.destroy();
 });
-test('a new generation with the same selected codes updates data without reloading current charts',async()=>{
- const s=mounted();await s.app.start('consensus');const nodes=articles(s).slice();s.setMetadata({available:true,scope:'full-market',fullMarket:true,lastSuccess:{generation:'daily-generation-2',day,finishedAt:fetchedAt}});s.setResult({...cachedResult(),generation:'daily-generation-2'});await s.app.runner.refreshIfChanged();assert.deepEqual(articles(s),nodes);assert.equal(s.charts.observed.length,32);assert.equal(s.charts.disposed.length,0);s.app.destroy();
+test('a new generation preserves card hosts and rebinds their main chart generation',async()=>{
+ const s=mounted();await s.app.start('consensus');const nodes=articles(s).slice();s.setMetadata({available:true,scope:'full-market',fullMarket:true,lastSuccess:{generation:'daily-generation-2',day,finishedAt:fetchedAt}});s.setResult({...cachedResult(),generation:'daily-generation-2'});await s.app.runner.refreshIfChanged();assert.deepEqual(articles(s),nodes);assert.equal(s.charts.observed.length,64);assert.ok(s.charts.observed.slice(-32).every(item=>item.batch.generation==='daily-generation-2'&&item.batch.asOf===asOf));assert.equal(s.charts.disposed.length,0);s.app.destroy();
 });
 test('no prepared context uses cached full market while a prepared empty filter must stay empty',async()=>{
  const full=mounted({selection:{getContext:()=>({day:'',rows:[]})}});await full.app.start('market');assert.equal(full.app.getState().records.length,32);assert.equal(articles(full).length,32);full.app.destroy();

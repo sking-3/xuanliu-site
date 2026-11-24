@@ -38,18 +38,18 @@ function fixture(count=1){
  const stockCards=[];for(let i=0;i<count;i++){const card=new Element('article'),chart=new Element();card.className='trend-stock';card.dataset.code=String(600000+i)+'.SH';chart.className='trend-stock-chart';const iframe=new Element('iframe');chart.append(iframe);card.append(chart);body.append(card);stockCards.push(card);}
  const app={getState:()=>state},component=ui.mount(doc,{app});
  const click=node=>body.dispatchEvent({type:'click',target:node});
- return {body,env,requests,timeouts,observers,stockCards,component,click,setCurrent:value=>state=value,setResponse:value=>response=value,open:()=>click(stockCards[0].querySelector('.entry-bars-toggle'))};
+ return {body,env,requests,timeouts,observers,stockCards,component,app,click,setCurrent:value=>state=value,setResponse:value=>response=value,open:()=>click(stockCards[0].querySelector('.entry-bars-toggle'))};
 }
 
 test('one hundred cards mount no requests; explicit click reads one bound entry and preserves its existing chart',async t=>{
  const f=fixture(100);t.after(()=>f.component.destroy());const card=f.stockCards[0],chart=card.querySelector('.trend-stock-chart'),iframe=chart.children[0];
- assert.equal(f.requests.length,0);assert.equal(f.body.querySelectorAll('.entry-bars-toggle').length,100);assert.equal(card.children[0].className,'entry-bars');
+ assert.equal(f.requests.length,0);assert.equal(f.body.querySelectorAll('.entry-bars-toggle').length,100);assert.equal(card.children[1].className,'entry-bars');assert.equal(card.querySelector('.entry-bars-toggle').textContent,'信号依据');
  f.open();await settle();assert.equal(f.requests.length,1);assert.equal(f.requests[0].path,'/api/a-share-daily/entries?generation=2026-11-23-123&code=600000.SH');
  assert.equal(f.requests[0].init.redirect,'error');assert.equal(f.requests[0].init.credentials,'same-origin');assert.equal(f.requests[0].init.cache,'no-store');
  assert.equal(card.querySelector('.trend-stock-chart'),chart);assert.equal(chart.children[0],iframe);assert.equal(f.timeouts.size,0);
- const panel=card.querySelector('.entry-bars-panel');assert.equal(panel.hidden,false);assert.match(panel.textContent,/关键K历史回放 · 当前资格见独立验证面板.*关键K日期2026-11-20.*突破参考位> 10.32.*失效参考位< 9.84.*F 形成 2026-11-19.*C 收盘确认 2026-11-20.*T 越位观察 2026-11-23/);
- assert.match(panel.textContent,/晚于当时开盘发现.*独立验证结果与合格条件观察以.*当前观察.*面板为准.*前复权研究参考位.*非实际委托报价/);
- assert.equal(panel.querySelector('img').src,payload().items[0].chartUrl);assert.equal(panel.querySelector('img').loading,'lazy');
+ const panel=card.querySelector('.entry-bars-panel');assert.equal(panel.hidden,false);assert.match(panel.textContent,/本批信号依据 · 标记见上方日K.*关键K日期2026-11-20.*突破参考位> 10.32.*失效参考位< 9.84.*F 形成 2026-11-19.*C 收盘确认 2026-11-20.*T 越位观察 2026-11-23/);
+ assert.match(panel.textContent,/晚于当时开盘发现.*研究参考位，未验证为成交.*当前资格与15日统计见独立验证面板/);
+ assert.equal(panel.querySelector('img'),null);
  f.open();assert.equal(panel.hidden,true);f.open();await settle();assert.equal(f.requests.length,1);
 });
 
@@ -98,7 +98,7 @@ test('closing cancels a fetch; error retry stays in the same generation and erro
  const f=fixture();t.after(()=>f.component.destroy());let resolve;f.setResponse(()=>new Promise(done=>resolve=done));f.open();f.open();assert.equal(f.requests[0].init.signal.aborted,true);resolve({ok:true,json:async()=>payload()});await settle();assert.equal(f.component.getState()[0].data,null);
  f.setResponse(async()=>({ok:false,status:503}));f.open();await settle();assert.match(f.stockCards[0].textContent,/HTTP 503/);assert.equal(f.requests.length,2);
  f.setResponse(async()=>({ok:true,json:async()=>payload()}));f.click(f.stockCards[0].querySelector('.entry-bars-retry'));await settle();assert.equal(f.requests.length,3);assert.equal(f.component.getState()[0].error,null);assert.equal(f.component.getState()[0].data.generation,current().generation);
- const image=f.stockCards[0].querySelector('img');image.dispatchEvent({type:'error'});assert.match(f.stockCards[0].textContent,/图表未能载入.*日期和参考位证据仍保留/);assert.equal(f.requests.length,3);
+ assert.equal(f.stockCards[0].querySelector('img'),null);assert.equal(f.stockCards[0].querySelector('.trend-stock-chart').children[0].tagName,'iframe');assert.equal(f.requests.length,3);
 });
 
 test('batch update listeners reconcile recycled cards and cleanup leaves existing cards and charts intact',async()=>{
@@ -111,4 +111,9 @@ test('screening adds only two isolated resources and keeps the approved shared U
  const html=fs.readFileSync(require.resolve('../screening/index.html'),'utf8');
  for(const resource of ['entry-bars.css','entry-bars-controller.js','desk-skin.css','content-materials.css','stock-charts.js','pattern-regimes-controller.js','selection-shell.js'])assert.equal([...html.matchAll(new RegExp('(?:href|src)="(?:\\.\\./)?'+resource.replaceAll('.','\\.')+'\\?','g'))].length,1,resource);
  assert.match(html,/id="trend-results"/);assert.match(html,/href="\.\.\/academy\/index\.html">交易员研习/);
+});
+
+test('evidence follows the displayed successful batch while a newer batch is still running',async t=>{
+ const f=fixture();t.after(()=>f.component.destroy());let displayed=current();f.app.getDisplayedState=()=>displayed;f.setCurrent({...current(),generation:'running-next'});f.env.dispatchEvent({type:'books:trend-run-finished'});await settle();f.open();await settle();assert.match(f.requests[0].path,/generation=2026-11-23-123/);assert.equal(f.component.getState()[0].data.generation,current().generation);
+ displayed={...current(),generation:'completed-next'};f.env.dispatchEvent({type:'books:trend-run-finished'});await settle();assert.equal(f.component.getState()[0].open,false);assert.equal(f.component.getState()[0].data,null);
 });

@@ -5,6 +5,7 @@ import {gzipSync} from 'node:zlib';
 import {analyzeEntryBars,entryPolicyVersion} from './a-share-entry-bars.mjs';
 import {diagnoseHistory} from './a-share-tickflow.mjs';
 import {evaluateEntryOutcome,validateEntryEvents,reserveEntryIntervals,entryValidationVersion,entryValidationPolicy} from './a-share-entry-validation.mjs';
+import {saveSignalCharts,signalChartVersion} from './a-share-signal-chart.mjs';
 
 function addEvent(bucket,event,stockIndex){
   const index=bucket.count++,chunk=Math.floor(index/4096);
@@ -115,6 +116,8 @@ export async function precomputeEntryEvidence({historyFile,target,privateTarget,
         }
       }
       await save(join(privateTarget,'entries',stock.code+'.json'),result);
+      await saveSignalCharts({target,stock,bars:source.status==='ready'?source.bars:[],setups:result.setups,reference:header.reference.bars,dates,
+        generation,sourceId,day,asOf,sourceFetchedAt:source.fetchedAt||null,priceBasis:result.priceBasis});
       totals.stocks++;totals.setups+=result.summary.setupCount;totals.confirmed+=result.summary.confirmedCount;totals.currentWatch+=result.summary.currentWatchCount;
       const confirmed=result.setups.filter(setup=>setup.keyBar).reverse(),recent=result.current.slice().reverse(),used=new Set();
       const setups=[...recent,...confirmed,...result.setups.slice().reverse()].filter(setup=>{if(used.has(setup.id))return false;used.add(setup.id);return true;}).slice(0,3);
@@ -150,6 +153,6 @@ export async function precomputeEntryEvidence({historyFile,target,privateTarget,
     const qualifiedCount=current.filter(item=>item.qualified).length,validationSummary={patternCount:reports.length,effectiveCount:entryEffective.size,qualifiedCount,watchCount:current.length,candidateCount:current.length,researchCandidateCount:current.length-qualifiedCount,requiresFreshCount:current.filter(item=>!item.fresh).length,reason:qualifiedCount?'下一已核验交易日的条件观察，触发与成交须另行确认':'没有同时通过原形态、独立入场验证与新鲜度门槛的观察机会；保留未通过原因'};
     await save(join(target,'entry-validation.json'),{schema:'books.a-share.entry-validation.v1',version:entryValidationVersion,entryPolicyVersion,generation,sourceId,day,asOf,computedAt,benchmark:{code:'000300.SH',label:'沪深300'},policy:entryValidationPolicy,summary:validationSummary,
       coverage:{universeCount:header.total,historyDays:dates.length,historyStart:dates[0],historyEnd:day},validationFamily:{id:'key-k-entry-16',hypotheses:16,correction:'Bonferroni',separateFrom:'shape-next-open-16'},method:reports[0].method,patterns:reports,current});
-    const summary={entryPolicyVersion,entryValidationVersion,policyKnownAt,...totals,validationSummary};await save(join(target,'entry-summary.json'),summary);return summary;
+    const summary={entryPolicyVersion,entryValidationVersion,signalChartVersion,policyKnownAt,...totals,validationSummary};await save(join(target,'entry-summary.json'),summary);return summary;
   }
 }

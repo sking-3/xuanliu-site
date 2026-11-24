@@ -368,7 +368,7 @@
    const refreshing=state.status==='running'&&displayed?.mode===selectedMode&&displayed.lookback===lookback;
    let visible=[];
    if(completed){
-    displayed={mode:selectedMode,lookback,day:state.day,generation:state.generation,sourceId:state.sourceId,scope:state.scope,sampleCount:state.sampleCount,marketUniverseCount:state.marketUniverseCount,fullMarket:state.fullMarket,consensus:state.consensus,directionSummary:state.directionSummary,marketQualified:state.marketQualified,minimumBreadth:state.minimumBreadth,strength:state.strength,attribution:state.dataPolicy?.attribution,patternVersion:state.patternVersion,patternDefinitions:state.patternDefinitions,sectorRecords:state.sectorRecords,records:state.records.filter(record=>record.result.status==='ready')};
+    displayed={mode:selectedMode,lookback,day:state.day,asOf:state.asOf,generation:state.generation,sourceId:state.sourceId,scope:state.scope,sampleCount:state.sampleCount,marketUniverseCount:state.marketUniverseCount,fullMarket:state.fullMarket,consensus:state.consensus,directionSummary:state.directionSummary,marketQualified:state.marketQualified,minimumBreadth:state.minimumBreadth,strength:state.strength,attribution:state.dataPolicy?.attribution,patternVersion:state.patternVersion,patternDefinitions:state.patternDefinitions,sectorRecords:state.sectorRecords,records:state.records.filter(record=>record.result.status==='ready')};
    }
    const show=completed||refreshing;
    if(show)visible=sortRecords(displayed.records.filter(record=>selectedMode==='consensus'&&!qualifiedOnly?record.result.candidateMatched===true&&record.result.directionMatched===true:record.result.matched===true),selectedMode);
@@ -483,7 +483,7 @@
       for(const label of patternLabels){const reason=doc.createElement('p');reason.textContent=label.label+'：'+label.evidence;item.patternReasons.append(reason);}
      }
      if(body.children[index]!==item.article)body.insertBefore(item.article,body.children[index]||null);
-     if(created)charts.observe(item.chart,record.stock);
+     charts.observe(item.chart,record.stock,displayed);
     });
    }
    el('trend-pagination').hidden=pages<=1;el('trend-page').textContent=pages?(page+1)+' / '+pages:'';
@@ -563,7 +563,7 @@
   }
   listen(env,'pagehide',event=>{if(!event.persisted)cleanup();});contextKey=identity();render();
   if(options.autoLoad!==false)start(selectedMode);
-  return {start,render,runner,setMonitor,setRegimeFilter,applyConfiguration,getSchemeDraft,applyScheme,loadDataset:()=>runner.loadDataset(),exportDataset:()=>runner.exportDataset(),getExportStatus:()=>runner.getExportStatus(),getState:()=>runner.getState(),isRunning:()=>state.status==='running',destroy(){cleanup();for(const [target,type,handler]of listeners)target.removeEventListener(type,handler);}};
+  return {start,render,runner,setMonitor,setRegimeFilter,applyConfiguration,getSchemeDraft,applyScheme,loadDataset:()=>runner.loadDataset(),exportDataset:()=>runner.exportDataset(),getExportStatus:()=>runner.getExportStatus(),getState:()=>runner.getState(),getDisplayedState:()=>displayed||runner.getState(),isRunning:()=>state.status==='running',destroy(){cleanup();for(const [target,type,handler]of listeners)target.removeEventListener(type,handler);}};
  }
  return {createRunner,createCachedRunner,mount,sortRecords,names,regimeApplies,filterRegimeRecords};
 });

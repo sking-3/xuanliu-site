@@ -53,8 +53,8 @@ export function createAShareCache({directory}){
     const reply=(status,value)=>json(res,status,value,{'cache-control':'no-cache'});
     if(req.method!=='GET'){reply(405,{error:'method_not_allowed'});return true;}
     const route=path.slice(prefix.length),params=url.searchParams;
-    if(!['state','result','dataset','market','patterns','entries','entry-chart','coverage','entry-validation'].includes(route)){reply(404,{error:'not_found'});return true;}
-    const allowed=route==='state'?[]:route==='result'?['mode','lookback','sampleSize','benchmark','generation']:route==='dataset'?['sampleSize','benchmark','generation']:route==='entries'?['generation','code']:route==='entry-chart'?['generation','code','setup']:['generation'];
+    if(!['state','result','dataset','market','patterns','entries','entry-chart','coverage','entry-validation','signals','signal-chart'].includes(route)){reply(404,{error:'not_found'});return true;}
+    const allowed=route==='state'?[]:route==='result'?['mode','lookback','sampleSize','benchmark','generation']:route==='dataset'?['sampleSize','benchmark','generation']:['entries','signals'].includes(route)?['generation','code']:route==='entry-chart'?['generation','code','setup']:route==='signal-chart'?['generation','code','window']:['generation'];
     if(!validQuery(params,allowed)){reply(400,{error:'invalid_query'});return true;}
     const requestedGeneration=params.get('generation');
     if(requestedGeneration!==null&&!generationPattern.test(requestedGeneration)){reply(400,{error:'invalid_generation'});return true;}
@@ -71,6 +71,10 @@ export function createAShareCache({directory}){
       const code=params.get('code'),setup=params.get('setup');
       if(!/^\d{6}\.(SH|SZ)$/.test(code||'')||route==='entry-chart'&&!/^[012]$/.test(setup||'')){reply(400,{error:'invalid_query'});return true;}
       filename=join('entries',code+(route==='entry-chart'?'-'+setup+'.svg':'.json'));
+    }else if(['signals','signal-chart'].includes(route)){
+      const code=params.get('code'),window=params.get('window')||'60';
+      if(!/^\d{6}\.(SH|SZ)$/.test(code||'')||route==='signal-chart'&&!['60','120'].includes(window)){reply(400,{error:'invalid_query'});return true;}
+      filename=join('signals',code+(route==='signal-chart'?'-'+window+'.svg':'.json'));
     }else filename=route==='patterns'?'pattern-regimes.json':route==='entry-validation'?'entry-validation.json':route==='coverage'?'coverage.json':'market.json';
     try{
       const full=await pointer('current.json'),historical=await pointer('historical-current.json',true),published=full||historical;
@@ -87,6 +91,14 @@ export function createAShareCache({directory}){
       if(!completed){reply(requestedGeneration?404:503,{error:'generation_unavailable'});return true;}
       if(completed.completion.dataPolicy?.rawPublic===false&&['dataset','market'].includes(route)){reply(403,{error:route==='dataset'?'source_policy_raw_export_disabled':'source_policy_raw_market_disabled'});return true;}
       if(route==='market'&&completed.completion.scope==='historical-sample'){reply(503,{error:'historical_market_unavailable'});return true;}
+      if(route==='signals'||route==='signal-chart'){
+        const value=await readJson(join(completed.location,'signals',params.get('code')+'.json')),marker=completed.completion;
+        if(!value){reply(503,{error:'signal_chart_unavailable'});return true;}
+        if(value.schema!=='books.a-share.entry-signals.v1'||typeof marker.signalChartVersion!=='string'||value.version!==marker.signalChartVersion||value.generation!==generation||value.sourceId!==marker.sourceId||value.day!==marker.day||value.asOf!==marker.asOf||value.stock?.code!==params.get('code')||!Array.isArray(value.markers)||value.markers.some(item=>item.state!=='research'||item.actualFillVerified!==false)){
+          reply(503,{error:'signal_chart_mismatch'});return true;
+        }
+        if(route==='signals'){reply(200,value);return true;}
+      }
       if(route==='entries'||route==='coverage'){
         const value=await readJson(join(completed.location,filename)),marker=completed.completion;
         if(!value){reply(503,{error:route==='entries'?'entry_evidence_unavailable':'coverage_unavailable'});return true;}
@@ -115,7 +127,7 @@ export function createAShareCache({directory}){
       let body;
       try{body=compressed?await readFile(join(completed.location,filename+'.gz')):await readStoredFile(join(completed.location,filename));}
       catch(error){if(error.code==='ENOENT'){reply(503,{error:'cache_unavailable'});return true;}throw error;}
-      res.writeHead(200,{'content-type':route==='entry-chart'?'image/svg+xml; charset=utf-8':'application/json; charset=utf-8','cache-control':'no-cache','vary':'Accept-Encoding',...(compressed?{'content-encoding':'gzip'}:{})});
+      res.writeHead(200,{'content-type':['entry-chart','signal-chart'].includes(route)?'image/svg+xml; charset=utf-8':'application/json; charset=utf-8','cache-control':'no-cache','vary':'Accept-Encoding',...(compressed?{'content-encoding':'gzip'}:{})});
       res.end(body);
     }catch{reply(503,{error:'cache_read_failed'});}
     return true;
