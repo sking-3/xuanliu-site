@@ -120,13 +120,20 @@ async function files(root){
   const result=[];for(const entry of await readdir(root,{withFileTypes:true})){const path=join(root,entry.name);if(entry.isDirectory())result.push(...await files(path));else if(entry.isFile())result.push(path);else throw Error('归档目录含未支持的文件类型');}return result;
 }
 async function archiveGeneration({dir,generation,now,schemes}){
-  const path=join(dir,'archives','generations',generation+'.json'),previous=await optional(path),records=previous?.files||[],verified=new Set();schemes=previous?.schemes||schemes;let newlyCompressedFiles=0,savedBytes=0;
+  const path=join(dir,'archives','generations',generation+'.json'),previous=await optional(path),records=previous?.files||[],verified=new Set(),indices=new Map(records.map((record,index)=>[record.path,index]));schemes=previous?.schemes||schemes;let newlyCompressedFiles=0,savedBytes=0,pending=[];
+  async function flush(){
+    if(!pending.length)return;
+    await atomic(path,{schema:'books.a-share.generation-archive.v1',generation,createdAt:previous?.createdAt||stamp(now),status:'compressing',schemes,files:records});
+    for(const {file,record}of pending){await unlink(file);verified.add(record.path);newlyCompressedFiles++;savedBytes+=record.bytes-record.gzipBytes;}
+    pending=[];
+  }
   for(const kind of ['generations','private/generations'])for(const file of await files(join(dir,kind,generation))){
     if(!/\.(?:json|ndjson|svg)$/.test(file)||file.endsWith('/complete.json'))continue;
-    const record={path:relative(dir,file),...await verifiedGzip(file)},index=records.findIndex(item=>item.path===record.path);if(index<0)records.push(record);else records[index]=record;
-    await atomic(path,{schema:'books.a-share.generation-archive.v1',generation,createdAt:stamp(now),status:'compressing',schemes,files:records});
-    await unlink(file);verified.add(record.path);newlyCompressedFiles++;savedBytes+=record.bytes-record.gzipBytes;
+    const record={path:relative(dir,file),...await verifiedGzip(file)},index=indices.get(record.path);
+    if(index===undefined){indices.set(record.path,records.length);records.push(record);}else records[index]=record;
+    pending.push({file,record});if(pending.length===128)await flush();
   }
+  await flush();
   for(const record of records)if(!verified.has(record.path)){const restored=await fileDigest(local(dir,record.path)+'.gz',true);if(restored.sha256!==record.sha256||restored.bytes!==record.bytes)throw Error('已有冷代归档校验失败：'+record.path);}
   const result={schema:'books.a-share.generation-archive.v1',generation,createdAt:previous?.createdAt||stamp(now),status:'complete',schemes,files:records,newlyCompressedFiles,savedBytes};await atomic(path,result);return result;
 }

@@ -164,3 +164,38 @@ test('multi-megabyte 500-bar archive restores byte-for-byte through the streamin
   const restored=readFileSync(join(target,'private','generations',generation,'history-all.ndjson'));assert.equal(createHash('sha256').update(restored).digest('hex'),before);
   assert.equal(restored.length,original.length);assert.ok(readFileSync(file+'.gz').length<original.length);t.diagnostic(JSON.stringify({synthetic:true,rawBytes:original.length,gzipBytes:readFileSync(file+'.gz').length}));
 });
+
+test('more than 128 files cross manifest commit groups and restore including the final partial group',async t=>{
+  const f=fixture(t),generation=generations[1],location=join(f.dir,'generations',generation,'entries'),originals=new Map();mkdirSync(location);
+  for(let i=0;i<267;i++){
+    const file=join(location,'entry-'+String(i).padStart(3,'0')+(i%2?'.json':'.svg')),body=i%2?JSON.stringify({code:'600519.SH',index:i}):'<svg><title>'+i+'</title></svg>';
+    writeFileSync(file,body);originals.set(file,Buffer.from(body));
+  }
+  const result=await f.retain(),manifest=readJson(join(f.dir,'archives','generations',generation+'.json'));
+  assert.equal(manifest.status,'complete');assert.ok(result.newlyCompressedFiles>256);assert.equal(new Set(manifest.files.map(file=>file.path)).size,manifest.files.length);
+  for(const [file,body]of originals){assert.equal(existsSync(file),false);assert.deepEqual(gunzipSync(readFileSync(file+'.gz')),body);}
+  const target=join(f.root,'grouped-restore');await restoreGeneration({dir:f.dir,generation,target,now:fixed});
+  for(const [file,body]of originals){const restored=join(target,file.slice(f.dir.length+1));assert.deepEqual(readFileSync(restored),body);assert.deepEqual(gunzipSync(readFileSync(restored+'.gz')),body);}
+});
+
+test('a bad gzip keeps the entire uncommitted group plaintext and resumes after repair without duplicate records',async t=>{
+  const f=fixture(t),generation=generations[1],location=join(f.dir,'generations',generation),marker=readJson(join(location,'complete.json'));rmSync(location,{recursive:true});mkdirSync(location);writeJson(join(location,'complete.json'),marker);
+  for(let i=0;i<260;i++)writeJson(join(location,'entry-'+String(i).padStart(3,'0')+'.json'),{code:'600519.SH',index:i});
+  const names=readdirSync(location).filter(name=>name!=='complete.json'),bad=join(location,names[200]),original=readFileSync(bad);writeFileSync(bad+'.gz',gzipSync('bad group member'));
+  await assert.rejects(f.retain(),/压缩恢复校验不符/);const manifestPath=join(f.dir,'archives','generations',generation+'.json'),partial=readJson(manifestPath);
+  assert.equal(partial.status,'compressing');assert.equal(partial.files.length,128);
+  for(const [i,name]of names.entries())assert.equal(existsSync(join(location,name)),i>=128,name);
+  assert.equal(rows(join(f.dir,'collector.sqlite'),['history_v2'],days[1]).history_v2.length,4);assert.equal(readJson(join(f.dir,'current.json')).generation,generations[3]);
+  writeFileSync(bad+'.gz',gzipSync(original));await f.retain();const complete=readJson(manifestPath);assert.equal(complete.status,'complete');assert.equal(new Set(complete.files.map(file=>file.path)).size,complete.files.length);
+  for(const name of names)assert.equal(existsSync(join(location,name)),false);
+  const target=join(f.root,'resumed-group-restore');await restoreGeneration({dir:f.dir,generation,target,now:fixed});for(const name of names)assert.deepEqual(JSON.parse(readFileSync(join(target,'generations',generation,name))),{code:'600519.SH',index:Number(name.slice(6,9))});
+});
+
+test('a committed manifest with undeleted plaintext resumes safely after an interrupted unlink phase',async t=>{
+  const f=fixture(t),generation=generations[1];await f.retain();const manifestPath=join(f.dir,'archives','generations',generation+'.json'),manifest=readJson(manifestPath);
+  manifest.status='compressing';writeJson(manifestPath,manifest);
+  for(const record of manifest.files.slice(0,3)){const file=join(f.dir,record.path);writeFileSync(file,gunzipSync(readFileSync(file+'.gz')));}
+  const result=await f.retain(),completed=readJson(manifestPath);assert.equal(result.newlyCompressedFiles,3);assert.equal(completed.status,'complete');assert.equal(completed.files.length,manifest.files.length);
+  assert.equal(new Set(completed.files.map(file=>file.path)).size,completed.files.length);for(const record of completed.files)assert.equal(existsSync(join(f.dir,record.path)),false);
+  await restoreGeneration({dir:f.dir,generation,target:join(f.root,'interrupted-unlink-restore'),now:fixed});
+});
