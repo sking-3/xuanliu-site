@@ -10,9 +10,9 @@
 .pick-desk .entry-opportunities-toolbar select,.pick-desk .entry-opportunities-toolbar button,.pick-desk .entry-opportunities-toggle {min-height:44px;padding:8px 12px;border:1px solid var(--desk-border,#dfe5e9);border-radius:6px;background:var(--desk-paper,#fff);font:inherit;font-size:12px;color:var(--desk-ink,#1b202a);cursor:pointer}
 .entry-opportunities :is(button,select,a,summary):focus-visible {outline:2px solid var(--desk-accent,#365f77);outline-offset:3px}
 .entry-opportunities :is(button,select):disabled {color:var(--desk-muted,#66727f);cursor:wait}
-.entry-opportunities-list {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 28px;min-width:0}
-.entry-current-group {min-width:0}
-.entry-current-group-heading {margin:14px 0 0;padding-bottom:10px;border-bottom:1px solid var(--desk-border);font-size:14px;font-weight:600;line-height:1.6}
+.entry-opportunities-list {display:grid;grid-template-columns:minmax(0,1fr);min-width:0}
+.entry-current-group {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 28px;min-width:0}
+.entry-current-group-heading {grid-column:1/-1;margin:14px 0 0;padding-bottom:10px;border-bottom:1px solid var(--desk-border);font-size:14px;font-weight:600;line-height:1.6}
 .entry-current-stale {grid-column:1/-1}
 .entry-current-chart {display:block;width:100%;height:auto;margin:8px 0}
 .entry-current-chart-box {min-width:0}
@@ -40,6 +40,6 @@
 .entry-opportunities-stats small {display:block;color:var(--desk-muted,#66727f);font-size:10px;line-height:1.6}
 .entry-opportunities-diagnostic {font-size:11px;color:var(--desk-muted,#66727f);line-height:1.8;overflow-wrap:anywhere}
 .entry-opportunities-empty {grid-column:1/-1;padding:16px 0;border-top:1px solid var(--desk-border,#dfe5e9);font-size:13px;color:var(--desk-muted,#66727f)}
-@media(max-width:700px){.entry-opportunities-list{grid-template-columns:minmax(0,1fr)}.entry-opportunities-stats{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 18px}.entry-opportunities-stats>span:first-child{grid-column:1/-1;font-weight:600}.entry-opportunities-toolbar label{width:100%;justify-content:space-between}.entry-opportunities-toolbar select{max-width:70%;min-width:0}.entry-opportunities-heading small{width:100%}.entry-opportunities{padding-block:17px}.entry-opportunities-facts{gap:7px}}
+@media(max-width:700px){.entry-current-group{grid-template-columns:minmax(0,1fr)}.entry-opportunities-stats{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 18px}.entry-opportunities-stats>span:first-child{grid-column:1/-1;font-weight:600}.entry-opportunities-toolbar label{width:100%;justify-content:space-between}.entry-opportunities-toolbar select{max-width:70%;min-width:0}.entry-opportunities-heading small{width:100%}.entry-opportunities{padding-block:17px}.entry-opportunities-facts{gap:7px}}
 
 @media(max-width:700px){.entry-opportunities-facts{grid-template-columns:repeat(2,minmax(0,1fr))}.entry-current-group-heading{margin-top:12px}}
