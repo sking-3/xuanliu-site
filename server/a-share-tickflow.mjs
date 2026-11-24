@@ -6,12 +6,14 @@ const endpoint='https://free-api.tickflow.org/v1/klines/batch';
 const fields=['timestamp','open','high','low','close','volume'];
 const indices=new Set(['000300.SH','000001.SH','399001.SZ']);
 const offset=8*60*60*1000;
-const count=100,minimum=61;
+export const historyCount=500;
+const count=historyCount,minimum=61;
 const object=value=>value!==null&&typeof value==='object'&&!Array.isArray(value);
 export function hasOHLC(bars){
-  return Array.isArray(bars)&&bars.length===minimum&&bars.every(bar=>bar&&
-    ['open','high','low','close','volume'].every(field=>typeof bar[field]==='number'&&Number.isFinite(bar[field])&&bar[field]>0)&&
-    bar.high>=Math.max(bar.open,bar.close)&&bar.low<=Math.min(bar.open,bar.close));
+  return Array.isArray(bars)&&bars.length>=minimum&&bars.length<=count&&bars.every(bar=>bar&&
+    ['open','high','low','close','volume'].every(field=>typeof bar[field]==='number'&&Number.isFinite(bar[field])&&bar[field]>=0)&&
+    bar.high>=Math.max(bar.open,bar.close)&&bar.low<=Math.min(bar.open,bar.close))&&
+    bars.slice(-minimum).every(bar=>['open','high','low','close','volume'].every(field=>bar[field]>0));
 }
 function transport(message){return Object.assign(new Error('TickFlow '+message),{transportError:true});}
 function responseError(response,url,body,message){
@@ -44,11 +46,10 @@ function readSeries(series,day){
     if(high<Math.max(open,close)||low>Math.min(open,close))throw transport('日线价格范围异常');
     bars.push({date,open,high,low,close,volume});
   }
-  if(size<minimum)return {reason:'不足61个交易日日线'};
-  if(bars.at(-1).date!==day)return {reason:'缺少目标交易日日线'};
-  const selected=bars.slice(-minimum);
-  if(!hasOHLC(selected))return {reason:'所需日线存在无成交或无有效开高低收的交易日'};
-  return {bars:selected};
+  if(size<minimum)return {bars,reason:'不足61个交易日日线'};
+  if(bars.at(-1).date!==day)return {bars,reason:'缺少目标交易日日线'};
+  if(!hasOHLC(bars))return {bars,reason:'最近61根日线存在无成交或无有效开高低收的交易日'};
+  return {bars};
 }
 
 /** The caller supplies the shared rate-limited fetch; this adapter never retries. */
@@ -76,7 +77,7 @@ export function createTickflowSource({fetch,now=Date.now}){
     for(const code of codes){
       const series=payload.data[code];
       const parsed=series==null?{reason:'来源未返回该证券日线'}:readSeries(series,day);
-      result.set(code,{status:parsed.bars?'ready':'unavailable',day,adjustment:index?'index':'qfq',bars:parsed.bars||[],fetchedAt,reason:parsed.reason||null,sourceId,adjustmentMethod:index?'指数不复权':'比例前复权',volumeUnit:'手'});
+      result.set(code,{status:parsed.reason?'unavailable':'ready',day,adjustment:index?'index':'qfq',bars:parsed.bars||[],historyRequested:count,fetchedAt,reason:parsed.reason||null,sourceId,adjustmentMethod:index?'指数不复权':'比例前复权',volumeUnit:'手'});
     }
     return result;
   }

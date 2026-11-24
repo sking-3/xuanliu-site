@@ -11,6 +11,6 @@ WorkingDirectory=/opt/books/app
 Environment=BOOKS_SITE_DIR=/opt/books/site
 Environment=BOOKS_A_SHARE_DIR=/var/lib/books/a-share-daily
 Environment=BOOKS_DB=/var/lib/books/books.sqlite
-ExecStart=/usr/bin/node /opt/books/app/a-share-daily.mjs
+ExecStart=/usr/bin/node --max-old-space-size=192 /opt/books/app/a-share-daily.mjs
 TimeoutStartSec=6h
 Nice=10
