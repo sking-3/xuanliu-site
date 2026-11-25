@@ -25,7 +25,7 @@ const require = createRequire(import.meta.url);
 export const MARKET_URL = 'https://raw.githubusercontent.com/wenyuanw/a-share-heatmap/main/src/lib/data/market-heatmap-fallback.json';
 export const INDICES = ['000300.SH', '000001.SH', '399001.SZ'];
 const INDEX_NAMES = { '000300.SH': '沪深300', '000001.SH': '上证指数', '399001.SZ': '深证成指' };
-export const SCHEDULE = '工作日 20:10（北京时间）；免费盘后日线按最近收盘日校验，失败保留上次成功结果';
+export const SCHEDULE = '工作日 15:10–23:50（北京时间）每10分钟检查已收盘日线；来源就绪后自动全量采集和计算，未就绪保留上次成功结果';
 const legacySourceId='tencent-public-history-v1';
 const legacyPolicy={rawPublic:true,derivedPublic:true};
 
@@ -367,7 +367,7 @@ export async function collect({ dir, siteDir, fetch: request = globalThis.fetch,
       if(!technicalFactory)clean.diagnostic=diagnoseHistory(clean);
       if(!cached)save.run(sourceId,latest.date,stock.code,asOf,JSON.stringify(clean));
       else attempt.resumed++;
-      if(index){if(clean.status!=='ready')throw Error('指数 '+stock.code+'：'+clean.reason);references.set(stock.code,clean);}
+      if(index){if(technicalFactory&&clean.status!=='ready')throw Error('指数 '+stock.code+'：'+clean.reason);references.set(stock.code,clean);}
       else{sources.set(stock.code,{...clean,bars:clean.bars.slice(-61)});progress({currentCode:stock.code,checked:attempt.checked+1,ready:attempt.ready+Number(clean.status==='ready'),missing:attempt.missing+Number(clean.status!=='ready')});}
     }
     async function readGroup(stocks,index){
@@ -380,6 +380,15 @@ export async function collect({ dir, siteDir, fetch: request = globalThis.fetch,
       for(const stock of pending){const record=batch.get(stock.code);if(!record)throw Error('日线批次缺少明确的证券状态：'+stock.code);accept(stock,record,index);}
     }
     await readGroup(INDICES.map(code=>({code})),true);
+    const pendingIndices=INDICES.filter(code=>references.get(code).status!=='ready');
+    if(pendingIndices.length){
+      if(!technicalFactory&&pendingIndices.every(code=>references.get(code).diagnostic.code==='target_day_missing')){
+        const observedAt=new Date(now()).toISOString(),sourcePending={requestedDay:latest.date,observedAt,indices:INDICES.map(code=>{const source=references.get(code);return {code,status:source.status,sourceDay:source.diagnostic.lastDay,fetchedAt:source.fetchedAt,diagnostic:source.diagnostic};})};
+        progress({status:'waiting_source',stage:'indices',sourcePending,message:'来源尚未发布 '+latest.date+' 的完整日线；已保留上次成功结果，等待下一次定时检查。',currentCode:null,error:null,errorDetails:null,finishedAt:observedAt});
+        await pending;return {attempt,lastSuccess:previous};
+      }
+      const code=pendingIndices.find(code=>references.get(code).diagnostic.code!=='target_day_missing')||pendingIndices[0];throw Error('指数 '+code+'：'+references.get(code).reason);
+    }
     progress({ stage: 'collecting' });
     for(let offset=0;offset<universe.length;offset+=50)await readGroup(universe.slice(offset,offset+50),false);
     if (attempt.ready / universe.length < .8) throw Error('同日有效日线覆盖不足80%：' + attempt.ready + '/' + universe.length + '；保留上次成功结果。');
@@ -439,7 +448,7 @@ async function main() {
       catch(error){if(taskError)console.error('采集后存储维护失败：'+error.message);else throw error;}
     }
     console.log(JSON.stringify(result));
-    if (!['complete', 'no_new_day'].includes(result.attempt.status)) process.exitCode = 1;
+    if (!['complete', 'no_new_day', 'waiting_source'].includes(result.attempt.status)) process.exitCode = 1;
   } finally { await unlink(lock); }
 }
 
