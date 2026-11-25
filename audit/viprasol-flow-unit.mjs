@@ -43,6 +43,12 @@ test('absorption preserves weighted score, grade, strict cooldown and stop-first
  assert.equal(out.zones[0].state,'live'); // Absorption invalidates on a CLOSE below its far edge, not the stop wick.
  const below={...bars[21],time:bars[21].time+86400000,open:7.5,close:7,high:8,low:6,volume:100};assert.equal(evaluateIndicator('absorption-radar-pro',[...bars,below],{}, {mintick}).zones[0].state,'failed');
 });
+test('absorption keeps candle score during volume warmup without enabling an entry',()=>{
+ const bars=[{time:Date.UTC(2025,0,1),open:100,high:110,low:90,close:105,volume:100}],out=evaluateIndicator('absorption-radar-pro',bars,{}, {mintick});
+ // Source weights: 40% effort (zero before volume SMA), 30% wick, 30% close position.
+ assert.deepEqual(plot(out,'Bull absorption score'),[38]);assert.deepEqual(plot(out,'Bear absorption score'),[15]);
+ assert.deepEqual(out.signals,[]);assert.deepEqual(out.levelEvents,[]);
+});
 test('pressure flow uses original breakout strength and asymmetric candle-extreme stop',()=>{
  const bars=baseline(20);bars.push({...bars[19],time:bars[19].time+86400000,open:10,close:12,high:12.1,low:9.9,volume:1000});
  const out=evaluateIndicator('pressure-flow-pro',bars,{}, {mintick});const s=out.signals.find(s=>s.index===20);assert.equal(s.side,'long');assert.match(s.label,/BUY A.*BREAK/);assert.equal(s.stop,9.9);assert.equal(s.target,14.1);assert.equal(s.score,95);
@@ -66,6 +72,8 @@ test('Bayes training counts stay cumulative, probabilities use three classes and
 });
 test('source Market OS initialization and Elite Flow last-bar caveats remain explicit',()=>{
  const bars=wave(300),os=evaluateIndicator('market-os',bars,{}, {mintick});assert.equal(os.signals.length,0);assert.match(os.notes.join(' '),/无法初始化/);
+ assert.deepEqual(plot(os,'Market Score').slice(0,2),[null,null]);assert.deepEqual(plot(os,'Market State').slice(0,2),[0,0]);
+ assert.ok(plot(os,'Market State').every(value=>[0,1,2,3].includes(value)));assert.equal(os.parameters.bosReqInput,1);
  assert.match(evaluateIndicator('elite-flow-pro',bars,{}, {mintick}).notes.join(' '),/barstate.islast/);
  assert.match(evaluateIndicator('elite-advanced-pattern-scanner',bars,{}, {mintick}).notes.join(' '),/不可达/);
 });
