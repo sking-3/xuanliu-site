@@ -3,7 +3,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {spawnSync} from 'node:child_process';
-import {parseCsv, compareNativeEvidence, SOURCE_COMMIT} from '../quant-research/viprasol-native-parity.mjs';
+import {parseCsv, parsePineLogs, compareNativeEvidence, SOURCE_COMMIT} from '../quant-research/viprasol-native-parity.mjs';
+import {evaluateIndicator as evaluateCore} from '../quant-research/viprasol-core.mjs';
 
 // Written as literal CSV, independently of candidate arrays and indicator code.
 const CSV = `audit.time_ms,audit.close_time_ms,audit.seed_time_ms,audit.bar_index,audit.confirmed,audit.mintick,audit.interval_seconds,audit.open,audit.high,audit.low,audit.close,audit.volume,audit.input.compLen,audit.input.compFrac,audit.input.maxCompATR,audit.input.expMult,audit.input.atrLen,audit.input.rr,audit.input.slBuf,audit.input.sigGap,audit.input.oneAtATime,audit.comp_high,audit.comp_low,audit.signal_long,audit.entry,audit.stop,audit.target
@@ -85,7 +86,7 @@ test('symbol, source, adjustment, timezone, seed, input parameters and official 
   const missing = fixture(); delete missing.manifest.binding.parameters.rr;
   assert.match(compareNativeEvidence(missing).reasons.join(' '), /incomplete/);
   const source = fixture(); source.candidate.inputSource.kind = 'local-generated';
-  assert.match(compareNativeEvidence(source).reasons.join(' '), /official input provenance/);
+  assert.match(compareNativeEvidence(source).reasons.join(' '), /shared input provenance/);
   for (const key of ['priceCurrency', 'volumeUnit']) {
     const missing = fixture(); delete missing.manifest.binding[key]; delete missing.candidate.binding[key];
     assert.match(compareNativeEvidence(missing).reasons.join(' '), new RegExp('Binding mismatch: ' + key));
@@ -112,7 +113,7 @@ test('exact official OHLCV and confirmation timestamps reject before formula com
     const data = fixture(); data.candidate.bars[1][key] += .001;
     const report = compareNativeEvidence(data);
     assert.equal(report.comparedBars, 0);
-    assert.match(report.reasons.join(' '), /input (time|OHLCV) mismatch/);
+    assert.match(report.reasons.join(' '), /Input (time|OHLCV) mismatch/);
   }
   const bad = fixture(); bad.csv = bad.csv.replace(',0,1,0.1,86400,', ',0,0,0.1,86400,');
   assert.match(compareNativeEvidence(bad).reasons.join(' '), /Unconfirmed bar occurs inside/);
@@ -159,4 +160,186 @@ test('audit Pine preserves the original source as an exact byte prefix and adds 
   assert.match(appendix, /auditLogs = input.bool\(false/);
   assert.match(appendix, /plot\(compHigh, "audit.comp_high"/);
   assert.doesNotMatch(appendix, /\bsig\s*:=|\bcompHigh\s*:=|\bcompLow\s*:=|\blastSig\s*:=/);
+  assert.match(appendix, /AUDIT_END\|/);
+  assert.match(appendix, /tyson-native-log-v2/);
+});
+
+// Independently hand-worked SYNTHETIC trace, not copied from JS or TV output.
+// ATR length 1: the signal at index 5 is blocked on index 6; the same index-6
+// candle touches both reference stop and target, leaving zero active zones.
+function logFixture() {
+  const data = fixture(), seed = 1609459200000, day = 86400000;
+  const parameters = {compLen: 3, compFrac: .6, maxCompATR: 3, expMult: 1, atrLen: 1, rr: 2, slBuf: .3, sigGap: 0, oneAtATime: true};
+  const binding = {...data.manifest.binding, session: 'regular', priceCurrency: 'USD', volumeUnit: 'BTC', parameters,
+    lastConfirmedCloseTimeMs: seed + 8 * day};
+  const body = [
+    '10,20,0,10,100,na,na,0,na,na,na,20,na,0,0,0,0,0,-100000,-100000,1',
+    '10,11,9,10,100,na,na,0,na,na,na,2,na,0,0,0,0,0,-100000,-100000,1',
+    '10,11,9,10,100,20,0,0,na,na,na,2,na,0,0,0,0,0,-100000,-100000,1',
+    '10,11,9,10,100,20,0,0,na,na,na,2,na,0,0,0,0,0,-100000,-100000,1',
+    '10,11,9,10,100,11,9,0,na,na,na,2,na,0,0,0,0,0,-100000,-100000,1',
+    '10,14,9,13,100,11,9,1,13,7.5,24,5,20,1,1,0,0,1,5,-100000,1',
+    '13,25,7,24,100,14,9,0,na,na,na,18,20,1,1,1,1,0,5,5,1',
+    '24,27,23,26,100,25,7,0,na,na,na,4,18,0,1,0,0,0,5,5,1',
+  ];
+  const logs = [
+    'Pine Logs — SYNTHETIC CONTRACT TEST ONLY',
+    `[prefix] AUDIT_META|format=tyson-native-log-v2|source=${SOURCE_COMMIT}|indicator=tyson|symbol=SYNTHETIC:TEST|timeframe=D|exchange_timezone=UTC|session=regular|seed_ms=${seed}|seed_index=0|mintick=0.1|interval_seconds=86400|price_currency=USD|base_currency=BTC|volume_type=base`,
+    'AUDIT_INPUTS|compLen=3|compFrac=0.6|maxCompATR=3|expMult=1|atrLen=1|rr=2|slBuf=0.3|sigGap=0|oneAtATime=true',
+    ...body.map((row, i) => `AUDIT_ROW|${seed + i * day},${seed + (i + 1) * day},${seed},${i},${row}`),
+    `AUDIT_END|seed_ms=${seed}|seed_index=0|time_ms=${seed + 7 * day}|close_time_ms=${seed + 8 * day}|bar_index=7|row_count=8`,
+  ].join('\n');
+  return {logs, manifest: {schemaVersion: 1, evidenceKind: 'synthetic-pine-logs', binding}};
+}
+
+function changeLogCell(logs, row, column, value) {
+  let index = -1;
+  return logs.split('\n').map(line => {
+    if (!line.startsWith('AUDIT_ROW|') || ++index !== row) return line;
+    const values = line.slice(10).split(','); values[column] = String(value);
+    return 'AUDIT_ROW|' + values.join(',');
+  }).join('\n');
+}
+
+function logsCsv(logs, headers = '日期,消息') {
+  const messages = logs.split('\n').filter(line => line.includes('AUDIT_'));
+  return headers + '\r\n' + messages.map(message => '2021-01-01T09:30:00.000+08:00,"' + message.replaceAll('"', '""') + '"').join('\r\n');
+}
+
+test('raw Pine Logs remain a distinct evidence type and run existing JS on their shared OHLCV', () => {
+  const data = logFixture(), raw = data.logs;
+  const parsed = parsePineLogs(raw);
+  assert.equal(parsed.rows.length, 8);
+  assert.equal(parsed.parameters.atrLen, 1);
+  const report = compareNativeEvidence(data);
+  assert.equal(report.referenceType, 'pine-logs');
+  assert.equal(report.candidateComputation, 'existing-js-core-on-shared-raw-input');
+  assert.equal(report.sharedInput, true);
+  assert.equal(report.numericalMatch, true);
+  assert.equal(report.coverage.nativeLongSignals, 1);
+  assert.equal(report.comparedBars, 8);
+  assert.equal(report.status, 'not_verified');
+  assert.equal(report.nativeVerified, false);
+  assert.equal(data.logs, raw);
+  assert.match(compareNativeEvidence({...data, csv: CSV}).reasons.join(' '), /chart CSV input mode/);
+  assert.match(compareNativeEvidence({...data, candidate: fixture().candidate}).reasons.join(' '), /must be recomputed by existing JS/);
+});
+
+test('official Date/Message Logs CSV is unwrapped without pretending to be chart CSV', () => {
+  const data = logFixture();
+  for (const headers of ['日期,消息', 'Date,Message']) {
+    const logs = logsCsv(data.logs, headers), original = logs;
+    const parsed = parsePineLogs(logs);
+    const report = compareNativeEvidence({...data, logs});
+    assert.equal(parsed.containerType, 'pine-logs-csv');
+    assert.equal(parsed.rows.length, 8);
+    assert.equal(report.referenceType, 'pine-logs');
+    assert.equal(report.containerType, 'pine-logs-csv');
+    assert.equal(report.numericalMatch, true);
+    assert.equal(report.nativeVerified, false);
+    assert.equal(logs, original);
+  }
+  assert.throws(() => parsePineLogs('日期,消息\nbad-date,AUDIT_META|x=1'), /invalid dates/);
+  assert.throws(() => parsePineLogs('日期,消息\n2021-01-01,'), /empty messages/);
+  assert.throws(() => parsePineLogs('日期,消息,extra\n2021-01-01,x,y'), /expected Date\/Message/);
+});
+
+test('stock-style empty base currency is legitimate; n/a volume stays in unspecified native units', () => {
+  const data = logFixture();
+  data.logs = logsCsv(data.logs.replace('base_currency=BTC', 'base_currency=').replace('volume_type=base', 'volume_type=n/a'));
+  data.manifest.binding.volumeUnit = 'native units unspecified';
+  const parsed = parsePineLogs(data.logs), report = compareNativeEvidence(data);
+  assert.equal(parsed.meta.base_currency, '');
+  assert.equal(report.numericalMatch, true);
+  assert.equal(report.sharedInput, true);
+  data.manifest.binding.volumeUnit = 'shares';
+  assert.match(compareNativeEvidence(data).reasons.join(' '), /volumeUnit/);
+  for (const key of ['source', 'symbol', 'exchange_timezone', 'price_currency', 'volume_type']) {
+    const raw = logFixture(), bad = raw.logs.replace(new RegExp(key + '=[^|\\n]*'), key + '=');
+    assert.match(compareNativeEvidence({...raw, logs: bad}).reasons.join(' '), /Invalid.*metadata|metadata missing/);
+  }
+});
+
+test('missing seed, END, truncated tail, repeated runs, rows after END and gaps cannot become a partial pass', () => {
+  const data = logFixture(), lines = data.logs.split('\n');
+  for (const logs of [
+    lines.filter(line => !line.startsWith('AUDIT_END|')).join('\n'),
+    lines.filter((_, index) => index !== 3).join('\n'),
+    lines.filter((_, index) => index !== lines.length - 2).join('\n'),
+    data.logs + '\n' + data.logs,
+    data.logs + '\n' + lines[3],
+    data.logs.replace('row_count=8', 'row_count=7'),
+    changeLogCell(data.logs, 4, 3, 8),
+    changeLogCell(data.logs, 4, 0, 1609459200000),
+    changeLogCell(data.logs, 4, 2, 0),
+  ]) {
+    const report = compareNativeEvidence({...data, logs});
+    assert.equal(report.numericalMatch, false);
+    assert.equal(report.status, 'not_verified');
+    assert.ok(report.reasons.length);
+  }
+});
+
+test('Pine Logs reject incomplete traces, NaN numeric syntax and changed metadata/units/inputs', () => {
+  const data = logFixture();
+  for (const [logs, reason] of [
+    [data.logs.replace('format=tyson-native-log-v2', 'format=old-v1'), /Unsupported/],
+    [data.logs.replace('|volume_type=base', ''), /metadata missing/],
+    [data.logs.replace('base_currency=BTC', 'base_currency=ETH'), /volumeUnit/],
+    [data.logs.replace('symbol=SYNTHETIC:TEST', 'symbol=OTHER:TEST'), /symbol/],
+    [data.logs.replace('expMult=1|', 'expMult=1.1|'), /input parameters/],
+    [changeLogCell(data.logs, 0, 9, 'Infinity'), /Invalid numeric/],
+    [data.logs.replace(',-100000,-100000,1\n', ',-100000,-100000\n'), /truncated trace/],
+  ]) assert.match(compareNativeEvidence({...data, logs}).reasons.join(' '), reason);
+});
+
+test('ATR, NA, boolean event/state, active lifecycle and lastSig differences are compared per bar', () => {
+  const data = logFixture();
+  for (const [row, column, value, field, reason] of [
+    [5, 15, 6, 'atr', 'numeric_value'],
+    [0, 9, 0, 'compHigh', 'na_mask'],
+    [5, 11, 0, 'signalLong', 'boolean_value'],
+    [6, 19, 0, 'blocked', 'boolean_value'],
+    [6, 20, 0, 'activeBefore', 'integer_value'],
+    [6, 21, 1, 'activeAfter', 'integer_value'],
+    [5, 22, 4, 'lastSig', 'integer_value'],
+    [6, 23, 4, 'lastSigBefore', 'integer_value'],
+    [6, 24, 0, 'cooldownAllowed', 'boolean_value'],
+    [5, 11, 'na', 'signalLong', 'boolean_type'],
+  ]) {
+    const report = compareNativeEvidence({...data, logs: changeLogCell(data.logs, row, column, value)});
+    assert.equal(report.numericalMatch, false);
+    assert.equal(report.firstDivergence.field, field);
+    assert.equal(report.firstDivergence.reason, reason);
+    assert.equal(report.firstDivergence.index, row);
+  }
+});
+
+test('changing shared OHLCV changes JS output rather than copying the native reference event columns', () => {
+  const data = logFixture();
+  const report = compareNativeEvidence({...data, logs: changeLogCell(data.logs, 5, 7, 12)});
+  assert.equal(report.firstDivergence.field, 'entry');
+  assert.equal(report.firstDivergence.native, 13);
+  assert.equal(report.firstDivergence.candidate, 12);
+  assert.equal(report.maxError.target, 3);
+});
+
+test('opt-in trace reveals raw ranges but preserves all normal outputs and immutable inputs', () => {
+  const parsed = parsePineLogs(logFixture().logs);
+  const bars = parsed.rows.map(row => ({time: Number(row['audit.time_ms']), ...Object.fromEntries(['open', 'high', 'low', 'close', 'volume'].map(key => [key, Number(row['audit.' + key])]))}));
+  const original = structuredClone(bars);
+  const normal = evaluateCore('tyson', bars, parsed.parameters);
+  const traced = evaluateCore('tyson', bars, parsed.parameters, {auditTrace: true});
+  const {auditTrace, ...withoutTrace} = traced;
+  assert.deepEqual(normal, withoutTrace);
+  assert.equal(Object.hasOwn(normal, 'auditTrace'), false);
+  assert.equal(normal.plots[0].values[1], null);
+  assert.equal(auditTrace[1].compHigh, null);
+  assert.equal(auditTrace[2].compHigh, 20);
+  assert.equal(auditTrace[6].activeBefore, 1);
+  assert.equal(auditTrace[6].activeAfter, 0);
+  assert.deepEqual(bars, original);
+  const warmup = evaluateCore('tyson', Array.from({length: 20}, (_, i) => ({time: 1609459200000 + i * 86400000, open: 10, high: 11, low: 9, close: 10, volume: 0})), {}, {auditTrace: true}).auditTrace;
+  assert.ok(warmup.slice(0, 13).every(row => row.atr === null));
+  assert.equal(warmup[13].atr, 2);
 });
