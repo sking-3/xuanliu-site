@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {catalog,evaluateIndicator,nativeMA,edgeEstimate} from '../quant-research/viprasol-flow.mjs';
+import {ema,highest,lowest,adx} from '../quant-research/viprasol-math.mjs';
 const mintick=.01;
 function wave(n=420){return Array.from({length:n},(_,i)=>{const center=100+Math.sin(i*.19)*8+Math.sin(i*.037)*5,open=center+Math.sin(i*.91)*.8,close=center+Math.cos(i*.71)*.8;return {time:Date.UTC(2024,0,1)+i*86400000,open,close,high:Math.max(open,close)+.7+(i%5)*.13,low:Math.min(open,close)-.6-(i%4)*.09,volume:100+i%11*30+(i%29===0?900:0)};});}
 const baseline=n=>Array.from({length:n},(_,i)=>({time:Date.UTC(2025,0,1)+i*86400000,open:10,high:10.5,low:9.5,close:10,volume:100}));
@@ -50,8 +51,8 @@ test('absorption keeps candle score during volume warmup without enabling an ent
  assert.deepEqual(out.signals,[]);assert.deepEqual(out.levelEvents,[]);
 });
 test('pressure flow uses original breakout strength and asymmetric candle-extreme stop',()=>{
- const bars=baseline(20);bars.push({...bars[19],time:bars[19].time+86400000,open:10,close:12,high:12.1,low:9.9,volume:1000});
- const out=evaluateIndicator('pressure-flow-pro',bars,{}, {mintick});const s=out.signals.find(s=>s.index===20);assert.equal(s.side,'long');assert.match(s.label,/BUY A.*BREAK/);assert.equal(s.stop,9.9);assert.equal(s.target,14.1);assert.equal(s.score,95);
+ const bars=baseline(50);bars.push({...bars[49],time:bars[49].time+86400000,open:10,close:12,high:12.1,low:9.9,volume:1000});
+ const out=evaluateIndicator('pressure-flow-pro',bars,{}, {mintick});const s=out.signals.find(s=>s.index===50);assert.equal(s.side,'long');assert.match(s.label,/BUY A.*BREAK/);assert.equal(s.stop,9.9);assert.equal(s.target,14.1);assert.equal(s.score,95);
 });
 test('Liquidity Hunt arms a confirmed sweep and emits on the later fresh MSS candle',()=>{
  const values=[[8,8.5,7.5,8],[8,9,7.8,8.5],[8.5,10,8.2,9],[9,9.5,8,8.5],[8.5,9,7.5,8],[8,8.5,7,7.5],[7.5,8.2,7.2,8],[8,8.8,7.6,8.4],[8.4,9,8,8.5],[8.5,9,7.8,8],[8,8.3,6.8,7.8],[7.8,9,7.5,8.6],[8.6,10.6,8.5,10.5]];
@@ -98,4 +99,51 @@ test('declared-but-unused APEX stop parameter never becomes an invented source s
  assert.deepEqual(a.signals,b.signals);assert.ok(a.signals.every(s=>s.stop===null));assert.match(a.notes.join(' '),/slMult.*未使用/);
  const trend=Array.from({length:300},(_,i)=>{const c=100+Math.sin(i*.19)*8+i*.1;return{time:i*864e5,open:c-.2,close:c,high:c+.2,low:c-.2,volume:100};});
  const os=evaluateIndicator('market-os',trend,{bosReqInput:0,showCGrade:true,pivotInput:5},{mintick});assert.ok(os.signals.length>0);assert.equal(os.signals[0].side,'long');
+});
+
+// Fixed values from official Pine Logs, EMA-Control / SSE_DLY:603231 / 1D,
+// seed 1702603800000, 711 confirmed rows; full capture remains an audit artifact.
+test('native EMA control waits for its finite SMA seed, including delayed sources',()=>{
+ const close=[28.459999,24.610001,27.190001,25.98,26.620001,26.790001,24.110001];
+ const expected=[null,null,null,null,26.5720004,26.644667266666666,25.79977851111111],actual=ema(close,5);
+ for(let i=0;i<expected.length;i++)expected[i]===null?assert.equal(actual[i],null):assert.ok(Math.abs(actual[i]-expected[i])<1e-12);
+ const sparse=ema([...Array(30).fill(null),20.6,19.08,17.99,17.950001,17.209999,15.55,16.389999],5);
+ assert.ok(sparse.slice(0,34).every(v=>v===null));
+ for(const [i,value]of [[34,18.566],[35,17.560666666666666],[36,17.17044411111111]])assert.ok(Math.abs(sparse[i]-value)<1e-12);
+});
+test('native extrema control waits for bar positions, then ignores missing samples',()=>{
+ const highs=[35.299999,26.719999,28.049999,29.5,27.799999,27.540001,25.950001,24.07,24.49,24.200001,23.93,24.08,23.57,24.049999,25.299999,24.34,22.969999,24.440001,26.879999,27.799999,25.9];
+ const values=highest(highs,20);assert.ok(values.slice(0,19).every(v=>v===null));assert.deepEqual(values.slice(19),[35.299999,29.5]);
+ const sparse=[...Array(30).fill(null),20.6,19.08,17.99];
+ assert.equal(highest(sparse,20)[30],20.6);assert.deepEqual(lowest(sparse,20).slice(30),[20.6,19.08,17.99]);
+});
+test('native DMI decimal tie does not invent negative directional movement',()=>{
+ // Actual native APEX bars 469/470: binary subtraction makes equal 0.08 moves unequal.
+ const bars=[{time:0,open:19.5,close:19.5,high:19.67,low:19.28,volume:100},{time:1,open:19.5,close:19.5,high:19.75,low:19.2,volume:100}];
+ const out=adx(bars,1,1);assert.deepEqual(out.plusDI,[null,0]);assert.deepEqual(out.minusDI,[null,0]);
+});
+test('EDGE percentile ranks against prior positions without counting missing observations',()=>{
+ const out=evaluateIndicator('edge-liquidity-engine',baseline(85),{winInput:30,smoothInput:1,regimeLenInput:50},{}),rank=plot(out,'Cost percentile');
+ assert.ok(rank.slice(0,50).every(v=>v===null));assert.equal(rank[50],36);assert.equal(rank[51],38);assert.equal(rank[82],100);
+});
+test('APEX preserves MR crossover invocation history and asymmetric zone warmup',()=>{
+ const bars=baseline(53).map(b=>({...b,open:100,close:100,high:105,low:95}));bars[50]={...bars[50],open:100,close:96,high:101,low:95};
+ bars[51]={...bars[51],open:100,close:100,high:100.5,low:99.8};
+ bars[52]={...bars[52],open:100,close:100,high:100.5,low:97};
+ const out=evaluateIndicator('apex-trend-signal-engine',bars,{mode:'Mean-Reversion',useLoc:false,adxThr:50},{mintick});
+ // The bar between the below-band observation and the return never invokes crossover.
+ assert.deepEqual(out.signals.filter(s=>s.side==='long').map(s=>s.index),[52]);
+ assert.equal(plot(out,'Adaptive Zone Line')[0],0);assert.equal(plot(out,'Zone Hi')[0],0);assert.equal(plot(out,'Zone Lo')[0],null);
+ assert.ok(plot(out,'Zone Hi').slice(9,13).every(Number.isFinite));assert.ok(plot(out,'Zone Lo').slice(9,13).every(v=>v===null));
+});
+
+test('Pressure and ECE never turn a missing slow EMA into a zero-price trend',()=>{
+ const bars=baseline(40);bars[27]={...bars[27],open:9.8,close:10.8,high:11,low:8};
+ const pressure=evaluateIndicator('pressure-flow-pro',bars,{}, {mintick});
+ assert.ok(Number.isFinite(plot(pressure,'Fast EMA')[27]));assert.equal(plot(pressure,'Slow EMA')[27],null);
+ // With no EMA trend, score uses the candle body, not a falsely armed sweep wick.
+ assert.equal(plot(pressure,'Bull pressure score')[27],59);assert.deepEqual(pressure.signals,[]);
+ const ece=evaluateIndicator('equilibrium-confluence-engine',baseline(20),{}, {mintick});
+ assert.equal(plot(ece,'Fast EMA')[8],10);assert.equal(plot(ece,'Slow EMA')[8],null);
+ assert.ok(plot(ece,'Buy confluence').slice(0,14).every(v=>v===0));assert.deepEqual(ece.signals,[]);
 });

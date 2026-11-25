@@ -103,13 +103,13 @@ test('confirmed pivots appear only after their right bars; rightmost equal extre
   assert.ok(pivots([1, null, 5, 4, 3], 2, 2).every(value => value === null));
 });
 
-test('highest/lowest use available early values while moving averages require their defined warmup', () => {
-  assert.deepEqual(highest([3, 1, 2, 4], 3), [3, 3, 3, 4]);
-  assert.deepEqual(lowest([3, 1, 2, 4], 3), [3, 1, 1, 1]);
+test('native extrema wait for full bar positions and EMA waits for its SMA seed', () => {
+  assert.deepEqual(highest([3, 1, 2, 4], 3), [null, null, 3, 4]);
+  assert.deepEqual(lowest([3, 1, 2, 4], 3), [null, null, 1, 1]);
   assert.deepEqual(highest([null, 2, null, 1], 2), [null, 2, 2, 1]);
   assert.deepEqual(sma([1, 2, 3, 4], 3), [null, null, 2, 3]);
   assert.deepEqual(rma([1, 2, 3, 6], 3), [null, null, 2, 10 / 3]);
-  assert.deepEqual(ema([1, 2, 3], 3), [1, 1.5, 2.25]);
+  assert.deepEqual(ema([1, 2, 3], 3), [null, null, 2]);
   near(wma([1, 2, 3], 3)[2], 14 / 6);
   near(stdev([1, 2, 3], 3)[2], Math.sqrt(2 / 3)); near(stdev([1, 2, 3], 3, false)[2], 1);
 });

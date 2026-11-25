@@ -63,7 +63,7 @@ export function nativeMA(type,values,length,bars,options={}){
  }
  return out;
 }
-function percentile(values,length){return values.map((value,i)=>{if(!finite(value)||i<length-1)return null;const window=values.slice(i-length+1,i+1);return window.every(finite)?100*window.filter(v=>v<=value).length/length:null;});}
+function percentile(values,length){return values.map((value,i)=>!finite(value)||i<length?null:100*values.slice(i-length,i).filter(v=>finite(v)&&v<=value).length/length);}
 export function edgeEstimate(bars,length,signed=false){
  return bars.map((_,index)=>{
   if(index<=length+1)return null;
@@ -113,10 +113,10 @@ function absorption(bars,p,context,out){
 function pressure(bars,p,context,out){
  const c=field(bars,'close'),fast=ema(c,p.fastLen),slow=ema(c,p.slowLen),a=atr(bars,p.atrLen),v=sma(field(bars,'volume'),p.volLen),h=highest(shift(field(bars,'high')),p.swingLen),l=lowest(shift(field(bars,'low')),p.swingLen),bullScores=[],bearScores=[];let last=-Infinity;
  for(let i=0;i<bars.length;i++){
-  const b=bars[i],r=Math.max(b.high-b.low,context.mintick),body=Math.abs(b.close-b.open)/r,bp=(b.close-b.low)/r,sp=(b.high-b.close)/r,bt=fast[i]>slow[i]&&b.close>fast[i],st=fast[i]<slow[i]&&b.close<fast[i];
+  const b=bars[i],r=Math.max(b.high-b.low,context.mintick),body=Math.abs(b.close-b.open)/r,bp=(b.close-b.low)/r,sp=(b.high-b.close)/r,bt=finite(fast[i])&&finite(slow[i])&&fast[i]>slow[i]&&b.close>fast[i],st=finite(fast[i])&&finite(slow[i])&&fast[i]<slow[i]&&b.close<fast[i];
   const lb=finite(h[i])&&b.close>h[i]&&bt&&b.close>b.open&&body>=p.minBody,sb=finite(l[i])&&b.close<l[i]&&st&&b.close<b.open&&body>=p.minBody;
-  const ls=finite(l[i])&&b.low<l[i]&&b.close>l[i]&&(p.sweepRule==='rejection'?fast[i]>slow[i]&&b.close>b.open&&bp>=p.sweepClose:bt&&b.close>b.open&&body>=p.minBody);
-  const ss=finite(h[i])&&b.high>h[i]&&b.close<h[i]&&(p.sweepRule==='rejection'?fast[i]<slow[i]&&b.close<b.open&&sp>=p.sweepClose:st&&b.close<b.open&&body>=p.minBody);
+  const ls=finite(l[i])&&b.low<l[i]&&b.close>l[i]&&(p.sweepRule==='rejection'?finite(fast[i])&&finite(slow[i])&&fast[i]>slow[i]&&b.close>b.open&&bp>=p.sweepClose:bt&&b.close>b.open&&body>=p.minBody);
+  const ss=finite(h[i])&&b.high>h[i]&&b.close<h[i]&&(p.sweepRule==='rejection'?finite(fast[i])&&finite(slow[i])&&fast[i]<slow[i]&&b.close<b.open&&sp>=p.sweepClose:st&&b.close<b.open&&body>=p.minBody);
   const has=finite(v[i])&&v[i]>0,rel=has?b.volume/v[i]:null,vs=has?Math.min(rel/2,1):0,bs=ls&&!lb?(Math.min(b.open,b.close)-b.low)/r:body,sst=ss&&!sb?(b.high-Math.max(b.open,b.close))/r:body;
   const scoreB=Math.round(has?100*(.35*bs+.35*bp+.3*vs):100*(.5*bs+.5*bp)),scoreS=Math.round(has?100*(.35*sst+.35*sp+.3*vs):100*(.5*sst+.5*sp));bullScores.push(scoreB);bearScores.push(scoreS);
   const vok=!finite(v[i])||b.volume>=v[i]*p.volMult,buy=(lb||ls)&&vok&&gradeOK(grade(scoreB,85,70),p.minGrade)&&i-last>p.cooldown,sell=(sb||ss)&&vok&&gradeOK(grade(scoreS,85,70),p.minGrade)&&i-last>p.cooldown;
@@ -131,18 +131,22 @@ function apex(bars,p,context,out){
  const cloud=n=>p.cloudType==='Donchian'?binary(highest(h,n),lowest(l,n),(x,y)=>(x+y)/2):nativeMA(p.cloudType,bars.map(b=>(b.high+b.low)/2),n,bars,opt),tenkan=cloud(9),kijun=cloud(26),senA=binary(tenkan,kijun,(x,y)=>(x+y)/2),senB=cloud(52),st=supertrend(bars,p.stFactor,p.stAtr);
  const er=efficiency(c,20),delta=binary(c,base,(x,y)=>x-y),dist=binary(delta,a,(x,y)=>y?x/y:null),slope=base.map((v,i)=>i&&finite(v)&&finite(base[i-1])&&a[i]>0?(v-base[i-1])/a[i]:null);
  const minmax=values=>{const low=lowest(values,200),high=highest(values,200);return values.map((v,i)=>finite(v)&&finite(low[i])&&finite(high[i])?(v-low[i])/Math.max(high[i]-low[i],context.mintick):null);},f1=minmax(dist),f2=minmax(slope),e10=ema(c,10),e30=ema(c,30),e60=ema(c,60),strength=c.map((v,i)=>finite(f1[i])&&finite(f2[i])&&finite(d.adx[i])?(.25*f1[i]+.2*f2[i]+.2*Math.min(d.adx[i]/50,1)+.2*er[i]+.15*Math.max((e10[i]>e30[i]?1:0)+(e30[i]>e60[i]?1:0)+(v>e10[i]?1:0),(e10[i]<e30[i]?1:0)+(e30[i]<e60[i]?1:0)+(v<e10[i]?1:0))/3)*10:null);
- let last=-100000,active=0,entry=null;
+ let last=-100000,active=0,entry=null,mrLongPrevious=null,mrShortPrevious=null;
  for(let i=0;i<bars.length;i++){
   const b=bars[i],trending=finite(d.adx[i])&&d.adx[i]>p.adxThr,mode=p.mode==='Auto (regime-aware)'?(trending?'TF':'MR'):p.mode==='Trend-Following'?'TF':'MR',locB=!p.useLoc||finite(eq[i])&&b.close<eq[i],locS=!p.useLoc||finite(eq[i])&&b.close>eq[i];
-  const rawB=mode==='TF'?crossOver(c,base,i)&&rise[i]&&d.plusDI[i]>d.minusDI[i]&&trending&&locB:!trending&&finite(lower[i])&&b.low<=lower[i]&&crossOver(c,lower,i)&&locB;
-  const rawS=mode==='TF'?crossUnder(c,base,i)&&fall[i]&&d.minusDI[i]>d.plusDI[i]&&trending&&locS:!trending&&finite(upper[i])&&b.high>=upper[i]&&crossUnder(c,upper,i)&&locS;
+  // Pine v6 invokes these cross functions only after the preceding MR guards pass.
+  let mrLong=false,mrShort=false;
+  if(mode==='MR'&&!trending&&finite(lower[i])&&b.low<=lower[i]){mrLong=mrLongPrevious!==null&&b.close>lower[i]&&mrLongPrevious.close<=mrLongPrevious.band;mrLongPrevious={close:b.close,band:lower[i]};}
+  if(mode==='MR'&&!trending&&finite(upper[i])&&b.high>=upper[i]){mrShort=mrShortPrevious!==null&&b.close<upper[i]&&mrShortPrevious.close>=mrShortPrevious.band;mrShortPrevious={close:b.close,band:upper[i]};}
+  const rawB=mode==='TF'?crossOver(c,base,i)&&rise[i]&&d.plusDI[i]>d.minusDI[i]&&trending&&locB:mrLong&&locB;
+  const rawS=mode==='TF'?crossUnder(c,base,i)&&fall[i]&&d.minusDI[i]>d.plusDI[i]&&trending&&locS:mrShort&&locS;
   const cb=!p.showCloud||i>=26&&finite(senA[i-26])&&finite(senB[i-26])&&b.close>Math.max(senA[i-26],senB[i-26]),cs=!p.showCloud||i>=26&&finite(senA[i-26])&&finite(senB[i-26])&&b.close<Math.min(senA[i-26],senB[i-26]);
   const buy=rawB&&cb&&i-last>=p.sigGap,sell=rawS&&cs&&i-last>=p.sigGap;
   if(buy||sell){last=i;active=buy?1:-1;entry=b.close;signal(out,bars,i,buy?'long':'short',entry,null,finite(a[i])?entry+active*p.tpMult*a[i]:null,buy?'Buy':'Sell',{mode});}
   if(active&&finite(a[i])&&(active===1?b.high>=entry+p.tpMult*a[i]:b.low<=entry-p.tpMult*a[i])){signal(out,bars,i,'exit',active===1?entry+p.tpMult*a[i]:entry-p.tpMult*a[i],null,null,active===1?'Buy TP':'Sell TP');active=0;}
  }
  if(p.showMid)plot(out,'Trend Midline',base);plot(out,'Fast MA',fast);plot(out,'Trend strength',strength);plot(out,'ADX',d.adx);
- if(p.showZone){plot(out,'Adaptive Zone Line',st.line);plot(out,'Zone Hi',st.line.map((v,i)=>finite(v)&&finite(a[i])?v+(st.direction[i]<0?a[i]*.5:0):null));plot(out,'Zone Lo',st.line.map((v,i)=>finite(v)&&finite(a[i])?v-(st.direction[i]<0?0:a[i]*.5):null));}
+ if(p.showZone){plot(out,'Adaptive Zone Line',st.line);plot(out,'Zone Hi',st.line.map((v,i)=>!finite(v)?null:st.direction[i]<0?(finite(a[i])?v+a[i]*.5:null):v));plot(out,'Zone Lo',st.line.map((v,i)=>!finite(v)?null:st.direction[i]<0?v:(finite(a[i])?v-a[i]*.5:null)));}
  if(p.showCloud){plot(out,'Senkou A (26-bar forward projection)',Array(26).fill(null).concat(senA).slice(0,bars.length));plot(out,'Senkou B (26-bar forward projection)',Array(26).fill(null).concat(senB).slice(0,bars.length));}
  if(p.showExt)for(const [name,m]of [['U1',1.5],['U2',2.25],['U3',3],['L1',-1.5],['L2',-2.25],['L3',-3]])plot(out,name,binary(basis,sd,(x,y)=>x+m*y));
  out.notes.push('Ichimoku投影仅按原26根位移显示；信号云层判断使用已知历史senkou[26]。TP使用当根ATR，沿用原脚本动态阈值；slMult在原码仅声明未使用，所以不编造止损、stop留空。');
@@ -202,7 +206,7 @@ function equilibrium(bars,p,context,out){
   if(i>=2&&b.low>bars[i-2].high){events.bullFvg=i;bf={startIndex:i-2,endIndex:i,low:bars[i-2].high,high:b.low,label:'Bullish FVG',knownIndex:i};if(p.showFvgInput)out.zones.push(bf);}
   if(i>=2&&b.high<bars[i-2].low){events.bearFvg=i;sf={startIndex:i-2,endIndex:i,low:b.high,high:bars[i-2].low,label:'Bearish FVG',knownIndex:i};if(p.showFvgInput)out.zones.push(sf);}if(bf)bf.endIndex=i;if(sf)sf.endIndex=i;
   const recent=k=>events[k]!==null&&i-events[k]<=p.recencyInput,inB=bf&&b.close>=bf.low&&b.close<=bf.high,inS=sf&&b.close>=sf.low&&b.close<=sf.high;
-  const B=[!p.useTrendInput||fast[i]>slow[i],!p.useLocationInput||range&&b.close<e,!p.useStructInput||recent('bullCH'),!p.useLiqInput||recent('bullSweep'),!p.useFvgInput||inB||recent('bullFvg')],S=[!p.useTrendInput||fast[i]<slow[i],!p.useLocationInput||range&&b.close>e,!p.useStructInput||recent('bearCH'),!p.useLiqInput||recent('bearSweep'),!p.useFvgInput||inS||recent('bearFvg')];
+  const B=[!p.useTrendInput||finite(fast[i])&&finite(slow[i])&&fast[i]>slow[i],!p.useLocationInput||range&&b.close<e,!p.useStructInput||recent('bullCH'),!p.useLiqInput||recent('bullSweep'),!p.useFvgInput||inB||recent('bullFvg')],S=[!p.useTrendInput||finite(fast[i])&&finite(slow[i])&&fast[i]<slow[i],!p.useLocationInput||range&&b.close>e,!p.useStructInput||recent('bearCH'),!p.useLiqInput||recent('bearSweep'),!p.useFvgInput||inS||recent('bearFvg')];
   const alignedB=B.every(Boolean),alignedS=S.every(Boolean),gap=p.cooldownInput===0||i-last>=p.cooldownInput,buy=alignedB&&!prevB&&gap,sell=alignedS&&!prevS&&gap;bscores.push(B.filter(Boolean).length);sscores.push(S.filter(Boolean).length);
   if(buy||sell){last=i;const d=buy?1:-1,stop=finite(a[i])?(buy?(finite(l)?l:b.low)-a[i]*p.slBufferAtrInput:(finite(h)?h:b.high)+a[i]*p.slBufferAtrInput):null;signal(out,bars,i,buy?'long':'short',b.close,stop,finite(stop)?b.close+d*Math.abs(b.close-stop)*p.rrRatioInput:null,buy?'BUY 5/5':'SELL 5/5');}prevB=alignedB;prevS=alignedS;
  }
