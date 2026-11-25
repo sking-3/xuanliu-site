@@ -1,14 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, writeFile, rm, mkdir, readdir } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile, rm, mkdir, readdir,symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { collect, createGuard, openStore, precompute, recomputeFromCache, retryAfter, INDICES } from '../server/a-share-daily.mjs';
 import {signalChartVersion} from '../server/a-share-signal-chart.mjs';
 import {sourceId,dataPolicy,barSchema,hasOHLC,historyCount} from '../server/a-share-tickflow.mjs';
 import {universeSchema,universeSourceId} from '../server/a-share-universe.mjs';
-import {gzipSync} from 'node:zlib';
+import {gzipSync,gunzipSync} from 'node:zlib';
 import patterns from '../screening/trend-patterns.js';
+import {version as viprasolStudyVersion,definitions as viprasolRules,familyId as viprasolFamilyId,sourceCommit as viprasolSourceCommit} from '../server/a-share-viprasol-study.mjs';
+import {viprasolStudyDirectory} from '../server/a-share-viprasol-precompute.mjs';
 
 const now = () => Date.parse('2026-11-21T00:00:00Z');
 const asOf = '2026-11-20T07:00:00.000Z';
@@ -337,13 +339,23 @@ test('long private history streams each code once while existing screens keep ex
   const universe=stocks.slice(0,2).map(stock=>({...stock,listingDate:'2010-01-04'})),all=new Map(universe.map((stock,i)=>[stock.code,{status:'ready',sourceId,day:latest.date,adjustment:'qfq',adjustmentMethod:'比例前复权',volumeUnit:'手',historyRequested:500,bars:i?bars:gap,fetchedAt:new Date(now()).toISOString()}]));
   const sources=new Map([...all].map(([code,source])=>[code,{...source,bars:source.bars.slice(-61)}])),references=new Map(INDICES.map(code=>[code,{status:'ready',sourceId,adjustment:'index',bars,historyRequested:500,fetchedAt:new Date(now()).toISOString()}]));
   const historyRecords=async function*(){for(const stock of universe)yield {stock,source:all.get(stock.code)};};
-  const input={dir,siteDir:resolve('.'),snapshot:{universePolicy:{basis:'provider_current_reference',historicalMembership:false}},universe,sources,references,historyRecords,sourceId,dataPolicy,day:latest.date,asOf,startedAt:asOf,now};
+  const stages=[],input={dir,siteDir:await isolatedSite(dir),snapshot:{universePolicy:{basis:'provider_current_reference',historicalMembership:false}},universe,sources,references,historyRecords,sourceId,dataPolicy,day:latest.date,asOf,startedAt:asOf,now,onProgress:fields=>stages.push(fields.stage)};
   const first=await precompute(input),path=join(dir,'private','generations',first.generation,'history-all.ndjson'),lines=(await readFile(path,'utf8')).trim().split('\n'),header=JSON.parse(lines[0]);
   assert.equal(lines.length,3);assert.equal(header.schema,'books.a-share.history.v1');assert.equal(header.reference.bars.length,500);assert.equal(first.historyRequested,500);assert.equal(first.universePolicy.historicalMembership,false);assert.equal(JSON.parse(lines[1]).source.bars.length,500);assert.equal(JSON.parse(lines[1]).source.bars[0].volume,0);
   const dataset=JSON.parse(await readFile(join(dir,'private','generations',first.generation,'dataset-all-000300.SH.json')));assert.equal(dataset.reference.bars.length,61);assert(dataset.records.every(row=>row.source.bars.length===61));
   const publicResult=JSON.parse(await readFile(join(dir,'generations',first.generation,'result-strength-20-all-000300.SH.json')));assert.equal(publicResult.records[0].patterns.facts.sampleCount,61);assert.equal(publicResult.records[0].patterns.status,'ready');assert.doesNotMatch(JSON.stringify(publicResult),/"bars"/);
   const second=await precompute({...input,snapshot:null,historyRecords:undefined,historyFile:path,now:()=>now()+1}),copied=(await readFile(join(dir,'private','generations',second.generation,'history-all.ndjson'),'utf8')).trim().split('\n');
   assert.equal(JSON.parse(copied[0]).generation,second.generation);assert.equal(second.historyRequested,500);assert.deepEqual(copied.slice(1),lines.slice(1));
+  for(const result of [first,second]){
+    assert.equal(result.viprasolStudyVersion,viprasolStudyVersion);assert.equal(result.viprasolImplementationCommit,null);
+    const location=join(dir,'generations',result.generation,viprasolStudyDirectory),body=await readFile(join(location,'report.json')),report=JSON.parse(body);
+    assert.deepEqual(gunzipSync(await readFile(join(location,'report.json.gz'))),body);assert.equal(report.datasetBound,true);assert.equal(report.summary.nativeApprovedCount,0);assert.equal(report.rules.length,13);assert.deepEqual(report.charts,[]);assert.equal(report.coverage.historyDays,500);
+    for(const key of ['generation','sourceId','day','asOf'])assert.equal(report[key],result[key]);
+  }
+  assert(stages.indexOf('pattern-statistics')<stages.indexOf('viprasol-study'));
+  await writeFile(join(input.siteDir,'quant-research/viprasol-build.json'),JSON.stringify({implementationCommit:'e'.repeat(40)}));
+  await assert.rejects(precompute({...input,viprasolImplementationCommit:null,now:()=>now()+2}),/implementation changed after its policy-known timestamp/);
+  await assert.rejects(readFile(join(dir,'generations',latest.date+'-'+(now()+2),'complete.json')),/ENOENT/);
 }));
 
 test('a completed 61-bar cache cannot suppress the explicit long-history upgrade and upgrade failure preserves the previous pointer',async()=>fixture(async dir=>{
@@ -363,4 +375,63 @@ test('completed collection restores source counts after historical statistics re
   assert.equal(result.attempt.status,'complete');
   assert.equal(result.attempt.checked,1000);assert.equal(result.attempt.ready,1000);assert.equal(result.attempt.missing,0);
   assert.deepEqual(JSON.parse(await readFile(join(dir,'status.json'))).attempt,result.attempt);
+}));
+
+async function isolatedSite(dir){
+  const siteDir=join(dir,'site');await mkdir(join(siteDir,'quant-research/native-audit'),{recursive:true});
+  for(const name of ['screening','control','market-calendar.js'])await symlink(resolve(name),join(siteDir,name));
+  return siteDir;
+}
+test('same-day native version/implementation upgrades replay private raw offline, preserve rule evidence and policy times, and repair missing derived gzip',async()=>fixture(async dir=>{
+  const siteDir=await isolatedSite(dir),build=join(siteDir,'quant-research/viprasol-build.json'),commitA='a'.repeat(40),commitB='b'.repeat(40);await writeFile(build,JSON.stringify({implementationCommit:commitA}));
+  const input={...options(dir,{technicalFactory:undefined,fetch:tickflowResponse}),siteDir,compute:precompute,calendar:{latestClosed:()=>latest,session:(_market,day)=>({verified:true,open:day==='2026-11-23'})}};
+  const first=await collect(input);assert.equal(first.attempt.status,'complete');assert.equal(first.lastSuccess.viprasolImplementationCommit,commitA);
+  const firstRaw=join(dir,'private','generations',first.lastSuccess.generation),rawBefore=await readFile(join(firstRaw,'history-all.ndjson'));
+  // Metadata fixture exercises rebinding only; it does not grant a tick or native approval.
+  const originalMetadata={[stocks[0].code]:{sourceKind:'exchange-rule-derived',generation:first.lastSuccess.generation,sourceId,sourceDay:latest.date,sourceAsOf:asOf,mintickVerified:false,mintick:null,reasons:['storage_fixture_not_tick_evidence']}};
+  await writeFile(join(firstRaw,'market-metadata.json'),JSON.stringify(originalMetadata));
+  const policy=openStore(join(dir,'collector.sqlite')),oldKnown=policy.prepare("SELECT value FROM settings WHERE key LIKE 'entry-policy-known-at:%'").get().value;policy.close();
+  await writeFile(build,JSON.stringify({implementationCommit:commitB}));
+  let requests=0;const offline={...input,now:()=>now()+1000,fetch:async()=>{requests++;throw Error('offline upgrade must not read source');},universeFactory:async()=>{throw Error('offline upgrade must not refresh roster');},sourceFactory:()=>{throw Error('offline upgrade must not start source');}};
+  const upgraded=await collect(offline);assert.equal(upgraded.attempt.status,'complete');assert.equal(upgraded.attempt.jobType,'recompute');assert.equal(upgraded.attempt.requests,0);assert.equal(requests,0);assert.equal(upgraded.lastSuccess.recomputedFrom,first.lastSuccess.generation);assert.equal(upgraded.lastSuccess.viprasolImplementationCommit,commitB);assert.equal(upgraded.lastSuccess.day,latest.date);assert.equal(upgraded.lastSuccess.asOf,asOf);
+  const newRaw=join(dir,'private','generations',upgraded.lastSuccess.generation),metadata=JSON.parse(await readFile(join(newRaw,'market-metadata.json')));
+  assert.deepEqual(metadata[stocks[0].code],{...originalMetadata[stocks[0].code],generation:upgraded.lastSuccess.generation,reboundFromGeneration:first.lastSuccess.generation});assert.deepEqual(await readFile(join(firstRaw,'history-all.ndjson')),rawBefore);assert.deepEqual(JSON.parse(await readFile(join(firstRaw,'market-metadata.json'))),originalMetadata);
+  const report=JSON.parse(await readFile(join(dir,'generations',upgraded.lastSuccess.generation,viprasolStudyDirectory,'report.json')));assert.equal(report.summary.nativeApprovedCount,0);assert.equal(report.summary.qualifiedCurrentCount,0);assert(report.rules.some(rule=>rule.counts.missingDependencies>0));
+  const check=openStore(join(dir,'collector.sqlite'));assert.equal(check.prepare("SELECT value FROM settings WHERE key LIKE 'entry-policy-known-at:%'").get().value,oldKnown);assert.equal(check.prepare('SELECT value FROM settings WHERE key=?').get('viprasol-policy-known-at:'+viprasolStudyVersion+':'+commitA).value,new Date(now()).toISOString());assert.equal(check.prepare('SELECT value FROM settings WHERE key=?').get('viprasol-policy-known-at:'+viprasolStudyVersion+':'+commitB).value,new Date(now()+1000).toISOString());check.close();
+  const oldVersion={...upgraded.lastSuccess,viprasolStudyVersion:'archived-study-version'},oldReport={...report,version:oldVersion.viprasolStudyVersion},oldBody=JSON.stringify(oldReport),oldDir=join(dir,'generations',upgraded.lastSuccess.generation);
+  await writeFile(join(dir,'current.json'),JSON.stringify(oldVersion));await writeFile(join(oldDir,'complete.json'),JSON.stringify({...oldVersion,completed:true}));await writeFile(join(oldDir,viprasolStudyDirectory,'report.json'),oldBody);await writeFile(join(oldDir,viprasolStudyDirectory,'report.json.gz'),gzipSync(oldBody));
+  const versionFixed=await collect({...offline,now:()=>now()+2000});assert.equal(versionFixed.attempt.status,'complete');assert.equal(versionFixed.attempt.requests,0);assert.equal(versionFixed.lastSuccess.viprasolStudyVersion,viprasolStudyVersion);assert.equal(versionFixed.lastSuccess.viprasolImplementationCommit,commitB);
+  assert.equal((await collect({...offline,now:()=>now()+3000})).attempt.status,'no_new_day');
+  await rm(join(dir,'generations',versionFixed.lastSuccess.generation,viprasolStudyDirectory,'report.json.gz'));
+  const repaired=await collect({...offline,now:()=>now()+4000});assert.equal(repaired.attempt.status,'complete');assert.equal(repaired.attempt.requests,0);assert.notEqual(repaired.lastSuccess.generation,versionFixed.lastSuccess.generation);assert.equal(requests,0);
+  const pointer=await readFile(join(dir,'current.json'));
+  await writeFile(join(siteDir,'quant-research/native-audit/a-share-approvals.json'),'{broken');await writeFile(build,JSON.stringify({implementationCommit:'c'.repeat(40)}));
+  const failed=await collect({...offline,now:()=>now()+5000});assert.equal(failed.attempt.status,'failed');assert.equal(failed.attempt.stage,'viprasol-study');assert.deepEqual(await readFile(join(dir,'current.json')),pointer);assert.equal(requests,0);
+}));
+
+test('offline metadata from another source/day/asOf/generation cannot be rebound or publish a new pointer',async()=>fixture(async dir=>{
+  const f=await privateReplay(dir),pointer=await readFile(join(dir,'current.json'));
+  // Long OHLC input activates the new family while keeping all originals private.
+  const raw=series(),bars=raw.timestamp.map((stamp,i)=>({date:new Date(stamp+8*3600000).toISOString().slice(0,10),open:raw.open[i],high:raw.high[i],low:raw.low[i],close:raw.close[i],volume:raw.volume[i]}));
+  const universe=stocks.slice(0,2),rows=universe.map(stock=>({stock,source:{status:'ready',sourceId,day:latest.date,adjustment:'qfq',historyRequested:500,bars,fetchedAt:new Date(now()).toISOString()}}));
+  const header={schema:'books.a-share.history.v1',generation:f.previous.generation,sourceId,day:latest.date,asOf,historyRequested:500,total:universe.length,reference:{code:INDICES[0],bars}};
+  const historyFile=join(f.location,'history-all.ndjson');await writeFile(historyFile,[header,...rows].map(JSON.stringify).join('\n'));
+  const sources=new Map(rows.map(row=>[row.stock.code,row.source])),references=new Map(INDICES.map(code=>[code,{bars,historyRequested:500,fetchedAt:new Date(now()).toISOString()}]));
+  let serial=0;for(const change of [{generation:'2026-11-19-1'},{sourceId:'other'},{sourceDay:'2026-11-19'},{sourceAsOf:'2026-11-20T06:00:00Z'}]){
+    await writeFile(join(f.location,'market-metadata.json'),JSON.stringify({[stocks[0].code]:{sourceKind:'exchange-rule-derived',generation:f.previous.generation,sourceId,sourceDay:latest.date,sourceAsOf:asOf,...change}}));
+    await assert.rejects(precompute({dir,siteDir:resolve('.'),universe,sources,references,historyFile,sourceId,dataPolicy,day:latest.date,asOf,startedAt:asOf,now:()=>now()+1+(serial++)}),/archived metadata does not bind/);assert.deepEqual(await readFile(join(dir,'current.json')),pointer);
+  }
+}));
+
+test('incomplete, corrupt or wrong-bound native reports cannot pass completed-manifest publication',async()=>fixture(async dir=>{
+  await privateReplay(dir);const pointer=await readFile(join(dir,'current.json'));
+  let serial=0;for(const variant of ['missing-json','missing-gzip','gzip-mismatch','wrong-day','wrong-commit','short-rules']){
+    const compute=options(dir,{compute:async input=>({generation:'2026-11-20-'+(10+(serial++)),day:input.day,asOf:input.asOf,total:1000,ready:999,viprasolStudyVersion,viprasolImplementationCommit:null})}).compute;
+    await assert.rejects(recomputeFromCache({dir,siteDir:resolve('.'),now:()=>now()+10000+serial,compute:async input=>{
+      const result=await compute(input),location=join(dir,'generations',result.generation,viprasolStudyDirectory);await mkdir(location);
+      const report={schema:'books.a-share.viprasol-study.v1',version:viprasolStudyVersion,familyId:viprasolFamilyId,sourceCommit:viprasolSourceCommit,implementationCommit:null,completed:true,datasetBound:true,generation:result.generation,sourceId,day:latest.date,sourceDay:latest.date,asOf,coverage:{universeCount:1000},rules:viprasolRules.map(rule=>({id:rule.id})),current:[],charts:[]};
+      if(variant==='wrong-day')report.day='2026-11-19';if(variant==='wrong-commit')report.implementationCommit='f'.repeat(40);if(variant==='short-rules')report.rules.pop();
+      const body=JSON.stringify(report);if(variant!=='missing-json')await writeFile(join(location,'report.json'),body);if(variant!=='missing-gzip')await writeFile(join(location,'report.json.gz'),gzipSync(variant==='gzip-mismatch'?'different':body));return result;
+    }}),/未完整结束/);assert.deepEqual(await readFile(join(dir,'current.json')),pointer);
+  }
 }));

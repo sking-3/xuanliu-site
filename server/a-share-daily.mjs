@@ -2,10 +2,10 @@ import { DatabaseSync } from 'node:sqlite';
 import { mkdir, readFile, writeFile, rename, unlink, access, open } from 'node:fs/promises';
 import {createReadStream} from 'node:fs';
 import {createInterface} from 'node:readline';
-import { join, resolve } from 'node:path';
+import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
-import { gzipSync } from 'node:zlib';
+import { gzipSync,gunzipSync } from 'node:zlib';
 import { setTimeout as sleep } from 'node:timers/promises';
 import {createTickflowSource,sourceId as tickflowSourceId,dataPolicy as tickflowPolicy,barSchema,hasOHLC,historyCount,diagnoseHistory} from './a-share-tickflow.mjs';
 import {precomputePatternStatistics} from './a-share-pattern-precompute.mjs';
@@ -16,7 +16,10 @@ import {entryValidationVersion} from './a-share-entry-validation.mjs';
 import {signalChartVersion} from './a-share-signal-chart.mjs';
 import {precomputeCurrentEntries,rebuildCurrentEntries,currentEntryDirectory} from './a-share-entry-current-precompute.mjs';
 import {closeCandidateVersion} from './a-share-entry-current.mjs';
-import {assertCollectionSpace,runRetention} from './a-share-retention.mjs';
+import {assertCollectionSpace,runRetention,readStoredJson} from './a-share-retention.mjs';
+import {precomputeViprasolStudy,viprasolStudyDirectory} from './a-share-viprasol-precompute.mjs';
+import {version as viprasolStudyVersion,familyId as viprasolFamilyId,sourceCommit as viprasolSourceCommit,definitions as viprasolRules} from './a-share-viprasol-study.mjs';
+import {writeViprasolCurrentChart} from './a-share-entry-current-chart.mjs';
 
 const require = createRequire(import.meta.url);
 export const MARKET_URL = 'https://raw.githubusercontent.com/wenyuanw/a-share-heatmap/main/src/lib/data/market-heatmap-fallback.json';
@@ -34,12 +37,19 @@ function nextVerifiedSession(calendar,day){
   }
   return null;
 }
-function entryKnownAt(db,now){
-  const key='entry-policy-known-at:'+entryPolicyVersion;
+function entryKnownAt(db,now,key='entry-policy-known-at:'+entryPolicyVersion){
   const prior=db.prepare('SELECT value FROM settings WHERE key=?').get(key);
   if(prior)return prior.value;
   const value=new Date(now()).toISOString();db.prepare('INSERT INTO settings VALUES(?,?)').run(key,value);return value;
 }
+async function viprasolImplementation(siteDir){
+  let build;
+  try{build=JSON.parse(await readFile(join(siteDir,'quant-research/viprasol-build.json'),'utf8'));}
+  catch(error){if(error.code==='ENOENT')return null;throw error;}
+  if(!build||typeof build!=='object'||Array.isArray(build))throw Error('Viprasol build manifest is malformed');
+  return typeof build.implementationCommit==='string'&&/^[a-f0-9]{40}$/.test(build.implementationCommit)?build.implementationCommit:null;
+}
+const viprasolKnownKey=implementation=>'viprasol-policy-known-at:'+viprasolStudyVersion+':'+(implementation||'unverified');
 
 async function atomicJson(path, value) {
   await writeFile(path + '.tmp', JSON.stringify(value));
@@ -87,7 +97,7 @@ export function openStore(path) {
   return db;
 }
 
-export async function precompute({ dir, siteDir, snapshot, universe, sources, references, historyRecords,historyFile,day, asOf, startedAt, sourceId=legacySourceId, dataPolicy=legacyPolicy,policyKnownAt=null,nextSessionDay=null, now = Date.now, onProgress = () => {} }) {
+export async function precompute({ dir, siteDir, snapshot, universe, sources, references, historyRecords,historyFile,day, asOf, startedAt, sourceId=legacySourceId, dataPolicy=legacyPolicy,policyKnownAt=null,viprasolPolicyKnownAt=null,viprasolImplementationCommit,nextSessionDay=null, now = Date.now, onProgress = () => {},signal }) {
   const engine = require(join(siteDir, 'screening/trend-screen.js'));
   const patterns=require(join(siteDir,'screening/trend-patterns.js'));
   const {riskName}=require(join(siteDir,'screening/market-pool.js'));
@@ -104,7 +114,7 @@ export async function precompute({ dir, siteDir, snapshot, universe, sources, re
   }
   const rawTarget=dataPolicy.rawPublic===false?join(dir,'private','generations',generation):target;
   if(rawTarget!==target)await mkdir(rawTarget,{recursive:true});
-  let historyRequested=0,universePolicy=snapshot?.universePolicy||null;
+  let historyRequested=0,historyGeneration,universePolicy=snapshot?.universePolicy||null;
   if(dataPolicy.rawPublic===false){
     const output=await open(join(rawTarget,'history-all.ndjson'),'wx');
     try{
@@ -115,7 +125,7 @@ export async function precompute({ dir, siteDir, snapshot, universe, sources, re
           if(header){
             const value=JSON.parse(line);
             if(value.schema!=='books.a-share.history.v1'||value.sourceId!==sourceId||value.day!==day||value.asOf!==asOf||value.total!==universe.length)throw Error('长历史归档与重算批次不符');
-            historyRequested=value.historyRequested;universePolicy=value.universePolicy;
+            historyRequested=value.historyRequested;historyGeneration=value.generation;universePolicy=value.universePolicy;
             await output.write(JSON.stringify({...value,generation})+'\n');header=false;
           }else{await output.write(line+'\n');count++;}
         }
@@ -174,16 +184,33 @@ export async function precompute({ dir, siteDir, snapshot, universe, sources, re
       }
     }
   }
-  let patternStatisticsVersion,entrySummary;
+  let patternStatisticsVersion,entrySummary,viprasolReport;
   if(dataPolicy.rawPublic===false&&storedBarSchema===barSchema){
     onProgress({stage:'pattern-statistics',checked:0,total:universe.length,currentCode:null});
     const statistics=await precomputePatternStatistics({historyFile:join(rawTarget,'history-all.ndjson'),target,generation,sourceId,day,asOf,patterns,now,onProgress});
     patternStatisticsVersion=statistics.version;
     entrySummary=await precomputeEntryEvidence({historyFile:join(rawTarget,'history-all.ndjson'),target,privateTarget:rawTarget,generation,sourceId,day,asOf,patterns,engine,riskName,policyKnownAt,nextSessionDay,effectivePatternIds:statistics.patterns.filter(item=>item.status==='effective').map(item=>item.id),now,onProgress});
     await precomputeCurrentEntries({target,privateTarget:rawTarget,batch:{generation,sourceId,day,asOf,total:universe.length},siteDir,nextSessionDay,now,onProgress:fields=>onProgress({stage:'entry-current',...fields})});
+    if(historyRequested===500){
+      const implementationCommit=await viprasolImplementation(siteDir);
+      if(viprasolImplementationCommit!==undefined&&viprasolImplementationCommit!==implementationCommit)throw Error('Viprasol implementation changed after its policy-known timestamp; rerun from the unchanged cache');
+      let marketMetadata={};
+      if(historyFile){
+        try{marketMetadata=await readStoredJson(join(dirname(historyFile),'market-metadata.json'));}
+        catch(error){if(error.code!=='ENOENT')throw error;}
+        if(!marketMetadata||typeof marketMetadata!=='object'||Array.isArray(marketMetadata))throw Error('Viprasol archived market metadata is malformed');
+        const codes=new Set(universe.map(stock=>stock.code));
+        for(const [code,item]of Object.entries(marketMetadata))if(!codes.has(code)||!item||item.sourceKind!=='exchange-rule-derived'||item.generation!==historyGeneration||item.sourceId!==sourceId||item.sourceDay!==day||item.sourceAsOf!==asOf)throw Error('Viprasol archived metadata does not bind the unchanged source/day/asOf');
+        marketMetadata=Object.fromEntries(Object.entries(marketMetadata).map(([code,item])=>[code,{...item,generation,reboundFromGeneration:item.reboundFromGeneration||item.generation}]));
+        if(Object.keys(marketMetadata).length)await save('market-metadata',marketMetadata,rawTarget);
+      }
+      onProgress({stage:'viprasol-study',checked:0,total:universe.length,currentCode:null});
+      viprasolReport=await precomputeViprasolStudy({historyFile:join(rawTarget,'history-all.ndjson'),target,batch:{generation,sourceId,day,asOf,total:universe.length},siteDir,marketMetadata,policyKnownAt:viprasolPolicyKnownAt,nextSessionDay,now,onProgress,signal,writeCurrentChart:writeViprasolCurrentChart});
+      if(viprasolReport.implementationCommit!==implementationCommit)throw Error('Viprasol implementation changed during the study; completed marker was not published');
+    }
   }
   const ready = universe.filter(stock => sources.get(stock.code)?.status === 'ready').length;
-  const completed = { generation,sourceId,dataPolicy,barSchema:storedBarSchema,historyRequested,universePolicy,...(patternStatisticsVersion?{patternStatisticsVersion}:{}),...(entrySummary?{entryPolicyVersion,entryValidationVersion,signalChartVersion,closeCandidateVersion,entrySummary}:{}),patternVersion:patterns.version,patternProfile:patterns.profile, day, asOf, startedAt, finishedAt: new Date(now()).toISOString(), total: universe.length, ready,missing:universe.length-ready,coverage:ready/universe.length,fullMarket:true };
+  const completed = { generation,sourceId,dataPolicy,barSchema:storedBarSchema,historyRequested,universePolicy,...(patternStatisticsVersion?{patternStatisticsVersion}:{}),...(entrySummary?{entryPolicyVersion,entryValidationVersion,signalChartVersion,closeCandidateVersion,entrySummary}:{}),...(viprasolReport?{viprasolStudyVersion:viprasolReport.version,viprasolImplementationCommit:viprasolReport.implementationCommit}:{}),patternVersion:patterns.version,patternProfile:patterns.profile, day, asOf, startedAt, finishedAt: new Date(now()).toISOString(), total: universe.length, ready,missing:universe.length-ready,coverage:ready/universe.length,fullMarket:true };
   await atomicJson(join(target, 'complete.json'), { ...completed, completed: true });
   return completed;
 }
@@ -192,7 +219,7 @@ async function optionalJson(path){
   try{return JSON.parse(await readFile(path,'utf8'));}
   catch(error){if(error.code==='ENOENT'||error instanceof SyntaxError)return null;throw error;}
 }
-async function completedManifest(dir,value){
+async function completedManifest(dir,value,{sourceOnly=false}={}){
   if(!value||typeof value.generation!=='string'||!/^[0-9TZ-]{1,80}$/.test(value.generation))return null;
   const marker=await optionalJson(join(dir,'generations',value.generation,'complete.json'));
   if(marker?.completed!==true||marker.generation!==value.generation||marker.day!==value.day||marker.asOf!==value.asOf||!Number.isFinite(Date.parse(marker.asOf))||marker.total!==value.total||marker.ready!==value.ready||marker.barSchema!==value.barSchema||marker.fullMarket===false||!Number.isInteger(marker.total)||!Number.isInteger(marker.ready)||marker.total<1000||marker.ready>marker.total||marker.ready/marker.total<.8||(marker.sourceId||legacySourceId)!==(value.sourceId||legacySourceId))return null;
@@ -201,6 +228,14 @@ async function completedManifest(dir,value){
   if(marker.entryPolicyVersion)for(const name of ['entry-summary','coverage'])for(const suffix of ['.json','.json.gz'])required.push(join(dir,'generations',value.generation,name+suffix));
   if(marker.entryValidationVersion)for(const suffix of ['.json','.json.gz'])required.push(join(dir,'generations',value.generation,'entry-validation'+suffix));
   if(marker.closeCandidateVersion)for(const suffix of ['.json','.json.gz'])required.push(join(dir,'generations',value.generation,marker.closeCandidateVersion===closeCandidateVersion?currentEntryDirectory:'entry-current-v1','report'+suffix));
+  if(!sourceOnly&&marker.viprasolStudyVersion){
+    if(marker.viprasolStudyVersion!==value.viprasolStudyVersion||marker.viprasolImplementationCommit!==value.viprasolImplementationCommit)return null;
+    const path=join(dir,'generations',value.generation,viprasolStudyDirectory,'report.json');
+    try{
+      const plain=await readFile(path),compressed=await readFile(path+'.gz'),report=JSON.parse(plain);
+      if(!gunzipSync(compressed).equals(plain)||report.schema!=='books.a-share.viprasol-study.v1'||report.completed!==true||report.datasetBound!==true||report.familyId!==viprasolFamilyId||report.sourceCommit!==viprasolSourceCommit||report.version!==marker.viprasolStudyVersion||report.implementationCommit!==marker.viprasolImplementationCommit||['generation','sourceId','day','asOf'].some(key=>report[key]!==marker[key])||report.sourceDay!==marker.day||report.coverage?.universeCount!==marker.total||!Array.isArray(report.rules)||report.rules.length!==viprasolRules.length||new Set(report.rules.map(rule=>rule.id)).size!==viprasolRules.length||report.rules.some(rule=>!viprasolRules.some(definition=>definition.id===rule.id))||!Array.isArray(report.current)||!Array.isArray(report.charts))return null;
+    }catch(error){if(error.code==='ENOENT'||error instanceof SyntaxError||error.code==='Z_DATA_ERROR'||error.code==='Z_BUF_ERROR')return null;throw error;}
+  }else if(!sourceOnly&&value.viprasolStudyVersion)return null;
   for(const code of INDICES)for(const mode of ['consensus','market','strength'])for(const lookback of [20,60])for(const suffix of ['.json','.json.gz'])required.push(join(dir,'generations',value.generation,'result-'+mode+'-'+lookback+'-all-'+code+suffix));
   try{await Promise.all(required.map(path=>access(path)));}
   catch(error){if(error.code==='ENOENT')return null;throw error;}
@@ -208,8 +243,8 @@ async function completedManifest(dir,value){
 }
 
 /** Recomputes only the completed private batch. It never enters collection or calls an external source. */
-export async function recomputeFromCache({dir,siteDir,now=Date.now,signal,compute=precompute}={}){
-  const previous=await completedManifest(dir,await optionalJson(join(dir,'current.json')));
+export async function recomputeFromCache({dir,siteDir,now=Date.now,signal,compute=precompute,onProgress=()=>{}}={}){
+  const previous=await completedManifest(dir,await optionalJson(join(dir,'current.json')),{sourceOnly:true});
   if(!previous||previous.sourceId!==tickflowSourceId||previous.dataPolicy?.rawPublic!==false)throw Error('没有可离线重算的完整同源私有批次。');
   const model=require(join(siteDir,'control/model.js'));
   const raw=await Promise.all(INDICES.map(code=>optionalJson(join(dir,'private','generations',previous.generation,'dataset-all-'+code+'.json'))));
@@ -225,10 +260,10 @@ export async function recomputeFromCache({dir,siteDir,now=Date.now,signal,comput
   const startedAt=new Date(now()).toISOString();signal?.throwIfAborted();
   const archived=join(dir,'private','generations',previous.generation,'history-all.ndjson');
   let historyFile;try{await access(archived);historyFile=archived;}catch(error){if(error.code!=='ENOENT')throw error;}
-  const db=openStore(join(dir,'collector.sqlite'));let policyKnownAt;
-  try{policyKnownAt=entryKnownAt(db,now);}finally{db.close();}
+  const implementationCommit=await viprasolImplementation(siteDir),db=openStore(join(dir,'collector.sqlite'));let policyKnownAt,viprasolPolicyKnownAt;
+  try{policyKnownAt=entryKnownAt(db,now);viprasolPolicyKnownAt=entryKnownAt(db,now,viprasolKnownKey(implementationCommit));}finally{db.close();}
   const nextSessionDay=nextVerifiedSession(require(join(siteDir,'market-calendar.js')),base.day);
-  const result=await compute({dir,siteDir,snapshot:null,universe:base.universe,sources,references,historyFile,sourceId:previous.sourceId,dataPolicy:previous.dataPolicy,policyKnownAt,nextSessionDay,day:base.day,asOf:base.asOf,startedAt,now});
+  const result=await compute({dir,siteDir,snapshot:null,universe:base.universe,sources,references,historyFile,sourceId:previous.sourceId,dataPolicy:previous.dataPolicy,policyKnownAt,viprasolPolicyKnownAt,viprasolImplementationCommit:implementationCommit,nextSessionDay,day:base.day,asOf:base.asOf,startedAt,now,onProgress,signal});
   signal?.throwIfAborted();
   if(result.day!==base.day||result.asOf!==base.asOf||result.sourceId!==previous.sourceId||!await completedManifest(dir,result))throw Error('离线重算未完整结束，保留上次成功结果。');
   const current=await optionalJson(join(dir,'current.json'));
@@ -256,10 +291,19 @@ export async function collect({ dir, siteDir, fetch: request = globalThis.fetch,
     pool ||= require(join(siteDir, 'screening/market-pool.js'));
     const latest = calendar.latestClosed('CN', now());
     if (!latest) throw Error('交易日历未核验，不能推断目标收盘日期。');
-    const previous=await completedManifest(dir,await optionalJson(join(dir,'current.json')));
+    const published=await optionalJson(join(dir,'current.json')),completePrevious=await completedManifest(dir,published);
+    const previous=completePrevious||await completedManifest(dir,published,{sourceOnly:true});
     let longArchive=false;
     if(previous?.historyRequested>=historyCount){try{await access(join(dir,'private','generations',previous.generation,'history-all.ndjson'));longArchive=true;}catch(error){if(error.code!=='ENOENT')throw error;}}
-    if (previous?.day === latest.date &&(previous.sourceId||legacySourceId)===sourceId&&(technicalFactory||previous.barSchema===barSchema&&longArchive&&(compute!==precompute||previous.entryPolicyVersion===entryPolicyVersion&&previous.entryValidationVersion===entryValidationVersion&&previous.signalChartVersion===signalChartVersion))&&Date.parse(previous.asOf) >= Date.parse(latest.closeTime)) {
+    if (previous?.day === latest.date &&(previous.sourceId||legacySourceId)===sourceId&&(technicalFactory||previous.barSchema===barSchema&&longArchive)&&Date.parse(previous.asOf) >= Date.parse(latest.closeTime)) {
+      if(!technicalFactory&&compute===precompute){
+        const implementationCommit=await viprasolImplementation(siteDir);
+        if(!completePrevious||previous.entryPolicyVersion!==entryPolicyVersion||previous.entryValidationVersion!==entryValidationVersion||previous.signalChartVersion!==signalChartVersion||previous.viprasolStudyVersion!==viprasolStudyVersion||previous.viprasolImplementationCommit!==implementationCommit){
+          progress({stage:'viprasol-recompute',day:latest.date,total:previous.total});
+          const replay=await recomputeFromCache({dir,siteDir,now,signal,onProgress:progress});
+          progress({...replay.attempt,stage:'published',currentCode:null});await pending;return {attempt,lastSuccess:replay.lastSuccess};
+        }
+      }
       if(!technicalFactory&&compute===precompute)await precomputeCurrentEntries({target:join(dir,'generations',previous.generation),privateTarget:join(dir,'private','generations',previous.generation),batch:previous,siteDir,nextSessionDay:nextVerifiedSession(calendar,latest.date),now,onProgress:fields=>progress({stage:'entry-current',...fields}),signal});
       progress({ status: 'no_new_day', stage: 'waiting', day: latest.date, total: previous.total, finishedAt: new Date(now()).toISOString() });
       await pending;
@@ -267,7 +311,8 @@ export async function collect({ dir, siteDir, fetch: request = globalThis.fetch,
     }
     progress({ day: latest.date, stage: 'market' });
     const getSetting = db.prepare('SELECT value FROM settings WHERE key=?');
-    const policyKnownAt=technicalFactory?null:entryKnownAt(db,now),nextSessionDay=nextVerifiedSession(calendar,latest.date);
+    const implementationCommit=technicalFactory?null:await viprasolImplementation(siteDir);
+    const policyKnownAt=technicalFactory?null:entryKnownAt(db,now),viprasolPolicyKnownAt=technicalFactory?null:entryKnownAt(db,now,viprasolKnownKey(implementationCommit)),nextSessionDay=nextVerifiedSession(calendar,latest.date);
     const holdKey='source-hold:'+sourceId;
     if(getSetting.get(holdKey))throw Error('来源访问已暂停：'+JSON.parse(getSetting.get(holdKey).value).reason);
     const frozen=db.prepare('SELECT snapshot_json FROM batches_v2 WHERE source_id=? AND day=?').get(sourceId,latest.date);
@@ -334,7 +379,7 @@ export async function collect({ dir, siteDir, fetch: request = globalThis.fetch,
     for(let offset=0;offset<universe.length;offset+=50)await readGroup(universe.slice(offset,offset+50),false);
     if (attempt.ready / universe.length < .8) throw Error('同日有效日线覆盖不足80%：' + attempt.ready + '/' + universe.length + '；保留上次成功结果。');
     const historyRecords=async function*(){for(const stock of universe){const cached=read.get(sourceId,latest.date,stock.code,asOf);if(!cached)throw Error('已收集证券缺少原始历史归档：'+stock.code);yield {stock,source:JSON.parse(cached.source_json)};}};
-    const result = await compute({ dir, siteDir, snapshot, universe, sources, references,historyRecords,sourceId,dataPolicy,policyKnownAt,nextSessionDay, day: latest.date, asOf, startedAt: attempt.startedAt, now, onProgress: progress });
+    const result = await compute({ dir, siteDir, snapshot, universe, sources, references,historyRecords,sourceId,dataPolicy,policyKnownAt,viprasolPolicyKnownAt,viprasolImplementationCommit:implementationCommit,nextSessionDay, day: latest.date, asOf, startedAt: attempt.startedAt, now, onProgress: progress,signal });
     signal?.throwIfAborted();
     if((result.sourceId||legacySourceId)!==sourceId||!await completedManifest(dir,result))throw Error('预计算批次未完整结束或来源不符，保留上次成功结果。');
     if (previous && (previous.day > result.day || Date.parse(previous.asOf) > Date.parse(result.asOf))) throw Error('新批次日期早于已发布结果，拒绝回退。');
