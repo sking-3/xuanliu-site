@@ -32,3 +32,15 @@ test('the earlier unplanned14 chart remains the same whether an absent plan is o
  const plain=renderIntradayChart({row,bars}),empty=renderIntradayChart({row:{...row,research:{plan:null}},bars});assert.equal(empty,plain);assert.doesNotMatch(plain,/data-plan-zone=/);assert.equal((plain.match(/data-kind="B"/g)||[]).length,1);assert.match(plain,/data-unclosed="true"/);
  const input=planned();input.research.plan.reduceZone=null;assert.doesNotMatch(renderIntradayChart({row:input,bars}),/data-plan-zone="reduceZone"/);
 });
+test('plan reference labels use a separate bottom legend and at most four decimals without long raw prices in visible text',()=>{
+ const input=planned();input.reference={close:10.250123456789,trigger:10.312345678901,invalidation:9.512345678901};const candles=bars.map((bar,i)=>i===bars.length-1?{...bar,close:input.reference.close}:bar),svg=renderIntradayChart({row:input,bars:candles});
+ assert.match(svg,/<text x="70" y="420"[^>]*>B参考 10\.3123<\/text>/);assert.match(svg,/<text x="400" y="420"[^>]*>失效 9\.5123<\/text>/);assert.match(svg,/参考价 10\.2501/);
+ const text=[...svg.matchAll(/<text\b[^>]*>(.*?)<\/text>/g)].map(match=>match[1]).join(' ');for(const price of Object.values(input.reference))assert(!text.includes(String(price)));
+ assert.doesNotMatch(svg,/<text x="755"[^>]*>(?:B参考|失效) /);assert.equal([...svg.matchAll(/<text x="755"[^>]*>[^<]*%<\/text>/g)].length,5);assert.match(svg,/data-normalization="first-close-percent"/);
+});
+test('display rounding never changes the original plan prices or level-line positions, and unplanned labels keep their old placement',()=>{
+ const input=planned();input.reference={close:20.516785714285715,trigger:20.5169999999999,invalidation:20.516749999999};input.research.plan.buyZone={low:20.5166,high:20.5167};input.research.plan.reduceZone={low:20.517,high:20.5171};
+ const candles=bars.map((bar,i)=>({...bar,open:20.5168,high:20.517,low:20.5166,close:i===bars.length-1?input.reference.close:20.5168})),before=structuredClone(input),base=candles[0].close,pct=value=>(value/base-1)*100,values=candles.flatMap(bar=>[pct(bar.low),pct(bar.high)]).concat([pct(input.reference.trigger),pct(input.reference.invalidation),pct(20.5166),pct(20.5167),pct(20.517),pct(20.5171)]),minimum=Math.min(...values),maximum=Math.max(...values),padding=Math.max(1,(maximum-minimum)*.15),low=minimum-padding,high=maximum+padding,y=value=>Number((390-(pct(value)-low)/(high-low)*325).toFixed(2));
+ const svg=renderIntradayChart({row:input,bars:candles});assert.notEqual(y(input.reference.invalidation),y(Number(input.reference.invalidation.toFixed(4))));assert(svg.includes('d="M70 '+y(input.reference.invalidation)+'H745" stroke="#a45045"'));assert(svg.includes('d="M70 '+y(input.reference.trigger)+'H745" stroke="#286178"'));assert.match(svg,/>失效 20\.5167<\/text>/);assert.match(svg,/>B参考 20\.517<\/text>/);assert.match(svg,/参考价 20\.5168/);assert.deepEqual(input,before);
+ const legacy=renderIntradayChart({row:{...input,research:{plan:null}},bars:candles});assert.match(legacy,/<text x="755"[^>]*>失效 20\.516749999999<\/text>/);assert.doesNotMatch(legacy,/<text x="(?:70|400)" y="420"/);
+});
