@@ -95,5 +95,6 @@ export function enrichDecisionContext(view,context,position,analogues,now=Date.n
   return {...row,active:Date.parse(row.activeUntil)>now,displayState:Date.parse(row.activeUntil)>now?row.state:'expired',research:{...row.research,position:value?{...identity(position),metrics,strength:value.strength,limitUp:value.limitUp}:null,analogue,analogueReason:analogue?null:'该条件当前尚无同类完整路径统计；未借用其他形态结果'}};
  });
  const tracks=[...view.tracks,...context.tracks];
- return {...view,current,tracks,marketContext:{...view.marketContext,position:position.market},summary:{...view.summary,candidateCount:current.length,stockCount:new Set(current.map(row=>row.code)).size,trackCount:tracks.length},liveCandidateCount:current.filter(row=>row.active).length,liveQualifiedCount:current.filter(row=>row.active&&row.qualified).length};
+ const computedAt=new Date(Math.max(...[view,context,position,analogues].map(value=>Date.parse(value.computedAt)).filter(finite))).toISOString();
+ return {...view,originalComputedAt:view.computedAt,computedAt,current,tracks,marketContext:{...view.marketContext,position:position.market},summary:{...view.summary,candidateCount:current.length,stockCount:new Set(current.map(row=>row.code)).size,trackCount:tracks.length},liveCandidateCount:current.filter(row=>row.active).length,liveQualifiedCount:current.filter(row=>row.active&&row.qualified).length};
 }
