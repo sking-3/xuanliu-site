@@ -1,14 +1,14 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-11-24T20:41:17Z",
+  "generatedAt": "2026-11-25T19:57:23Z",
   "source": "国家统计局数据发布",
   "card": {
     "status": "ready",
     "sourceName": "国家统计局",
     "sourceUrl": "https://www.stats.gov.cn/sj/zxfb/",
     "sourceUpdatedAt": "2026-11-24T01:30:00Z",
-    "fetchedAt": "2026-11-24T20:41:17Z",
-    "lastAttemptAt": "2026-11-24T20:41:17Z",
+    "fetchedAt": "2026-11-25T19:57:23Z",
+    "lastAttemptAt": "2026-11-25T19:57:23Z",
     "asOf": "2026-11-24T01:30:00Z",
     "errorCode": null,
     "data": {
