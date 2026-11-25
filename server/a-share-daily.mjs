@@ -242,21 +242,26 @@ async function completedManifest(dir,value,{sourceOnly=false}={}){
   return value;
 }
 
+/** Normalize one archive at a time; only the first record set keeps its small source sidecar. */
+async function readReplayDataset(file,model,sourceId,keepSourceMetadata=false){
+  const raw=await optionalJson(file),dataset=model.normalizeDataset(raw);
+  if(raw.records.some(record=>record.source.sourceId!==sourceId))throw Error('私有归档的来源、日期、完整名册或指数不一致，未发布重算结果。');
+  const sourceMetadata=keepSourceMetadata?raw.records.map(record=>({adjustmentMethod:record.source.adjustmentMethod||null,volumeUnit:record.source.volumeUnit||null})):null;
+  return {dataset,sourceMetadata};
+}
 /** Recomputes only the completed private batch. It never enters collection or calls an external source. */
 export async function recomputeFromCache({dir,siteDir,now=Date.now,signal,compute=precompute,onProgress=()=>{}}={}){
   const previous=await completedManifest(dir,await optionalJson(join(dir,'current.json')),{sourceOnly:true});
   if(!previous||previous.sourceId!==tickflowSourceId||previous.dataPolicy?.rawPublic!==false)throw Error('没有可离线重算的完整同源私有批次。');
   const model=require(join(siteDir,'control/model.js'));
-  const raw=await Promise.all(INDICES.map(code=>optionalJson(join(dir,'private','generations',previous.generation,'dataset-all-'+code+'.json'))));
-  const datasets=raw.map(value=>model.normalizeDataset(value)),base=datasets[0];
-  const recordBytes=JSON.stringify(base.records),universeBytes=JSON.stringify(base.universe);
-  for(let i=0;i<datasets.length;i++){
-    const dataset=datasets[i];
-    if(dataset.day!==previous.day||dataset.asOf!==previous.asOf||dataset.reference.code!==INDICES[i]||dataset.expectedCount!==previous.total||dataset.totalUniverseCount!==previous.total||JSON.stringify(dataset.records)!==recordBytes||JSON.stringify(dataset.universe)!==universeBytes||raw[i].records.some(record=>record.source.sourceId!==previous.sourceId))throw Error('私有归档的来源、日期、完整名册或指数不一致，未发布重算结果。');
+  const location=join(dir,'private','generations',previous.generation),first=await readReplayDataset(join(location,'dataset-all-'+INDICES[0]+'.json'),model,previous.sourceId,true),base=first.dataset,references=new Map();
+  for(const [i,code]of INDICES.entries()){
+    const {dataset}=i===0?first:await readReplayDataset(join(location,'dataset-all-'+code+'.json'),model,previous.sourceId);
+    if(dataset.day!==previous.day||dataset.asOf!==previous.asOf||dataset.reference.code!==code||dataset.expectedCount!==previous.total||dataset.totalUniverseCount!==previous.total||dataset.records.some((record,index)=>JSON.stringify(record)!==JSON.stringify(base.records[index]))||dataset.universe.some((stock,index)=>JSON.stringify(stock)!==JSON.stringify(base.universe[index])))throw Error('私有归档的来源、日期、完整名册或指数不一致，未发布重算结果。');
+    references.set(code,{...dataset.reference,sourceId:previous.sourceId});
   }
-  const sources=new Map(base.records.map((record,i)=>[record.stock.code,{...record.source,sourceId:previous.sourceId,adjustmentMethod:raw[0].records[i].source.adjustmentMethod||null,volumeUnit:raw[0].records[i].source.volumeUnit||null}]));
+  const sources=new Map(base.records.map((record,i)=>[record.stock.code,{...record.source,sourceId:previous.sourceId,...first.sourceMetadata[i]}]));
   if([...sources.values()].filter(source=>source.status==='ready').length!==previous.ready)throw Error('私有归档有效数量与完成回执不一致。');
-  const references=new Map(datasets.map(dataset=>[dataset.reference.code,{...dataset.reference,sourceId:previous.sourceId}]));
   const startedAt=new Date(now()).toISOString();signal?.throwIfAborted();
   const archived=join(dir,'private','generations',previous.generation,'history-all.ndjson');
   let historyFile;try{await access(archived);historyFile=archived;}catch(error){if(error.code!=='ENOENT')throw error;}

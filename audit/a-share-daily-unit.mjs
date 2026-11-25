@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, writeFile, rm, mkdir, readdir,symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import {spawn} from 'node:child_process';
 import { collect, createGuard, openStore, precompute, recomputeFromCache, retryAfter, INDICES } from '../server/a-share-daily.mjs';
 import {signalChartVersion} from '../server/a-share-signal-chart.mjs';
 import {sourceId,dataPolicy,barSchema,hasOHLC,historyCount} from '../server/a-share-tickflow.mjs';
@@ -320,10 +321,42 @@ test('offline replay bypasses same-day collection skip, publishes complete deriv
 }));
 test('offline replay rejects inconsistent private calendars, sources or incomplete universes before compute and keeps the published pointer',async()=>fixture(async dir=>{
   const f=await privateReplay(dir),pointer=await readFile(join(dir,'current.json'),'utf8'),path=join(f.location,'dataset-all-000001.SH.json'),original=JSON.parse(await readFile(path));let computes=0;
-  for(const change of [data=>{data.reference.code='399001.SZ';},data=>{data.records[0].source.sourceId='another-source';},data=>{data.records.pop();},data=>{data.records[0].source.bars[1].close+=1;}]){
+  for(const change of [data=>{data.reference.code='399001.SZ';},data=>{data.records[0].source.sourceId='another-source';},data=>{data.records.pop();},data=>{data.records[0].source.bars[1].close+=1;},data=>{[data.records[0],data.records[1]]=[data.records[1],data.records[0]];},data=>{[data.universe[0],data.universe[1]]=[data.universe[1],data.universe[0]];}]){
     const invalid=JSON.parse(JSON.stringify(original));change(invalid);await writeFile(path,JSON.stringify(invalid));
     await assert.rejects(recomputeFromCache({dir,siteDir:resolve('.'),compute:async()=>{computes++;}}));assert.equal(computes,0);assert.equal(await readFile(join(dir,'current.json'),'utf8'),pointer);
   }
+}));
+
+test('offline replay loads and validates 3460 by 61 synthetic OHLC records within a 192MB old-space subprocess',async t=>fixture(async dir=>{
+  const count=3460,generation='2026-11-20-192',universe=Array.from({length:count},(_,i)=>({code:String(600000+i)+'.SH',name:'固定合成测试'+i,sector:'测试',exchange:'SH'}));
+  const sourceSeries=series(),bars=sourceSeries.timestamp.map((stamp,i)=>({date:new Date(stamp+8*3600000).toISOString().slice(0,10),open:100.1234+i/100,high:102.5678+i/100,low:99.1234+i/100,close:101.4321+i/100,volume:1000123+i}));
+  const fetchedAt=new Date(now()).toISOString(),records=universe.map(stock=>({stock,source:{sourceId,day:latest.date,status:'ready',adjustment:'qfq',adjustmentMethod:'比例前复权',volumeUnit:'手',fetchedAt,bars}}));
+  const location=join(dir,'private','generations',generation),publicDir=join(dir,'generations',generation);await mkdir(location,{recursive:true});await mkdir(publicDir,{recursive:true});
+  const marker={generation,sourceId,dataPolicy,barSchema,day:latest.date,asOf,total:count,ready:count,fullMarket:true};await writeFile(join(dir,'current.json'),JSON.stringify(marker));await writeFile(join(publicDir,'complete.json'),JSON.stringify({...marker,completed:true}));
+  for(const code of INDICES){
+    const dataset={schema:'books.research.dataset.v1',day:latest.date,asOf,completed:true,collectionStatus:'complete',expectedCount:count,totalUniverseCount:count,universe,records,reference:{code,adjustment:'index',bars,fetchedAt}};
+    await writeFile(join(location,'dataset-all-'+code+'.json'),JSON.stringify(dataset));
+    for(const mode of ['consensus','market','strength'])for(const lookback of [20,60])for(const suffix of ['.json','.json.gz'])await writeFile(join(publicDir,'result-'+mode+'-'+lookback+'-all-'+code+suffix),'storage fixture');
+  }
+  const pointer=await readFile(join(dir,'current.json')),script=`
+    import assert from 'node:assert/strict';
+    import {recomputeFromCache} from ${JSON.stringify(new URL('../server/a-share-daily.mjs',import.meta.url).href)};
+    globalThis.fetch=()=>{throw Error('memory probe cannot read a source');};
+    let loaded=false;
+    await assert.rejects(recomputeFromCache({dir:process.argv[1],siteDir:process.argv[2],now:()=>${now()},compute:async input=>{
+      assert.equal(input.sources.size,3460);assert.equal(input.universe.length,3460);assert.equal(input.references.size,3);
+      assert.equal(input.sources.get('600000.SH').bars.length,61);assert.equal(input.sources.get('600000.SH').volumeUnit,'手');assert.equal(input.sources.get('600000.SH').adjustmentMethod,'比例前复权');
+      assert(Math.abs(input.sources.get('603459.SH').bars[60].close-102.0321)<1e-10);assert.equal(input.day,'2026-11-20');assert.equal(input.asOf,'2026-11-20T07:00:00.000Z');
+      loaded=true;process.stdout.write(JSON.stringify({loaded,synthetic:true,stocks:input.sources.size,bars:61,heapUsed:process.memoryUsage().heapUsed,maxRSS:process.resourceUsage().maxRSS})+'\\n');
+      throw Error('memory_probe_loaded_without_research');
+    }}),/memory_probe_loaded_without_research/);assert.equal(loaded,true);
+  `;
+  const result=await new Promise((complete,reject)=>{
+    const child=spawn(process.execPath,['--max-old-space-size=192','--input-type=module','-e',script,dir,resolve('.')],{cwd:resolve('.')});let stdout='',stderr='';
+    child.stdout.on('data',chunk=>{stdout+=chunk;});child.stderr.on('data',chunk=>{stderr=(stderr+chunk).slice(-8000);});child.once('error',reject);child.once('close',(code,signal)=>complete({code,signal,stdout,stderr}));
+  });
+  assert.equal(result.code,0,result.stderr);assert.equal(result.signal,null);const receipt=JSON.parse(result.stdout.trim());assert.equal(receipt.loaded,true);assert.equal(receipt.synthetic,true);assert.equal(receipt.stocks,count);assert.equal(receipt.bars,61);assert.deepEqual(await readFile(join(dir,'current.json')),pointer);
+  t.diagnostic('Synthetic loader only: '+JSON.stringify(receipt));
 }));
 test('offline compute failures or unfinished artifacts cannot replace a complete pointer or source receipt',async()=>fixture(async dir=>{
   await privateReplay(dir);const pointer=await readFile(join(dir,'current.json'),'utf8'),receipt=await readFile(join(dir,'status.json'),'utf8');
