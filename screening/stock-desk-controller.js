@@ -83,6 +83,11 @@
  }
  const selectRows=(report,filters,institutions,now=Date.now())=>(report?.current||[]).filter(row=>activeAt(row,now)&&matches(row,filters,institutions));
  const selectTracks=(report,filters,institutions)=>(report?.tracks||[]).filter(track=>(!filters.phase||track.original.phase===filters.phase)&&matches(track.original,filters,institutions));
+ function mergeTracking(reports,phase){
+  const merged=new Map((reports.a14?.tracks||[]).map(track=>[track.id,track]));
+  for(const track of reports.close?.tracks||[]){const frozen=merged.get(track.id);merged.set(track.id,frozen?{...frozen,observations:{...frozen.observations,...track.observations}}:track);}
+  return [...merged.values()].filter(track=>track.original.phase===phase);
+ }
  function groupRows(rows){
   const groups=new Map(),rank={triggered_B:0,near_B:1,watch:2};
   const distance=row=>finite(row.reference.trigger)&&row.reference.trigger>0?Math.abs(row.reference.close/row.reference.trigger-1):Infinity;
@@ -158,7 +163,11 @@
     for(const window of [60,120]){const option=text('option',window+'日');option.value=String(window);range.append(option);}
     part('chart').append(range,plot);record={key,node,part,range,plot,image:null};state.cards.set(key,record);
     range.addEventListener('change',()=>{if([60,120].includes(Number(range.value))){state.windows.set(key,Number(range.value));render();}});
-    for(const name of ['research','institution']){const detail=part(name);detail.addEventListener('toggle',()=>{const expanded=state.expanded.get(key)||new Set();if(detail.open)expanded.add(name);else expanded.delete(name);state.expanded.set(key,expanded);});}
+    for(const name of ['research','institution']){
+     const detail=part(name),remember=open=>{const expanded=state.expanded.get(key)||new Set();if(open)expanded.add(name);else expanded.delete(name);state.expanded.set(key,expanded);};
+     detail.querySelector('summary').addEventListener('click',()=>remember(!detail.open));
+     detail.addEventListener('toggle',()=>remember(detail.open));
+    }
    }
    record.node.dataset.code=row.code;record.node.dataset.phase=row.phase;record.node.dataset.conditionId=row.id;
    record.part('name').textContent=row.name;record.part('code').textContent=row.code;
@@ -171,11 +180,11 @@
    return record.node;
   }
   function renderTracking(report){
-   const tracks=selectTracks(report,state,state.institutions),table=el('tracking-rows').parentNode;
+   const tracks=mergeTracking(state.reports,state.phase).filter(track=>matches(track.original,state,state.institutions)),table=el('tracking-rows').parentNode,through=state.reports.close?.day||report?.observationDay;
    const headers=['股票','观察日','条件状态','+1日','+2日','+3日','来源时点'],head=doc.createElement('tr');for(const label of headers){const th=text('th',label);th.setAttribute('scope','col');head.append(th);}table.querySelector('thead').replaceChildren(head);
    const rows=[];for(const track of tracks){const original=track.original,row=doc.createElement('tr'),values=[original.name+' '+original.code,original.anchorDay,stateLabel(original)+' · '+original.setupId,...[1,2,3].map(h=>observationLabel(track.observations[h])),stamp(original.asOf)];
     values.forEach((value,index)=>{const cell=text('td',value);cell.dataset.label=headers[index];if(index>=3&&index<=5){const observation=track.observations[index-2];cell.title=observation?'目标 '+(observation.targetDay||'待满')+' · 来源 '+observation.sourceId+' '+stamp(observation.asOf)+' · 读取 '+stamp(observation.sourceFetchedAt)+' · 核验 '+stamp(observation.checkedAt)+' · '+observation.reason:'尚未满对应交易日';}row.append(cell);});rows.push(row);
-   }el('tracking-rows').replaceChildren(...rows);el('tracking-count').textContent=new Set(tracks.map(track=>track.original.code)).size+' 只 · '+tracks.length+' 条条件记录 · 收盘到收盘变化'+(report?.observationDay?' · 跟踪截至 '+report.observationDay:'');el('tracking-empty').hidden=tracks.length>0;el('tracking-empty').textContent=report?'暂无符合条件的跟踪记录。':reasonFor(state.phase);
+   }el('tracking-rows').replaceChildren(...rows);el('tracking-count').textContent=new Set(tracks.map(track=>track.original.code)).size+' 只 · '+tracks.length+' 条条件记录 · 收盘到收盘变化'+(through?' · 跟踪截至 '+through:'');el('tracking-empty').hidden=tracks.length>0;el('tracking-empty').textContent=report?'暂无符合条件的跟踪记录。':reasonFor(state.phase);
   }
   function render(){
    if(!state.phaseExplicit){const next=defaultPhase(state.reports,now());if(next!==state.phase){state.phase=next;state.shape='all';}}
@@ -192,7 +201,7 @@
    el('filters').disabled=false;
    for(const phase of phases){const option=el('phase').querySelector('option[value="'+phase+'"]');option.disabled=false;}
    for(const key of ['phase','strategy','query'])el(key).value=state[key];
-   const shapes=new Map(),shapeRows=state.tab==='tracking'?(report?.tracks||[]).filter(track=>track.original.phase===state.phase).map(track=>track.original):report?.current||[];
+   const shapes=new Map(),shapeRows=state.tab==='tracking'?mergeTracking(state.reports,state.phase).map(track=>track.original):report?.current||[];
    for(const row of shapeRows)for(const id of row.ruleIds){const rule=row.research?.rules?.find(rule=>rule.id===id);shapes.set(row.familyId+':'+id,rule?.label||id);}
    if(state.shape!=='all'&&!shapes.has(state.shape))shapes.set(state.shape,'所选形态（当前无记录）');
    const shapeOptions=[text('option','全部形态')];shapeOptions[0].value='all';for(const [key,label]of shapes){const option=text('option',label);option.value=key;shapeOptions.push(option);}el('shape').replaceChildren(...shapeOptions);el('shape').value=state.shape;
@@ -245,5 +254,5 @@
   render();if(options.autoLoad!==false)refresh();start();
   return {refresh,dispatch,getState:()=>state,destroy(){destroyed=true;stop();for(const remove of listeners)remove();state.cards.clear();}};
  }
- return {schema,version,validate,validateReport,selectRows,selectTracks,groupRows,defaultPhase,observationLabel,mount};
+ return {schema,version,validate,validateReport,selectRows,selectTracks,mergeTracking,groupRows,defaultPhase,observationLabel,mount};
 });
