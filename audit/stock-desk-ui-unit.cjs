@@ -29,7 +29,7 @@ class Element extends Target{
  replaceChildren(...nodes){for(const node of this.children)node.parentNode=null;this.children=[];this.own='';this.append(...nodes);}
  setAttribute(name,value){this.attrs[name]=String(value);}
  getAttribute(name){return this.attrs[name]??null;}
- querySelector(selector){return find(this,node=>{if(selector==='thead')return node.tagName==='thead';const attr=selector.match(/^\[([^\]]+)\]$/);if(attr)return Object.hasOwn(node.attrs,attr[1]);const option=selector.match(/^option\[value="([^"]+)"\]$/);return option&&node.tagName==='option'&&node.value===option[1];});}
+ querySelector(selector){return find(this,node=>{if(['thead','summary'].includes(selector))return node.tagName===selector;const attr=selector.match(/^\[([^\]]+)\]$/);if(attr)return Object.hasOwn(node.attrs,attr[1]);const option=selector.match(/^option\[value="([^"]+)"\]$/);return option&&node.tagName==='option'&&node.value===option[1];});}
  cloneNode(deep){const node=new Element(this.tagName);node.dataset={...this.dataset};node.attrs={...this.attrs};node.own=this.own;node.value=this.value;if(deep)for(const child of this.children)node.append(child.cloneNode(true));return node;}
  focus(){this.focused=true;}
 }
@@ -37,10 +37,10 @@ function find(root,fn){if(fn(root))return root;for(const child of root.children)
 function all(root,fn){const nodes=fn(root)?[root]:[];for(const child of root.children)nodes.push(...all(child,fn));return nodes;}
 function template(){
  const root=new Element('article');root.setAttribute('data-stock-desk-card','');
- for(const name of ['name','code','stage','reason','chart','source','research','institution']){const node=new Element(['research','institution'].includes(name)?'details':'div');node.setAttribute('data-stock-desk-'+name,'');if(['research','institution'].includes(name)){const body=new Element();body.setAttribute('data-stock-desk-'+name+'-body','');node.append(body);}root.append(node);}
+ for(const name of ['name','code','stage','reason','chart','source','research','institution']){const node=new Element(['research','institution'].includes(name)?'details':'div');node.setAttribute('data-stock-desk-'+name,'');if(['research','institution'].includes(name)){const summary=new Element('summary');summary.textContent=name==='research'?'个股研究':'机构披露';const body=new Element();body.setAttribute('data-stock-desk-'+name+'-body','');node.append(summary,body);}root.append(node);}
  const fragment=new Element();fragment.append(root);return {content:fragment};
 }
-function fixture(){
+function fixture(options={}){
  const env=new Target(),doc=new Target(),ids=new Map(),calls=[],intervals=new Map(),timeouts=new Map();let sequence=0,data=envelope(),response=null,clock=Date.parse('2026-11-25T09:00:00Z');
  for(const id of ['','date','status','source','error','tabs','candidates-tab','tracking-tab','filter-form','filters','phase','strategy','shape','query','candidates','tracking','count','refresh','results','empty','tracking-count','tracking-rows','tracking-empty'])ids.set('stock-desk'+(id?'-'+id:''),new Element());
  const table=new Element('table'),head=new Element('thead');table.append(head,ids.get('stock-desk-tracking-rows'));
@@ -49,7 +49,7 @@ function fixture(){
  env.setInterval=fn=>{const id=++sequence;intervals.set(id,fn);return id;};env.clearInterval=id=>intervals.delete(id);env.setTimeout=(fn,ms)=>{const id=++sequence;timeouts.set(id,{fn:()=>{timeouts.delete(id);fn();},ms});return id;};env.clearTimeout=id=>timeouts.delete(id);
  env.fetch=async(path,init)=>{calls.push({path,init});return response?response(path,init):{ok:true,json:async()=>clone(data)};};
  doc.hidden=false;doc.defaultView=env;doc.getElementById=id=>ids.get(id);doc.createElement=tag=>new Element(tag);
- const component=ui.mount(doc,{autoLoad:false,now:()=>clock});
+ const component=ui.mount(doc,{autoLoad:options.autoLoad??false,now:()=>clock});
  const el=id=>ids.get('stock-desk'+(id?'-'+id:''));
  return {env,doc,component,calls,intervals,timeouts,el,table,setPayload:value=>data=value,setResponse:fn=>response=fn,setNow:value=>clock=Date.parse(value),change:(id,value)=>{el(id).value=value;el(id).dispatchEvent({type:id==='query'?'input':'change'});},click:id=>el(id).dispatchEvent({type:'click'}),tick:async()=>{for(const fn of intervals.values())fn();await settle();}};
 }
@@ -58,6 +58,9 @@ const part=(card,name)=>card.querySelector('[data-stock-desk-'+name+']');
 
 test('single workbench mount reads only the unified same-origin GET and retains the static source slots',async t=>{
  const f=fixture();t.after(()=>f.component.destroy());await f.component.refresh();assert.equal(f.calls.length,1);assert.equal(f.calls[0].path,'/api/a-share-daily/workbench');assert.deepEqual(Object.fromEntries(['method','credentials','cache','redirect'].map(key=>[key,f.calls[0].init[key]])),{method:'GET',credentials:'same-origin',cache:'no-store',redirect:'error'});assert.equal(cards(f).length,2);assert.equal(f.el('filters').disabled,false);assert.equal(f.el('candidates-tab').disabled,false);assert.match(f.el('date').textContent,/2026-11-25/);assert.match(f.el('source').textContent,/来源时点.*计算.*页面读取/);assert.equal(f.timeouts.size,1);
+});
+test('initial non-BFCache pageshow does not duplicate or abort the automatic startup request',async t=>{
+ const f=fixture({autoLoad:true});t.after(()=>f.component.destroy());assert.equal(f.calls.length,1);const initial=f.calls[0].init.signal;f.env.dispatchEvent({type:'pageshow',persisted:false});await settle();assert.equal(f.calls.length,1);assert.equal(initial.aborted,false);assert.equal(f.intervals.size,1);assert.equal(cards(f).length,2);assert.equal(f.el('error').hidden,true);f.env.dispatchEvent({type:'pagehide',persisted:true});f.env.dispatchEvent({type:'pageshow',persisted:true});await settle();assert.equal(f.calls.length,2);assert.equal(f.intervals.size,1);
 });
 test('mechanical B and its independent qualification are both visible with inline 15-session statistics',async t=>{
  const f=fixture();t.after(()=>f.component.destroy());await f.component.refresh();const [qualified,unqualified]=cards(f);assert.equal(part(qualified,'stage').textContent,'接近B · 验证通过');assert.equal(part(unqualified,'stage').textContent,'B触发 · 未验证');assert.match(part(unqualified,'research-body').textContent,/未通过验证.*实际条件：B触发.*独立留出验证未通过/);assert.match(part(qualified,'research-body').textContent,/样本 61.*15日平均变化 \+1.5%.*最差回撤 8.3%/);assert.equal(all(f.el('results'),node=>node.tagName==='a').length,0);assert.match(part(qualified,'institution-body').textContent,/尚未采集/);
@@ -75,6 +78,12 @@ test('same-regime three-session descriptive samples stay inline and never grant 
 });
 test('strategy shape query and institution filters return real matching rows without new requests',async t=>{
  const f=fixture();t.after(()=>f.component.destroy());const data=envelope();data.institutions={status:'ready',checkedAt:'2026-11-25T08:00:00Z',byCode:{'600000.SH':[{id:'cninfo-1',code:'600000.SH',title:'真实机构调研',sourceDate:'2026-11-24',publishedAt:null,precision:'day',firstSeenAt:'2026-11-25T08:00:00Z',kind:'research_visit',summary:'已披露机构调研记录。',url:'https://www.cninfo.com.cn/disclosure/sample'}]}};f.setPayload(data);await f.component.refresh();f.change('strategy','short-term');assert.equal(cards(f).length,1);assert.match(f.el('results').textContent,/研究乙/);f.change('strategy','trend');assert.equal(cards(f).length,1);assert.match(f.el('results').textContent,/研究甲/);f.change('strategy','institution');assert.equal(cards(f).length,1);assert.match(part(cards(f)[0],'institution-body').textContent,/真实机构调研.*已披露机构调研记录.*2026-11-24（日期精度）/);assert.doesNotMatch(part(cards(f)[0],'institution-body').textContent,/00:00/);assert.equal(all(f.el('results'),node=>node.tagName==='a')[0].href,'https://www.cninfo.com.cn/disclosure/sample');f.change('query','不存在');assert.equal(cards(f).length,0);f.change('query','600000');assert.equal(cards(f).length,1);f.change('shape','other:shape');assert.equal(cards(f).length,0);assert.equal(f.calls.length,1);
+});
+test('institution filter recognizes explicit institution classes but preserves ordinary shareholder and repurchase notices only as public evidence',async t=>{
+ const f=fixture();t.after(()=>f.component.destroy());const data=envelope(),event={id:'fact',code:'600000.SH',title:'真实公开披露',url:'https://static.cninfo.com.cn/finalpage/2026-11-25/123.PDF',sourceDate:'2026-11-25',publishedAt:null,precision:'day',firstSeenAt:'2026-11-25T08:00:00Z',summary:'仅说明公告事实，不推断机构买入。'};data.institutions={status:'ready',checkedAt:event.firstSeenAt,byCode:{'600000.SH':[]}};
+ for(const kind of ['other','shareholder_increase','shareholder_holding','shareholder_decrease','repurchase','employee_share_plan']){data.institutions.byCode['600000.SH']=[{...event,kind}];f.setPayload(data);await f.component.refresh();f.change('strategy','institution');assert.equal(cards(f).length,0,kind);f.change('strategy','all');const card=cards(f).find(card=>part(card,'code').textContent==='600000.SH');assert.match(part(card,'institution-body').textContent,/真实公开披露/);assert.equal(part(card,'institution').querySelector('summary').textContent,'公开披露');}
+ for(const kind of ['research_visit','fund_holding','investment_fund_partnership']){data.institutions.byCode['600000.SH']=[{...event,kind}];f.setPayload(data);await f.component.refresh();f.change('strategy','institution');assert.equal(cards(f).length,1,kind);assert.equal(part(cards(f)[0],'institution').querySelector('summary').textContent,'机构与公开披露');}
+ assert.equal(f.calls.length,9);assert.equal(f.component.getState().reports.close.current[0].qualified,true);
 });
 test('missing 14:00 phase is selectable with its own reason and never borrows close candidates',async t=>{
  const f=fixture();t.after(()=>f.component.destroy());await f.component.refresh();f.change('phase','a14');assert.equal(cards(f).length,0);assert.match(f.el('empty').textContent,/14:00候选尚未采集/);assert.equal(f.el('phase').querySelector('option[value="a14"]').disabled,false);assert.equal(f.component.getState().reports.a14,null);f.change('phase','close');assert.equal(cards(f).length,2);assert.equal(f.calls.length,1);

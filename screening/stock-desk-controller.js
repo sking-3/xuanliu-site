@@ -72,9 +72,11 @@
   return value;
  }
  const eventsFor=(institutions,code)=>institutions?.byCode?.[code]||[];
+ const institutionKinds=['research_visit','fund_holding','investment_fund_partnership'];
+ const hasInstitutionEvidence=(institutions,code)=>eventsFor(institutions,code).some(event=>institutionKinds.includes(event.kind));
  function matches(row,filters,institutions){
   const strategy=row.strategy||'trend';
-  if(filters.strategy==='institution'&&!eventsFor(institutions,row.code).length)return false;
+  if(filters.strategy==='institution'&&!hasInstitutionEvidence(institutions,row.code))return false;
   if(!['all','institution'].includes(filters.strategy)&&strategy!==filters.strategy)return false;
   if(filters.shape!=='all'&&!row.ruleIds.some(id=>row.familyId+':'+id===filters.shape))return false;
   return !filters.query||(row.code+' '+row.name).toLowerCase().includes(filters.query.trim().toLowerCase());
@@ -160,6 +162,7 @@
    }
    record.node.dataset.code=row.code;record.node.dataset.phase=row.phase;record.node.dataset.conditionId=row.id;
    record.part('name').textContent=row.name;record.part('code').textContent=row.code;
+   record.part('institution').querySelector('summary').textContent=hasInstitutionEvidence(state.institutions,row.code)?'机构与公开披露':'公开披露';
    record.part('stage').textContent=stateLabel(row);
    record.part('reason').textContent='参考价 '+number(row.reference.close)+' · 触发 > '+number(row.reference.trigger)+' · 失效 < '+number(row.reference.invalidation)+(alternatives.length?' · 共 '+(alternatives.length+1)+' 条条件':'');
    record.part('source').textContent=row.sourceId+' · '+row.day+' '+phaseLabels[row.phase]+' · 来源 '+stamp(row.asOf)+' · 读取 '+stamp(row.sourceFetchedAt);
@@ -236,7 +239,7 @@
   listen(el('tabs'),'keydown',event=>{if(['ArrowLeft','ArrowRight','Home','End'].includes(event.key)){event.preventDefault();dispatch({type:'tab',value:event.key==='Home'?'candidates':event.key==='End'?'tracking':state.tab==='candidates'?'tracking':'candidates'});el(state.tab+'-tab').focus();}});
   listen(el('filter-form'),'submit',event=>event.preventDefault());listen(el('refresh'),'click',refresh);
   listen(doc,'visibilitychange',()=>{if(doc.hidden)stop();else{render();refresh();start();}});
-  listen(env,'pagehide',()=>{suspended=true;stop();});listen(env,'pageshow',()=>{suspended=false;render();refresh();start();});
+  listen(env,'pagehide',()=>{suspended=true;stop();});listen(env,'pageshow',event=>{if(!suspended&&!event.persisted)return;suspended=false;render();refresh();start();});
   render();if(options.autoLoad!==false)refresh();start();
   return {refresh,dispatch,getState:()=>state,destroy(){destroyed=true;stop();for(const remove of listeners)remove();state.cards.clear();}};
  }
