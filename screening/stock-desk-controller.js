@@ -37,7 +37,7 @@
   if(bands[row.research.analogue?.positionBand])values.push(bands[row.research.analogue.positionBand]);
   if(finite(metrics.return5))values.push('5日 '+percent(metrics.return5));
   if(finite(metrics.ma20Deviation))values.push('距MA20 '+percent(metrics.ma20Deviation));
-  if(limit.status==='ready'&&Number.isInteger(limit.consecutiveCount))values.push('连续近涨停 '+limit.consecutiveCount+'日'+(limit.onePrice?'（一字价）':''));
+  if(limit.status==='ready'&&limit.atLimit===true&&Number.isInteger(limit.consecutiveCount))values.push('连续近涨停 '+limit.consecutiveCount+'日'+(limit.onePrice?'（一字价）':''));
   else if(limit.status==='unknown')values.push('近涨停连数未核验');
   return values.length?values.join(' · '):'个股位置：本时点资料暂缺';
  }
@@ -175,11 +175,13 @@
    const trigger=plan?plan.trigger:row.reference.trigger,invalidation=plan?plan.invalidation:row.reference.invalidation;
    if(finite(trigger))add('突破参考','> '+number(trigger));
    if(finite(invalidation))add('失效参考','< '+number(invalidation));
-   record.part('plan').hidden=!levels.length;
+   const limitWatch=row.familyId==='close-limitup-watch';
+   record.part('plan').hidden=!levels.length&&!limitWatch;
    record.part('plan-title').textContent=row.phase==='a14'?'盘中条件观察 · 收盘待确认':'下一交易日条件计划';
    record.part('plan-levels').replaceChildren(...levels);
    const labels={next_session_watch:'待下一交易日重新核验',existing_position_T_watch:'日线波段T观察',countertrend_watch:'逆势收复观察，尚未确认转强',limit_up_next_session_recheck:'本日近涨停，仅待下一交易日复核'};
    let note=plan?plan.label+' · '+labels[plan.modelState]:'原关键K条件参考，下一交易日须重新核验。';
+   if(limitWatch)note='次日持续一字、封死或无法核实可成交则跳过；开板不等于B，等待新的回踩或突破条件。';
    if(plan?.holdingRequired||plan?.reduceZone)note+='；做T须有可卖底仓，当天新买不能当日卖出。';
    record.part('plan-note').textContent=note;
   }
