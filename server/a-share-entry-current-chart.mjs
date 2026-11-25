@@ -9,7 +9,7 @@ const validBar=bar=>bar&&validDay(bar.date)&&['open','high','low','close'].every
 
 function currentChart({stock,bars,item,window,variant='confirmed-entry'}){
   const width=960,height=540,left=76,right=730,top=84,bottom=330,volumeTop=425,volumeBottom=485;
-  const native=variant==='viprasol',description=native?'以前复权窗口首日收盘归一化；仅显示当日原指标多向条件B及原参考位，非实际成交，不含历史B/S回放。':'以前复权窗口首日收盘归一化；仅显示本次确认C及当日收盘触发观察B，非实际成交，不含历史B/S或波段加减仓回放。';
+  const native=variant==='viprasol',description='近'+window+'个交易日日K仅为显示窗口，非持有期或预测期。'+(native?'以前复权窗口首日收盘归一化；仅显示当日原指标多向条件B及原参考位，非实际成交，不含历史B/S回放。':'以前复权窗口首日收盘归一化；C为本次收盘确认，非当日B；B仅为当日收盘触发观察，非实际成交，不含历史B/S或波段加减仓回放。');
   const title=(stock.name||item.name||stock.code)+' · 当前机会日K',parts=[`<svg xmlns="http://www.w3.org/2000/svg"${native?' data-normalization="first-close-percent"':''} width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-labelledby="title desc"><title id="title">${escape(title)}</title><desc id="desc">${description}</desc><rect width="${width}" height="${height}" fill="#fff"/><g font-family="system-ui,sans-serif" font-size="22" fill="#53636e" style="font-variant-numeric:tabular-nums"><text x="${left}" y="28">${escape(title)}</text>`];
   const valid=Array.isArray(bars)&&bars.length>=20&&bars.every((bar,index)=>validBar(bar)&&(!index||bar.date>bars[index-1].date))&&bars.at(-1).date===item.day&&bars.at(-1).close===item.closePrice;
   const formation=valid&&bars.find(bar=>bar.date===item.formationDay),key=valid&&bars.find(bar=>bar.date===item.keyBarDay);
@@ -21,7 +21,7 @@ function currentChart({stock,bars,item,window,variant='confirmed-entry'}){
   const values=[...view.flatMap(bar=>[pct(bar.low),pct(bar.high)]),...levels.map(level=>pct(level.price))];
   for(const average of averages)for(const value of average.values.slice(start))if(value!==null)values.push(pct(value));
   const minimum=Math.min(...values),maximum=Math.max(...values),span=Math.max(maximum-minimum,1),low=minimum-span*.14,high=maximum+span*.14,y=price=>bottom-(pct(price)-low)/(high-low)*(bottom-top);
-  parts.push(`<text x="${left}" y="57" font-size="20">${view.length}日${view.length<window?' · 不足'+window+'日':''} · 前复权归一化</text><text x="520" y="28" fill="#9c783f">MA5</text><text x="610" y="28" fill="#606a89">MA20</text>`);
+  parts.push(`<text x="${left}" y="57" font-size="20">近${window}个交易日日K${view.length<window?' · 实际'+view.length+'根':''} · 前复权归一化</text><text x="${left}" y="77" font-size="14">仅显示窗口，非持有期或预测期 · ${native?'B为当日原指标条件，非成交':'C为收盘确认，非当日B；B为当日触发观察，非成交'}</text><text x="520" y="28" fill="#9c783f">MA5</text><text x="610" y="28" fill="#606a89">MA20</text>`);
   for(let i=0;i<5;i++){
     const yy=bottom-(bottom-top)*i/4,value=low+(high-low)*i/4;
     parts.push(`<path d="M${left} ${number(yy)}H${right}" stroke="#e5e9eb"/><text x="${left-8}" y="${number(yy+7)}" text-anchor="end" font-size="18">${number(value)}%</text>`);
@@ -42,7 +42,7 @@ function currentChart({stock,bars,item,window,variant='confirmed-entry'}){
     const yy=number(line.yy),labelY=number(line.labelY-overflow);
     parts.push(`<g data-level="${line.kind}"><path d="M${left} ${yy}H${right}" stroke="${line.color}" stroke-dasharray="${line.kind==='close'?'2 4':'6 4'}"/><path d="M${right} ${yy}L748 ${labelY}" stroke="${line.color}" fill="none"/><text x="754" y="${number(labelY+8)}" fill="${line.color}" font-size="24">${line.label} ${percent(line.price)}</text></g>`);
   }
-  const markers=native?[{kind:'B',day:item.day,label:'当日原始多向条件收盘成立'}]:[{kind:'C',day:item.keyBarDay,label:'本次收盘确认观察'}];
+  const markers=native?[{kind:'B',day:item.day,label:'当日原始多向条件收盘成立'}]:[{kind:'C',day:item.keyBarDay,label:'本次收盘确认，非当日B'}];
   if(!native&&item.stage==='triggered_at_close'&&item.closePrice>item.trigger.above&&bars.at(-1).low>=item.invalidation.below)markers.push({kind:'B',day:item.day,label:'当日收盘触发观察'});
   const positions=[];
   for(const marker of markers){

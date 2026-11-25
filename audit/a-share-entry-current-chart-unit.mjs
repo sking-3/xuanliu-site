@@ -48,7 +48,7 @@ test('invalid, stale, short, out-of-order or mismatched price-basis evidence sta
 });
 
 test('available short suffix discloses its real window and never fills missing candles',async()=>{
-  const original=fixture(),bars=original.bars.slice(-25);await output({...original,bars},async({svg})=>{for(const window of [60,120]){const image=await svg(window);assert.equal([...image.matchAll(/data-candle-day=/g)].length,25);assert(image.includes('25日 · 不足'+window+'日'));assert.doesNotMatch(image,/NaN|Infinity/);}});
+  const original=fixture(),bars=original.bars.slice(-25);await output({...original,bars},async({svg})=>{for(const window of [60,120]){const image=await svg(window);assert.equal([...image.matchAll(/data-candle-day=/g)].length,25);assert(image.includes('近'+window+'个交易日日K · 实际25根'));assert.doesNotMatch(image,/NaN|Infinity/);}});
 });
 
 test('SVG text is escaped, glyphs remain readable, and no raw OHLCV payload is embedded',async()=>{
@@ -87,4 +87,8 @@ test('native chart rejects unqualified, stale-source, mismatched price or unboun
   for(const item of [{...input.item,eligibleForSelection:false},{...input.item,actualFillVerified:true},{...input.item,signalDay:input.bars.at(-2).date},{...input.item,closePrice:105},{...input.item,familyId:'fixed-16'}])await assert.rejects(writeViprasolCurrentChart({directory,...input,item}),/同日合格证据/);
   await assert.rejects(writeViprasolCurrentChart({directory,...input,paths:{60:'other.svg',120:input.paths[120]}}),/路径未绑定/);
   assert.deepEqual(await readdir(directory),[]);
+});
+
+test('display-window captions explain sixty or120 actual trading-session candles without changing the selected evidence or C into today B',async()=>{
+ const input=fixture();await output(input,async({svg})=>{for(const window of [60,120]){const image=await svg(window);assert(image.includes('近'+window+'个交易日日K'));assert.match(image,/仅显示窗口，非持有期或预测期/);assert.match(image,/C为收盘确认，非当日B/);assert.match(image,/C · .*本次收盘确认，非当日B/);assert(image.includes('data-day="'+input.item.keyBarDay+'" data-kind="C"'));assert.doesNotMatch(image,/data-kind="(?:B|S)"/);assert.equal((image.match(/data-candle-day=/g)||[]).length,window);}});
 });
