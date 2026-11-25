@@ -6,6 +6,7 @@ import {currentEntryDirectory} from './a-share-entry-current-precompute.mjs';
 import {entryPolicyVersion} from './a-share-entry-bars.mjs';
 import {entryValidationVersion} from './a-share-entry-validation.mjs';
 import {version as viprasolStudyVersion,familyId as viprasolFamilyId,definitions as viprasolRules,sourceCommit as viprasolSourceCommit} from './a-share-viprasol-study.mjs';
+import {readStockDesk,readA14Chart,readWorkbenchChart} from './a-share-desk.mjs';
 
 const prefix='/api/a-share-daily/';
 const modes=new Set(['consensus','market','strength']);
@@ -59,9 +60,30 @@ export function createAShareCache({directory}){
     const reply=(status,value)=>json(res,status,value,{'cache-control':'no-cache'});
     if(req.method!=='GET'){reply(405,{error:'method_not_allowed'});return true;}
     const route=path.slice(prefix.length),params=url.searchParams;
-    if(!['state','result','dataset','market','patterns','entries','entry-chart','coverage','entry-validation','signals','signal-chart','entry-current','entry-current-chart','viprasol-study','viprasol-current-chart'].includes(route)){reply(404,{error:'not_found'});return true;}
-    const allowed=route==='state'?[]:route==='result'?['mode','lookback','sampleSize','benchmark','generation']:route==='dataset'?['sampleSize','benchmark','generation']:['entries','signals'].includes(route)?['generation','code']:route==='entry-chart'?['generation','code','setup']:route==='signal-chart'?['generation','code','window']:route==='entry-current-chart'?['generation','code','setup','window']:route==='viprasol-current-chart'?['generation','code','rule','window']:['generation'];
+    if(!['state','result','dataset','market','patterns','entries','entry-chart','coverage','entry-validation','signals','signal-chart','entry-current','entry-current-chart','viprasol-study','viprasol-current-chart','workbench','a14-chart','workbench-chart'].includes(route)){reply(404,{error:'not_found'});return true;}
+    const allowed=['state','workbench'].includes(route)?[]:route==='a14-chart'?['day','code','window']:route==='result'?['mode','lookback','sampleSize','benchmark','generation']:route==='dataset'?['sampleSize','benchmark','generation']:['entries','signals'].includes(route)?['generation','code']:route==='entry-chart'?['generation','code','setup']:['signal-chart','workbench-chart'].includes(route)?['generation','code','window']:route==='entry-current-chart'?['generation','code','setup','window']:route==='viprasol-current-chart'?['generation','code','rule','window']:['generation'];
     if(!validQuery(params,allowed)){reply(400,{error:'invalid_query'});return true;}
+    if(route==='workbench'){
+      try{reply(200,await readStockDesk({dir:directory}));}catch{reply(503,{error:'workbench_read_failed'});}return true;
+    }
+    if(route==='a14-chart'){
+      const day=params.get('day'),code=params.get('code'),window=params.get('window')||'60';
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(day||'')||!/^(?:(?:600|601|603|605)\d{3}\.SH|(?:000|001|002|003)\d{3}\.SZ)$/.test(code||'')||!['60','120'].includes(window)){reply(400,{error:'invalid_query'});return true;}
+      try{
+        const chart=await readA14Chart({dir:directory,day,code,window,compressed:Boolean(gzipAccepted(req.headers['accept-encoding']))});
+        if(!chart){reply(404,{error:'a14_chart_not_published'});return true;}
+        res.writeHead(200,{'content-type':'image/svg+xml; charset=utf-8','cache-control':'no-cache','vary':'Accept-Encoding',...(chart.compressed?{'content-encoding':'gzip'}:{})});res.end(chart.body);
+      }catch{reply(404,{error:'a14_chart_not_published'});}return true;
+    }
+    if(route==='workbench-chart'){
+      const generation=params.get('generation'),code=params.get('code'),window=params.get('window')||'60';
+      if(!generationPattern.test(generation||'')||!/^(?:(?:600|601|603|605)\d{3}\.SH|(?:000|001|002|003)\d{3}\.SZ)$/.test(code||'')||!['60','120'].includes(window)){reply(400,{error:'invalid_query'});return true;}
+      try{
+        const chart=await readWorkbenchChart({dir:directory,generation,code,window,compressed:Boolean(gzipAccepted(req.headers['accept-encoding']))});
+        if(!chart){reply(404,{error:'workbench_chart_not_published'});return true;}
+        res.writeHead(200,{'content-type':'image/svg+xml; charset=utf-8','cache-control':'no-cache','vary':'Accept-Encoding',...(chart.compressed?{'content-encoding':'gzip'}:{})});res.end(chart.body);
+      }catch{reply(404,{error:'workbench_chart_not_published'});}return true;
+    }
     const requestedGeneration=params.get('generation');
     if(requestedGeneration!==null&&!generationPattern.test(requestedGeneration)){reply(400,{error:'invalid_generation'});return true;}
     let filename;

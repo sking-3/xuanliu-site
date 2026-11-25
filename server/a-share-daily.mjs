@@ -442,6 +442,11 @@ async function main() {
         result.schemes=await runSavedSchemes({dbFile:process.env.BOOKS_DB,dir,siteDir});
         if(result.schemes.status==='failed')process.exitCode=1;
       }
+      if(result.attempt.jobType!=='entry-current'&&['complete','no_new_day'].includes(result.attempt.status)){
+        const {runStockDesk}=await import('./a-share-desk.mjs');
+        result.desk=await runStockDesk({dir,siteDir,signal:control.signal});
+        if(result.desk.attempt.status==='failed')process.exitCode=1;
+      }
     }catch(error){taskError=error;throw error;}
     finally{
       try{const maintained=await runRetention(retention);if(result)result.retention=maintained;}
