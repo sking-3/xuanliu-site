@@ -25,7 +25,15 @@ function enrichClose(report,preference,institutions,now){
   validatePreference(preference,report);
   const view=viewOpportunityWorkbench(report,{now}),regime=preference.currentRegime.state,patterns=preference.byRegime.find(item=>item.regime===regime)?.patterns||[];
   const preferences={regime,horizon:3,minSamples:30,minStocks:10,minSignalDays:10,patterns,rankingOnly:true,historicalMembership:false,fullMarketCycleVerified:false};
-  return {...view,marketContext:{...view.marketContext,preferences,topRanking:preference.adequateRanking},current:view.current.map(row=>({...row,research:{...row.research,regimePreference:patterns.filter(item=>row.ruleIds.includes(item.patternId)),institutionalEvidence:institutions.byCode[row.code]||[]}}))};
+  const current=view.current.map(row=>({...row,research:{...row.research,regimePreference:patterns.filter(item=>row.ruleIds.includes(item.patternId)),institutionalEvidence:institutions.byCode[row.code]||[]}}));
+  const ranks=new Map(preference.adequateRanking.filter(item=>item.regime===regime&&item.adequate===true&&item.sampleCount>=preference.policy.minSamples&&item.stockCount>=preference.policy.minStocks&&item.signalDayCount>=preference.policy.minSignalDays&&Number.isInteger(item.rank)&&item.rank>0).map(item=>[item.patternId,item.rank])),layers=new Map();
+  current.forEach((row,index)=>{if((row.strategy||'trend')!=='trend')return;const key=row.state+':'+row.qualified;if(!layers.has(key))layers.set(key,[]);layers.get(key).push(index);});
+  for(const positions of layers.values()){
+    const ordered=positions.map(index=>({row:current[index],index,rank:Math.min(Infinity,...current[index].ruleIds.map(id=>ranks.get(id)??Infinity))}));
+    ordered.sort((a,b)=>a.rank===b.rank?a.index-b.index:a.rank-b.rank);
+    positions.forEach((position,index)=>{current[position]=ordered[index].row;});
+  }
+  return {...view,marketContext:{...view.marketContext,preferences,topRanking:preference.adequateRanking},current};
 }
 
 function validateA14(report,now){

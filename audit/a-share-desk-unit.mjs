@@ -142,3 +142,27 @@ test('corrupt optional institution state does not discard close tracking or manu
   const f=await fixture(t),root=join(f.dir,'institution-disclosures-v1');await mkdir(root);await writeFile(join(root,'status.json'),'broken');assert.equal((await f.publish()).attempt.status,'complete');
   const view=await readStockDesk({dir:f.dir,now:now()});assert.equal(view.close.status,'ready');assert.equal(view.institutions.status,'failed');assert.deepEqual(view.institutions.byCode,{});assert.deepEqual(view.close.data.current[0].research.institutionalEvidence,[]);
 });
+
+function presentationRow(base,index,pattern,extra={}){
+  const row={...structuredClone(base),code:String(600000+index)+'.SH',ruleIds:[pattern],setupId:'setup-'+index,...extra};row.id=JSON.stringify([row.sourceId,row.ruleVersion,row.familyId,row.setupId,row.code,row.anchorDay]);return row;
+}
+const adequateRank=(patternId,rank,extra={})=>({patternId,rank,regime:'sideways',adequate:true,sampleCount:30,stockCount:10,signalDayCount:10,eligibleForSelection:false,...extra});
+async function presentRows(f,rows,ranking){
+  await f.publish();f.report.current=rows;f.report.tracks=rows.map(row=>({id:row.id,firstSeenAt:row.firstSeenAt,original:structuredClone(row),observations:{}}));f.pref.adequateRanking=ranking;f.pref.byRegime=[{regime:'sideways',patterns:ranking}];
+  const file=join(f.target,trackingDirectory,'report.json');await save(file,f.report);await save(join(f.target,preferenceFilename+'.json'),f.pref);return {file,before:await readFile(file)};
+}
+test('existing adequate regime ranks reorder trend slots only within the same state and qualification layer',async t=>{
+  const f=await fixture(t),base=f.report.current[0],rows=[presentationRow(base,0,'third'),presentationRow(base,1,'first',{strategy:'short-term',state:'watch'}),presentationRow(base,2,'third',{ruleIds:['third','first']}),presentationRow(base,3,'third',{state:'triggered_B'}),presentationRow(base,4,'first',{strategy:'institution',state:'watch'}),presentationRow(base,5,'second'),presentationRow(base,6,'third',{qualified:true}),presentationRow(base,7,'first',{state:'watch'})];
+  const frozen=await presentRows(f,rows,[adequateRank('first',1),adequateRank('second',2),adequateRank('third',3)]),view=await readStockDesk({dir:f.dir,now:now()});
+  assert.deepEqual(view.close.data.current.map(row=>row.id),[rows[2],rows[1],rows[5],rows[3],rows[4],rows[0],rows[6],rows[7]].map(row=>row.id));assert.deepEqual(await readFile(frozen.file),frozen.before);assert.deepEqual(view.close.data.tracks.map(track=>track.original),rows);
+});
+test('insufficient samples and other regimes cannot borrow a rank or promote an unqualified row',async t=>{
+  const f=await fixture(t),base=f.report.current[0],rows=[presentationRow(base,0,'other-regime'),presentationRow(base,1,'too-small'),presentationRow(base,2,'adequate'),presentationRow(base,3,'unknown')];
+  const frozen=await presentRows(f,rows,[adequateRank('other-regime',1,{regime:'bull'}),adequateRank('too-small',1,{sampleCount:29}),adequateRank('adequate',3)]),view=await readStockDesk({dir:f.dir,now:now()});
+  assert.deepEqual(view.close.data.current.map(row=>row.id),[rows[2],rows[0],rows[1],rows[3]].map(row=>row.id));assert(view.close.data.current.every(row=>row.qualified===false));assert.deepEqual(await readFile(frozen.file),frozen.before);
+});
+test('equal or unavailable ranks preserve original setup order, including multiple setups for one code',async t=>{
+  const f=await fixture(t),base=f.report.current[0],rows=[presentationRow(base,0,'tie'),presentationRow(base,1,'tie',{code:'600000.SH'}),presentationRow(base,2,'tie'),presentationRow(base,3,'unknown-a'),presentationRow(base,4,'unknown-b')];
+  const original=structuredClone(rows),frozen=await presentRows(f,rows,[adequateRank('tie',2)]),view=await readStockDesk({dir:f.dir,now:now()});
+  assert.deepEqual(view.close.data.current.map(row=>row.id),rows.map(row=>row.id));assert.deepEqual(rows,original);assert.deepEqual(view.close.data.tracks.map(track=>track.original),original);assert.deepEqual(await readFile(frozen.file),frozen.before);
+});
