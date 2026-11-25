@@ -51,6 +51,7 @@ test('public cache state observes first collection while missing results return5
   writeJson(join(f.cache,'status.json'),{...status,attempt:{...status.attempt,status:'running',checked:13}});
   const state=await f.request('/api/a-share-daily/state');assert.equal(state.status,200);assert.equal(state.headers['cache-control'],'no-cache');
   assert.equal(state.json().configured,true);assert.equal(state.json().available,false);assert.equal(state.json().attempt.checked,13);assert.equal(state.json().lastSuccess,null);
+  assert.equal(state.json().stockDesk,null);assert.equal(state.json().intraday,null);
   for(const route of ['result','dataset','market'])assert.equal((await f.request('/api/a-share-daily/'+route)).status,503);
   assert.equal(sourceCalls,0);assert.equal((await f.request('/api/research-control/state')).status,401);
   assert.equal(f.app.db.prepare("SELECT count(*) AS count FROM sqlite_master WHERE name='research_control_runs'").get().count,0);
@@ -63,6 +64,18 @@ test('published cache preserves source dates and independent failed attempt with
   assert.equal(result.status,200);assert.equal(result.headers['cache-control'],'no-cache');assert.equal(result.json().day,'2026-11-20');assert.equal(result.json().counts.ready,119);
   assert.equal((await f.request('/api/a-share-daily/dataset?sampleSize=120&benchmark=000300.SH')).status,200);
   assert.equal((await f.request('/api/a-share-daily/market')).status,200);
+});
+test('desk and intraday progress or failure remain distinct from the last successful close, without reading full reports or collecting',async t=>{
+  const f=await fixture(t);f.publish();const pointer=readFileSync(join(f.cache,'current.json')),originalFetch=globalThis.fetch;let requests=0;
+  globalThis.fetch=()=>{requests++;throw Error('state must not collect');};t.after(()=>{globalThis.fetch=originalFetch;});
+  writeJson(join(f.cache,'stock-desk-v1/current.json'),{invalid:'must not be read by state'});mkdirSync(join(f.cache,'intraday-preselection-v1'));writeFileSync(join(f.cache,'intraday-preselection-v1/current.json'),'broken full snapshot');
+  const desk={status:'running',stage:'market-preference',checked:125,total:3460,generation,day:'2026-11-20',sourceId:'tickflow-free-forward-v1',error:null};
+  const intraday={status:'held',day:'2026-11-23',requests:1,error:'HTTP 403; held without retry'};
+  writeJson(join(f.cache,'stock-desk-v1/status.json'),desk);writeJson(join(f.cache,'intraday-preselection-v1/status.json'),intraday);
+  let response=await f.request('/api/a-share-daily/state'),state=response.json();assert.equal(response.status,200);assert.deepEqual(state.stockDesk,desk);assert.deepEqual(state.intraday,intraday);assert.deepEqual(state.attempt,status.attempt);assert.deepEqual(state.lastSuccess,lastSuccess);assert.equal(state.available,true);
+  desk.status='failed';desk.error='archive read failed';intraday.status='running';intraday.error=null;intraday.requests=2;
+  writeJson(join(f.cache,'stock-desk-v1/status.json'),desk);writeJson(join(f.cache,'intraday-preselection-v1/status.json'),intraday);
+  state=(await f.request('/api/a-share-daily/state')).json();assert.deepEqual(state.stockDesk,desk);assert.deepEqual(state.intraday,intraday);assert.deepEqual(state.attempt,status.attempt);assert.deepEqual(state.lastSuccess,lastSuccess);assert.equal(requests,0);assert.deepEqual(readFileSync(join(f.cache,'current.json')),pointer);
 });
 test('gzip negotiation serves stored bytes and honors explicit q=0',async t=>{
   const f=await fixture(t);f.publish();

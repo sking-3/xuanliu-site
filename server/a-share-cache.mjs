@@ -115,11 +115,11 @@ export function createAShareCache({directory}){
     try{
       const full=await pointer('current.json'),historical=await pointer('historical-current.json',true),published=full||historical;
       if(route==='state'){
-        const status=await readJson(join(directory,'status.json')),retention=await readJson(join(directory,'retention-status.json'));
+        const [status,retention,stockDesk,intraday]=await Promise.all(['status.json','retention-status.json','stock-desk-v1/status.json','intraday-preselection-v1/status.json'].map(file=>readJson(join(directory,file))));
         const summary=value=>value?{generation:value.generation,day:value.day,asOf:value.asOf,finishedAt:value.finishedAt,total:value.total,ready:value.ready,
           ...(value.sourceId?{sourceId:value.sourceId,dataPolicy:value.dataPolicy,coverage:value.coverage,missing:value.missing}:{}),
           ...(value.scope==='historical-sample'?{scope:value.scope,archiveId:value.archiveId,publishedAt:value.publishedAt,sampleCount:value.sampleCount,marketUniverseCount:value.marketUniverseCount,fullMarket:false}:{})}:null;
-        reply(200,{configured:status?.configured===true,schedule:status?.schedule??null,attempt:status?.attempt??null,retention,lastSuccess:summary(published),lastFullSuccess:summary(full),historical:summary(historical),available:Boolean(published),
+        reply(200,{configured:status?.configured===true,schedule:status?.schedule??null,attempt:status?.attempt??null,retention,stockDesk,intraday,lastSuccess:summary(published),lastFullSuccess:summary(full),historical:summary(historical),available:Boolean(published),
           sourceId:published?.sourceId||null,dataPolicy:published?.dataPolicy||null,scope:published?(published.scope||'full-market'):null,sampleCount:published?(published.sampleCount??published.total):null,marketUniverseCount:published?(published.marketUniverseCount??published.total):null,fullMarket:Boolean(full)});return true;
       }
       if(!published&&!requestedGeneration){reply(503,{error:'cache_unavailable'});return true;}
