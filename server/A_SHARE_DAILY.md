@@ -133,7 +133,7 @@ node --test audit/trend-patterns-unit.cjs audit/a-share-daily-unit.mjs audit/a-s
 
 巨潮分页异常可发布 `partial`：只展示逐条核实及已保存的记录，保留缺页原因与未完成查询起点。拒绝访问、记录身份异常等仍停止本来源并保留上次结果。机构调研不等于机构买入。每个自然日最多检查一次公告；发现范围和查询缺页均有单独记录。
 
-14:00任务最多读取20只现有条件股的公开报价，分批最多5只；报价前收必须匹配上轮归档价格基准。仅交易日14:00至14:10接受真实报价，最后日K未收盘、成交量未核实，始终标作未验证观察。14:00、14:03、14:07检查，首次有效同日快照冻结，错过后不补造。原快照 `day/asOf` 不改写，后续观察日期使用 `observationDay/observationGeneration/observationAsOf`。
+14:00任务最多读取20只现有条件股的公开报价，分批最多5只；报价前收必须匹配上轮归档价格基准。仅交易日14:00至14:10接受真实报价，最后日K未收盘、成交量未核实，始终标作未验证观察。14:00、14:03、14:07检查；部分报价未刷新时保存已取得原件，仅补缺项，最后一轮仍缺则明确部分覆盖，首次完成的同日快照冻结，错过后不补造。归档成功而指针写入失败时，后次检查校验原件后恢复发布，不重采。原快照 `day/asOf` 不改写，后续观察日期使用 `observationDay/observationGeneration/observationAsOf`。
 
 ```sh
 install -m 644 server/books-a-share-a14.service server/books-a-share-a14.timer /etc/systemd/system/

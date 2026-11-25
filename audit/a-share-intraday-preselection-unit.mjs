@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp,mkdir,writeFile,readFile,rm} from 'node:fs/promises';
+import {mkdtemp,mkdir,writeFile,readFile,rm,unlink} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {collectIntradayPreselection,recheckIntradayCandidate,parseTencentQuotes,sourceId} from '../server/a-share-intraday-preselection.mjs';
@@ -45,7 +45,7 @@ async function fixture(t,count=6){
  await writeFile(join(raw,'history-all.ndjson'),[{schema:'books.a-share.history.v1',...batch,historyRequested:500,reference:{code:'000300.SH',bars:prices}},...parents.map(stock=>({stock,source:source()}))].map(JSON.stringify).join('\n'));
  let clock=Date.parse(receivedAt);const requests=[],waits=[],calendar={clock:()=>({date:day,time:'140031'}),session:()=>({verified:true,open:true}),latestClosed:()=>({date:historyDay})};
  const fetch=async url=>{requests.push(String(url));const symbols=String(url).split('/q=')[1].split(',');const at=new Date(clock-1000+8*3600000).toISOString().slice(0,19).replace(/[-:T]/g,'');return new Response(symbols.map(symbol=>line(symbol,at)).join('\n'));};
- return {dir,parents,requests,waits,options:{dir,siteDir:process.cwd(),calendar,fetch,now:()=>clock,wait:async ms=>{waits.push(ms);clock+=ms;}}};
+ return {dir,parents,requests,waits,setClock:value=>clock=Date.parse(value),options:{dir,siteDir:process.cwd(),calendar,fetch,now:()=>clock,wait:async ms=>{waits.push(ms);clock+=ms;}}};
 }
 test('collects at most five symbols per request, freezes one cohort, and a second scheduled check makes no requests',async t=>{
  const f=await fixture(t);const first=await collectIntradayPreselection(f.options);assert.equal(first.attempt.status,'complete');assert.equal(f.requests.length,2);assert.equal(f.waits.length,1);assert.equal(f.waits[0],6500);assert.equal(first.lastSuccess.current.length,6);assert(first.lastSuccess.current.every(row=>row.generation===first.lastSuccess.generation));assert(first.lastSuccess.current.every(row=>row.qualified===false&&row.phase==='a14'));assert.equal(new Set(first.lastSuccess.current.map(row=>row.receivedAt)).size,2);
@@ -66,4 +66,42 @@ test('a stale whole first cohort does not freeze an empty day and the next sched
 });
 test('wrong source bindings and future history reads fail before contacting the public quote source',async t=>{
  const f=await fixture(t,1),file=join(f.dir,'generations',generation,'entry-current-v2/report.json'),entry=JSON.parse(await readFile(file));entry.sourceId='other';await writeFile(file,JSON.stringify(entry));const failed=await collectIntradayPreselection(f.options);assert.equal(failed.attempt.status,'failed');assert.equal(f.requests.length,0);
+});
+
+test('a mixed fresh/stale first pass stays private and later requests only retryable stocks without changing first-seen episodes',async t=>{
+ const f=await fixture(t),root=join(f.dir,'intraday-preselection-v1'),target=join(root,'days',day),calls=[];
+ const first=await collectIntradayPreselection({...f.options,fetch:async url=>{
+  const symbols=String(url).split('/q=')[1].split(',');calls.push(symbols);return new Response(symbols.map(symbol=>line(symbol,symbol==='sh600006'?'20261126135959':'20261126140030')).join('\n'));
+ }});assert.equal(first.attempt.status,'waiting_source');assert.equal(first.lastSuccess,null);await assert.rejects(readFile(join(target,'report.json')),/ENOENT/);await assert.rejects(readFile(join(root,'current.json')),/ENOENT/);
+ const staged=JSON.parse(await readFile(join(target,'pending.json'))),firstChart=await readFile(join(target,'charts/600001.SH-60.svg'));assert.equal(staged.completed,false);assert.equal(staged.current.length,5);assert.deepEqual(staged.missing.map(row=>row.code),['600006.SH']);
+ f.setClock(day+'T14:03:01+08:00');const next=await collectIntradayPreselection({...f.options,fetch:async url=>{const symbols=String(url).split('/q=')[1].split(',');calls.push(symbols);return new Response(symbols.map(symbol=>line(symbol,'20261126140300')).join('\n'));}});
+ assert.equal(next.attempt.status,'complete');assert.deepEqual(calls.at(-1),['sh600006']);assert.equal(next.lastSuccess.current.length,6);assert.deepEqual(next.lastSuccess.current.slice(0,5),staged.current);assert.deepEqual(next.lastSuccess.tracks.slice(0,5),staged.tracks);assert.deepEqual(await readFile(join(target,'charts/600001.SH-60.svg')),firstChart);assert(next.lastSuccess.current.every(row=>row.generation===staged.generation));
+});
+
+test('the final 14:07 check can publish real partial rows with missing warnings, then the frozen archive never changes',async t=>{
+ const f=await fixture(t),target=join(f.dir,'intraday-preselection-v1/days',day);let calls=0;
+ const fetch=async url=>{calls++;return new Response(String(url).split('/q=')[1].split(',').map(symbol=>line(symbol,symbol==='sh600006'?'20261126135959':'20261126140030')).join('\n'));};
+ assert.equal((await collectIntradayPreselection({...f.options,fetch})).attempt.status,'waiting_source');const staged=JSON.parse(await readFile(join(target,'pending.json')));
+ f.setClock(day+'T14:07:01+08:00');const last=await collectIntradayPreselection({...f.options,fetch});assert.equal(last.attempt.status,'complete');assert.equal(last.lastSuccess.current.length,5);assert.equal(last.lastSuccess.missing.length,1);assert.equal(last.lastSuccess.missing[0].retryable,true);assert.equal(last.lastSuccess.method.partial,true);assert.match(last.lastSuccess.method.reason,/最后补查.*缺项/);assert.deepEqual(last.lastSuccess.current,staged.current);assert.deepEqual(last.lastSuccess.tracks,staged.tracks);
+ const original=await readFile(join(target,'report.json')),before=calls;await collectIntradayPreselection({...f.options,fetch:()=>{throw Error('must not request after freezing');}});assert.equal(calls,before);assert.deepEqual(await readFile(join(target,'report.json')),original);
+});
+
+test('zero valid rows remain waiting even at the last 14:07 check and never publish a fake empty success',async t=>{
+ const f=await fixture(t,1);f.setClock(day+'T14:07:01+08:00');const result=await collectIntradayPreselection({...f.options,fetch:async()=>new Response(line('sh600001','20261126135959'))});assert.equal(result.attempt.status,'waiting_source');assert.equal(result.lastSuccess,null);await assert.rejects(readFile(join(f.dir,'intraday-preselection-v1/days',day,'report.json')),/ENOENT/);assert.equal(JSON.parse(await readFile(join(f.dir,'intraday-preselection-v1/days',day,'pending.json'))).completed,false);
+});
+
+test('a validated frozen day restores a missing current pointer and failed status without new requests or rewriting the archive',async t=>{
+ const f=await fixture(t,1),root=join(f.dir,'intraday-preselection-v1'),target=join(root,'days',day);const first=await collectIntradayPreselection(f.options),archive=await readFile(join(target,'report.json'));
+ await unlink(join(root,'current.json'));await unlink(join(root,'current.json.gz'));await writeFile(join(root,'status.json'),JSON.stringify({status:'failed',error:'simulated current pointer I/O failure'}));
+ const restored=await collectIntradayPreselection({...f.options,fetch:()=>{throw Error('recovery must stay offline');}});assert.equal(restored.attempt.status,'no_new_snapshot');assert.equal(restored.attempt.requests,0);assert.deepEqual(await readFile(join(root,'current.json')),archive);assert.deepEqual(await readFile(join(target,'report.json')),archive);assert.deepEqual(restored.lastSuccess,first.lastSuccess);assert.equal(JSON.parse(await readFile(join(root,'status.json'))).status,'no_new_snapshot');
+});
+
+test('wrong day, source, cohort identity, history binding or changed frozen episodes cannot be recovered into the published pointer',async t=>{
+ const changes=[report=>report.day=historyDay,report=>report.generation=day+'-1',report=>report.sourceId='wrong-source',report=>report.phase='close',report=>report.historyGeneration='2026-11-25-2',report=>report.computedAt=day+'T14:11:00+08:00',report=>report.current[0].id='wrong',report=>report.current[0].firstSeenAt=day+'T13:59:59+08:00',report=>{report.current[0].state='watch';report.tracks[0].original.state='watch';},report=>report.tracks[0].original.reference.close=12,report=>report.current[0].chartUrls[60]='/private/wrong.svg'];
+ for(const change of changes){const f=await fixture(t,1),root=join(f.dir,'intraday-preselection-v1');await collectIntradayPreselection(f.options);const before=await readFile(join(root,'current.json')),file=join(root,'days',day,'report.json'),report=JSON.parse(await readFile(file));change(report);await writeFile(file,JSON.stringify(report));const bad=await collectIntradayPreselection({...f.options,fetch:()=>{throw Error('invalid recovery must not contact source');}});assert.equal(bad.attempt.status,'failed');assert.equal(bad.attempt.requests,0);assert.deepEqual(await readFile(join(root,'current.json')),before);assert.equal(await readFile(file,'utf8'),JSON.stringify(report));}
+});
+
+test('a source refusal after staging never publishes private partial rows or retries the denied source',async t=>{
+ const f=await fixture(t),root=join(f.dir,'intraday-preselection-v1');await collectIntradayPreselection({...f.options,fetch:async url=>new Response(String(url).split('/q=')[1].split(',').map(symbol=>line(symbol,symbol==='sh600006'?'20261126135959':'20261126140030')).join('\n'))});f.setClock(day+'T14:07:01+08:00');
+ let calls=0;const denied={...f.options,fetch:async()=>{calls++;return new Response('Denied',{status:403});}};const stopped=await collectIntradayPreselection(denied);assert.equal(stopped.attempt.status,'held');assert.equal(stopped.lastSuccess,null);await assert.rejects(readFile(join(root,'days',day,'report.json')),/ENOENT/);const again=await collectIntradayPreselection(denied);assert.equal(again.attempt.status,'held');assert.equal(again.attempt.requests,0);assert.equal(calls,1);assert.equal(JSON.parse(await readFile(join(root,'days',day,'pending.json'))).current.length,5);
 });
