@@ -14,7 +14,7 @@ class Element{
  querySelectorAll(){return [];}
  click(){if(!this.disabled)for(const fn of this.events.click||[])fn({type:'click'});}
 }
-async function fixture(configs=[{name:'已存50%',settings:{minimumBreadth:.5}}]){
+async function fixture(configs=[{name:'已存50%',settings:{minimumBreadth:.5}}],automation={configured:false,attempt:null,lastSuccess:null,available:false}){
  const elements=new Map([...html.matchAll(/<(\w+)[^>]*\bid="([^"]+)"/g)].map(match=>[match[2],new Element(match[1])]));
  const formIds=[...html.slice(html.indexOf('<form id="config-form"'),html.indexOf('</form>')).matchAll(/id="([^"]+)"/g)].map(match=>match[1]);
  elements.get('config-form').querySelectorAll=()=>formIds.map(id=>elements.get(id)).filter(node=>['INPUT','SELECT','BUTTON'].includes(node.tagName));
@@ -29,7 +29,7 @@ async function fixture(configs=[{name:'已存50%',settings:{minimumBreadth:.5}}]
   fetch:async(path,init)=>{
    const body=init.body?JSON.parse(init.body):undefined;requests.push({path,method:init.method,body});let value;
    if(path==='/api/auth/me')value={authenticated:true,user:{role:'admin',displayName:'配置测试'}};
-   else if(path==='/api/a-share-daily/state')value={configured:false,attempt:null,lastSuccess:null,available:false};
+   else if(path==='/api/a-share-daily/state')value=automation;
    else if(path==='/api/research-control/state')value=state;
    else if(path==='/api/research-control/config'){
     assert.equal(body.expectedRevision,state.currentRevision);const config=model.normalizeConfig(body.config),revision=state.currentRevision+1;
@@ -50,6 +50,11 @@ test('the actual console script loads50 percent, saves0.5 after a name edit and 
  f.elements.get('cfg-name').value='只改名称';await f.emit('config-form','input');await f.emit('config-form','submit');
  const save=f.requests.find(request=>request.path.endsWith('/config'));assert.equal(save.body.config.settings.minimumBreadth,.5);assert.equal(f.state.config.settings.minimumBreadth,.5);assert.equal(field.value,'50');assert.equal((await f.exported()).settings.minimumBreadth,.5);
  assert(f.requests.every(request=>request.path.startsWith('/api/')));
+});
+test('source publication delay shows the requested and actual dates without reporting a collection failure',async()=>{
+ const f=await fixture(undefined,{configured:true,schedule:'工作日15:10起每10分钟检查',available:true,lastSuccess:{day:'2026-11-24',ready:3186,total:3460,finishedAt:'2026-11-24T12:30:00Z'},attempt:{day:'2026-11-25',status:'waiting_source',checked:0,total:3460,ready:0,missing:0,requests:1,sourcePending:{requestedDay:'2026-11-25',indices:[{code:'000300.SH',sourceDay:'2026-11-24',fetchedAt:'2026-11-25T07:42:01Z'}]}}});
+ const text=f.elements.get('automation-status').textContent;
+ assert.match(text,/等待来源发布/);assert.match(text,/目标收盘日 2026-11-25/);assert.match(text,/000300.SH 实际截至 2026-11-24/);assert.match(text,/15:42:01/);assert.match(text,/最近完成 2026-11-24/);assert.match(text,/按计划自动检查/);assert.doesNotMatch(text,/本轮.*失败|waiting_source/);assert.equal(f.requests.filter(request=>request.method==='POST').length,0);
 });
 test('loading an older version and importing/exporting configuration preserve its explicit minimum breadth',async()=>{
  const f=await fixture([{name:'历史25%',settings:{minimumBreadth:.25}},{name:'当前80%',settings:{minimumBreadth:.8}}]);assert.equal(f.elements.get('cfg-minimum-breadth').value,'80');
