@@ -7,16 +7,17 @@ const number=value=>Number(value.toFixed(2));
 const validDay=value=>typeof value==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(value)&&Number.isFinite(Date.parse(value+'T00:00:00Z'))&&new Date(value+'T00:00:00Z').toISOString().slice(0,10)===value;
 const validBar=bar=>bar&&validDay(bar.date)&&['open','high','low','close'].every(key=>Number.isFinite(bar[key])&&bar[key]>0)&&Number.isFinite(bar.volume)&&bar.volume>=0&&bar.high>=Math.max(bar.open,bar.close)&&bar.low<=Math.min(bar.open,bar.close)&&bar.high>=bar.low;
 
-function currentChart({stock,bars,item,window}){
+function currentChart({stock,bars,item,window,variant='confirmed-entry'}){
   const width=960,height=540,left=76,right=730,top=84,bottom=330,volumeTop=425,volumeBottom=485;
-  const title=(stock.name||item.name||stock.code)+' · 当前机会日K',parts=[`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-labelledby="title desc"><title id="title">${escape(title)}</title><desc id="desc">以前复权窗口首日收盘归一化；仅显示本次确认C及当日收盘触发观察B，非实际成交，不含历史B/S或波段加减仓回放。</desc><rect width="${width}" height="${height}" fill="#fff"/><g font-family="system-ui,sans-serif" font-size="22" fill="#53636e" style="font-variant-numeric:tabular-nums"><text x="${left}" y="28">${escape(title)}</text>`];
+  const native=variant==='viprasol',description=native?'以前复权窗口首日收盘归一化；仅显示当日原指标多向条件B及原参考位，非实际成交，不含历史B/S回放。':'以前复权窗口首日收盘归一化；仅显示本次确认C及当日收盘触发观察B，非实际成交，不含历史B/S或波段加减仓回放。';
+  const title=(stock.name||item.name||stock.code)+' · 当前机会日K',parts=[`<svg xmlns="http://www.w3.org/2000/svg"${native?' data-normalization="first-close-percent"':''} width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-labelledby="title desc"><title id="title">${escape(title)}</title><desc id="desc">${description}</desc><rect width="${width}" height="${height}" fill="#fff"/><g font-family="system-ui,sans-serif" font-size="22" fill="#53636e" style="font-variant-numeric:tabular-nums"><text x="${left}" y="28">${escape(title)}</text>`];
   const valid=Array.isArray(bars)&&bars.length>=20&&bars.every((bar,index)=>validBar(bar)&&(!index||bar.date>bars[index-1].date))&&bars.at(-1).date===item.day&&bars.at(-1).close===item.closePrice;
   const formation=valid&&bars.find(bar=>bar.date===item.formationDay),key=valid&&bars.find(bar=>bar.date===item.keyBarDay);
-  const bound=valid&&stock.code===item.code&&validDay(item.formationDay)&&validDay(item.keyBarDay)&&item.keyBarDay>item.formationDay&&item.keyBarDay<=item.day&&key&&formation&&item.trigger?.above===key.high&&item.invalidation?.below===formation.low&&item.trigger.above>item.invalidation.below;
+  const bound=valid&&stock.code===item.code&&(native?item.eligibleForSelection===true&&item.actualFillVerified===false&&item.familyId==='viprasol-original-long-next-open-13'&&item.stage==='source_today_long_close'&&item.signalDay===item.day:validDay(item.formationDay)&&validDay(item.keyBarDay)&&item.keyBarDay>item.formationDay&&item.keyBarDay<=item.day&&key&&formation&&item.trigger?.above===key.high&&item.invalidation?.below===formation.low&&item.trigger.above>item.invalidation.below);
   if(!bound){parts.push(`<text x="${left}" y="100">当前日线或关键K参考位未完整对齐，暂不绘制。</text></g></svg>`);return parts.join('');}
   const start=Math.max(0,bars.length-window),view=bars.slice(start),base=view[0].close,pct=value=>(value/base-1)*100,percent=value=>(pct(value)>0?'+':'')+pct(value).toFixed(2)+'%',step=(right-left)/view.length,x=index=>left+step*(index+.5);
   const averages=[5,20].map(period=>({period,values:bars.map((bar,index)=>index+1<period?null:bars.slice(index+1-period,index+1).reduce((sum,row)=>sum+row.close,0)/period)}));
-  const levels=[{kind:'trigger',label:'触发',price:item.trigger.above,color:'#286178'},{kind:'invalidation',label:'失效',price:item.invalidation.below,color:'#a45045'},{kind:'close',label:'收盘',price:item.closePrice,color:'#68767d'}];
+  const levels=(native?[{kind:'entry',label:'B参考',price:item.originalReference?.entry,color:'#286178'},{kind:'invalidation',label:'失效',price:item.originalReference?.stop,color:'#a45045'},{kind:'target',label:'原目标',price:item.originalReference?.target,color:'#16816e'},{kind:'close',label:'收盘',price:item.closePrice,color:'#68767d'}]:[{kind:'trigger',label:'触发',price:item.trigger.above,color:'#286178'},{kind:'invalidation',label:'失效',price:item.invalidation.below,color:'#a45045'},{kind:'close',label:'收盘',price:item.closePrice,color:'#68767d'}]).filter(level=>Number.isFinite(level.price));
   const values=[...view.flatMap(bar=>[pct(bar.low),pct(bar.high)]),...levels.map(level=>pct(level.price))];
   for(const average of averages)for(const value of average.values.slice(start))if(value!==null)values.push(pct(value));
   const minimum=Math.min(...values),maximum=Math.max(...values),span=Math.max(maximum-minimum,1),low=minimum-span*.14,high=maximum+span*.14,y=price=>bottom-(pct(price)-low)/(high-low)*(bottom-top);
@@ -41,8 +42,8 @@ function currentChart({stock,bars,item,window}){
     const yy=number(line.yy),labelY=number(line.labelY-overflow);
     parts.push(`<g data-level="${line.kind}"><path d="M${left} ${yy}H${right}" stroke="${line.color}" stroke-dasharray="${line.kind==='close'?'2 4':'6 4'}"/><path d="M${right} ${yy}L748 ${labelY}" stroke="${line.color}" fill="none"/><text x="754" y="${number(labelY+8)}" fill="${line.color}" font-size="24">${line.label} ${percent(line.price)}</text></g>`);
   }
-  const markers=[{kind:'C',day:item.keyBarDay,label:'本次收盘确认观察'}];
-  if(item.stage==='triggered_at_close'&&item.closePrice>item.trigger.above&&bars.at(-1).low>=item.invalidation.below)markers.push({kind:'B',day:item.day,label:'当日收盘触发观察'});
+  const markers=native?[{kind:'B',day:item.day,label:'当日原始多向条件收盘成立'}]:[{kind:'C',day:item.keyBarDay,label:'本次收盘确认观察'}];
+  if(!native&&item.stage==='triggered_at_close'&&item.closePrice>item.trigger.above&&bars.at(-1).low>=item.invalidation.below)markers.push({kind:'B',day:item.day,label:'当日收盘触发观察'});
   const positions=[];
   for(const marker of markers){
     const index=view.findIndex(bar=>bar.date===marker.day);if(index<0)continue;
@@ -61,6 +62,18 @@ export async function writeCurrentChart({directory,stock,bars,item}){
   await mkdir(directory,{recursive:true});
   for(const window of [60,120]){
     const file=join(directory,stock.code+'-'+item.formationDay+'-'+window+'.svg'),body=currentChart({stock,bars,item,window});
+    await writeFile(file+'.tmp',body);await rename(file+'.tmp',file);
+    await writeFile(file+'.gz.tmp',gzipSync(body));await rename(file+'.gz.tmp',file+'.gz');
+  }
+}
+
+/** Independent native-long family: no invented formation/confirmation candle. */
+export async function writeViprasolCurrentChart({directory,stock,bars,item,paths}){
+  if(!/^[a-z0-9-]+$/.test(item.ruleId||'')||item.eligibleForSelection!==true||item.familyId!=='viprasol-original-long-next-open-13'||item.actualFillVerified!==false||item.stage!=='source_today_long_close'||item.signalDay!==item.day||stock.code!==item.code||!Array.isArray(bars)||bars.length<20||!bars.every((bar,index)=>validBar(bar)&&(!index||bar.date>bars[index-1].date))||bars.at(-1).date!==item.day||bars.at(-1).close!==item.closePrice)throw Error('当前原指标B图缺少同日合格证据');
+  for(const window of [60,120])if(paths?.[window]!==item.ruleId+'-'+stock.code+'-'+item.day+'-'+window+'.svg')throw Error('当前原指标B图路径未绑定规则、股票和日期');
+  await mkdir(directory,{recursive:true});
+  for(const window of [60,120]){
+    const file=join(directory,paths[window]),body=currentChart({stock,bars,item,window,variant:'viprasol'});
     await writeFile(file+'.tmp',body);await rename(file+'.tmp',file);
     await writeFile(file+'.gz.tmp',gzipSync(body));await rename(file+'.gz.tmp',file+'.gz');
   }

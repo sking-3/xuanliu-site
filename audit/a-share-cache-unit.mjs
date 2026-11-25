@@ -8,6 +8,7 @@ import {createRequire} from 'node:module';
 import {gzipSync,gunzipSync} from 'node:zlib';
 import vm from 'node:vm';
 import {createApp} from '../server/server.mjs';
+import {version as viprasolStudyVersion,familyId as viprasolFamilyId,sourceCommit as viprasolSourceCommit,definitions as viprasolRules} from '../server/a-share-viprasol-study.mjs';
 
 const generation='2026-11-20T173000Z-1795195800000';
 const lastSuccess={generation,day:'2026-11-20',asOf:'2026-11-20T08:15:00Z',finishedAt:'2026-11-20T09:35:00Z',total:120,ready:119};
@@ -272,4 +273,48 @@ test('independent entry statistics require their own completed version and remai
   assert.equal((await f.request('/api/a-share-daily/entry-validation?generation=2026-11-23')).status,404);
   assert.equal((await f.request('/api/a-share-daily/entry-validation?mode=market')).status,400);assert.equal((await f.request('/api/a-share-daily/entry-validation',{},'POST')).status,405);
   assert.equal(readFileSync(join(f.cache,'current.json'),'utf8'),before);
+});
+
+test('Viprasol reports stay bound to the completed source batch, frozen family and implementation',async t=>{
+  const f=await fixture(t);f.publish();
+  const implementationCommit='a'.repeat(40),marker={...lastSuccess,sourceId:'tickflow-free-forward-v1',dataPolicy:{rawPublic:false,derivedPublic:true},viprasolStudyVersion,viprasolImplementationCommit:implementationCommit,completed:true};
+  const location=join(f.cache,'generations',generation),file=join(location,'viprasol-study-v1','report.json');
+  writeJson(join(location,'complete.json'),marker);
+  const value={schema:'books.a-share.viprasol-study.v1',version:viprasolStudyVersion,familyId:viprasolFamilyId,sourceCommit:viprasolSourceCommit,implementationCommit,generation,sourceId:marker.sourceId,day:marker.day,asOf:marker.asOf,completed:true,datasetBound:true,rules:viprasolRules.map(rule=>({id:rule.id,eligibleForSelection:false})),current:[],charts:[],summary:{effectiveCount:0}};
+  assert.equal((await f.request('/api/a-share-daily/viprasol-study')).status,503);
+  writeJson(file,value);const before=readFileSync(join(f.cache,'current.json'),'utf8');
+  t.mock.method(globalThis,'fetch',()=>{throw Error('cache reads must not collect');});
+  const response=await f.request('/api/a-share-daily/viprasol-study');assert.equal(response.status,200);assert.equal(response.json().liveQualifiedCurrentCount,0);assert.deepEqual(response.json().rules,value.rules);assert.ok(Number.isFinite(Date.parse(response.json().servedAt)));
+  writeFileSync(file+'.gz',gzipSync(JSON.stringify(value)));unlinkSync(file);
+  assert.equal((await f.request('/api/a-share-daily/viprasol-study')).status,200);
+  for(const field of ['schema','version','familyId','sourceCommit','implementationCommit','generation','sourceId','day','asOf','completed','datasetBound']){
+    writeJson(file,{...value,[field]:'different'});const invalid=await f.request('/api/a-share-daily/viprasol-study');assert.equal(invalid.status,503,field);assert.equal(invalid.json().error,'viprasol_study_mismatch',field);
+  }
+  writeJson(file,{...value,rules:[...value.rules.slice(1),value.rules[1]]});assert.equal((await f.request('/api/a-share-daily/viprasol-study')).status,503);
+  for(const route of ['dataset','market'])assert.equal((await f.request('/api/a-share-daily/'+route)).status,403);
+  assert.equal((await f.request('/api/a-share-daily/viprasol-study?mode=market')).status,400);
+  assert.equal(readFileSync(join(f.cache,'current.json'),'utf8'),before);
+});
+
+test('Viprasol charts expose only current qualified source-day B markers and stop serving expired opportunities',async t=>{
+  const f=await fixture(t);f.publish();
+  const implementationCommit='b'.repeat(40),marker={...lastSuccess,sourceId:'tickflow-free-forward-v1',viprasolStudyVersion,viprasolImplementationCommit:implementationCommit,completed:true};
+  const location=join(f.cache,'generations',generation,'viprasol-study-v1'),file=join(location,'report.json'),ruleId=viprasolRules[0].id,code='600000.SH',leaf=ruleId+'-'+code+'-'+marker.day+'-60.svg';
+  writeJson(join(f.cache,'generations',generation,'complete.json'),marker);
+  const item={familyId:viprasolFamilyId,ruleId,code,generation,sourceId:marker.sourceId,day:marker.day,signalDay:marker.day,asOf:marker.asOf,stage:'source_today_long_close',actualFillVerified:false,eligibleForSelection:true,activeUntil:'2099-01-01T01:30:00Z',charts:{60:leaf}};
+  const value={schema:'books.a-share.viprasol-study.v1',version:viprasolStudyVersion,familyId:viprasolFamilyId,sourceCommit:viprasolSourceCommit,implementationCommit,generation,sourceId:marker.sourceId,day:marker.day,asOf:marker.asOf,completed:true,datasetBound:true,rules:viprasolRules.map(rule=>({id:rule.id,eligibleForSelection:rule.id===ruleId,statisticalGatePassed:rule.id===ruleId,nativeGate:{passed:rule.id===ruleId}})),current:[item],charts:[{ruleId,code,day:marker.day,generation,sourceId:marker.sourceId,asOf:marker.asOf,window:60,path:leaf}]};
+  writeJson(file,value);writeFileSync(join(location,leaf),'<svg data-normalization="first-close-percent">B</svg>');writeFileSync(join(location,leaf+'.gz'),gzipSync(readFileSync(join(location,leaf))));
+  const route='/api/a-share-daily/viprasol-current-chart?generation='+generation+'&rule='+ruleId+'&code='+code+'&window=60';
+  const report=(await f.request('/api/a-share-daily/viprasol-study')).json();assert.equal(report.liveQualifiedCurrentCount,1);assert.equal(report.current[0].liveEligibleForSelection,true);
+  const chart=await f.request(route,{'accept-encoding':'gzip'});assert.equal(chart.status,200);assert.match(chart.headers['content-type'],/image\/svg/);assert.match(gunzipSync(chart.body).toString(),/>B</);
+  for(const patch of [{activeUntil:'2026-01-01T00:00:00Z'},{activeUntil:null},{eligibleForSelection:false}]){
+    writeJson(file,{...value,current:[{...item,...patch}]});assert.equal((await f.request(route)).status,404);assert.equal((await f.request('/api/a-share-daily/viprasol-study')).json().liveQualifiedCurrentCount,0);
+  }
+  for(const patch of [{signalDay:'2026-11-19'},{actualFillVerified:true},{generation:'2026-11-19'},{familyId:'original-sixteen'}]){
+    writeJson(file,{...value,current:[{...item,...patch}]});assert.equal((await f.request(route)).status,503);
+  }
+  writeJson(file,{...value,charts:[{...value.charts[0],path:'unrelated.svg'}]});assert.equal((await f.request(route)).status,404);
+  writeJson(file,{...value,rules:value.rules.map(rule=>({...rule,nativeGate:{passed:false}}))});assert.equal((await f.request(route)).status,503);
+  for(const tail of ['&code='+code,'&window=30','&setup=0'])assert.equal((await f.request(route+tail)).status,400);
+  assert.equal((await f.request(route.replace(ruleId,'unknown-rule'))).status,400);
 });

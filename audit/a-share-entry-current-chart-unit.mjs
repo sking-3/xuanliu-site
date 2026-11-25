@@ -4,7 +4,7 @@ import {mkdtemp,readFile,readdir,rm} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {gunzipSync} from 'node:zlib';
-import {writeCurrentChart} from '../server/a-share-entry-current-chart.mjs';
+import {writeCurrentChart,writeViprasolCurrentChart} from '../server/a-share-entry-current-chart.mjs';
 
 function calendar(count){const days=[];for(let time=Date.UTC(2024,0,1);days.length<count;time+=86400000){const date=new Date(time);if(date.getUTCDay()!==0&&date.getUTCDay()!==6)days.push(date.toISOString().slice(0,10));}return days;}
 const candle=(date,changes={})=>({date,open:100,high:101,low:99,close:100,volume:1000,...changes});
@@ -61,4 +61,30 @@ test('only the two requested SVGs and matching atomic gzip artifacts are written
     const files=await readdir(directory);assert.equal(files.length,4);assert(files.every(file=>file.endsWith('.svg')||file.endsWith('.svg.gz')));
     for(const window of [60,120]){const file=join(directory,input.stock.code+'-'+input.item.formationDay+'-'+window+'.svg');assert.deepEqual(gunzipSync(await readFile(file+'.gz')),await readFile(file));}
   });
+});
+
+function nativeFixture(){
+  const {stock,bars}=fixture(),day=bars.at(-1).date,ruleId='tyson';
+  return {stock,bars,item:{code:stock.code,name:stock.name,day,signalDay:day,ruleId,familyId:'viprasol-original-long-next-open-13',stage:'source_today_long_close',eligibleForSelection:true,actualFillVerified:false,closePrice:bars.at(-1).close,originalReference:{entry:104,stop:null,target:null}},paths:Object.fromEntries([60,120].map(window=>[window,ruleId+'-'+stock.code+'-'+day+'-'+window+'.svg']))};
+}
+
+test('native current chart marks only the source-day B without inventing C, historical signals or missing levels',async t=>{
+  const input=nativeFixture(),directory=await mkdtemp(join(tmpdir(),'books-native-current-chart-'));t.after(()=>rm(directory,{recursive:true,force:true}));
+  await writeViprasolCurrentChart({directory,...input});
+  for(const window of [60,120]){
+    const file=join(directory,input.paths[window]),image=await readFile(file,'utf8');
+    assert.equal([...image.matchAll(/data-kind="B"/g)].length,1);assert(image.includes('data-day="'+input.item.day+'" data-kind="B"'));
+    assert.doesNotMatch(image,/data-kind="(?:C|S|ADD|REDUCE|INVALID)"|data-level="(?:invalidation|target)"|NaN|Infinity/);
+    assert.match(image,/data-level="entry"/);assert.match(image,/data-normalization="first-close-percent"/);
+    assert.equal([...image.matchAll(/data-candle-day=/g)].length,window);
+    assert.doesNotMatch(image,/"(?:open|high|low|close|volume|bars)":|data-(?:open|high|low|close|volume)=/);
+    assert.deepEqual(gunzipSync(await readFile(file+'.gz')),await readFile(file));
+  }
+});
+
+test('native chart rejects unqualified, stale-source, mismatched price or unbound path inputs',async t=>{
+  const input=nativeFixture(),directory=await mkdtemp(join(tmpdir(),'books-native-current-reject-'));t.after(()=>rm(directory,{recursive:true,force:true}));
+  for(const item of [{...input.item,eligibleForSelection:false},{...input.item,actualFillVerified:true},{...input.item,signalDay:input.bars.at(-2).date},{...input.item,closePrice:105},{...input.item,familyId:'fixed-16'}])await assert.rejects(writeViprasolCurrentChart({directory,...input,item}),/同日合格证据/);
+  await assert.rejects(writeViprasolCurrentChart({directory,...input,paths:{60:'other.svg',120:input.paths[120]}}),/路径未绑定/);
+  assert.deepEqual(await readdir(directory),[]);
 });
