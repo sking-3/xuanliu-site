@@ -5,12 +5,14 @@ import {closeCandidateVersion} from './a-share-entry-current.mjs';
 import {currentEntryDirectory} from './a-share-entry-current-precompute.mjs';
 import {entryPolicyVersion} from './a-share-entry-bars.mjs';
 import {entryValidationVersion} from './a-share-entry-validation.mjs';
+import {version as viprasolStudyVersion,familyId as viprasolFamilyId,definitions as viprasolRules,sourceCommit as viprasolSourceCommit} from './a-share-viprasol-study.mjs';
 
 const prefix='/api/a-share-daily/';
 const modes=new Set(['consensus','market','strength']);
 const samples=new Set(['120','240','all']);
 const benchmarks=new Set(['000300.SH','000001.SH','399001.SZ']);
 const generationPattern=/^[0-9TZ-]{1,80}$/;
+const viprasolDirectory='viprasol-study-v1',viprasolIds=new Set(viprasolRules.map(rule=>rule.id));
 
 async function readJson(file){
   try{return await readStoredJson(file);}
@@ -57,8 +59,8 @@ export function createAShareCache({directory}){
     const reply=(status,value)=>json(res,status,value,{'cache-control':'no-cache'});
     if(req.method!=='GET'){reply(405,{error:'method_not_allowed'});return true;}
     const route=path.slice(prefix.length),params=url.searchParams;
-    if(!['state','result','dataset','market','patterns','entries','entry-chart','coverage','entry-validation','signals','signal-chart','entry-current','entry-current-chart'].includes(route)){reply(404,{error:'not_found'});return true;}
-    const allowed=route==='state'?[]:route==='result'?['mode','lookback','sampleSize','benchmark','generation']:route==='dataset'?['sampleSize','benchmark','generation']:['entries','signals'].includes(route)?['generation','code']:route==='entry-chart'?['generation','code','setup']:route==='signal-chart'?['generation','code','window']:route==='entry-current-chart'?['generation','code','setup','window']:['generation'];
+    if(!['state','result','dataset','market','patterns','entries','entry-chart','coverage','entry-validation','signals','signal-chart','entry-current','entry-current-chart','viprasol-study','viprasol-current-chart'].includes(route)){reply(404,{error:'not_found'});return true;}
+    const allowed=route==='state'?[]:route==='result'?['mode','lookback','sampleSize','benchmark','generation']:route==='dataset'?['sampleSize','benchmark','generation']:['entries','signals'].includes(route)?['generation','code']:route==='entry-chart'?['generation','code','setup']:route==='signal-chart'?['generation','code','window']:route==='entry-current-chart'?['generation','code','setup','window']:route==='viprasol-current-chart'?['generation','code','rule','window']:['generation'];
     if(!validQuery(params,allowed)){reply(400,{error:'invalid_query'});return true;}
     const requestedGeneration=params.get('generation');
     if(requestedGeneration!==null&&!generationPattern.test(requestedGeneration)){reply(400,{error:'invalid_generation'});return true;}
@@ -83,6 +85,10 @@ export function createAShareCache({directory}){
       const code=params.get('code'),setup=params.get('setup'),window=params.get('window')||'60';
       if(!/^\d{6}\.(SH|SZ)$/.test(code||'')||!/^\d{4}-\d{2}-\d{2}$/.test(setup||'')||!['60','120'].includes(window)){reply(400,{error:'invalid_query'});return true;}
       filename=join(currentEntryDirectory,code+'-'+setup+'-'+window+'.svg');
+    }else if(route==='viprasol-current-chart'){
+      if(!/^\d{6}\.(SH|SZ)$/.test(params.get('code')||'')||!viprasolIds.has(params.get('rule'))||!['60','120'].includes(params.get('window')||'60')){reply(400,{error:'invalid_query'});return true;}
+    }else if(route==='viprasol-study'){
+      filename=join(viprasolDirectory,'report.json');
     }else filename=route==='entry-current'?join(currentEntryDirectory,'report.json'):route==='patterns'?'pattern-regimes.json':route==='entry-validation'?'entry-validation.json':route==='coverage'?'coverage.json':'market.json';
     try{
       const full=await pointer('current.json'),historical=await pointer('historical-current.json',true),published=full||historical;
@@ -99,6 +105,20 @@ export function createAShareCache({directory}){
       if(!completed){reply(requestedGeneration?404:503,{error:'generation_unavailable'});return true;}
       if(completed.completion.dataPolicy?.rawPublic===false&&['dataset','market'].includes(route)){reply(403,{error:route==='dataset'?'source_policy_raw_export_disabled':'source_policy_raw_market_disabled'});return true;}
       if(route==='market'&&completed.completion.scope==='historical-sample'){reply(503,{error:'historical_market_unavailable'});return true;}
+      if(route==='viprasol-study'||route==='viprasol-current-chart'){
+        const value=await readJson(join(completed.location,viprasolDirectory,'report.json')),marker=completed.completion;
+        if(!value){reply(503,{error:'viprasol_study_unavailable'});return true;}
+        if(value.schema!=='books.a-share.viprasol-study.v1'||value.version!==viprasolStudyVersion||value.familyId!==viprasolFamilyId||value.sourceCommit!==viprasolSourceCommit||marker.viprasolStudyVersion!==value.version||marker.viprasolImplementationCommit!==value.implementationCommit||value.completed!==true||value.datasetBound!==true||value.generation!==generation||value.sourceId!==marker.sourceId||value.day!==marker.day||value.asOf!==marker.asOf||!Array.isArray(value.rules)||value.rules.length!==viprasolIds.size||new Set(value.rules.map(rule=>rule.id)).size!==viprasolIds.size||value.rules.some(rule=>!viprasolIds.has(rule.id))||!Array.isArray(value.current)||!Array.isArray(value.charts)||value.current.some(item=>item.familyId!==viprasolFamilyId||!viprasolIds.has(item.ruleId)||item.generation!==generation||item.sourceId!==marker.sourceId||item.day!==marker.day||item.signalDay!==marker.day||item.asOf!==marker.asOf||item.stage!=='source_today_long_close'||item.actualFillVerified!==false||item.eligibleForSelection===true&&(!/^[a-f0-9]{40}$/.test(value.implementationCommit||'')||!value.rules.some(rule=>rule.id===item.ruleId&&rule.eligibleForSelection===true&&rule.statisticalGatePassed===true&&rule.nativeGate?.passed===true)))){
+          reply(503,{error:'viprasol_study_mismatch'});return true;
+        }
+        const now=Date.now(),live=value.current.filter(item=>item.eligibleForSelection===true&&Number.isFinite(Date.parse(item.activeUntil))&&Date.parse(item.activeUntil)>now);
+        if(route==='viprasol-study'){reply(200,{...value,servedAt:new Date(now).toISOString(),liveQualifiedCurrentCount:live.length,current:value.current.map(item=>({...item,liveEligibleForSelection:live.includes(item)}))});return true;}
+        const item=live.find(item=>item.code===params.get('code')&&item.ruleId===params.get('rule')),window=Number(params.get('window')||'60');
+        const chart=item&&value.charts.find(chart=>chart.ruleId===item.ruleId&&chart.code===item.code&&chart.day===marker.day&&chart.generation===generation&&chart.sourceId===marker.sourceId&&chart.asOf===marker.asOf&&chart.window===window);
+        const expected=item&&item.ruleId+'-'+item.code+'-'+item.day+'-'+window+'.svg';
+        if(!chart||chart.path!==expected||item.charts?.[window]!==expected){reply(404,{error:'viprasol_current_chart_unavailable'});return true;}
+        filename=join(viprasolDirectory,expected);
+      }
       if(route==='entry-current'||route==='entry-current-chart'){
         const value=await readJson(join(completed.location,currentEntryDirectory,'report.json')),marker=completed.completion;
         if(!value){reply(503,{error:'current_entry_unavailable'});return true;}
@@ -144,7 +164,7 @@ export function createAShareCache({directory}){
       let body;
       try{body=compressed?await readFile(join(completed.location,filename+'.gz')):await readStoredFile(join(completed.location,filename));}
       catch(error){if(error.code==='ENOENT'){reply(503,{error:'cache_unavailable'});return true;}throw error;}
-      res.writeHead(200,{'content-type':['entry-chart','signal-chart','entry-current-chart'].includes(route)?'image/svg+xml; charset=utf-8':'application/json; charset=utf-8','cache-control':'no-cache','vary':'Accept-Encoding',...(compressed?{'content-encoding':'gzip'}:{})});
+      res.writeHead(200,{'content-type':['entry-chart','signal-chart','entry-current-chart','viprasol-current-chart'].includes(route)?'image/svg+xml; charset=utf-8':'application/json; charset=utf-8','cache-control':'no-cache','vary':'Accept-Encoding',...(compressed?{'content-encoding':'gzip'}:{})});
       res.end(body);
     }catch{reply(503,{error:'cache_read_failed'});}
     return true;
