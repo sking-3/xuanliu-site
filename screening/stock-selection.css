@@ -24,6 +24,7 @@
 .stock-desk-filters { display:grid; grid-template-columns:minmax(110px,.8fr) minmax(140px,1fr) minmax(140px,1fr) minmax(170px,1.3fr); gap:12px; min-width:0; margin:0; padding:0; border:0; }
 .stock-desk-filters label { display:flex; flex-direction:column; gap:6px; min-width:0; color:var(--content-muted); font-size:12px; font-weight:600; }
 .stock-desk-source { margin:14px 0 0; color:var(--content-muted); font-size:11px; line-height:1.6; overflow-wrap:anywhere; }
+.stock-desk-market-position { margin:10px 0 0; color:var(--content-ink); font-size:12px; line-height:1.7; }
 .stock-desk-error { margin:12px 0 0; color:#a43b42; font-size:13px; line-height:1.6; }
 .stock-desk-panel { min-width:0; margin-top:18px; padding-top:16px; border-top:1px solid var(--content-divider); }
 .stock-desk-result-bar { display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:24px; margin-bottom:10px; color:var(--content-muted); font-size:12px; }
@@ -39,17 +40,32 @@
 .stock-desk-stock { display:flex; align-items:baseline; flex-wrap:wrap; gap:4px 9px; min-width:0; }
 .stock-desk-stock h2 { margin:0; color:var(--content-ink); font-size:16px; font-weight:600; line-height:1.5; }
 .stock-desk-stock > span { color:var(--content-muted); font-size:12px; }
-.stock-desk-stage { flex:0 0 auto; color:var(--content-accent); font-size:12px; line-height:24px; }
+.stock-desk-stage { max-width:60%; color:var(--content-accent); font-size:12px; line-height:1.7; text-align:right; }
 .stock-desk-reason { margin:8px 0 12px; color:var(--content-muted); font-size:12px; line-height:1.6; }
+.stock-desk-position { margin:0 0 12px; color:var(--content-muted); font-size:12px; line-height:1.7; }
+.stock-desk-plan { margin:0 0 14px; padding:10px 0; border-block:1px solid var(--content-divider); }
+.stock-desk-plan h3 { margin:0 0 7px; color:var(--content-ink); font-size:12px; font-weight:600; }
+.stock-desk-plan-levels { display:flex; flex-wrap:wrap; gap:8px 20px; margin:0; }
+.stock-desk-plan-levels > div { min-width:0; }
+.stock-desk-plan-levels dt { color:var(--content-muted); font-size:11px; }
+.stock-desk-plan-levels dd { margin:3px 0 0; color:var(--content-ink); font-size:13px; font-weight:600; }
+.stock-desk-plan > p { margin:8px 0 0; color:var(--content-muted); font-size:11px; line-height:1.7; }
 .stock-desk-chart { min-width:0; }
 .stock-desk-chart:empty { display:none; }
 .stock-desk-chart :is(img,svg) { display:block; width:100%; height:auto; }
+.stock-desk-chart > label { display:flex; align-items:center; justify-content:flex-end; gap:8px; margin-bottom:8px; color:var(--content-muted); font-size:12px; }
+.stock-desk-chart > label > select { width:auto; max-width:calc(100% - 45px); }
+.stock-desk-chart-note { margin:6px 0 0; color:var(--content-muted); font-size:11px; line-height:1.7; }
 .stock-desk-card-source { margin:9px 0 0; color:var(--content-muted); font-size:11px; line-height:1.6; overflow-wrap:anywhere; }
 .stock-desk-inline { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; margin-top:14px; padding-top:10px; border-top:1px solid var(--content-divider); }
 .stock-desk-inline details { min-width:0; }
 .stock-desk-inline summary { min-height:44px; padding:10px 0; color:var(--content-accent); font-size:13px; cursor:pointer; }
 .stock-desk-inline details > div { padding:4px 0 10px; color:var(--content-muted); font-size:12px; line-height:1.7; }
 .stock-desk-inline a { color:var(--content-accent); text-underline-offset:3px; }
+.stock-desk-analogue svg { display:block; width:100%; height:auto; margin:8px 0; }
+.stock-desk-analogue table { width:100%; border-collapse:collapse; font-size:11px; font-variant-numeric:tabular-nums; }
+.stock-desk-analogue :is(th,td) { padding:5px 3px; border-bottom:1px solid var(--content-divider); text-align:right; }
+.stock-desk-analogue :is(th,td):first-child { padding-left:0; text-align:left; }
 .stock-desk-track-table { width:100%; border-collapse:collapse; font-size:13px; font-variant-numeric:tabular-nums; }
 .stock-desk-track-table :is(th,td) { padding:11px 8px; border-bottom:1px solid var(--content-divider); text-align:left; vertical-align:top; }
 .stock-desk-track-table th { color:var(--content-muted); font-size:12px; font-weight:600; }
