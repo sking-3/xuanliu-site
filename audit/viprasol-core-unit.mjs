@@ -71,6 +71,38 @@ test('Tyson uses the inclusive double-size past window, current ATR and the orig
   const bearish = spring(); bearish[40].open = 110; assert.equal(evaluateIndicator('tyson', bearish).signals.some(s => s.index === 40), false);
 });
 
+test('Tyson previous-window series preserve native NA masks at compLen-1 and twice-compLen-1', () => {
+  const bars = Array.from({length: 25}, (_, index) => bar(index));
+  const trace = evaluateIndicator('tyson', bars, {}, {auditTrace: true}).auditTrace;
+  assert.ok(trace.slice(0, 9).every(row => row.compHigh === null && row.compLow === null));
+  assert.equal(trace[9].compHigh, 101);
+  assert.equal(trace[9].compLow, 99);
+  assert.ok(trace.slice(0, 19).every(row => row.wideRange === null));
+  assert.equal(trace[19].wideRange, 2);
+  assert.ok(trace.slice(0, 13).every(row => row.atr === null));
+  assert.equal(trace[13].atr, 2);
+});
+
+test('ATR-ready bars cannot emit compression or an early B before the wide window is ready', () => {
+  const bars = [
+    bar(0, {open: 10, high: 20, low: 0, close: 10}),
+    ...[1, 2, 3].map(index => bar(index, {open: 10, high: 11, low: 9, close: 10})),
+    bar(4, {open: 10, high: 20, low: 9, close: 19}),
+    bar(5, {open: 19, high: 20, low: 18, close: 19}),
+  ];
+  const result = evaluateIndicator('tyson', bars, {compLen: 3, atrLen: 3}, {auditTrace: true});
+  assert.ok(result.auditTrace.slice(2).every(row => row.atr !== null));
+  assert.equal(result.auditTrace[4].compHigh, 11);
+  assert.equal(result.auditTrace[4].compLow, 9);
+  assert.equal(result.auditTrace[4].wideRange, null);
+  assert.equal(result.auditTrace[4].release, true);
+  assert.equal(result.auditTrace[4].compressed, false);
+  assert.equal(result.auditTrace[4].signalLong, false);
+  assert.equal(result.auditTrace[5].wideRange, 20);
+  assert.equal(result.plots[0].values[4], null);
+  assert.deepEqual(result.signals, []);
+});
+
 test('the cooldown is strictly greater than fifteen, while oneAtATime keeps an unexpired zone blocking', () => {
   assert.deepEqual(evaluateIndicator('tyson', spring(55), {oneAtATime: false}).signals.map(s => s.index), [40]);
   assert.deepEqual(evaluateIndicator('tyson', spring(56), {oneAtATime: false}).signals.map(s => s.index), [40, 56]);

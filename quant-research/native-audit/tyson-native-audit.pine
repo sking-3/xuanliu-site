@@ -111,11 +111,12 @@ if barstate.islast
 
 // AUDIT APPENDIX ONLY. Original source bytes above are unchanged.
 // Upstream a16096c1f2ba5ba5d4b8df97ff60ce8b4ce084d0, MPL-2.0.
-// No native compile/export has been verified. Logs are auxiliary, not native CSV.
+// No native compile/capture has been verified. Preserve actual logs as .txt, not CSV.
 auditLogs = input.bool(false, "Enable audit Pine Logs", group="Native audit")
 auditLogFrom = input.time(0, "Log from bar opening time", group="Native audit")
 auditLogUntil = input.time(4102444800000, "Log until bar opening time", group="Native audit")
 var int auditFirstTime = time
+var int auditFirstBarIndex = bar_index
 
 plot(time, "audit.time_ms", display=display.data_window, precision=0)
 plot(time_close, "audit.close_time_ms", display=display.data_window, precision=0)
@@ -153,8 +154,12 @@ plot(openTrades, "audit.active_before", display=display.data_window, precision=0
 plot(array.size(tTPl), "audit.active_after", display=display.data_window, precision=0)
 
 auditNumber(float value) => na(value) ? "na" : str.tostring(value, "0.################")
+auditLastSigBefore = nz(lastSig[1], -100000)
+auditCooldownAllowed = (bar_index - auditLastSigBefore) > sigGap
 if auditLogs and barstate.isfirst
-    log.info("AUDIT_META|source=a16096c1f2ba5ba5d4b8df97ff60ce8b4ce084d0|indicator=tyson|symbol=" + syminfo.tickerid + "|timeframe=" + timeframe.period + "|exchange_timezone=" + syminfo.timezone + "|session=" + syminfo.session + "|seed_ms=" + str.tostring(auditFirstTime) + "|mintick=" + auditNumber(syminfo.mintick))
+    log.info("AUDIT_META|format=tyson-native-log-v2|source=a16096c1f2ba5ba5d4b8df97ff60ce8b4ce084d0|indicator=tyson|symbol=" + syminfo.tickerid + "|timeframe=" + timeframe.period + "|exchange_timezone=" + syminfo.timezone + "|session=" + syminfo.session + "|seed_ms=" + str.tostring(auditFirstTime) + "|seed_index=" + str.tostring(auditFirstBarIndex) + "|mintick=" + auditNumber(syminfo.mintick) + "|interval_seconds=" + str.tostring(timeframe.in_seconds()) + "|price_currency=" + syminfo.currency + "|base_currency=" + syminfo.basecurrency + "|volume_type=" + syminfo.volumetype)
     log.info("AUDIT_INPUTS|compLen=" + str.tostring(compLen) + "|compFrac=" + auditNumber(compFrac) + "|maxCompATR=" + auditNumber(maxCompATR) + "|expMult=" + auditNumber(expMult) + "|atrLen=" + str.tostring(atrLen) + "|rr=" + auditNumber(rr) + "|slBuf=" + auditNumber(slBuf) + "|sigGap=" + str.tostring(sigGap) + "|oneAtATime=" + str.tostring(oneAtATime))
 if auditLogs and barstate.isconfirmed and time >= auditLogFrom and time <= auditLogUntil
-    log.info("AUDIT_ROW|" + str.tostring(time) + "," + str.tostring(time_close) + "," + str.tostring(auditFirstTime) + "," + str.tostring(bar_index) + "," + auditNumber(open) + "," + auditNumber(high) + "," + auditNumber(low) + "," + auditNumber(close) + "," + auditNumber(volume) + "," + auditNumber(compHigh) + "," + auditNumber(compLow) + "," + (sig ? "1" : "0") + "," + auditNumber(sig ? close : na) + "," + auditNumber(sig ? compLow - atr * slBuf : na) + "," + auditNumber(sig ? close + rr * (close - (compLow - atr * slBuf)) : na))
+    log.info("AUDIT_ROW|" + str.tostring(time) + "," + str.tostring(time_close) + "," + str.tostring(auditFirstTime) + "," + str.tostring(bar_index) + "," + auditNumber(open) + "," + auditNumber(high) + "," + auditNumber(low) + "," + auditNumber(close) + "," + auditNumber(volume) + "," + auditNumber(compHigh) + "," + auditNumber(compLow) + "," + (sig ? "1" : "0") + "," + auditNumber(sig ? close : na) + "," + auditNumber(sig ? compLow - atr * slBuf : na) + "," + auditNumber(sig ? close + rr * (close - (compLow - atr * slBuf)) : na) + "," + auditNumber(atr) + "," + auditNumber(wideRange) + "," + (compressed ? "1" : "0") + "," + (release ? "1" : "0") + "," + (blocked ? "1" : "0") + "," + str.tostring(openTrades) + "," + str.tostring(array.size(tTPl)) + "," + str.tostring(lastSig) + "," + str.tostring(auditLastSigBefore) + "," + (auditCooldownAllowed ? "1" : "0"))
+if auditLogs and barstate.islastconfirmedhistory
+    log.info("AUDIT_END|seed_ms=" + str.tostring(auditFirstTime) + "|seed_index=" + str.tostring(auditFirstBarIndex) + "|time_ms=" + str.tostring(time) + "|close_time_ms=" + str.tostring(time_close) + "|bar_index=" + str.tostring(bar_index) + "|row_count=" + str.tostring(bar_index - auditFirstBarIndex + 1))

@@ -81,12 +81,13 @@ function atrSeries(bars, length) {
 }
 
 function previousRange(bars, index, length) {
+  if (index < length - 1) return null;
   let high = -Infinity, low = Infinity;
   for (let at = Math.max(0, index - length); at < index; at++) {
     high = Math.max(high, bars[at].high);
     low = Math.min(low, bars[at].low);
   }
-  return index === 0 ? null : {high, low, range: high - low};
+  return {high, low, range: high - low};
 }
 
 function confirmSwing(bars, index, parameters, swings) {
@@ -119,7 +120,7 @@ function orbit(swings, atr, parameters) {
   return {center, top: center + radius, bottom: center - radius, low: Math.min(...points.map(point => point.price))};
 }
 
-export function evaluateIndicator(id, bars, params = {}) {
+export function evaluateIndicator(id, bars, params = {}, context = {}) {
   const definition = catalog.find(item => item.id === id);
   if (!definition) throw new Error('尚未移植的指标：' + id);
   const parameters = parametersFor(definition, params);
@@ -127,20 +128,31 @@ export function evaluateIndicator(id, bars, params = {}) {
   const atr = atrSeries(bars, parameters.atrLen), signals = [], swings = [], active = [];
   const names = id === 'tyson' ? ['压缩高点', '压缩低点'] : id === 'ronaldo' ? ['轨道上缘', '轨道中心', '轨道下缘'] : ['分形破位参考', '后高参考'];
   const plots = names.map(name => ({name, values: Array(bars.length).fill(null)}));
+  const auditTrace = id === 'tyson' && context?.auditTrace === true ? [] : null;
   let lastSignal = -100000;
 
   for (let index = 0; index < bars.length; index++) {
     const bar = bars[index], value = atr[index];
+    const activeBefore = active.length, lastSigBefore = lastSignal;
+    const blocked = parameters.oneAtATime && activeBefore > 0;
+    const cooldownAllowed = index - lastSignal > parameters.sigGap;
+    let compression = null, wide = null, compressed = false, release = false, emitted = null;
+    if (id === 'tyson' && (value !== null || auditTrace)) {
+      compression = previousRange(bars, index, parameters.compLen);
+      wide = previousRange(bars, index, parameters.compLen * 2);
+      compressed = value !== null && compression !== null && wide !== null && compression.range > 0
+        && compression.range <= parameters.compFrac * wide.range && compression.range <= parameters.maxCompATR * value;
+      release = value !== null && compression !== null && bar.close > compression.high
+        && bar.high - bar.low >= parameters.expMult * value && bar.close > bar.open;
+    }
     let signal = false, stop = null;
     if (id !== 'tyson') confirmSwing(bars, index, parameters, swings);
     if (value !== null) {
       if (id === 'tyson') {
-        const compression = previousRange(bars, index, parameters.compLen), wide = previousRange(bars, index, parameters.compLen * 2);
-        const compressed = compression && compression.range > 0 && compression.range <= parameters.compFrac * wide.range && compression.range <= parameters.maxCompATR * value;
         if (compressed) {
           plots[0].values[index] = compression.high;
           plots[1].values[index] = compression.low;
-          signal = bar.close > compression.high && bar.high - bar.low >= parameters.expMult * value && bar.close > bar.open;
+          signal = release;
           stop = compression.low - value * parameters.slBuf;
         }
       } else if (id === 'ronaldo') {
@@ -162,12 +174,12 @@ export function evaluateIndicator(id, bars, params = {}) {
           stop = s1 + value * parameters.slBuf;
         }
       }
-      const blocked = parameters.oneAtATime && active.length > 0;
-      if (signal && !blocked && index - lastSignal > parameters.sigGap) {
+      if (signal && !blocked && cooldownAllowed) {
         const side = id === 'khabib' ? 'short' : 'long', entry = bar.close;
         const target = side === 'long' ? entry + parameters.rr * (entry - stop) : entry - parameters.rr * (stop - entry);
         const current = {index, time: bar.time, side, entry, stop, target};
         signals.push(current);
+        emitted = current;
         active.push(current);
         lastSignal = index;
       }
@@ -179,8 +191,12 @@ export function evaluateIndicator(id, bars, params = {}) {
       const hit = current.side === 'long' ? bar.high >= current.target || bar.low <= current.stop : bar.low <= current.target || bar.high >= current.stop;
       if (hit) active.splice(at, 1);
     }
+    if (auditTrace) auditTrace.push({atr: value, compHigh: compression?.high ?? null, compLow: compression?.low ?? null,
+      wideRange: wide?.range ?? null, compressed, release, blocked, cooldownAllowed, activeBefore,
+      activeAfter: active.length, lastSigBefore, lastSig: lastSignal, signalLong: emitted !== null,
+      entry: emitted?.entry ?? null, stop: emitted?.stop ?? null, target: emitted?.target ?? null});
   }
-  return {id, parameters, signals, plots, zones: [], notes: [
+  return {id, parameters, signals, plots, ...(auditTrace ? {auditTrace} : {}), zones: [], notes: [
     '只计算已完成K线的原指标信号及参考位，不是成交或回测收益。',
     'time保留输入K线时间；信号仅在该根收盘后可知，确认枢轴不回移发现时间。',
     '保留上游同根高低价结束参考区间及单区间阻塞规则；无法证明盘中先后顺序。',
