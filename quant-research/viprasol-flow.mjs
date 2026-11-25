@@ -92,7 +92,7 @@ function absorption(bars,p,context,out){
  const close=field(bars,'close'),a=atr(bars,14),e=ema(close,p.emaLength),vol=sma(field(bars,'volume'),p.volLength),priorH=highest(shift(field(bars,'high')),p.rangeLength),priorL=lowest(shift(field(bars,'low')),p.rangeLength),scoresB=[],scoresS=[];let last=-Infinity,bull=null,bear=null;
  for(let i=0;i<bars.length;i++){
   const b=bars[i],range=Math.max(b.high-b.low,context.mintick),lower=(Math.min(b.open,b.close)-b.low)/range,upper=(b.high-Math.max(b.open,b.close))/range,pos=(b.close-b.low)/range;
-  const valid=finite(vol[i])&&vol[i]>0,rel=valid?b.volume/vol[i]:null,effort=valid?Math.min(rel/3,1):0,sB=Math.round(100*(.4*effort+.3*lower+.3*pos)),sS=Math.round(100*(.4*effort+.3*upper+.3*(1-pos)));scoresB.push(valid?sB:null);scoresS.push(valid?sS:null);
+  const valid=finite(vol[i])&&vol[i]>0,rel=valid?b.volume/vol[i]:null,effort=valid?Math.min(rel/3,1):0,sB=Math.round(100*(.4*effort+.3*lower+.3*pos)),sS=Math.round(100*(.4*effort+.3*upper+.3*(1-pos)));scoresB.push(sB);scoresS.push(sS);
   const spike=valid&&b.volume>=vol[i]*p.volMultiplier,bs=finite(priorL[i])&&b.low<priorL[i]&&b.close>priorL[i],ss=finite(priorH[i])&&b.high>priorH[i]&&b.close<priorH[i];
   const buy=spike&&lower>=p.wickRatio&&pos>=.6&&(!p.useTrendFilter||b.close>e[i])&&(!p.useSweepFilter||bs)&&gradeOK(grade(sB,75,65),p.minGrade)&&i-last>p.cooldown;
   const sell=spike&&upper>=p.wickRatio&&pos<=.4&&(!p.useTrendFilter||b.close<e[i])&&(!p.useSweepFilter||ss)&&gradeOK(grade(sS,75,65),p.minGrade)&&i-last>p.cooldown;
@@ -169,7 +169,7 @@ function marketOS(bars,p,context,out){
   if(ph[i]){lastHigh=ph[i].value;highBar=ph[i].index;}if(pl[i]){lastLow=pl[i].value;lowBar=pl[i].index;}highs.push(lastHigh);lows.push(lastLow);
   const bullish=b.close>k[i],eff=v[i]>0?b.volume/v[i]:0,result=a[i]>0&&i?Math.abs(b.close-c[i-1])/a[i]:0,conv=eff>=p.effHiInput&&result>=p.resHiInput?1:eff>=p.effHiInput&&result<=p.resLoInput?2:eff<=p.effLoInput&&result>=p.resHiInput?3:0;
   const dirScore=trend===1&&bullish||trend===-1&&!bullish?100:trend!==0?50:30,qual=finite(er[i])?Math.min(er[i]/p.erTrendInput,1)*100:null,part=conv===1?100:conv===0?60:conv===3?35:10,costScore=finite(cost[i])?100-cost[i]:50,s=finite(qual)?dirScore*.3+qual*.3+part*.25+costScore*.15:null;
-  score.push(s);states.push(finite(s)?s>=75?3:s>=55?2:s>=35?1:0:null);const g=grade(s,75,55),ok=i-lastSignal>=p.cooldownInput&&(finite(s)&&s>=p.scoreMinInput||p.showCGrade)&&(g!=='C'||p.showCGrade),buy=up&&bullish&&ok,sell=down&&!bullish&&ok;
+  score.push(s);states.push(finite(s)?s>=75?3:s>=55?2:s>=35?1:0:0);const g=grade(s,75,55),ok=i-lastSignal>=p.cooldownInput&&(finite(s)&&s>=p.scoreMinInput||p.showCGrade)&&(g!=='C'||p.showCGrade),buy=up&&bullish&&ok,sell=down&&!bullish&&ok;
   if(buy||sell){lastSignal=i;signal(out,bars,i,buy?'long':'short',b.close,null,null,(buy?'LONG ':'SHORT ')+'['+g+']',{score:s,costBps:finite(edge[i])?edge[i]*10000:null,costOfTargetPct:finite(edge[i])&&a[i]>0?edge[i]*b.close/(a[i]*p.tpAtrInput)*100:null});}
  }
  plot(out,'KAMA Baseline',k);plot(out,'Market Score',score);plot(out,'Market State',states);plot(out,'Efficiency',er);plot(out,'EDGE Spread bps',map(edge,v=>v*10000));if(p.showCloudInput)for(const [name,m]of [['Cloud Inner Up',.5],['Cloud Inner Dn',-.5],['Cloud Outer Up',1.1],['Cloud Outer Dn',-1.1]])plot(out,name,binary(k,a,(x,y)=>x+m*y));

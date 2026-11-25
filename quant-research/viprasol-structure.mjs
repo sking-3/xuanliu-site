@@ -199,7 +199,7 @@ function zscore(id, bars, params, context) {
   const source = sourceSeries(bars, params.i_source), z = zSeries(source, params.i_length), volumeAverage = sma(bars.map(bar => bar.volume), params.i_vol_length);
   const highs = pivots(z, params.i_div_lookback), lows = pivots(z, params.i_div_lookback, params.i_div_lookback, 'low');
   const signals = [], lowPoints = [], highPoints = [], projected = [], ratios = [], contracted = [], ranks = [], maxZ = [], averageMax = [], coverage = [], years = [];
-  const zone = context.timeZone || 'UTC', yearOf = new Intl.DateTimeFormat('en', {timeZone: zone, year: 'numeric'});
+  const zone = context.exchangeTimeZone || 'UTC', yearOf = new Intl.DateTimeFormat('en', {timeZone: zone, year: 'numeric'});
   let lastDivergence = null, lastReentry = null, yearHigh = null, yearLow = null, blockCount = 0, firstYearPartial = true, lastDivergenceInfo = null;
   for (let i = 0; i < bars.length; i++) {
     const value = z[i], before = i > 0 && Number.isFinite(z[i - 1]) ? z[i - 1] : 0;

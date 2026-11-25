@@ -139,6 +139,20 @@ test('Z-score calendar means skip the first loaded partial year; fixed blocks an
   near(fixedMean[3], (Math.SQRT1_2 + 1.5 / Math.sqrt(5 / 3)) / 2);
 });
 
+test('Z-score calendar statistics follow exchange year boundaries without changing signal dates or prices', () => {
+  const times = ['2022-12-31T15:00:00Z', '2022-12-31T17:00:00Z', '2023-12-31T15:00:00Z', '2023-12-31T17:00:00Z'];
+  const bars = rows([10, 20, 40, 40]).map((bar, i) => ({...bar, time: Date.parse(times[i])}));
+  const parameters = {i_length: 3, i_reentry_level: 1};
+  const shanghai = evaluateIndicator('z-score-stats', bars, parameters, {exchangeTimeZone: 'Asia/Shanghai', timeZone: 'UTC'});
+  const utc = evaluateIndicator('z-score-stats', bars, parameters, {exchangeTimeZone: 'UTC', timeZone: 'Asia/Shanghai'});
+  const means = valuesOf(shanghai, 'Avg Yearly Max |Z|');
+  assert.deepEqual(means.slice(0, 3), [null, null, null]);near(means[3], 5 / Math.sqrt(21));
+  assert.deepEqual(valuesOf(utc, 'Avg Yearly Max |Z|'), [null, null, null, null]);
+  assert.deepEqual(valuesOf(shanghai, 'Z-score'), valuesOf(utc, 'Z-score'));assert.deepEqual(shanghai.signals, utc.signals);
+  assert.equal(shanghai.signals.length, 1);assert.equal(shanghai.signals[0].type, 'band_reentry_down');assert.equal(shanghai.signals[0].time, bars[3].time);
+  assert.match(shanghai.notes.join(' '), /时区 Asia\/Shanghai/);assert.match(utc.notes.join(' '), /时区 UTC/);
+});
+
 test('Z-score confirms divergences on the right-side bar and preserves separate source prices', () => {
   const bars = rows(Array.from({length: 150}, (_, i) => 100 + Math.sin(i * .31) * (10 - i * .03) - i * .03));
   const output = evaluateIndicator('z-score-stats', bars, {i_length: 20, i_div_lookback: 2, i_div_min_range: 2, i_div_gap: 0});
