@@ -179,13 +179,15 @@
   }
   function render(){
    if(!state.phaseExplicit){const next=defaultPhase(state.reports,now());if(next!==state.phase){state.phase=next;state.shape='all';}}
-   const report=state.reports[state.phase],slot=state.slots[state.phase],rows=selectRows(report,state,state.institutions,now()),groups=groupRows(rows);
+   const report=state.reports[state.phase],slot=state.slots[state.phase],rows=selectRows(report,state,state.institutions,now()),groups=groupRows(rows),partial=state.phase==='a14'&&report?.method?.partial===true;
+   const coverage=partial?' · 部分覆盖 · 缺 '+number(report.summary?.missingCount)+' 只':'';
    const retained=new Set(phases.flatMap(phase=>(state.reports[phase]?.current||[]).map(row=>phase+':'+row.code)));
    for(const id of state.cards.keys())if(!retained.has(id)){state.cards.delete(id);state.expanded.delete(id);state.windows.delete(id);}
    el('').dataset.state=state.loading?'loading':state.error?'error':report?'ready':'unavailable';
    el('date').textContent=report?'数据日 '+report.day:'数据日待核验';
-   el('status').textContent=report?phaseLabels[state.phase]+' · '+new Set(rows.map(row=>row.code)).size+' 只'+(slot.status!=='ready'?' · '+reasonFor(state.phase)+' 保留上次数据。':''):state.loading?'正在读取已完成的选股批次':reasonFor(state.phase);
+   el('status').textContent=report?phaseLabels[state.phase]+' · '+new Set(rows.map(row=>row.code)).size+' 只'+coverage+(slot.status!=='ready'?' · '+reasonFor(state.phase)+' 保留上次数据。':''):state.loading?'正在读取已完成的选股批次':reasonFor(state.phase);
    el('source').textContent=report?'来源 '+report.sourceId+' · 来源时点 '+stamp(report.asOf)+' · 计算 '+stamp(report.computedAt)+' · 页面读取 '+stamp(state.readAt):reasonFor(state.phase);
+   if(partial){const missing=(Array.isArray(report.missing)?report.missing:[]).map(item=>(item.code?item.code+'：':'')+item.reason).join('；');el('source').textContent+=' · '+report.method.reason+(missing?' · 缺项 '+missing:'');}
    el('error').hidden=!state.error;el('error').textContent=state.error||'';el('refresh').hidden=!state.error;el('refresh').disabled=state.loading;
    el('filters').disabled=false;
    for(const phase of phases){const option=el('phase').querySelector('option[value="'+phase+'"]');option.disabled=false;}
