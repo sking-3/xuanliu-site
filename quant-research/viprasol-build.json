@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "implementationCommit": "3ae284ec7d706e757d862bb2d11c85bbeb2b96c4",
+  "sourcePineCommit": "a16096c1f2ba5ba5d4b8df97ff60ce8b4ce084d0",
+  "builtAt": "2026-11-25T05:37:24.636722+00:00",
+  "nativeEvidenceScope": {
+    "symbol": "SSE_DLY:603231",
+    "timeframe": "1D",
+    "closedBarsPerCapture": 711,
+    "indicatorsExamined": 21,
+    "parameters": "captured default inputs only",
+    "outputs": "exposed mapped outputs only",
+    "result": "zero mismatches in these captured comparisons",
+    "unverified": [
+      "other instruments, history and parameter combinations",
+      "unexercised event branches",
+      "unexported internal series and drawing geometry"
+    ]
+  },
+  "generalNativeParityVerified": false,
+  "outOfSampleValidated": false,
+  "selectionEligibility": "not_granted_by_numerical_comparison"
+}
