@@ -107,13 +107,21 @@ test('Z-score uses the available sample window with N-1 variance, rather than fa
   const z = valuesOf(output, 'Z-score'); assert.equal(z[0], null); near(z[1], Math.SQRT1_2); near(z[2], 1);
   assert.equal(valuesOf(output, 'Projected Z（线性外推，非预测）')[0], null);
   assert.equal(valuesOf(output, 'Projected Z（线性外推，非预测）')[1], 4);
-  // The source compares raw IEEE-754 values: this fixture's Z is just below 1.
-  assert.equal(output.summary.normalCoverage, 38.3);
+  // Pine comparison operators round float operands to nine fractional digits.
+  assert.equal(output.summary.normalCoverage, 68.3);
   assert.equal(output.summary.averageYearMaxAbs, null);
   const flat = evaluateIndicator('z-score-stats', rows([0, 0, 0]).map(bar => ({...bar, volume: 0})));
   assert.deepEqual(valuesOf(flat, 'Z-score'), [null, 0, 0]);
   assert.deepEqual(valuesOf(flat, '成交量比'), [null, null, null]);
   assert.equal(flat.signals.length, 0);
+});
+
+test('Z-score absolute rank uses the prior window, excludes current and preserves the native warmup denominator', () => {
+  const output = evaluateIndicator('z-score-stats', rows(Array.from({length: 55}, (_, i) => i)), {i_length: 2, i_rank_length: 50});
+  const rank = valuesOf(output, '|Z| Rank %');
+  assert.deepEqual(rank.slice(0, 50), Array(50).fill(null));
+  assert.equal(rank[50], 98); // 49 prior finite equal Z values, plus the initial NA, divided by 50.
+  assert.equal(rank[51], 100); // The initial NA has left the prior window.
 });
 
 test('Z-score preserves neckline-independent band re-entry and extreme alerts without invented risk targets', () => {

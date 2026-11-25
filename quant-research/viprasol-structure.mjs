@@ -243,9 +243,9 @@ function zscore(id, bars, params, context) {
     }
     maxZ.push(Math.max(Math.abs(yearHigh ?? 0), Math.abs(yearLow ?? 0)));
     averageMax.push(years.length ? years.reduce((sum, value) => sum + value, 0) / years.length : null);
-    const history = z.slice(Math.max(0, i - params.i_rank_length + 1), i + 1);
-    ranks.push(value !== null && history.length === params.i_rank_length && history.every(Number.isFinite) ? history.filter(item => Math.abs(item) <= Math.abs(value)).length / history.length * 100 : null);
-    const magnitude = Math.abs(value ?? 0);
+    const history = z.slice(Math.max(0, i - params.i_rank_length), i);
+    ranks.push(value !== null && history.length === params.i_rank_length ? history.filter(item => Number.isFinite(item) && Math.abs(item) <= Math.abs(value)).length / history.length * 100 : null);
+    const magnitude = Math.round(Math.abs(value ?? 0) * 1e9) / 1e9;
     coverage.push(magnitude >= 3 ? 99.7 : magnitude >= 2.5 ? 98.8 : magnitude >= 2 ? 95.4 : magnitude >= 1.5 ? 86.6 : magnitude >= 1 ? 68.3 : magnitude >= .5 ? 38.3 : 0);
   }
   return result(id, params, signals, [plot('Z-score', z, 'oscillator', 'z'), plot('Projected Z（线性外推，非预测）', projected, 'oscillator', 'z'), plot('成交量比', ratios, 'oscillator', 'ratio'), plot('Year Max |Z|', maxZ, 'oscillator', 'z'), plot('Avg Yearly Max |Z|', averageMax, 'oscillator', 'z'), plot('|Z| Rank %', ranks, 'oscillator', 'percent'), plot('Normal Coverage %（非反转概率）', coverage, 'oscillator', 'percent')], [],
