@@ -9,6 +9,9 @@ import {precomputeMarketPreference,filename as preferenceFilename,version as pre
 import {collectInstitutionDisclosures,readInstitutionDisclosures} from './a-share-institution-disclosures.mjs';
 import {precomputeDeskWatches,filename as watchFilename,version as watchVersion,schema as watchSchema,chartDirectoryName as watchChartDirectory} from './a-share-desk-watches.mjs';
 import {writeIntradayCharts} from './a-share-intraday-chart.mjs';
+import {precomputeMarketPosition,filename as positionFilename} from './a-share-market-position.mjs';
+import {precomputeDecisionAnalogues,filename as analogueFilename} from './a-share-decision-analogues.mjs';
+import {precomputeDecisionContext,enrichDecisionContext,validateDecisionContext,filename as contextFilename,version as contextVersion,chartDirectoryName as contextChartDirectory} from './a-share-decision-context.mjs';
 
 export const schema='books.a-share.desk.v1',directoryName='stock-desk-v1';
 const require=createRequire(import.meta.url),same=(a,b)=>['generation','sourceId','day','asOf'].every(key=>a?.[key]===b?.[key]);
@@ -74,7 +77,12 @@ export async function readStockDesk({dir,now=Date.now()}={}){
       const target=join(dir,'generations',marker.generation),complete=await readStoredJson(join(target,'complete.json'));
       const report=await readStoredJson(join(target,trackingDirectory,'report.json')),preference=await readStoredJson(join(target,preferenceFilename+'.json'));
       if(complete.completed!==true||!same(complete,marker)||!same(report,marker))throw Error('Workbench report is not bound to a completed generation');
-      close={status:'ready',data:enrichClose(report,preference,institutions,now)};
+      let view=enrichClose(report,preference,institutions,now);
+      if(marker.decisionContextVersion===contextVersion){
+        const context=await readStoredJson(join(target,contextFilename+'.json')),position=await readStoredJson(join(target,positionFilename+'.json')),analogues=await readStoredJson(join(target,analogueFilename+'.json'));
+        view=enrichDecisionContext(view,context,position,analogues,now);
+      }
+      close={status:'ready',data:view};
     }
   }catch(error){close={status:'unavailable',data:null,reason:error.message};}
   try{a14=projectA14(await readA14(dir,now),close.data,now);}catch(error){a14={status:'unavailable',reason:error.message,data:null};}
@@ -98,6 +106,17 @@ export async function readWorkbenchChart({dir,generation:requestedGeneration,cod
   if(complete.completed!==true||!same(complete,marker)||report.schema!==watchSchema||report.version!==watchVersion||report.completed!==true||report.datasetBound!==true||!same(report,marker)||!Array.isArray(report.current)||!Array.isArray(report.charts))return null;
   const path=watchChartDirectory+'/'+code+'-'+window+'.svg',chart=report.charts.find(item=>item.code===code&&item.window===Number(window));
   if(!report.current.some(row=>row.code===code&&row.qualified===false&&row.state==='watch'&&same(row,marker))||!chart||!same(chart,marker)||chart.path!==path||chart.priceBasis!=='first-close-percent')return null;
+  const file=join(target,path);return {body:await readStoredFile(compressed?file+'.gz':file),compressed};
+}
+
+export async function readContextChart({dir,generation:requestedGeneration,code,kind,window,compressed=false,now=Date.now()}={}){
+  if(!generation(requestedGeneration)||!mainBoard(code)||!['trend-pullback','trend-continuation','range-support','support-reclaim'].includes(kind)||![60,120].includes(Number(window)))return null;
+  const marker=await optional(join(dir,directoryName,'current.json'));
+  if(marker?.schema!==schema||marker.generation!==requestedGeneration||marker.decisionContextVersion!==contextVersion)return null;
+  const target=join(dir,'generations',requestedGeneration),complete=await readStoredJson(join(target,'complete.json')),report=await readStoredJson(join(target,contextFilename+'.json'));
+  if(complete.completed!==true||!same(complete,marker))return null;validateDecisionContext(report,marker,now);
+  const path=contextChartDirectory+'/'+kind+'/'+code+'-'+window+'.svg',chart=report.charts.find(item=>item.code===code&&item.kind===kind&&item.window===Number(window));
+  if(!report.current.some(row=>row.code===code&&row.research.plan.kind===kind)||!chart||!same(chart,marker)||chart.path!==path||chart.priceBasis!=='first-close-percent')return null;
   const file=join(target,path);return {body:await readStoredFile(compressed?file+'.gz':file),compressed};
 }
 
@@ -150,8 +169,14 @@ export async function runStockDesk({dir,siteDir,now=Date.now,signal,onProgress=(
     const tracked=await track({dir,additionalCurrent:watches.current,now,signal,onProgress:progress});if(!same(tracked,batch))throw Error('Workbench tracker changed source batches');
     await progress({stage:'market-preference',checked:0,total:batch.total});
     const preference=await precompute({historyFile,target,batch,patterns:require(join(siteDir,'screening/trend-patterns.js')),now,signal,onProgress:progress});validatePreference(preference,batch);
+    await progress({stage:'market-position',checked:0,total:batch.total});
+    const position=await precomputeMarketPosition({historyFile,target,batch,now,signal,onProgress:progress});
+    await progress({stage:'decision-analogues',checked:0,total:batch.total});
+    const analogues=await precomputeDecisionAnalogues({historyFile,target,batch,position,now,signal,onProgress:progress});
+    await progress({stage:'decision-context',checked:0,total:batch.total});
+    await precomputeDecisionContext({dir,historyFile,target,batch,position,analogues,nextSessionDay:nextVerifiedSession(require(join(siteDir,'market-calendar.js')),batch.day),writeChart:writeIntradayCharts,now,signal,onProgress:progress});
     const current=await readStoredJson(join(dir,'current.json'));if(!same(current,batch))throw Error('Workbench source generation changed during production');
-    signal?.throwIfAborted();await save(join(root,'current.json'),{schema,...Object.fromEntries(['generation','sourceId','day','asOf'].map(key=>[key,batch[key]]))});
+    signal?.throwIfAborted();await save(join(root,'current.json'),{schema,decisionContextVersion:contextVersion,...Object.fromEntries(['generation','sourceId','day','asOf'].map(key=>[key,batch[key]]))});
     await progress({status:'complete',stage:'published',finishedAt:stamp(now)});return {attempt};
   }catch(error){await progress({status:'failed',finishedAt:stamp(now),error:error.message});return {attempt};}
 }
