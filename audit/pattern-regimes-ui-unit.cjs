@@ -23,9 +23,9 @@ class Element extends Target{
 }
 function documentFixture(){
  const env=new Target(),ids=new Map(),data=[],timeouts=new Map(),intervals=new Map(),storage=new Map();let next=0;
- for(const match of html.matchAll(/<(\w+)\b([^>]*)>/g)){
-  const node=new Element(match[1]),id=/\bid="([^"]+)"/.exec(match[2]);if(id)ids.set(id[1],node);
-  for(const attr of match[2].matchAll(/data-(trend-[\w-]+)="([^"]*)"/g)){node.dataset[attr[1].replace(/-([a-z])/g,(_,letter)=>letter.toUpperCase())]=attr[2];data.push(node);}
+ for(const descriptor of require('./legacy-screening-fixture.cjs')){
+  const node=new Element(descriptor.tag);if(descriptor.id)ids.set(descriptor.id,node);
+  if(descriptor.data){Object.assign(node.dataset,descriptor.data);data.push(node);}
  }
  ids.get('trend-screen').append(...data);ids.get('trend-lookback').value='20';
  env.setTimeout=(fn,ms)=>{const id=++next;timeouts.set(id,{fn,ms});return id;};env.clearTimeout=id=>timeouts.delete(id);
@@ -36,10 +36,11 @@ function documentFixture(){
  return {doc,env,ids,timeouts,intervals,storage,el:id=>ids.get('pattern-regimes'+(id?'-'+id:'')),tick:async()=>{for(const timer of intervals.values())timer.fn();await settle();}};
 }
 const current=()=>({generation,day,asOf,sourceId,patternVersion:patterns.version,lookback:20,reference:{code:'000300.SH'}});
-test('the pattern surface keeps the latest shared design navigation and working import controls',()=>{
+test('current workbench preserves the shared design and retires the separate pattern/import surface',()=>{
  assert.match(html,/href="\.\.\/content-materials\.css\?v=/);assert.match(html,/href="\.\.\/academy\/index\.html">交易员研习/);
- assert.match(html,/<button class="review-picker" id="review-picker" type="button">选择文件<\/button>/);assert.match(html,/<input id="research-file"[^>]* hidden>/);assert.match(html,/<p id="file-state" role="status">还没有导入历史记录。<\/p>/);
- assert.equal([...html.matchAll(/id="pattern-regimes"/g)].length,1);assert.equal([...html.matchAll(/src="pattern-regimes-controller\.js\?/g)].length,1);
+ assert.doesNotMatch(html,/id="(?:review-picker|research-file|file-state|pattern-regimes)"/);assert.doesNotMatch(html,/src="pattern-regimes-controller\.js/);
+ assert.equal([...html.matchAll(/id="stock-desk"/g)].length,1);assert.equal([...html.matchAll(/src="stock-desk-controller\.js\?/g)].length,1);assert.match(html,/data-stock-desk-research-body/);
+ assert.equal(ui.mount({getElementById:()=>null}),null);
 });
 function stats(extra={}){return {sampleCount:50,stockCount:30,signalDayCount:25,fromDay:'2026-08-01',toDay:'2026-10-30',meanReturnPercent:2,medianReturnPercent:1.5,meanExcessPercent:.4,positiveRate:.6,targetHitRate:.4,worstDrawdownPercent:6,...extra};}
 function payload(extra={}){

@@ -107,10 +107,11 @@ test('batch update listeners reconcile recycled cards and cleanup leaves existin
  f.component.destroy();assert.equal(f.observers[0].disconnected,true);assert.equal(card.querySelector('.entry-bars'),null);assert.equal(card.querySelector('.trend-stock-chart'),chart);assert.equal(f.timeouts.size,0);
 });
 
-test('screening adds only two isolated resources and keeps the approved shared UI resources',()=>{
+test('screening retains the latest shared UI while replacing the retired per-card evidence mount',()=>{
  const html=fs.readFileSync(require.resolve('../screening/index.html'),'utf8');
- for(const resource of ['entry-bars.css','entry-bars-controller.js','desk-skin.css','content-materials.css','stock-charts.js','pattern-regimes-controller.js','selection-shell.js'])assert.equal([...html.matchAll(new RegExp('(?:href|src)="(?:\\.\\./)?'+resource.replaceAll('.','\\.')+'\\?','g'))].length,1,resource);
- assert.match(html,/id="trend-results"/);assert.match(html,/href="\.\.\/academy\/index\.html">交易员研习/);
+ for(const resource of ['stock-desk-controller.js','stock-selection.css','desk-skin.css','content-materials.css','stock-charts.js'])assert.equal([...html.matchAll(new RegExp('(?:href|src)="(?:\\.\\./)?'+resource.replaceAll('.','\\.')+'\\?','g'))].length,1,resource);
+ for(const resource of ['entry-bars.css','entry-bars-controller.js','pattern-regimes-controller.js','selection-shell.js'])assert.equal([...html.matchAll(new RegExp('(?:href|src)="(?:\\.\\./)?'+resource.replaceAll('.','\\.')+'\\?','g'))].length,0,resource);
+ assert.match(html,/id="stock-desk-results"/);assert.match(html,/data-stock-desk-research-body/);assert.doesNotMatch(html,/id="trend-results"/);assert.match(html,/href="\.\.\/academy\/index\.html">交易员研习/);
 });
 
 test('evidence follows the displayed successful batch while a newer batch is still running',async t=>{
