@@ -29,13 +29,14 @@ export function rolling(values, length, operation) {
 }
 export const sum = (values, length) => rolling(values,length,window => window.reduce((a,b) => a+b,0));
 export const sma = (values, length) => rolling(values,length,window => window.reduce((a,b) => a+b,0)/length);
-export const highest = (values, length) => values.map((_,i)=>{const window=values.slice(Math.max(0,i-length+1),i+1).filter(finite);return window.length?Math.max(...window):null;});
-export const lowest = (values, length) => values.map((_,i)=>{const window=values.slice(Math.max(0,i-length+1),i+1).filter(finite);return window.length?Math.min(...window):null;});
+export const highest = (values, length) => values.map((_,i)=>{if(i<length-1)return null;const window=values.slice(i-length+1,i+1).filter(finite);return window.length?Math.max(...window):null;});
+export const lowest = (values, length) => values.map((_,i)=>{if(i<length-1)return null;const window=values.slice(i-length+1,i+1).filter(finite);return window.length?Math.min(...window):null;});
 export function ema(values, length) {
-  let state = null; const alpha = 2/(length+1);
+  let state = null, seed = []; const alpha = 2/(length+1);
   return values.map(value => {
     if (!finite(value)) return null;
-    state = state === null ? value : alpha*value+(1-alpha)*state;
+    if (state === null) {seed.push(value); if (seed.length < length) return null; state=seed.reduce((a,b)=>a+b,0)/length;}
+    else state = alpha*value+(1-alpha)*state;
     return state;
   });
 }
@@ -63,8 +64,8 @@ export function rsi(values, length = 14) {
 }
 export function adx(bars, length = 14, smoothing = length) {
   const tr=rma(bars.map((bar,i)=>i?Math.max(bar.high-bar.low,Math.abs(bar.high-bars[i-1].close),Math.abs(bar.low-bars[i-1].close)):null),length);
-  const plus=rma(bars.map((bar,i)=>{if(!i)return null;const up=bar.high-bars[i-1].high,down=bars[i-1].low-bar.low;return up>down&&up>0?up:0;}),length);
-  const minus=rma(bars.map((bar,i)=>{if(!i)return null;const up=bar.high-bars[i-1].high,down=bars[i-1].low-bar.low;return down>up&&down>0?down:0;}),length);
+  const plus=rma(bars.map((bar,i)=>{if(!i)return null;const up=bar.high-bars[i-1].high,down=bars[i-1].low-bar.low;return Math.round(up*1e9)>Math.round(down*1e9)&&Math.round(up*1e9)>0?up:0;}),length);
+  const minus=rma(bars.map((bar,i)=>{if(!i)return null;const up=bar.high-bars[i-1].high,down=bars[i-1].low-bar.low;return Math.round(down*1e9)>Math.round(up*1e9)&&Math.round(down*1e9)>0?down:0;}),length);
   const plusDI=plus.map((v,i)=>finite(v)&&finite(tr[i])?tr[i]===0?0:100*v/tr[i]:null);
   const minusDI=minus.map((v,i)=>finite(v)&&finite(tr[i])?tr[i]===0?0:100*v/tr[i]:null);
   const strength=rma(plusDI.map((v,i)=>finite(v)&&finite(minusDI[i])?100*Math.abs(v-minusDI[i])/((v+minusDI[i])||1):null),smoothing);
@@ -87,7 +88,7 @@ export function linreg(values, length, offset = 0) {
 export function supertrend(bars, factor = 3, length = 10) {
   const range=atr(bars,length),upper=[],lower=[],direction=[],line=[];
   for(let i=0;i<bars.length;i++){
-    if(!finite(range[i])){upper.push(null);lower.push(null);direction.push(null);line.push(null);continue;}
+    if(!finite(range[i])){upper.push(null);lower.push(null);direction.push(null);line.push(i===0?0:null);continue;}
     const mid=(bars[i].high+bars[i].low)/2,rawUpper=mid+factor*range[i],rawLower=mid-factor*range[i];
     upper[i]=!finite(upper[i-1])||rawUpper<upper[i-1]||bars[i-1].close>upper[i-1]?rawUpper:upper[i-1];
     lower[i]=!finite(lower[i-1])||rawLower>lower[i-1]||bars[i-1].close<lower[i-1]?rawLower:lower[i-1];
