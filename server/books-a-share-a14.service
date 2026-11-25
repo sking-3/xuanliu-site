@@ -1,0 +1,14 @@
+[Unit]
+Description=Books A-share 14:00 candidate snapshot
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=books
+Group=books
+WorkingDirectory=/opt/books/app
+Environment=BOOKS_SITE_DIR=/opt/books/site
+Environment=BOOKS_A_SHARE_DIR=/var/lib/books/a-share-daily
+ExecStart=/usr/bin/node --max-old-space-size=128 /opt/books/app/a-share-intraday-preselection.mjs
+TimeoutStartSec=8min
+Nice=10

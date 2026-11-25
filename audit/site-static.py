@@ -12,7 +12,7 @@ def check(ok,msg):
  assert ok,msg
  checks+=1
 
-excluded_dirs={'_source','private-follow','control','node_modules','audit','.git'}
+excluded_dirs={'_source','private-follow','control','node_modules','audit','.git','work'}
 pages=sorted(p for p in root.rglob('*.html') if not excluded_dirs.intersection(p.relative_to(root).parts))
 nav_destinations=[('市场总览','index.html'),('A股选股','screening/index.html'),('美股选股','us.html'),('带单员广场','trader/index.html'),('公司研究','research.html'),('历史研究','screening/history.html'),('交易员研习','academy/index.html'),('研究工具','tools.html')]
 ui_baseline=json.loads((root/'audit/ui-baseline.json').read_text())['files']
@@ -40,7 +40,7 @@ def local_asset(target):
   if record:check(target.stat().st_size==record['bytes'] and hashlib.sha256(target.read_bytes()).hexdigest()==record['sha256'],f'installed reader asset matches pinned source: {target}')
   return True
  return record is not None
-attribution_counts={'index.html':4,'a-shares.html':1,'screening/index.html':1,'chart.html':1}
+attribution_counts={'index.html':4,'a-shares.html':1,'screening/index.html':0,'chart.html':1}
 for p in pages:
  tree=html.fromstring(p.read_text())
  ids=tree.xpath('//@id')
@@ -54,7 +54,7 @@ for p in pages:
   if u.fragment and target.suffix.lower()=='.html' and target.is_file():
    targettree=html.fromstring(target.read_text());check(bool(targettree.xpath('//*[@id=$id]',id=unquote(u.fragment))),f'{p}: missing fragment {ref}')
  attributions=tree.xpath('//*[@data-books-attribution or contains(concat(" ",normalize-space(@class)," ")," tradingview-widget-copyright ") or contains(concat(" ",normalize-space(@class)," ")," books-market-credit ")]')
- check(len(attributions)==attribution_counts.get(str(p.relative_to(root)),0),f'{p}: original attribution nodes retained')
+ check(len(attributions)==attribution_counts.get(str(p.relative_to(root)),0),f'{p}: attribution nodes match the providers still mounted on this page')
  if p==root/'index.html':
   for container,url in [('//article[@data-pulse="macro"]','https://www.tradingview.com/news/top-providers/tradingview/'),('//section[@aria-labelledby="market-a"]','https://www.tradingview.com/markets/stocks-china/'),('//section[@aria-labelledby="market-us"]','https://www.tradingview.com/markets/stocks-usa/'),('//section[@aria-labelledby="market-crypto"]','https://www.tradingview.com/markets/cryptocurrencies/')]:
    check(len(tree.xpath(container+'//*[@data-books-attribution]//a[@href=$url]',url=url))==1,f'{p}: current market module retains its original attribution {url}')

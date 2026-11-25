@@ -8,9 +8,14 @@
   "verifiedSource": "Published UI snapshots and HTTPS assets recovered 2026-11-24. A-share feature HTML is independently rebased against the published source.",
   "files": {
     "a-shares.html": {
-      "sha256": "0ae65f528ee27dcb3ae46ac954a1eff3a328158b5bb1a7df890c2db596b54010",
-      "bytes": 15123,
-      "versions": []
+      "sha256": "94bbbd822975b17169a1b4fdc137f04214f234618463a6cdbe7ad21884ef2082",
+      "bytes": 15118,
+      "versions": [],
+      "linkMigration": {
+        "previousSha256": "0ae65f528ee27dcb3ae46ac954a1eff3a328158b5bb1a7df890c2db596b54010",
+        "previousBytes": 15123,
+        "change": "2026-11-25 approved retired screening fragment migration and matching link copy only; layout, styles and data unchanged."
+      }
     },
     "academy/0xcryptowizard/index.html": {
       "sha256": "917d32cefe91b0fa435084ba81a4c1d6bdaa811226a963e39533b35de2595cc9",
@@ -240,12 +245,17 @@
       ]
     },
     "index.html": {
-      "sha256": "74625945478c22b34b276fce9c1d83c38fdc197b0d58b3d50336dfa8da9f62d7",
-      "bytes": 25202,
+      "sha256": "9438d4c1245f2627a0ba33dc5adc75523f5052f34c25bb2adee6232d77727c64",
+      "bytes": 25189,
       "versions": [],
       "sourceSha256": "49736af6f530bd4b5b46719e756302a8f0d7972d31e2414af8ed6d5415cabd7c",
       "change": "Add shared data-bound chart CSS/script references; existing published UI markup and business logic retained.",
-      "previousSha256": "107604b598ddfb154664ad72a17b2c7e8a6d165da8799ae1c1e453b12dc41992"
+      "previousSha256": "107604b598ddfb154664ad72a17b2c7e8a6d165da8799ae1c1e453b12dc41992",
+      "linkMigration": {
+        "previousSha256": "74625945478c22b34b276fce9c1d83c38fdc197b0d58b3d50336dfa8da9f62d7",
+        "previousBytes": 25202,
+        "change": "2026-11-25 approved retired screening fragment migration and matching link copy only; layout, styles and data unchanged."
+      }
     },
     "market-overview.js": {
       "sha256": "88a5bbceb09cd00dac352b54bc8de34a9f361e35ef9662692ea5c8fb85d401c5",
@@ -281,9 +291,14 @@
       "versions": []
     },
     "screening/history.html": {
-      "sha256": "c80ce30a4a4e25dcf519666b7713214d28191d0545d4c233047637699fd93dea",
-      "bytes": 2958,
-      "versions": []
+      "sha256": "358ea85c988d70b02f2a5d60ceb95316e23cfe97ad75b56d093b3adf95edb7d7",
+      "bytes": 2953,
+      "versions": [],
+      "linkMigration": {
+        "previousSha256": "c80ce30a4a4e25dcf519666b7713214d28191d0545d4c233047637699fd93dea",
+        "previousBytes": 2958,
+        "change": "2026-11-25 approved retired importer CTA migration only; all saved history content and data unchanged."
+      }
     },
     "sentiment-panel.css": {
       "sha256": "cd3ef48dd79e1df4d79f973500c84b2eac0cd2b9790df1313a112480421f804a",
@@ -293,11 +308,16 @@
       ]
     },
     "tools.html": {
-      "sha256": "048a1634cc609a62d89c147faff931e3ff8f5523e87b7da0c11804582aa2c1fe",
-      "bytes": 5063,
+      "sha256": "26a09725610942c045a7d27d76fe8d42f79b0d8c69ed2d4af907c32f744a8544",
+      "bytes": 5032,
       "versions": [],
       "previousSha256": "96d2f6264e1e2afc55a4cd5c970afd43396ebdf3f827825870931410b2181513",
-      "change": "Preserve current published layout and data; unify shared component styling and add explicit indicator research entry."
+      "change": "Preserve current published layout and data; unify shared component styling and add explicit indicator research entry.",
+      "linkMigration": {
+        "previousSha256": "048a1634cc609a62d89c147faff931e3ff8f5523e87b7da0c11804582aa2c1fe",
+        "previousBytes": 5063,
+        "change": "2026-11-25 approved retired screening fragment migration and matching link copy only; layout, styles and data unchanged."
+      }
     },
     "trader/binance/index.html": {
       "sha256": "0148e536afb318e13061e7c29c99ae76d21da230d290fdfddbc15c76d508d9e0",

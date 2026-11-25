@@ -124,3 +124,22 @@ node --test audit/trend-patterns-unit.cjs audit/a-share-daily-unit.mjs audit/a-s
 
 停用新任务：`systemctl disable --now books-a-share-daily.timer`，再 `systemctl stop books-a-share-daily.service`。
 保留状态目录和 `current.json`，网页仍可读取最后成功批次；不要用中途记录替换完成批次。
+
+## 当前选股与三日跟踪
+
+成功收盘或 `no_new_day` 后，worker 按公开披露、独立短线/披露观察与归一化图、首次机会记录、同市场状态形态统计、选股指针的顺序运行。`waiting_source` 不推进。原16类形态、13项指标资格门槛和15日方案不变；短线/披露观察不能冒充已验证B点。
+
+`GET /api/a-share-daily/workbench` 及 `workbench-chart`、`a14-chart` 仅读取完成结果，不触发扫描。记录后的第1、2、3个实际交易日分别用同批前复权收盘价补观察收益；停牌、缺价、未到期留空，不当作实际成交。市场状态统计仅覆盖已保存的500日及当前名册，不能代表全部历史牛熊周期，也不授予选股资格。
+
+巨潮分页异常可发布 `partial`：只展示逐条核实及已保存的记录，保留缺页原因与未完成查询起点。拒绝访问、记录身份异常等仍停止本来源并保留上次结果。机构调研不等于机构买入。每个自然日最多检查一次公告；发现范围和查询缺页均有单独记录。
+
+14:00任务最多读取20只现有条件股的公开报价，分批最多5只；报价前收必须匹配上轮归档价格基准。仅交易日14:00至14:10接受真实报价，最后日K未收盘、成交量未核实，始终标作未验证观察。14:00、14:03、14:07检查；部分报价未刷新时保存已取得原件，仅补缺项，最后一轮仍缺则明确部分覆盖，首次完成的同日快照冻结，错过后不补造。归档成功而指针写入失败时，后次检查校验原件后恢复发布，不重采。原快照 `day/asOf` 不改写，后续观察日期使用 `observationDay/observationGeneration/observationAsOf`。
+
+```sh
+install -m 644 server/books-a-share-a14.service server/books-a-share-a14.timer /etc/systemd/system/
+systemd-analyze verify /etc/systemd/system/books-a-share-a14.service /etc/systemd/system/books-a-share-a14.timer
+systemctl daemon-reload
+systemctl enable --now books-a-share-a14.timer
+```
+
+无需新增密钥或修改现有安全配置。进度及失败原因分别记录于 `stock-desk-v1/status.json`、`intraday-preselection-v1/status.json`。同代已冻结记录不能事后插入新观察，首次排练应使用隔离目录；原始500日线、公告记录、方案与复盘档不删除。

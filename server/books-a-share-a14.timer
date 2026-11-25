@@ -1,0 +1,12 @@
+[Unit]
+Description=Books A-share 14:00 snapshot checks
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 14:00:30 Asia/Shanghai
+OnCalendar=Mon..Fri *-*-* 14:03:00 Asia/Shanghai
+OnCalendar=Mon..Fri *-*-* 14:07:00 Asia/Shanghai
+Persistent=false
+Unit=books-a-share-a14.service
+
+[Install]
+WantedBy=timers.target

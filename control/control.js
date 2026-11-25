@@ -36,6 +36,10 @@
    }
    const last=automation.lastSuccess;
    lines.push(last?'最近完成 '+last.day+' · '+last.ready+'/'+last.total+' 只有效 · '+stamp(last.finishedAt)+'（北京）'+(automation.available?'。':'；缓存暂不可用。'):'尚无已发布的完整收盘批次。');
+   const workerNames={closed:'非采样时段',no_new_snapshot:'已有当日快照',waiting_source:'等待报价',held:'来源暂停',partial:'部分覆盖',ready:'已就绪'},workerStages={'desk-watches':'收盘观察计算',tracking:'3日跟踪','opportunity-tracking':'3日跟踪','market-preference':'市场状态形态统计',institutions:'公开披露检查',complete:'完成'};
+   for(const [key,label]of [['stockDesk','选股工作台'],['intraday','14:00预选']]){const task=automation[key];if(!task)continue;const progress=Number.isFinite(task.checked)?progressText(task):Number.isFinite(task.total)?'—/'+task.total+'只':'';lines.push(label+'：'+(workerNames[task.status]||statusNames[task.status]||task.status||'状态未提供')+(task.day?' · '+task.day:'')+(task.stage?' · 阶段 '+(workerStages[task.stage]||task.stage):'')+(progress?' · '+progress:'')+(task.error?' · '+task.error:'')+(task.finishedAt?' · 结束 '+stamp(task.finishedAt):task.startedAt?' · 启动 '+stamp(task.startedAt):'')+'。');}
+   const institutions=automation.stockDesk?.institutions;
+   if(institutions)lines.push('公开披露：'+(institutions.partial?'部分覆盖':workerNames[institutions.status]||statusNames[institutions.status]||institutions.status||'状态未提供')+(institutions.reason?' · '+institutions.reason:'')+(institutions.checkedAt?' · 检查 '+stamp(institutions.checkedAt):'')+'。');
    const archive=automation.retention;
    if(archive){
     const stages={'archive-backup':'方案备份','archive-compress':'旧批次压缩','archive-cache':'来源缓存冷归档','archive-vacuum':'热缓存空间整理'};

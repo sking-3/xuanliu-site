@@ -10,7 +10,7 @@ const validDay=value=>typeof value==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(value)
 const validBar=bar=>bar&&['open','high','low','close','volume'].every(key=>finite(bar[key])&&bar[key]>0)&&bar.high>=Math.max(bar.open,bar.close)&&bar.low<=Math.min(bar.open,bar.close);
 const median=values=>{const ordered=values.slice().sort((a,b)=>a-b),m=Math.floor(ordered.length/2);return ordered.length%2?ordered[m]:(ordered[m-1]+ordered[m])/2;};
 
-function prepare(bars,dates){
+export function prepare(bars,dates){
   const byDay=new Map();let previous='';
   for(const bar of bars||[]){if(!validDay(bar?.date)||bar.date<=previous)throw Error('形态日线日期重复、逆序或无效');previous=bar.date;byDay.set(bar.date,bar);}
   const aligned=dates.map(date=>byDay.get(date)||null),n=dates.length;
@@ -141,7 +141,7 @@ export function walkForward(events,dates,{patternCount=16}={}){
   return {status:'ready',folds,selectedEvents,stats,selectedFoldCount,positiveFoldCount,blockCount,positiveBlockCount,pValue,adjustedPValue:pValue===null?null:Math.min(1,pValue*patternCount)};
 }
 
-function recentStrength(series,index){
+export function recentStrength(series,index){
   const {bars,mas,volumes,validRange}=series;
   if(index<60||!validRange(index-60,index))return null;
   const close=bars[index].close,ma5=mas.get(5),ma20=mas.get(20),metrics={return5:(close/bars[index-5].close-1)*100,return20:(close/bars[index-20].close-1)*100,ma20Deviation:(close/ma20[index]-1)*100,volumeRatio:((volumes[index+1]-volumes[index-4])/5)/((volumes[index-4]-volumes[index-24])/20)};
