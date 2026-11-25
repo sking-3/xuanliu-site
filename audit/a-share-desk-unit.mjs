@@ -6,11 +6,12 @@ import {tmpdir} from 'node:os';
 import {join,dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {gzipSync,gunzipSync} from 'node:zlib';
-import {runStockDesk,readStockDesk,readA14Chart,readWorkbenchChart,schema,directoryName} from '../server/a-share-desk.mjs';
+import {runStockDesk,readStockDesk,readA14Chart,readWorkbenchChart,readContextChart,schema,directoryName} from '../server/a-share-desk.mjs';
 import {filename as watchFilename,chartDirectoryName as watchChartDirectory} from '../server/a-share-desk-watches.mjs';
 import {version as trackingVersion,schema as trackingSchema,directoryName as trackingDirectory} from '../server/a-share-opportunity-tracking.mjs';
 import {version as preferenceVersion,filename as preferenceFilename} from '../server/a-share-market-preference.mjs';
 import {createAShareCache} from '../server/a-share-cache.mjs';
+import {filename as contextFilename} from '../server/a-share-decision-context.mjs';
 
 const siteDir=fileURLToPath(new URL('..',import.meta.url)),day='2026-11-20',now=()=>Date.parse(day+'T10:00:00Z');
 const batch={generation:day+'-1795165200000',sourceId:'tickflow-free-forward-v1',day,asOf:day+'T07:00:00.000Z',total:1000,ready:900,dataPolicy:{rawPublic:false}};
@@ -56,6 +57,13 @@ test('publishes one close source with inline same-regime research without changi
   const f=await fixture(t),original=structuredClone(f.report.tracks[0].original),result=await f.publish();assert.equal(result.attempt.status,'complete');
   const view=await readStockDesk({dir:f.dir,now:now()});assert.equal(view.schema,schema);assert.equal(view.close.status,'ready');assert.equal(view.close.data.generation,batch.generation);assert.equal(view.close.data.current[0].qualified,false);
   assert.equal(view.close.data.current[0].research.regimePreference[0].sampleCount,29);assert.equal(view.close.data.current[0].research.regimePreference[0].adequate,false);assert.deepEqual(view.close.data.tracks[0].original,original);assert.deepEqual(f.report.tracks[0].original,original);assert.equal(view.close.data.marketContext.preferences.historicalMembership,false);assert.deepEqual(view.close.data.marketContext.topRanking,[]);assert.equal(view.close.data.method.savedScheme15DayPolicyChanged,false);
+});
+test('full-market coded plans are merged read-only with coherent model charts and separate immutable episodes',async t=>{
+ const f=await fixture(t),record=f.records[2];record.source=structuredClone(record.source);Object.assign(record.source.bars[50],{high:10.5,low:9.5});Object.assign(record.source.bars.at(-1),{open:9.8,high:10,low:9.6,close:9.9});await f.saveHistory();
+ const published=await f.publish();assert.equal(published.attempt.status,'complete');const view=await readStockDesk({dir:f.dir,now:now()}),row=view.close.data.current.find(row=>row.familyId==='daily-setup-watch');assert.ok(row);assert.equal(row.code,record.stock.code);assert.equal(row.research.plan.kind,'range-support');assert.equal(row.research.plan.holdingRequired,true);assert.equal(row.qualified,false);assert.equal(view.close.data.marketContext.position.coverage.total,1000);assert.deepEqual(view.close.data.tracks[0].original,f.report.tracks[0].original);
+ const options={dir:f.dir,generation:batch.generation,code:row.code,kind:row.research.plan.kind,window:60,now:now()},chart=await readContextChart(options);assert.match(chart.body.toString(),/data-normalization="first-close-percent"/);assert.equal(await readContextChart({...options,kind:'trend-pullback'}),null);assert.equal(await readContextChart({...options,generation:'2026-01-01-1'}),null);
+ const cache=createAShareCache({directory:f.dir}),url=new URL(row.chartUrls[60],'http://local'),response={writeHead(status,headers){this.status=status;this.headers=headers;},end(body){this.body=body;}};await cache.handle({method:'GET',headers:{}},response,{path:url.pathname,url,json:(res,status,value)=>{res.status=status;res.value=value;}});assert.equal(response.status,200);assert.match(response.headers['content-type'],/image\/svg/);
+ const context=join(f.target,contextFilename+'.json'),saved=await readFile(context,'utf8');await f.publish();assert.equal(await readFile(context,'utf8'),saved);await unlink(context);assert.equal((await readStockDesk({dir:f.dir,now:now()})).close.status,'ready');
 });
 test('failed preference keeps previous workbench marker and source pointer intact',async t=>{
   const f=await fixture(t);await f.publish();const pointer=await readFile(join(f.dir,directoryName,'current.json'),'utf8'),source=await readFile(join(f.dir,'current.json'),'utf8');
