@@ -4,7 +4,7 @@ import { mkdtemp, readFile, writeFile, rm, mkdir, readdir,symlink } from 'node:f
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import {spawn} from 'node:child_process';
-import { collect, createGuard, openStore, precompute, recomputeFromCache, retryAfter, INDICES } from '../server/a-share-daily.mjs';
+import { collect, createGuard, openStore, precompute, recomputeFromCache, retryAfter, INDICES,SCHEDULE } from '../server/a-share-daily.mjs';
 import {signalChartVersion} from '../server/a-share-signal-chart.mjs';
 import {sourceId,dataPolicy,barSchema,hasOHLC,historyCount} from '../server/a-share-tickflow.mjs';
 import {universeSchema,universeSourceId} from '../server/a-share-universe.mjs';
@@ -170,6 +170,90 @@ function tickflowResponse(url){
   const codes=parsed.searchParams.get('symbols').split(',');assert(codes.length<=50);
   return Response.json({data:Object.fromEntries(codes.map(code=>[code,series(100+Number(code.slice(0,6))%17)]))});
 }
+function publicationFixture(){
+  const state={indices:Object.fromEntries(INDICES.map(code=>[code,'lag']))},calls=[];
+  const request=async input=>{
+    const url=new URL(input),codes=url.searchParams.get('symbols')?.split(',')||[];calls.push({path:url.pathname,codes});
+    if(url.pathname.includes('/exchanges/')){
+      const exchange=url.pathname.split('/')[3],data=Array.from({length:500},(_,i)=>{const code=String((exchange==='SH'?600000:0)+i).padStart(6,'0');return {code,symbol:code+'.'+exchange,exchange,region:'CN',type:'stock',name:'合成名册'+i};});
+      return Response.json({exchange,count:data.length,data});
+    }
+    const data={};for(const code of codes){
+      const status=state.indices[code]||'ready';if(status==='absent')continue;
+      const raw=series();if(status==='lag'){
+        const dates=[];for(let date=new Date('2026-11-19T00:00:00Z');dates.length<61;date.setUTCDate(date.getUTCDate()-1))if(![0,6].includes(date.getUTCDay()))dates.unshift(date.toISOString().slice(0,10));
+        raw.timestamp=dates.map(day=>Date.parse(day+'T00:00:00+08:00'));
+      }
+      data[code]=raw;
+    }
+    return Response.json({data});
+  };
+  return {state,calls,request};
+}
+async function previousPublication(dir){
+  const value=await options(dir,{compute:async()=>({generation:'2026-11-19-1',day:'2026-11-19',asOf:'2026-11-19T07:00:00.000Z',total:1000,ready:999})}).compute({sourceId,dataPolicy});
+  await writeFile(join(dir,'current.json'),JSON.stringify(value));return value;
+}
+
+test('missing target-day indices wait without stock scans, retain all three diagnostics, and publish only after the source becomes ready',async()=>fixture(async dir=>{
+  const old=await previousPublication(dir),pointer=await readFile(join(dir,'current.json')),f=publicationFixture();let computes=0;
+  const input=options(dir,{technicalFactory:undefined,universeFactory:undefined,fetch:f.request,compute:async value=>{computes++;return {generation:'2026-11-20-1',day:value.day,asOf:value.asOf,total:value.universe.length,ready:value.sources.size};}});
+  const first=await collect(input);assert.equal(first.attempt.status,'waiting_source');assert.equal(first.attempt.stage,'indices');assert.equal(first.attempt.requests,3);assert.equal(first.attempt.checked,0);assert.equal(first.attempt.error,null);assert.equal(first.attempt.errorDetails,null);assert.match(first.attempt.message,/来源尚未发布/);assert.equal(computes,0);assert.deepEqual(first.lastSuccess,old);assert.deepEqual(await readFile(join(dir,'current.json')),pointer);
+  assert.equal(first.attempt.sourcePending.requestedDay,latest.date);assert.equal(first.attempt.sourcePending.observedAt,new Date(now()).toISOString());assert.equal(first.attempt.sourcePending.indices.length,3);
+  for(const item of first.attempt.sourcePending.indices){assert.equal(item.sourceDay,'2026-11-19');assert.equal(item.fetchedAt,new Date(now()).toISOString());assert.equal(item.diagnostic.code,'target_day_missing');assert.equal(item.status,'unavailable');assert.equal('bars' in item,false);}
+  const db=openStore(join(dir,'collector.sqlite')),saved=db.prepare('SELECT source_json FROM history_v2 WHERE source_id=?').all(sourceId);db.close();assert.equal(saved.length,3);assert(saved.every(row=>JSON.parse(row.source_json).diagnostic.code==='target_day_missing'));
+  const again=await collect({...input,now:()=>now()+600000});assert.equal(again.attempt.status,'waiting_source');assert.equal(again.attempt.requests,1);assert.equal(f.calls.length,4);assert(f.calls.filter(call=>call.codes.length).every(call=>call.codes.every(code=>INDICES.includes(code))));assert.equal(computes,0);
+  for(const code of INDICES)f.state.indices[code]='ready';const complete=await collect({...input,now:()=>now()+1200000});assert.equal(complete.attempt.status,'complete');assert.equal(complete.attempt.requests,21);assert.equal(computes,1);assert.equal(complete.lastSuccess.day,latest.date);assert.notDeepEqual(await readFile(join(dir,'current.json')),pointer);
+  const count=f.calls.length;assert.equal((await collect({...input,now:()=>now()+1800000})).attempt.status,'no_new_day');assert.equal(f.calls.length,count);assert.equal(computes,1);
+}));
+
+test('a mixed ready/pending index probe resumes ready indices and keeps source holds intact',async()=>fixture(async dir=>{
+  await previousPublication(dir);const pointer=await readFile(join(dir,'current.json')),f=publicationFixture();f.state.indices[INDICES[0]]='ready';
+  const input=options(dir,{technicalFactory:undefined,universeFactory:undefined,fetch:f.request});
+  const first=await collect(input);assert.equal(first.attempt.status,'waiting_source');assert.deepEqual(first.attempt.sourcePending.indices.map(item=>item.sourceDay),[latest.date,'2026-11-19','2026-11-19']);
+  const hold={reason:'HTTP 429',retryAfter:'2026-11-21T01:00:00Z'},db=openStore(join(dir,'collector.sqlite'));db.prepare('INSERT INTO settings VALUES(?,?)').run('source-hold:'+sourceId,JSON.stringify(hold));db.close();
+  const callCount=f.calls.length,held=await collect(input);assert.equal(held.attempt.status,'failed');assert.match(held.attempt.error,/来源访问已暂停/);assert.equal(held.attempt.requests,0);assert.equal(f.calls.length,callCount);assert.deepEqual(await readFile(join(dir,'current.json')),pointer);
+  const check=openStore(join(dir,'collector.sqlite'));assert.deepEqual(JSON.parse(check.prepare('SELECT value FROM settings WHERE key=?').get('source-hold:'+sourceId).value),hold);check.close();
+}));
+
+test('mixed ready/pending indices later fetch only the missing index pair before a full collection',async()=>fixture(async dir=>{
+  await previousPublication(dir);const f=publicationFixture();f.state.indices[INDICES[0]]='ready';const input=options(dir,{technicalFactory:undefined,universeFactory:undefined,fetch:f.request});
+  assert.equal((await collect(input)).attempt.status,'waiting_source');const before=f.calls.length;for(const code of INDICES)f.state.indices[code]='ready';
+  const result=await collect({...input,now:()=>now()+600000});assert.equal(result.attempt.status,'complete');assert.equal(result.attempt.resumed,1);assert.equal(result.attempt.requests,21);assert.deepEqual(f.calls[before].codes,INDICES.slice(1));assert.equal(f.calls.filter(call=>call.path.includes('/exchanges/')).length,2);
+}));
+
+test('an unavailable index with a different diagnosis remains a hard failure even alongside target-day lag',async()=>fixture(async dir=>{
+  await previousPublication(dir);const pointer=await readFile(join(dir,'current.json')),f=publicationFixture();f.state.indices[INDICES[1]]='absent';let computes=0;
+  const result=await collect(options(dir,{technicalFactory:undefined,universeFactory:undefined,fetch:f.request,compute:async()=>{computes++;}}));
+  assert.equal(result.attempt.status,'failed');assert.equal(result.attempt.stage,'indices');assert.match(result.attempt.error,/000001.SH.*来源未返回/);assert.equal(result.attempt.sourcePending,undefined);assert.equal(result.attempt.requests,3);assert.equal(result.attempt.checked,0);assert.equal(computes,0);assert.deepEqual(await readFile(join(dir,'current.json')),pointer);assert(f.calls.filter(call=>call.codes.length).every(call=>call.codes.every(code=>INDICES.includes(code))));
+}));
+
+test('after-close timer checks every ten minutes from 15:10 through 23:50 without a 15:00 run',async()=>{
+  const timer=await readFile(new URL('../server/books-a-share-daily.timer',import.meta.url),'utf8');
+  assert.deepEqual(timer.split('\n').filter(line=>line.startsWith('OnCalendar=')),['OnCalendar=Mon..Fri *-*-* 15:10/10:00 Asia/Shanghai','OnCalendar=Mon..Fri *-*-* 16..23:00/10:00 Asia/Shanghai']);assert.match(timer,/Persistent=true/);assert.match(SCHEDULE,/15:10–23:50.*每10分钟/);assert.match(SCHEDULE,/来源就绪/);
+});
+
+test('the real CLI exits successfully while waiting for source data and skips saved-scheme execution',async()=>fixture(async dir=>{
+  await previousPublication(dir);const pointer=await readFile(join(dir,'current.json')),booksDb=join(dir,'books.sqlite'),db=openStore(booksDb);db.close();
+  const preload=`
+    Date.now=()=>${now()};
+    globalThis.fetch=async input=>{
+      const url=new URL(input);
+      if(url.pathname.includes('/exchanges/')){
+        const exchange=url.pathname.split('/')[3],data=Array.from({length:500},(_,i)=>{const code=String((exchange==='SH'?600000:0)+i).padStart(6,'0');return {code,symbol:code+'.'+exchange,exchange,region:'CN',type:'stock',name:'synthetic-'+i};});
+        return Response.json({exchange,count:data.length,data});
+      }
+      const dates=[];for(let time=Date.parse('2026-11-19T00:00:00Z');dates.length<61;time-=86400000)if(![0,6].includes(new Date(time).getUTCDay()))dates.unshift(new Date(time).toISOString().slice(0,10));
+      const series={timestamp:dates.map(day=>Date.parse(day+'T00:00:00+08:00')),open:dates.map(()=>100),high:dates.map(()=>102),low:dates.map(()=>99),close:dates.map(()=>101),volume:dates.map(()=>1000)};
+      return Response.json({data:Object.fromEntries(url.searchParams.get('symbols').split(',').map(code=>[code,series]))});
+    };
+  `;
+  const result=await new Promise((complete,reject)=>{
+    const child=spawn(process.execPath,['--max-old-space-size=192','--import','data:text/javascript,'+encodeURIComponent(preload),resolve('server/a-share-daily.mjs')],{cwd:resolve('.'),env:{...process.env,BOOKS_SITE_DIR:resolve('.'),BOOKS_A_SHARE_DIR:dir,BOOKS_DB:booksDb,A_SHARE_ARCHIVE_RESERVE_BYTES:'1',A_SHARE_BATCH_RESERVE_BYTES:'1'}});let stdout='',stderr='';
+    child.stdout.on('data',chunk=>{stdout+=chunk;});child.stderr.on('data',chunk=>{stderr=(stderr+chunk).slice(-8000);});child.once('error',reject);child.once('close',(code,signal)=>complete({code,signal,stdout,stderr}));
+  });
+  assert.equal(result.code,0,result.stderr);assert.equal(result.signal,null);const receipt=JSON.parse(result.stdout.trim());assert.equal(receipt.attempt.status,'waiting_source');assert.equal(receipt.attempt.requests,3);assert.equal(receipt.schemes,undefined);assert.equal(receipt.attempt.sourcePending.indices.length,3);assert.deepEqual(await readFile(join(dir,'current.json')),pointer);
+}));
 test('default source batches all main-board records including risk names through one guard, keeps legacy cache private and skips only completed same-source days',async()=>fixture(async dir=>{
   const db=openStore(join(dir,'collector.sqlite'));db.prepare('INSERT INTO history VALUES(?,?,?,?)').run(latest.date,stocks[0].code,asOf,JSON.stringify({status:'ready',bars:[{close:999999}]}));db.close();
   let computes=0;const requests=[],waits=[],rows=stocks.map((stock,i)=>({...stock,name:i===0?'*ST测试':stock.name}));

@@ -2,7 +2,8 @@
 Description=Books A-share daily after-close precomputation
 
 [Timer]
-OnCalendar=Mon..Fri *-*-* 20:10:00 Asia/Shanghai
+OnCalendar=Mon..Fri *-*-* 15:10/10:00 Asia/Shanghai
+OnCalendar=Mon..Fri *-*-* 16..23:00/10:00 Asia/Shanghai
 Persistent=true
 Unit=books-a-share-daily.service
 
