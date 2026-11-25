@@ -23,10 +23,9 @@ class Element extends Target{
 }
 function documentFixture(){
  const env=new Target(),ids=new Map(),data=[],timers=new Map(),intervals=new Map(),storage=new Map();let nextTimer=0;
- for(const match of html.matchAll(/<(\w+)\b([^>]*)>/g)){
-  const node=new Element(match[1]),id=/\bid="([^"]+)"/.exec(match[2]);
-  if(id)ids.set(id[1],node);
-  for(const attr of match[2].matchAll(/data-(trend-[\w-]+)="([^"]*)"/g)){const key=attr[1].replace(/-([a-z])/g,(_,letter)=>letter.toUpperCase());node.dataset[key]=attr[2];data.push(node);}
+ for(const descriptor of require('./legacy-screening-fixture.cjs')){
+  const node=new Element(descriptor.tag);if(descriptor.id)ids.set(descriptor.id,node);
+  if(descriptor.data){Object.assign(node.dataset,descriptor.data);data.push(node);}
  }
  ids.get('trend-screen').append(...data);ids.get('trend-lookback').value='20';ids.get('trend-scheme-change').value='all';
  env.setTimeout=(fn,ms)=>{const id=++nextTimer;timers.set(id,{fn,ms});return id;};env.clearTimeout=id=>timers.delete(id);env.setInterval=(fn,ms)=>{const id=++nextTimer;intervals.set(id,{fn,ms});return id;};env.clearInterval=id=>intervals.delete(id);
@@ -58,11 +57,11 @@ function fixture(options={}){
  const appUI=schemesUI.mount(f.doc,{app,autoLoad:false});
  return {...f,calls,applied,monitors,appUI,setScheme:value=>scheme=value,setRun:value=>run=value,setTracks:value=>tracks=value,setMonitor:value=>monitor=value,setHourly:value=>hourly=value};
 }
-test('the main page has no manual scheme bar and reads the first enabled monitor without changing current conditions',async t=>{
+test('retired scheme fixture still reads its first enabled monitor; the new page has no scheme mount or manual bar',async t=>{
  const f=fixture({fetch:async path=>path==='/api/a-share-daily/schemes'?{ok:true,status:200,json:async()=>({schemes:[schemeValue({id:'paused',enabled:false}),schemeValue(),schemeValue({id:'remembered'})]})}:null});t.after(()=>f.appUI.destroy());
  f.storage.set('books.screening.schemeId.v1','remembered');await f.appUI.refresh();
  for(const id of ['select','name','load','save','toggle'])assert.equal(f.el(id),undefined);
- assert.doesNotMatch(html,/trend-scheme-bar|保存并每日运行|载入条件|暂停每日筛选/);
+ assert.doesNotMatch(html,/trend-scheme-bar|保存并每日运行|载入条件|暂停每日筛选|id="trend-scheme-review"|src="schemes-controller\.js/);assert.match(html,/id="stock-desk-tracking"/);assert.equal(schemesUI.mount({getElementById:()=>null}),null);
  assert.equal(f.calls.length,2);assert.equal(f.calls[1].path,'/api/a-share-daily/schemes?id=scheme1');assert.equal(f.appUI.getState().id,'scheme1');assert.equal(f.applied.length,0);assert.deepEqual(f.monitors,[monitorValue()]);
  assert.match(f.el('status').textContent,/每日自动筛选.*每小时检查：盘中来源状态待核.*15个交易日涨幅不足5%自动剔除.*活跃 0 只/);
  assert.match(f.el('source').textContent,/已存方案.*数据日 2026-11-20.*日线来源 tickflow-eod.*页面读取.*（北京）/);
