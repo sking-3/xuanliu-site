@@ -97,6 +97,47 @@
 .us-selection-support { margin: 22px 0; }
 .us-selection-support > summary { color: var(--desk-muted, #596473); min-height: 44px; padding: 12px 0; cursor: pointer; font-size: 13px; }
 .us-selection-support .stock-public-market { margin-top: 12px; }
+/* Fundamental research uses full-width comparison rows, separate from charts. */
+.us-selection-ledger { display: block; }
+.us-review-statuses { display: flex; align-items: center; flex-wrap: wrap; gap: 0 20px; padding: 8px 0; margin: 0 0 8px; border-bottom: 1px solid var(--us-line); }
+body.books-shell .us-selection .us-review-statuses button { display: inline-flex; align-items: center; gap: 6px; min-width: 44px; min-height: 44px; padding: 8px 0; background: transparent; border: 0; border-bottom: 2px solid transparent; border-radius: 0; box-shadow: none; color: var(--us-muted); font: inherit; font-size: 13px; white-space: nowrap; cursor: pointer; }
+body.books-shell .us-selection .us-review-statuses button:hover { background: transparent; color: var(--us-accent); }
+body.books-shell .us-selection .us-review-statuses button[aria-pressed="true"] { border-bottom-color: var(--us-accent); color: var(--us-accent); font-weight: 650; }
+.us-review-statuses strong { margin-left: 0; font-weight: 650; }
+.us-review-scope { margin: 8px 0 16px; font-size: 12px; line-height: 1.6; color: var(--us-muted); }
+.us-review-group { margin: 18px 0 0; min-width: 0; }
+.us-review-group-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--us-line); }
+.us-review-group-heading h2 { margin: 0; font-size: 15px; line-height: 1.5; }
+.us-review-group-heading span { font-size: 12px; color: var(--us-muted); }
+.us-research-row { display: grid; grid-template-columns: minmax(165px, .85fr) minmax(360px, 2fr) minmax(110px, .55fr); gap: 10px 20px; align-items: center; padding: 18px 0; border-bottom: 1px solid var(--us-line); min-width: 0; }
+.us-research-identity { min-width: 0; }
+.us-research-identity h3 { display: flex; align-items: baseline; flex-wrap: wrap; gap: 5px 10px; margin: 0; font-size: 17px; line-height: 1.5; }
+.us-research-identity h3 small { color: var(--us-muted); font-size: 12px; font-weight: 400; }
+.us-research-name { margin: 3px 0 0; font-size: 12px; color: var(--us-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.us-research-row .us-selection-levels { margin: 0; gap: 8px 16px; }
+.us-research-row .us-selection-levels dd { margin-top: 4px; font-size: 16px; font-weight: 600; }
+.us-research-status { justify-self: end; font-size: 12px; color: var(--us-accent); line-height: 1.6; text-align: right; }
+.us-research-status[data-tone="warning"] { color: #88591e; }
+.us-research-dates { grid-column: 1 / -1; margin: 0; font-size: 11px; line-height: 1.6; color: var(--us-muted); }
+.us-research-row > .us-selection-inline { grid-column: 1 / -1; margin: 0; border: 0; }
+.us-research-row > .us-selection-inline > summary { padding: 5px 0; min-height: 36px; font-weight: 500; }
+.us-research-row .us-selection-inline .us-selection-levels { margin: 12px 0; }
+.us-research-row .us-selection-inline .us-selection-levels dd { font-size: 14px; font-weight: 500; }
+.us-review-preview-heading { margin: 0; padding: 18px 20px; border-bottom: 1px solid var(--us-line); font-size: 18px; }
+@media (max-width: 1000px) {
+  .us-research-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .us-research-row > .us-selection-levels { grid-column: 1 / -1; grid-row: 2; }
+  .us-research-status { grid-column: 2; grid-row: 1; }
+}
+@media (max-width: 560px) {
+  .us-review-statuses { gap: 0 15px; }
+  body.books-shell .us-selection .us-review-statuses button { font-size: 12px; }
+  .us-research-row { padding: 15px 0; gap: 10px 12px; }
+  .us-research-row .us-selection-levels { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 18px; }
+  .us-research-row .us-selection-levels dd { font-size: 16px; }
+  .us-research-status { max-width: 105px; }
+  .us-research-name { max-width: 42ch; }
+}
 @media (prefers-reduced-motion: no-preference) {
   .us-selection :is(button, a.us-selection-button) { transition: background-color .16s ease-out, border-color .16s ease-out; }
 }

@@ -61,13 +61,13 @@ export function entryChart({stock,bars,setup}){
   const lower=Math.min(...view.map(bar=>pct(bar.low)),...levels.map(pct)),upper=Math.max(...view.map(bar=>pct(bar.high)),...levels.map(pct));
   const range=Math.max(upper-lower,1),bottom=lower-range*.12,top=upper+range*.17;
   const y=price=>218-(pct(price)-bottom)/(top-bottom)*173,step=536/view.length,x=i=>35+step*(i+.5),number=n=>Number(n.toFixed(2));
-  const parts=[`<svg xmlns="http://www.w3.org/2000/svg" width="640" height="266" viewBox="0 0 640 266" role="img" aria-labelledby="title desc"><title id="title">${escape(stock.name||stock.code)} · 关键K研究回放</title><desc id="desc">以窗口首日收盘归一化；F为形态K，C为收盘确认关键K，T为日线观察到突破。不代表实际成交。</desc><rect width="640" height="266" fill="#fcfdfd"/><g font-family="system-ui,sans-serif" font-size="12" fill="#506171" style="font-variant-numeric:tabular-nums"><text x="18" y="23">关键K研究回放 · 归一化价格</text>`];
+  const parts=[`<svg xmlns="http://www.w3.org/2000/svg" width="640" height="292" viewBox="0 0 640 292" role="img" aria-labelledby="title desc"><title id="title">${escape(stock.name||stock.code)} · 关键K研究回放</title><desc id="desc">以窗口首日收盘归一化；F为形态K，C为收盘确认关键K，T为日线观察到突破。不代表实际成交。</desc><rect width="640" height="292" fill="#fcfdfd"/><g font-family="system-ui,sans-serif" font-size="12" fill="#506171" style="font-variant-numeric:tabular-nums"><text x="18" y="23">关键K研究回放 · 归一化价格</text>`];
   for(let i=0;i<4;i++){
     const value=bottom+(top-bottom)*i/3,yy=218-i/3*173;
     parts.push(`<path d="M28 ${number(yy)}H576" stroke="#e0e6e9"/><text x="582" y="${number(yy+4)}">${number(value)}%</text>`);
   }
-  for(const [price,label,color]of [[setup.trigger?.above,'触发参考','#286178'],[setup.invalidation.below,'固定失效','#a45045']])if(Number.isFinite(price)){
-    const yy=number(y(price));parts.push(`<path d="M28 ${yy}H576" stroke="${color}" stroke-dasharray="4 4"/><text x="30" y="${number(yy-5)}" fill="${color}">${label}</text>`);
+  for(const [index,[price,label,color]]of [[setup.trigger?.above,'B 买入参考','#286178'],[setup.invalidation.below,'S 卖出参考','#a45045']].entries())if(Number.isFinite(price)){
+    const yy=number(y(price));parts.push(`<path d="M28 ${yy}H576" stroke="${color}" stroke-dasharray="4 4"/><text x="${index===0?28:300}" y="242" fill="${color}">${label}</text>`);
   }
   const width=Math.max(2,Math.min(step*.62,10));
   for(const [i,bar]of view.entries()){
@@ -79,7 +79,7 @@ export function entryChart({stock,bars,setup}){
     if(bar.date===setup.observedEvent?.date&&setup.replayStatus==='triggered_observation')labels.push('T');
     if(labels.length)parts.push(`<circle cx="${xx}" cy="${number(y(bar.low)+12)}" r="9" fill="#244e61"/><text x="${xx}" y="${number(y(bar.low)+16)}" text-anchor="middle" fill="#fff">${labels.join('/')}</text>`);
   }
-  parts.push(`<text x="28" y="244">${escape(view[0].date)}</text><text x="576" y="244" text-anchor="end">${escape(view.at(-1).date)}</text><text x="28" y="262">F 形态 · C 确认关键K · T 突破观察；非实际成交</text></g></svg>`);
+  parts.push(`<text x="28" y="267">${escape(view[0].date)}</text><text x="576" y="267" text-anchor="end">${escape(view.at(-1).date)}</text><text x="28" y="287">F 形态 · C 确认关键K · T 突破观察；非实际成交</text></g></svg>`);
   return parts.join('');
 }
 

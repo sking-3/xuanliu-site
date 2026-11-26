@@ -144,3 +144,10 @@ test('the production qualifier intersects identical pattern IDs and never substi
   const unknown=qualifyEntryWatch({...input,monitoring:{...input.monitoring,status:'knowledge_time_unknown'}},{...base,entryEffective:new Set(['regain-ma-20']),shapeEffective:new Set(['regain-ma-20'])});assert.equal(unknown.qualified,false);assert.equal(unknown.fresh,false);
   assert.deepEqual(input,before);assert.equal(same.knownAt,input.knownAt);assert.equal(same.sourceFetchedAt,input.sourceFetchedAt);
 });
+
+test('historical reference labels use B/S legends without relabelling historical F/C/T events or moving level prices',()=>{
+ const bars=[{date:'2026-11-20',open:10,high:11,low:9,close:10,volume:1},{date:'2026-11-23',open:10,high:12,low:10,close:11,volume:2}],setup={formation:bars[0],keyBar:bars[1],trigger:{above:10.00000001},invalidation:{below:9.99999999},replayStatus:'waiting_trigger'},input={stock:{name:'研究参考'},bars,setup},before=structuredClone(input),svg=entryChart(input);
+ assert.match(svg,/viewBox="0 0 640 292"/);assert.match(svg,/<text x="28" y="242"[^>]*>B 买入参考<\/text>/);assert.match(svg,/<text x="300" y="242"[^>]*>S 卖出参考<\/text>/);assert.doesNotMatch(svg,/触发参考|固定失效|data-kind="S"/);assert.match(svg,/>F<|>F\/C</);assert.match(svg,/>C</);assert.match(svg,/T 突破观察；非实际成交/);
+ const base=bars[0].close,pct=value=>(value/base-1)*100,lower=Math.min(...bars.map(bar=>pct(bar.low)),pct(setup.invalidation.below),pct(setup.trigger.above)),upper=Math.max(...bars.map(bar=>pct(bar.high)),pct(setup.invalidation.below),pct(setup.trigger.above)),range=Math.max(upper-lower,1),bottom=lower-range*.12,top=upper+range*.17,y=price=>Number((218-(pct(price)-bottom)/(top-bottom)*173).toFixed(2));
+ assert(svg.includes('d="M28 '+y(setup.trigger.above)+'H576" stroke="#286178"'));assert(svg.includes('d="M28 '+y(setup.invalidation.below)+'H576" stroke="#a45045"'));assert.deepEqual(input,before);
+});

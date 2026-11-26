@@ -17,7 +17,7 @@ function currentChart({stock,bars,item,window,variant='confirmed-entry'}){
   if(!bound){parts.push(`<text x="${left}" y="100">当前日线或关键K参考位未完整对齐，暂不绘制。</text></g></svg>`);return parts.join('');}
   const start=Math.max(0,bars.length-window),view=bars.slice(start),base=view[0].close,pct=value=>(value/base-1)*100,percent=value=>(pct(value)>0?'+':'')+pct(value).toFixed(2)+'%',step=(right-left)/view.length,x=index=>left+step*(index+.5);
   const averages=[5,20].map(period=>({period,values:bars.map((bar,index)=>index+1<period?null:bars.slice(index+1-period,index+1).reduce((sum,row)=>sum+row.close,0)/period)}));
-  const levels=(native?[{kind:'entry',label:'B参考',price:item.originalReference?.entry,color:'#286178'},{kind:'invalidation',label:'失效',price:item.originalReference?.stop,color:'#a45045'},{kind:'target',label:'原目标',price:item.originalReference?.target,color:'#16816e'},{kind:'close',label:'收盘',price:item.closePrice,color:'#68767d'}]:[{kind:'trigger',label:'触发',price:item.trigger.above,color:'#286178'},{kind:'invalidation',label:'失效',price:item.invalidation.below,color:'#a45045'},{kind:'close',label:'收盘',price:item.closePrice,color:'#68767d'}]).filter(level=>Number.isFinite(level.price));
+  const levels=(native?[{kind:'entry',label:'B 买入参考',price:item.originalReference?.entry,color:'#286178'},{kind:'invalidation',label:'S 卖出参考',price:item.originalReference?.stop,color:'#a45045'},{kind:'target',label:'原目标',price:item.originalReference?.target,color:'#16816e'},{kind:'close',label:'收盘',price:item.closePrice,color:'#68767d'}]:[{kind:'trigger',label:'B 买入参考',price:item.trigger.above,color:'#286178'},{kind:'invalidation',label:'S 卖出参考',price:item.invalidation.below,color:'#a45045'},{kind:'close',label:'收盘',price:item.closePrice,color:'#68767d'}]).filter(level=>Number.isFinite(level.price));
   const values=[...view.flatMap(bar=>[pct(bar.low),pct(bar.high)]),...levels.map(level=>pct(level.price))];
   for(const average of averages)for(const value of average.values.slice(start))if(value!==null)values.push(pct(value));
   const minimum=Math.min(...values),maximum=Math.max(...values),span=Math.max(maximum-minimum,1),low=minimum-span*.14,high=maximum+span*.14,y=price=>bottom-(pct(price)-low)/(high-low)*(bottom-top);
@@ -35,12 +35,12 @@ function currentChart({stock,bars,item,window,variant='confirmed-entry'}){
     const points=values.slice(start).map((value,index)=>value===null?null:[number(x(index)),number(y(value))]).filter(Boolean);
     if(points.length)parts.push(`<path data-average="${period}" d="${points.map((point,index)=>(index?'L':'M')+point.join(' ')).join('')}" fill="none" stroke="${period===5?'#9c783f':'#606a89'}" stroke-width="1.4"/>`);
   }
-  const lines=levels.map(level=>({...level,yy:y(level.price)})).sort((a,b)=>a.yy-b.yy);let last=top-34;
-  for(const line of lines){line.labelY=Math.max(line.yy,last+34);last=line.labelY;}
-  const overflow=Math.max(0,last-bottom);
+  const lines=levels.map(level=>({...level,yy:y(level.price)})).sort((a,b)=>a.yy-b.yy);let last=top-20;
+  for(const line of lines){line.labelY=Math.max(top+14,line.yy,last+34);last=line.labelY;}
+  if(lines.length&&last>bottom){lines.at(-1).labelY=bottom;for(let i=lines.length-2;i>=0;i--)lines[i].labelY=Math.min(lines[i].labelY,lines[i+1].labelY-34);}
   for(const line of lines){
-    const yy=number(line.yy),labelY=number(line.labelY-overflow);
-    parts.push(`<g data-level="${line.kind}"><path d="M${left} ${yy}H${right}" stroke="${line.color}" stroke-dasharray="${line.kind==='close'?'2 4':'6 4'}"/><path d="M${right} ${yy}L748 ${labelY}" stroke="${line.color}" fill="none"/><text x="754" y="${number(labelY+8)}" fill="${line.color}" font-size="24">${line.label} ${percent(line.price)}</text></g>`);
+    const yy=number(line.yy),labelY=number(line.labelY);
+    parts.push(`<g data-level="${line.kind}"><path d="M${left} ${yy}H${right}" stroke="${line.color}" stroke-dasharray="${line.kind==='close'?'2 4':'6 4'}"/><path d="M${right} ${yy}L748 ${labelY}" stroke="${line.color}" fill="none"/><text x="754" y="${number(labelY+8)}" fill="${line.color}" font-size="18">${line.label} ${percent(line.price)}</text></g>`);
   }
   const markers=native?[{kind:'B',day:item.day,label:'当日原始多向条件收盘成立'}]:[{kind:'C',day:item.keyBarDay,label:'本次收盘确认，非当日B'}];
   if(!native&&item.stage==='triggered_at_close'&&item.closePrice>item.trigger.above&&bars.at(-1).low>=item.invalidation.below)markers.push({kind:'B',day:item.day,label:'当日收盘触发观察'});

@@ -23,7 +23,7 @@ test('current waiting chart anchors only the item C and never imports old B/S or
     assert.equal([...image.matchAll(/data-candle-day=/g)].length,window);assert.match(image,/viewBox="0 0 960 540"/);assert.match(image,/font-size="28"/);
     assert(image.includes('data-candle-day="'+input.item.keyBarDay+'"><path d="M'+x+' '));assert(image.includes('data-day="'+input.item.keyBarDay+'" data-kind="C"'));
     assert.equal([...image.matchAll(/data-kind=/g)].length,1);assert.doesNotMatch(image,/data-kind="(?:B|S|ADD|REDUCE|INVALID)"/);
-    assert.match(image,/data-level="trigger"/);assert.match(image,/data-level="invalidation"/);assert.match(image,/data-level="close"/);assert.match(image,/触发 [+-]?\d+\.\d+%/);assert.match(image,/失效 [+-]?\d+\.\d+%/);assert.match(image,/收盘 [+-]?\d+\.\d+%/);
+    assert.match(image,/data-level="trigger"/);assert.match(image,/data-level="invalidation"/);assert.match(image,/data-level="close"/);assert.match(image,/B 买入参考 [+-]?\d+\.\d+%/);assert.match(image,/S 卖出参考 [+-]?\d+\.\d+%/);assert.match(image,/收盘 [+-]?\d+\.\d+%/);
     assert.match(image,/data-average="5"/);assert.match(image,/data-average="20"/);assert.match(image,/成交量 · 手（相对柱高）/);
   }});
 });
@@ -91,4 +91,10 @@ test('native chart rejects unqualified, stale-source, mismatched price or unboun
 
 test('display-window captions explain sixty or120 actual trading-session candles without changing the selected evidence or C into today B',async()=>{
  const input=fixture();await output(input,async({svg})=>{for(const window of [60,120]){const image=await svg(window);assert(image.includes('近'+window+'个交易日日K'));assert.match(image,/仅显示窗口，非持有期或预测期/);assert.match(image,/C为收盘确认，非当日B/);assert.match(image,/C · .*本次收盘确认，非当日B/);assert(image.includes('data-day="'+input.item.keyBarDay+'" data-kind="C"'));assert.doesNotMatch(image,/data-kind="(?:B|S)"/);assert.equal((image.match(/data-candle-day=/g)||[]).length,window);}});
+});
+
+test('native B/S reference labels stay in their right column and bounded lanes when three levels cluster below a distant target',async t=>{
+ const input=nativeFixture(),directory=await mkdtemp(join(tmpdir(),'books-current-label-lanes-'));t.after(()=>rm(directory,{recursive:true,force:true}));input.item.originalReference={entry:104.01,stop:104,target:400};const before=structuredClone(input);await writeViprasolCurrentChart({directory,...input});
+ for(const window of [60,120]){const image=await readFile(join(directory,input.paths[window]),'utf8'),labels=[...image.matchAll(/<g data-level="([^"]+)">[\s\S]*?<text x="754" y="([\d.]+)"[^>]*font-size="18">([^<]+)<\/text>/g)];assert.equal(labels.length,4);const ys=labels.map(match=>Number(match[2])).sort((a,b)=>a-b);assert(ys[0]>=106);assert(ys.at(-1)<=338);for(let i=1;i<ys.length;i++)assert(ys[i]-ys[i-1]>=33.99);assert(labels.some(match=>match[3].startsWith('B 买入参考 ')));assert(labels.some(match=>match[3].startsWith('S 卖出参考 ')));assert.doesNotMatch(image,/data-kind="S"/);assert.equal([...image.matchAll(/data-kind="B"/g)].length,1);}
+ assert.deepEqual(input,before);
 });
