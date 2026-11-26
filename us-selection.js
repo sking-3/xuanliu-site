@@ -375,7 +375,10 @@
       const value = row.sectorValue;
       const facts = [];
       if (value?.sector) facts.push(sectorName(value.sector) + ' · ' + (sectorLabels[value.sectorState] || '景气待核'));
-      if (value?.peerGroup && row.status === 'candidate') facts.push('同 SEC 行业 ' + value.peerGroup.code + ' · ' + number(value.peerCount, 0) + ' 家可比');
+      if (value?.peerGroup && row.status === 'candidate') {
+        const companyCount = value.peerGroup.memberCompanies;
+        facts.push('SEC SIC ' + value.peerGroup.code + (finite(companyCount) ? ' · 同码样本 ' + companyCount + ' 家' : '') + ' · ' + number(value.peerCount, 0) + ' 家可比');
+      }
       if (finite(value?.peDiscountPct)) facts.push('中周期 PE 折价 ' + percent(value.peDiscountPct) + '（同业中位 ' + number(value.peerMedianPe) + ' 倍）');
       if (finite(value?.fcfMultipleDiscountPct)) facts.push('市值／FCF 折价 ' + percent(value.fcfMultipleDiscountPct) + '（同业中位 ' + number(value.peerMedianPriceToFcf) + ' 倍）');
       if (facts.length) evidence.append(node('p', facts.join(' · '), 'us-sector-note'));
@@ -496,7 +499,7 @@
         '日线 ' + group.priceSamples + '/' + group.members + ' 家',
         '同期财报 ' + group.financialSamples + '/' + group.members + ' 家',
         period ? '财报期 ' + (period.first === period.last ? period.last : period.first + ' 至 ' + period.last) : '',
-        group.classification === 'SEC SIC 3674' ? 'SEC SIC 3674' : '',
+        group.classificationCode ? 'SEC SIC ' + group.classificationCode : group.classification === 'SEC SIC 3674' ? group.classification : '',
         group.state === 'trough' ? '低谷折价 ' + group.candidates + ' 只' : ''
       ].filter(Boolean);
       card.append(identity, levels([
@@ -524,18 +527,23 @@
       const benchmark = sectors.benchmark || 'SPY';
       const troughs = groups.filter(group => group.state === 'trough');
       const selected = groups.find(group => group.name === state.strategy);
-      const featured = selected ? [selected] : troughs.length ? troughs : groups.filter(group => ['weak_price', 'weak_business'].includes(group.state)).slice(0, 3);
+      const featured = selected ? [selected] : troughs.length ? troughs : groups.filter(group => ['weak_price', 'weak_business'].includes(group.state)).sort((a, b) => (a.excess60Pp ?? 0) - (b.excess60Pp ?? 0)).slice(0, 3);
       const rest = groups.filter(group => !featured.includes(group));
       context.textContent = [
         '行情日 ' + time(sectors.asOf),
         troughs.length ? '低谷 ' + troughs.length + ' / ' + groups.length : '本批暂无行情与财报同时支持的低谷',
-        '证据不足 ' + groups.filter(group => group.state === 'pending').length + ' 个产业'
-      ].join(' · ');
+        '证据不足 ' + groups.filter(group => group.state === 'pending').length + ' 个产业',
+        sectors.unclassifiedCompanyCount ? '未分类 ' + sectors.unclassifiedCompanyCount + ' 家' : ''
+      ].filter(Boolean).join(' · ');
       const rule = sectors.thresholds;
       const evidence = node('p', null, 'us-sector-note');
       if (rule) evidence.textContent = '行情与财报各至少 ' + rule.minMembers + ' 家、覆盖 ' + rule.minCoveragePct + '%。低谷要求近60交易日等权涨幅不高于 ' + rule.maxReturn60Pct + '%、相对 ' + benchmark + ' 不高于 ' + rule.maxExcess60Pp + ' 个百分点，低于50日均线的公司至少 ' + rule.minBelowMa50Pct + '%，营收与净利同比下降的公司各至少 ' + rule.minDecliningPct + '%。相对低估要求至少 ' + rule.minPeers + ' 家可比公司，PE 与市值／FCF 各折价至少 ' + rule.minDiscountPct + '%。';
       const price = sectors.source?.price, financial = sectors.source?.financial, universe = sectors.source?.universe;
-      const provenance = sources([price, financial, universe].filter(Boolean), { sourceTime: sectors.sourceTime, readAt: price?.readAt });
+      const scope = state.snapshot.fundamentals.scope;
+      const index = scope?.industrySource ? { name: 'SEC 细分产业索引', url: scope.industrySource, asOf: scope.industryIndexAsOf } : null;
+      const provenance = sources([price, financial, universe, index].filter(Boolean), { sourceTime: sectors.sourceTime, readAt: price?.readAt });
+      if (scope?.readAt) provenance.append(node('span', '名册读取 ' + time(scope.readAt)));
+      if (scope?.industryIndexReadAt) provenance.append(node('span', '产业索引读取 ' + time(scope.industryIndexReadAt)));
       if (financial?.readAt) provenance.append(node('span', '财报核验 ' + time(financial.readAt)));
       leading.replaceChildren(evidence, provenance, ...featured.map(group => sectorRow(group, benchmark)));
       get('us-value-sectors-summary').textContent = '查看其余 ' + rest.length + ' 个产业的依据';
@@ -571,7 +579,14 @@
       const samples = finite(tracking.observations) ? '累计观察' + number(tracking.observations, 0) + '条 · 观察后3日成熟' + number(tracking.matured3 || 0, 0) + '条 · B触发后3日成熟' + (finite(tracking.maturedTriggered3) ? number(tracking.maturedTriggered3, 0) + '条' : '待形成') : '';
       const triggeredReturn = finite(tracking.meanTriggeredReturn3Percent) ? 'B后3日平均 ' + percent(tracking.meanTriggeredReturn3Percent, true) : '';
       get('us-short-context').textContent = [scope.name, coverage, '数据日 ' + time(snapshot.asOf), labels[market.regime], breadth, samples, triggeredReturn].filter(Boolean).join(' · ');
-      get('us-value-context').textContent = [snapshot.fundamentals.scope?.name || 'SEC公开财报研究', '财报期以个股披露为准'].join(' · ');
+      const valueScope = snapshot.fundamentals.scope, coverageCount = valueScope?.coverage;
+      get('us-value-context').textContent = [
+        valueScope?.name || 'SEC公开财报研究',
+        coverageCount ? 'SEC 匹配 ' + number(coverageCount.matched, 0) + ' 只／行情名册 ' + number(valueScope.listingCount, 0) + ' 只' : '',
+        coverageCount ? '本批核验 ' + number(coverageCount.companyCount, 0) + ' 家独立公司' : '',
+        valueScope?.expansionFailure ? '扩池待更新：' + valueScope.expansionFailure : '',
+        '财报期以个股披露为准'
+      ].filter(Boolean).join(' · ');
       get('us-dca-context').textContent = '宽基ETF、红利ETF与个股分别评价；费用与持仓按各自官方日期展示。';
     }
 
@@ -651,6 +666,7 @@
           if (!response.ok) throw Error('选股结果读取失败（HTTP ' + response.status + '）');
           const snapshot = validateSnapshot(await response.json());
           if (requestId !== state.requestId) return;
+          if (!state.snapshot && snapshot.fundamentals.sectors?.candidateCounts?.confirmedRelative > 0) state.valueStatus = 'relative_discount';
           state.snapshot = snapshot;
           if (snapshot.task) state.progress = snapshot.task;
         }

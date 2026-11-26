@@ -122,6 +122,25 @@ test('a completed short batch exposes partial fundamentals and keeps the warning
  }finally{await rm(directory,{recursive:true,force:true});}
 });
 
+test('a failed SEC expansion preserves the previous broad research batch and its date',async()=>{
+ const directory=await mkdtemp(join(tmpdir(),'books-us-industry-hold-'));
+ try{
+  const previous={scope:{basis:'sec_exchange_listing_and_report_industry',total:467},rows:[],asOf:day,status:'ready'};
+  const first=await runDaily({directory,calendar,now:()=>clock,provider,enrich:async()=>({fundamentals:previous})});
+  assert.equal(first.status,'ready');
+  const original=(await readPublished(directory)).fundamentals;
+  const failed={scope:{expansionFailed:true,expansionFailure:'fixture SEC source refused',total:109},rows:[],status:'partial'};
+  const result=await runDaily({directory,calendar,now:()=>clock+1000,provider,force:true,enrich:async()=>({fundamentals:failed})});
+  assert.equal(result.status,'ready');
+  const retained=(await readPublished(directory)).fundamentals;
+  assert.equal(retained.scope.total,467);
+  assert.equal(retained.scope.stale,true);
+  assert.equal(retained.scope.expansionFailure,failed.scope.expansionFailure);
+  assert.deepEqual(retained.sectors,original.sectors);
+  assert.equal(retained.asOf,original.asOf);
+ }finally{await rm(directory,{recursive:true,force:true});}
+});
+
 test('B-trigger returns start at the actual trigger close after waiting days, independent of observation returns',()=>{
  const bars=stockBars();bars.at(-1).close=23.10;const initial=buildSelection(input(bars),{now:clock});assert.equal(initial.snapshot.short.rows[0].triggerFollowup.status,'not_triggered');assert.equal(initial.snapshot.short.rows[0].triggerFollowup.horizons[3].status,'pending');
  const source=input(bars),future=[['2026-11-27',23.10],['2026-11-30',23.15],['2026-12-01',23.20],['2026-12-02',23.25],['2026-12-03',23.30]];
