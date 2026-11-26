@@ -28,6 +28,7 @@ const moneyTags = {
   eps:['EarningsPerShareDiluted'],
   dilutedShares:['WeightedAverageNumberOfDilutedSharesOutstanding']
 };
+const productiveAssets='PaymentsToAcquireProductiveAssets';
 
 async function optionalJson(path) {
   try {return JSON.parse(gunzipSync(await readFile(path)).toString('utf8'));}
@@ -72,38 +73,125 @@ export function parseReferenceUniverse(text) {
   return {asOf,members};
 }
 
-function observations(facts,tags,unit,cutoff) {
+function observations(facts,tags,unit,cutoff,accession) {
   const values=[];
   for(const [priority,tag] of tags.entries())for(const item of facts?.facts?.['us-gaap']?.[tag]?.units?.[unit]||[]){
-    if(!Number.isFinite(item.val)||!validDay(item.end)||!validDay(item.filed)||item.filed>cutoff||item.end>cutoff||!/^10-[KQ](?:\/A)?$/.test(item.form||''))continue;
+    if(accession&&item.accn!==accession||!Number.isFinite(item.val)||!validDay(item.end)||!validDay(item.filed)||item.filed>cutoff||item.end>cutoff||!/^10-[KQ](?:\/A)?$/.test(item.form||''))continue;
     const days=validDay(item.start)?Math.round((Date.parse(item.end)-Date.parse(item.start))/dayMs)+1:null;
-    if(days!==null&&days<=0)continue;values.push({...item,tag,days,priority});
+    if(days!==null&&days<=0)continue;
+    values.push({...item,tag,days,priority,fiscalYear:days>=330&&days<=380&&item.form.startsWith('10-K')});
   }
   const unique=new Map();
-  for(const value of values){const key=(value.start||'')+'|'+value.end,prior=unique.get(key);if(!prior||value.filed>prior.filed||(value.filed===prior.filed&&value.priority<prior.priority))unique.set(key,value);}
+  for(const value of values){
+    const key=(value.start||'')+'|'+value.end,prior=unique.get(key);
+    const best=!prior||value.filed>prior.filed||(value.filed===prior.filed&&value.priority<prior.priority)?value:prior;
+    unique.set(key,{...best,fiscalYear:value.fiscalYear||prior?.fiscalYear||false});
+  }
   return [...unique.values()].sort((a,b)=>b.end.localeCompare(a.end)||b.filed.localeCompare(a.filed));
 }
 function annualValues(records) {
   const years=new Map();
-  for(const item of records.filter(row=>row.days>=330&&row.days<=380))if(!years.has(item.end))years.set(item.end,item);
+  for(const item of records.filter(row=>row.fiscalYear))if(!years.has(item.end))years.set(item.end,item);
   return [...years.values()].sort((a,b)=>b.end.localeCompare(a.end));
 }
-function trailingValue(records,anchor) {
+function trailingValue(records,anchor,{allowQuarters=true}={}) {
   const annual=annualValues(records),lastYear=annual[0];
-  if(!lastYear)return null;
-  const current=records.filter(item=>item.end>lastYear.end&&item.days>=60&&item.days<=320&&Date.parse(item.start)>Date.parse(lastYear.end)&&Date.parse(item.start)-Date.parse(lastYear.end)<=15*dayMs).sort((a,b)=>b.end.localeCompare(a.end)||b.days-a.days)[0];
-  if(!current)return !anchor||lastYear.end===anchor?{value:lastYear.val,end:lastYear.end,parts:[lastYear]}:null;
-  if(anchor&&current.end!==anchor)return null;
-  const previous=records.filter(item=>Math.abs(item.days-current.days)<=10&&Math.abs((Date.parse(current.end)-Date.parse(item.end))/dayMs-365)<=15&&Math.abs((Date.parse(current.start)-Date.parse(item.start))/dayMs-365)<=15).sort((a,b)=>b.filed.localeCompare(a.filed))[0];
-  return previous?{value:lastYear.val+current.val-previous.val,end:current.end,parts:[lastYear,current,previous]}:null;
+  const current=lastYear&&records.find(item=>item.end>lastYear.end&&(!anchor||item.end===anchor)&&item.days>=60&&item.days<=320&&Date.parse(item.start)>Date.parse(lastYear.end)&&Date.parse(item.start)-Date.parse(lastYear.end)<=15*dayMs);
+  const latestEnd=anchor||records.find(item=>item.days>=60)?.end;
+  const reported=records.find(item=>item.end===latestEnd&&item.days>=330&&item.days<=380);
+  if(reported)return {value:reported.val,end:reported.end,parts:[reported]};
+  if(current?.end===latestEnd){
+    const previous=records.filter(item=>comparablePeriod(current,item)).sort((a,b)=>b.filed.localeCompare(a.filed))[0];
+    if(previous)return {value:lastYear.val+current.val-previous.val,end:current.end,parts:[lastYear,current,previous]};
+  }
+  if(!allowQuarters)return null;
+  const quarters=[];
+  let end=latestEnd;
+  while(quarters.length<4){
+    const quarter=records.find(item=>item.end===end&&item.days>=75&&item.days<=105);
+    if(!quarter)return null;
+    quarters.push(quarter);
+    end=new Date(Date.parse(quarter.start)-dayMs).toISOString().slice(0,10);
+  }
+  const days=quarters.reduce((sum,item)=>sum+item.days,0);
+  return days>=330&&days<=380&&quarters.every(item=>item.tag===quarters[0].tag)?{value:quarters.reduce((sum,item)=>sum+item.val,0),end:latestEnd,parts:quarters}:null;
 }
-function instantaneous(facts,tags,unit,cutoff) {
+function comparablePeriod(current,prior){
+  return current.tag===prior.tag&&prior.days>=60&&Math.abs(prior.days-current.days)<=10&&Math.abs((Date.parse(current.end)-Date.parse(prior.end))/dayMs-365)<=15&&Math.abs((Date.parse(current.start)-Date.parse(prior.start))/dayMs-365)<=15;
+}
+function companyProfit(facts,cutoff,accession){
+  const reported=observations(facts,moneyTags.profit,'USD',cutoff,accession);
+  const consolidated=observations(facts,['ProfitLoss'],'USD',cutoff,accession);
+  const minority=observations(facts,['NetIncomeLossAttributableToNoncontrollingInterest'],'USD',cutoff,accession);
+  const recovered=consolidated.flatMap(item=>{
+    if(reported.some(value=>value.start===item.start&&value.end===item.end))return [];
+    const portion=minority.find(value=>value.start===item.start&&value.end===item.end&&value.accn===item.accn);
+    return portion?[{...item,val:item.val-portion.val,tag:'ProfitLoss less NetIncomeLossAttributableToNoncontrollingInterest'}]:[];
+  });
+  return [...reported,...recovered].sort((a,b)=>b.end.localeCompare(a.end)||b.days-a.days);
+}
+function instantaneous(facts,tags,unit,cutoff,end,accession) {
   const values=[];
   for(const [priority,tag] of tags.entries())for(const namespace of ['us-gaap','dei'])for(const value of facts?.facts?.[namespace]?.[tag]?.units?.[unit]||[]){
-    if(value.start||!Number.isFinite(value.val)||!validDay(value.end)||!validDay(value.filed)||value.filed>cutoff||value.end>cutoff||!/^10-[KQ](?:\/A)?$/.test(value.form||''))continue;
+    if(accession&&value.accn!==accession||end&&value.end!==end||value.start||!Number.isFinite(value.val)||!validDay(value.end)||!validDay(value.filed)||value.filed>cutoff||value.end>cutoff||!/^10-[KQ](?:\/A)?$/.test(value.form||''))continue;
     values.push({...value,tag,priority});
   }
   return values.sort((a,b)=>b.end.localeCompare(a.end)||b.filed.localeCompare(a.filed)||a.priority-b.priority)[0]||null;
+}
+function matchedDebt(facts,cutoff,end,accession){
+  const read=tags=>instantaneous(facts,tags,'USD',cutoff,end,accession);
+  if(!end)return {cash:null,parts:[],missing:['cash','debt']};
+  const cash=read(['CashAndCashEquivalentsAtCarryingValue']);
+  const total=read(['DebtAndCapitalLeaseObligations','DebtLongtermAndShorttermCombinedAmount']);
+  if(total?.val>=0)return {cash,parts:[total],missing:cash?.val>=0?[]:['cash']};
+  const current=read(['DebtCurrent']);
+  const maturities=read(['LongTermDebtCurrent','LongTermDebtAndFinanceLeaseObligationsCurrent','LongTermDebtAndCapitalLeaseObligationsCurrent']);
+  const long=read(['LongTermDebtNoncurrent','LongTermDebtAndFinanceLeaseObligationsNoncurrent','LongTermDebtAndCapitalLeaseObligationsNoncurrent']);
+  const longTotal=read(['LongTermDebt','LongTermDebtAndCapitalLeaseObligations']);
+  const short=read(['ShortTermBorrowings']);
+  let parts=[];
+  if(current?.val>=0&&long?.val>=0)parts=[current,long];
+  else if(short?.val>=0&&longTotal?.val>=0)parts=[short,longTotal];
+  else if(short?.val>=0&&maturities?.val>=0&&long?.val>=0)parts=[short,maturities,long];
+  const missing=[];
+  if(!(cash?.val>=0))missing.push('cash');
+  if(!parts.length){
+    if(!(current?.val>=0)&&!(short?.val>=0))missing.push('short_term_debt');
+    if(!(long?.val>=0)&&!(longTotal?.val>=0))missing.push('noncurrent_debt');
+    if(!(current?.val>=0)&&!(longTotal?.val>=0)&&!(maturities?.val>=0))missing.push('current_debt_maturities');
+    if(!missing.some(key=>key!=='cash'))missing.push('debt');
+  }
+  return {cash,parts,missing};
+}
+function operatingCycle(facts,filing,priceStamp,asOf){
+  const accepted=Date.parse(filing?.accepted||'');
+  if(!asOf||!Number.isFinite(priceStamp)||!Number.isFinite(accepted)||accepted>priceStamp||filing.reportDate&&filing.reportDate!==asOf)return null;
+  const tags=key=>moneyTags[key].map(tag=>observations(facts,[tag],'USD',filing.filed,filing.accession));
+  const annual=filing.form.startsWith('10-K');
+  const revenue=tags('revenue').map(series=>{
+    const current=series.filter(item=>item.end===asOf&&(annual?item.days>=330&&item.days<=380:item.days>=60&&item.days<=320)).sort((a,b)=>b.days-a.days)[0];
+    const prior=current&&series.find(item=>comparablePeriod(current,item));
+    return prior?.val>0?{current,prior}:null;
+  }).find(Boolean);
+  if(!revenue)return null;
+  const profitSeries=companyProfit(facts,filing.filed,filing.accession);
+  const currentProfit=profitSeries.find(item=>item.start===revenue.current.start&&item.end===revenue.current.end);
+  const priorProfit=currentProfit&&profitSeries.find(item=>item.tag===currentProfit.tag&&item.start===revenue.prior.start&&item.end===revenue.prior.end);
+  const profit=priorProfit?.val>0?{current:currentProfit,prior:priorProfit}:null;
+  return {periodEnd:asOf,basis:annual?'fiscal_year':'fiscal_ytd',revenueGrowthPct:100*(revenue.current.val/revenue.prior.val-1),profitGrowthPct:profit?100*(profit.current.val/profit.prior.val-1):null,sourceTime:filing.accepted,revenueTag:revenue.current.tag,profitTag:profit?.current.tag??null};
+}
+function cashFlowBasis(facts,cutoff,anchor,cashflows){
+  const alternatives=[...moneyTags.capex,productiveAssets].map(tag=>{
+    const records=observations(facts,[tag],'USD',cutoff).filter(item=>item.val>=0);
+    const annual=annualValues(records);
+    const capex=anchor?trailingValue(records,anchor):null;
+    const annualFcf=cashflows.flatMap(item=>{
+      const costs=annual.find(value=>value.start===item.start&&value.end===item.end);
+      return costs?[{...item,val:item.val-costs.val}]:[];
+    });
+    return {tag,capex,annualFcf};
+  });
+  return alternatives.find(item=>item.capex&&item.annualFcf.length>=3)||alternatives.find(item=>item.capex)||alternatives[0];
 }
 function consecutivePositive(rows) {
   let count=0,previous=null;
@@ -116,7 +204,7 @@ function consecutivePositive(rows) {
 }
 function recentFilings(submissions) {
   const recent=submissions?.filings?.recent||{};
-  return (recent.accessionNumber||[]).map((accession,index)=>({accession,form:recent.form?.[index],filed:recent.filingDate?.[index],accepted:recent.acceptanceDateTime?.[index],document:recent.primaryDocument?.[index]})).filter(row=>/^10-[KQ](?:\/A)?$/.test(row.form||''));
+  return (recent.accessionNumber||[]).map((accession,index)=>({accession,form:recent.form?.[index],filed:recent.filingDate?.[index],accepted:recent.acceptanceDateTime?.[index],document:recent.primaryDocument?.[index],reportDate:recent.reportDate?.[index]})).filter(row=>/^10-[KQ](?:\/A)?$/.test(row.form||''));
 }
 function reportSource(cik,filing) {
   return filing?{name:'SEC '+filing.form,url:'https://www.sec.gov/Archives/edgar/data/'+Number(cik)+'/'+filing.accession.replaceAll('-','')+'/'+filing.document,asOf:filing.accepted||filing.filed}:null;
@@ -133,28 +221,44 @@ export function evaluateCompany({stock,facts,submissions,price,now=Date.now(),pa
   const source=reportSource(cik,latest);if(source)row.sources.push(source);
   row.sources.push({name:'SEC companyfacts',url:'https://data.sec.gov/api/xbrl/companyfacts/CIK'+cik+'.json',asOf:latest?.filed||null});
   if(String(facts?.cik).replace(/^0+/,'')!==String(Number(cik))||normalizeSymbol(stock.symbol)&&!(submissions?.tickers||[]).map(normalizeSymbol).includes(normalizeSymbol(stock.symbol))){row.reasons.push(issue('cik_symbol_mismatch','SEC公司标识与证券代码未核对通过'));return {fundamental:row,dca:{...row}};}
-  const series=Object.fromEntries(Object.entries(moneyTags).map(([key,tags])=>[key,observations(facts,tags,key==='eps'?'USD/shares':key==='dilutedShares'?'shares':'USD',cutoff)]));
-  const revenue=trailingValue(series.revenue),anchor=revenue?.end,profit=trailingValue(series.profit,anchor),cfo=trailingValue(series.cfo,anchor),capex=trailingValue(series.capex,anchor),eps=trailingValue(series.eps,anchor);
-  const revenues=annualValues(series.revenue),profits=annualValues(series.profit),cashflows=annualValues(series.cfo),capital=annualValues(series.capex),diluted=annualValues(series.dilutedShares);
-  const annualFcf=cashflows.map(item=>{const cost=capital.find(value=>value.start===item.start&&value.end===item.end);return cost?{...item,val:item.val-cost.val}:null;}).filter(Boolean);
-  const cash=instantaneous(facts,['CashAndCashEquivalentsAtCarryingValue'],'USD',cutoff),debtCurrent=instantaneous(facts,['DebtCurrent','LongTermDebtCurrent','LongTermDebtAndFinanceLeaseObligationsCurrent'],'USD',cutoff),debtLong=instantaneous(facts,['LongTermDebtNoncurrent','LongTermDebtAndFinanceLeaseObligationsNoncurrent'],'USD',cutoff),shortDebt=instantaneous(facts,['ShortTermBorrowings','CommercialPaper'],'USD',cutoff),shares=instantaneous(facts,['EntityCommonStockSharesOutstanding'],'shares',cutoff);
-  const debtAligned=cash&&debtCurrent&&debtLong&&cash.end===debtCurrent.end&&cash.end===debtLong.end;
-  // DebtCurrent already includes short-term borrowing; other tags cover only current long-term maturities.
-  const shortDebtVerified=debtCurrent?.tag==='DebtCurrent'||shortDebt?.end===cash?.end;
-  const debt=debtAligned&&shortDebtVerified?debtCurrent.val+debtLong.val+(debtCurrent.tag==='DebtCurrent'?0:shortDebt.val):null;
-  const fcf=cfo&&capex&&capex.value>=0?cfo.value-capex.value:null,netDebt=debt===null?null:debt-cash.val;
+  row.sic=/^\d{3,4}$/.test(String(submissions.sic))?String(submissions.sic).padStart(4,'0'):null;
+  row.sicDescription=typeof submissions.sicDescription==='string'?submissions.sicDescription:null;
+  const series=Object.fromEntries(Object.entries(moneyTags).filter(([key])=>!['capex','profit'].includes(key)).map(([key,tags])=>[key,observations(facts,tags,key==='eps'?'USD/shares':key==='dilutedShares'?'shares':'USD',cutoff)]));
+  series.profit=companyProfit(facts,cutoff);
+  const reportDate=validDay(latest?.reportDate)?latest.reportDate:null;
+  const revenue=trailingValue(series.revenue,reportDate),anchor=reportDate||revenue?.end;
+  const profit=trailingValue(series.profit,anchor),cfo=trailingValue(series.cfo,anchor),eps=trailingValue(series.eps,anchor,{allowQuarters:false});
+  const revenues=annualValues(series.revenue),profits=annualValues(series.profit),cashflows=annualValues(series.cfo),diluted=annualValues(series.dilutedShares);
+  const {tag:capexTag,capex,annualFcf}=cashFlowBasis(facts,cutoff,anchor,cashflows);
+  const {cash,parts:debtParts,missing:debtMissing}=matchedDebt(facts,cutoff,anchor,reportDate?latest.accession:null);
+  const coverShares=instantaneous(facts,['EntityCommonStockSharesOutstanding'],'shares',cutoff);
+  const balanceShares=anchor?instantaneous(facts,['CommonStockSharesOutstanding'],'shares',cutoff,anchor):null;
+  const shares=coverShares?.val>0&&ageDays(coverShares.end,now)<=parameters.maxShareAgeDays?coverShares:balanceShares;
+  const fcf=cfo&&capex&&capex.value>=0?cfo.value-capex.value:null;
+  const netDebt=debtMissing.length?null:debtParts.reduce((total,item)=>total+item.val,0)-cash.val;
   const profitYears=consecutivePositive(profits),fcfYears=consecutivePositive(annualFcf),dilution=diluted.length>=2&&diluted[1].val>0?(diluted[0].val/diluted[1].val-1)*100:null;
   const priorRevenue=revenues[1],annualGrowth=revenues[0]&&priorRevenue&&priorRevenue.val>0?(revenues[0].val/priorRevenue.val-1)*100:null;
-  const growth=revenue?.parts.length===3&&revenue.parts[2].val>0?(revenue.parts[1].val/revenue.parts[2].val-1)*100:annualGrowth;
+  const priceStamp=Date.parse(price?.asOf||'');
+  const priceAllowed=price?.permissionsVerified===true&&price?.derivedPublic===true&&Number.isFinite(price.close)&&price.close>0&&Number.isFinite(priceStamp)&&priceStamp<=now&&now-priceStamp<=parameters.maxPriceAgeDays*dayMs;
+  row.operatingCycle=priceAllowed?operatingCycle(facts,latest,priceStamp,anchor):null;
+  const ytdGrowth=revenue?.parts.length===3&&revenue.parts[2].val>0?(revenue.parts[1].val/revenue.parts[2].val-1)*100:null;
+  const growth=row.operatingCycle?.revenueGrowthPct??ytdGrowth??annualGrowth;
   const normalizedProfit=profit&&profits.length>=3?Math.min(profit.value,median(profits.slice(0,3).map(item=>item.val))):null;
   const normalizedFcf=fcf!==null&&annualFcf.length>=3?Math.min(fcf,median(annualFcf.slice(0,3).map(item=>item.val))):null;
-  row.asOf=anchor||null;row.metrics={currency:'USD',revenueTtm:revenue?.value??null,netIncomeTtm:profit?.value??null,operatingCashFlowTtm:cfo?.value??null,capexTtm:capex?.value??null,fcfTtm:fcf,reportedDilutedEpsTtmApprox:eps?.value??null,normalizedNetIncome:normalizedProfit,annualProfitYears:profitYears,annualFcfYears:fcfYears,revenueGrowthPct:growth,revenueGrowthBasis:revenue?.parts.length===3?'latest_reported_ytd':'latest_full_fiscal_year',annualRevenueGrowthPct:annualGrowth,netDebtToFcf:netDebt!==null&&fcf>0?netDebt/fcf:null,dilutionPct:dilution,pe:null,normalizedPe:null,fcfYield:null,normalizedFcfYield:null};
+  row.asOf=anchor||null;row.metrics={currency:'USD',revenueTtm:revenue?.value??null,netIncomeTtm:profit?.value??null,operatingCashFlowTtm:cfo?.value??null,capexTtm:capex?.value??null,fcfTtm:fcf,reportedDilutedEpsTtmApprox:eps?.value??null,normalizedNetIncome:normalizedProfit,annualProfitYears:profitYears,annualFcfYears:fcfYears,revenueGrowthPct:growth,revenueGrowthBasis:row.operatingCycle?.basis==='fiscal_ytd'||ytdGrowth!==null?'latest_reported_ytd':'latest_full_fiscal_year',annualRevenueGrowthPct:annualGrowth,netDebtToFcf:netDebt!==null&&fcf>0?netDebt/fcf:null,dilutionPct:dilution,pe:null,normalizedPe:null,fcfYield:null,normalizedFcfYield:null};
+  const fieldLabels={revenue_ttm:'近12个月营收',profit_ttm:'近12个月净利',cash_flow_ttm:'近12个月经营现金流',capex_ttm:'近12个月资本支出',profit_history:'3年完整年度净利',fcf_history:'3年完整年度自由现金流',cash:'同期间现金及现金等价物',debt:'同期间完整债务',short_term_debt:'同期间短期借款',noncurrent_debt:'同期间长期债务',current_debt_maturities:'同期间一年内到期长债',dilution:'同口径年度摊薄股数',revenue_growth:'可比期间营收同比'};
+  const missingFields=[
+    ...[[revenue?.value,'revenue_ttm'],[profit?.value,'profit_ttm'],[cfo?.value,'cash_flow_ttm'],[capex?.value,'capex_ttm'],[normalizedProfit,'profit_history'],[normalizedFcf,'fcf_history'],[dilution,'dilution'],[growth,'revenue_growth']].filter(([value])=>!Number.isFinite(value)).map(([,key])=>key),
+    ...debtMissing
+  ];
+  const sourcePart=item=>({tag:item.tag,periodStart:item.start||null,periodEnd:item.end,filedAt:item.filed,accession:item.accn||null});
+  row.financialEvidence={periodEnd:row.asOf,capexTag:capex?capexTag:null,capexSource:capex?.parts.map(sourcePart)||[],debtTags:debtParts.map(item=>item.tag),cashTag:cash?.tag??null,debtSource:[...(cash?[cash]:[]),...debtParts].map(sourcePart),missingFields:missingFields.map(code=>({code,label:fieldLabels[code]}))};
   row.normalization={method:'min(TTM, median of latest 3 full fiscal years); earnings use net income, not sums of weighted EPS',years:profits.slice(0,3).map(item=>item.end),historicalPointInTimeBacktest:false};
   const specialized=Number(submissions?.sic)>=6000&&Number(submissions?.sic)<6800||/Banks|Insurance|Capital Markets|Real Estate|REIT|Consumer Finance/i.test(stock.industry||'');
   if(specialized)row.reasons.push(issue('sector_method_pending','金融、保险或地产口径需独立核验，不套用工业企业自由现金流估值'));
   if(stock.listingVerified===false)row.reasons.push(issue('listing_pending','当前行情名册未核验到该证券代码'));
   if(!anchor||ageDays(anchor,now)>parameters.maxReportAgeDays)row.reasons.push(issue('financial_period_stale','最新财报期间不足或过旧'));
-  if(![revenue?.value,profit?.value,fcf,normalizedProfit,normalizedFcf,row.metrics.netDebtToFcf,dilution,growth].every(Number.isFinite))row.reasons.push(issue('financial_fields_missing','标准XBRL缺少同期间TTM、债务、股数或多年字段；留空待核'));
+  if(missingFields.length)row.reasons.push(issue('financial_fields_missing','待补：'+row.financialEvidence.missingFields.map(field=>field.label).join('、')));
   if(profits[0]?.end!==revenues[0]?.end||annualFcf[0]?.end!==revenues[0]?.end)row.reasons.push(issue('annual_period_missing','多年盈利和现金流没有覆盖同一最新完整年度'));
   const enough=profitYears>=parameters.minimumProfitYears&&fcfYears>=parameters.minimumFcfYears;
   if(!enough)row.reasons.push(issue('profit_fcf_history_short','连续盈利或自由现金流年数未达门槛'));
@@ -163,7 +267,6 @@ export function evaluateCompany({stock,facts,submissions,price,now=Date.now(),pa
   if(row.metrics.netDebtToFcf!==null&&row.metrics.netDebtToFcf>parameters.maxNetDebtToFcf)row.reasons.push(issue('debt_above_limit','净债务相对自由现金流超过门槛'));
   if(dilution!==null&&dilution>parameters.maxDilutionPct)row.reasons.push(issue('dilution_above_limit','年度摊薄股数增幅超过门槛'));
   row.financialPassed=row.reasons.length===0;
-  const priceStamp=Date.parse(price?.asOf||''),priceAllowed=price?.permissionsVerified===true&&price?.derivedPublic===true&&Number.isFinite(price.close)&&price.close>0&&Number.isFinite(priceStamp)&&priceStamp<=now&&now-priceStamp<=parameters.maxPriceAgeDays*dayMs;
   const multipleClasses=(submissions?.tickers||[]).filter(ticker=>!ticker.includes('/')).length>1;
   if(!priceAllowed)row.reasons.push(issue('price_permission_or_freshness_pending','价格缺失、过期或公开派生许可待核；财报结果仍保留'));
   else if(multipleClasses)row.reasons.push(issue('share_class_pending','多股权类别的每股盈利和总股数换算待核'));
@@ -171,7 +274,7 @@ export function evaluateCompany({stock,facts,submissions,price,now=Date.now(),pa
   else if(latest?.accepted&&Date.parse(latest.accepted)>priceStamp)row.reasons.push(issue('price_before_latest_filing','价格早于最新财报公开时点，估值待新报价核验'));
   else if(profit?.value>0&&fcf>0){
     const cap=price.close*shares.val;row.metrics.pe=cap/profit.value;row.metrics.fcfYield=100*fcf/cap;row.metrics.normalizedPe=normalizedProfit>0?cap/normalizedProfit:null;row.metrics.normalizedFcfYield=normalizedFcf>0?100*normalizedFcf/cap:null;
-    row.valuationBasis={priceAsOf:price.asOf,priceSource:price.sourceId,shareCountAsOf:shares.end,financialPeriod:anchor,marketCapIsEstimate:true};
+    row.valuationBasis={priceAsOf:price.asOf,priceSource:price.sourceId,shareCountAsOf:shares.end,shareCountTag:shares.tag,financialPeriod:anchor,marketCapIsEstimate:true};
     if(Number.isFinite(row.metrics.normalizedPe)&&Number.isFinite(row.metrics.normalizedFcfYield))row.valuationStatus=row.metrics.normalizedPe<=parameters.maxNormalizedPe&&row.metrics.normalizedFcfYield>=parameters.minNormalizedFcfYield?'low_multiple':'not_low';
   }
   const unknown=row.reasons.some(item=>/pending|missing|stale|short/.test(item.code));
@@ -235,6 +338,7 @@ export async function collectFundamentals({directory,universe=[],prices={},now=D
   }
   await onProgress({phase:'fundamentals_universe',processed:0,total:0});
   const prior=await optionalJson(join(privateDir,'last-success.json.gz'));
+  const previousAttempt=await optionalJson(join(privateDir,'last-attempt.json.gz'));
   let members=[],scope,identifiers={};
   try {
     const [holdings,lookup]=await Promise.all([textCache('oef-holdings',settings.universeSource,1),textCache('cik-map',settings.cikMapSource,7)]);
@@ -248,14 +352,20 @@ export async function collectFundamentals({directory,universe=[],prices={},now=D
   const rows=[],dcaStocks=[];
   for(const [index,stock] of members.entries()){
     await onProgress({phase:'fundamentals',processed:index,total:members.length,symbol:stock.symbol});
-    const priorRow=prior?.fundamentals?.rows?.find(row=>row.symbol===stock.symbol),priorDca=prior?.dca?.rows?.find(row=>row.symbol===stock.symbol&&row.kind==='stock');
+    const previousAttemptRow=previousAttempt?.fundamentals?.rows?.find(row=>row.symbol===stock.symbol&&row.asOf);
+    const previousAttemptDca=previousAttempt?.dca?.rows?.find(row=>row.symbol===stock.symbol&&row.kind==='stock'&&row.asOf);
+    const priorRow=prior?.fundamentals?.rows?.find(row=>row.symbol===stock.symbol)||previousAttemptRow;
+    const priorDca=prior?.dca?.rows?.find(row=>row.symbol===stock.symbol&&row.kind==='stock')||previousAttemptDca;
+    let storedFacts;
     try {
       if(!stock.cik)throw Error('CIK标识映射不足，不猜测公司标识');
       const cik=String(stock.cik).padStart(10,'0'),subUrl='https://data.sec.gov/submissions/CIK'+cik+'.json',factsUrl='https://data.sec.gov/api/xbrl/companyfacts/CIK'+cik+'.json';
+      const path=join(privateDir,'facts-'+cik+'.json.gz');
+      storedFacts=await optionalJson(path);
       const sub=await textCache('submissions-'+cik,subUrl,.25),submissions=JSON.parse(sub.body);
       if(!(submissions.tickers||[]).map(normalizeSymbol).includes(stock.symbol))throw Error('CIK与SEC ticker未核验通过');
       const latest=recentFilings(submissions).filter(row=>row.filed<=readAt.slice(0,10)).sort((a,b)=>b.filed.localeCompare(a.filed))[0];
-      const path=join(privateDir,'facts-'+cik+'.json.gz');let factsRecord=await optionalJson(path);
+      let factsRecord=storedFacts;
       if(!factsRecord||factsRecord.accession!==latest?.accession){
         const body=(await get(factsUrl)).toString('utf8'),facts=JSON.parse(body);
         if(String(facts.cik).replace(/^0+/,'')!==String(Number(cik)))throw Error('SEC facts公司标识异常');
@@ -264,18 +374,27 @@ export async function collectFundamentals({directory,universe=[],prices={},now=D
         await saveJson(join(archive,cik+'-'+(latest?.accession||readAt.slice(0,10))+'.json.gz'),{submissions,facts,readAt});
       }
       const evaluated=evaluateCompany({stock,facts:JSON.parse(factsRecord.body),submissions,price:prices[stock.symbol]||prices[stock.symbol+'.US'],now:timestamp,parameters,readAt:factsRecord.readAt});
-      if(scope.stale||sub.stale){for(const row of [evaluated.fundamental,evaluated.dca]){row.stale=true;row.status='pending';row.reasons.push(issue('universe_or_source_stale','参考池或财报来源本轮未核验更新，保留已有数据'));}}
+      if(scope.stale||sub.stale){for(const row of [evaluated.fundamental,evaluated.dca]){row.stale=true;row.status='pending';row.operatingCycle=null;row.reasons.push(issue('universe_or_source_stale','参考池或财报来源本轮未核验更新，保留已有数据'));}}
       rows.push(evaluated.fundamental);dcaStocks.push(evaluated.dca);
     }catch(error){
       if(!/CIK标识映射不足|CIK与SEC ticker未核验通过/.test(error.message))failures.push({symbol:stock.symbol,source:'SEC',reason:error.message});
       const missing={symbol:stock.symbol,name:stock.name,kind:'stock',cik:stock.cik||null,industry:stock.industry||null,status:'pending',financialPassed:false,valuationStatus:'pending',asOf:null,sourceTime:null,readAt:null,metrics:{},sources:[],reasons:[]};
-      for(const [target,old] of [[rows,priorRow],[dcaStocks,priorDca]])target.push({...structuredClone(old||missing),status:'pending',financialPassed:false,valuationStatus:'pending',lastSuccessfulStatus:old?.status||null,stale:true,lastAttemptAt:readAt,reasons:[...(old?.reasons||[]),issue('collection_failed_retained',error.message)]});
+      const safeAccession=/^\d{10}-\d{2}-\d{6}$/.test(storedFacts?.accession||'');
+      const oldArchive=(!priorRow||!priorDca)&&safeAccession?await optionalJson(join(archive,String(stock.cik).padStart(10,'0')+'-'+storedFacts.accession+'.json.gz')).catch(()=>null):null;
+      const lastArchivedFiling=recentFilings(oldArchive?.submissions).filter(row=>row.filed<=readAt.slice(0,10)).sort((a,b)=>b.filed.localeCompare(a.filed))[0];
+      const archived=lastArchivedFiling?.accession===storedFacts?.accession&&oldArchive?.facts?evaluateCompany({stock,facts:oldArchive.facts,submissions:oldArchive.submissions,now:timestamp,parameters,readAt:oldArchive.readAt}):null;
+      for(const [target,old] of [[rows,priorRow||archived?.fundamental],[dcaStocks,priorDca||archived?.dca]]){
+        const reasons=(old?.reasons||[]).filter(reason=>reason.code!=='collection_failed_retained');
+        target.push({...structuredClone(old||missing),status:'pending',financialPassed:false,valuationStatus:'pending',lastSuccessfulStatus:old?.lastSuccessfulStatus||old?.status||null,stale:true,operatingCycle:null,lastAttemptAt:readAt,reasons:[...reasons,issue('collection_failed_retained',error.message)]});
+      }
     }
   }
-  if(!members.length&&prior){
+  const previous=prior||previousAttempt;
+  if(!members.length&&previous){
     const reason=[...new Set(failures.map(failure=>failure.reason))].join('；');
-    for(const [target,previous] of [[rows,prior.fundamentals.rows||[]],[dcaStocks,(prior.dca.rows||[]).filter(row=>row.kind==='stock')]])for(const row of previous){
-      target.push({...row,status:'pending',financialPassed:false,valuationStatus:'pending',lastSuccessfulStatus:row.status,stale:true,lastAttemptAt:readAt,reasons:[...(row.reasons||[]),issue('universe_failed_retained',reason)]});
+    for(const [target,olderRows] of [[rows,previous.fundamentals.rows||[]],[dcaStocks,(previous.dca.rows||[]).filter(row=>row.kind==='stock')]])for(const row of olderRows){
+      const reasons=(row.reasons||[]).filter(item=>item.code!=='universe_failed_retained');
+      target.push({...row,status:'pending',financialPassed:false,valuationStatus:'pending',lastSuccessfulStatus:row.lastSuccessfulStatus||row.status,stale:true,operatingCycle:null,lastAttemptAt:readAt,reasons:[...reasons,issue('universe_failed_retained',reason)]});
     }
   }
   const etfs=[];

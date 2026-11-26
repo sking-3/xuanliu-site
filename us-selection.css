@@ -123,6 +123,19 @@ body.books-shell .us-selection .us-review-statuses button[aria-pressed="true"] {
 .us-research-row > .us-selection-inline > summary { padding: 5px 0; min-height: 36px; font-weight: 500; }
 .us-research-row .us-selection-inline .us-selection-levels { margin: 12px 0; }
 .us-research-row .us-selection-inline .us-selection-levels dd { font-size: 14px; font-weight: 500; }
+.us-sector-overview { margin-top: 18px; padding: 14px 0 10px; border-block: 1px solid var(--us-line); }
+.us-sector-overview h2 { margin: 0; font-size: 16px; }
+.us-sector-overview > .us-sector-note { margin-top: 6px; }
+.us-sector-overview > .us-selection-inline { margin-top: 0; border: 0; }
+.us-sector-overview > .us-selection-inline > summary { padding-block: 12px; }
+.us-sector-overview .us-research-row { padding-block: 12px; }
+.us-sector-overview .us-research-identity h3 { font-size: 15px; }
+body.books-shell .us-selection .us-sector-open { min-height: 44px; padding: 6px 0; background: transparent; border: 0; border-radius: 0; box-shadow: none; color: var(--us-accent); font: inherit; text-align: left; cursor: pointer; }
+body.books-shell .us-selection .us-sector-open:hover { text-decoration: underline; }
+.us-sector-overview .us-selection-sources { margin: 4px 0 8px; }
+.us-sector-note { grid-column: 1 / -1; margin: 0; font-size: 12px; line-height: 1.65; color: var(--us-muted); overflow-wrap: anywhere; }
+.us-value-evidence { grid-column: 1 / -1; display: grid; gap: 4px; }
+.us-value-evidence .us-sector-note strong { color: var(--us-ink); font-weight: 600; }
 .us-review-preview-heading { margin: 0; padding: 18px 20px; border-bottom: 1px solid var(--us-line); font-size: 18px; }
 @media (max-width: 1000px) {
   .us-research-row { grid-template-columns: minmax(0, 1fr) auto; }

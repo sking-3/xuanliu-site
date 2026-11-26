@@ -9,6 +9,7 @@ import {finished} from 'node:stream/promises';
 import {setTimeout as sleep} from 'node:timers/promises';
 import {createTickflowUSSource,dataPolicy,sourceId} from './us-tickflow.mjs';
 import {analyzeStock,buildSelection,latestSession,validBars} from './us-selection-engine.mjs';
+import {sectorBenchmark,observeSectorPrice,evaluateSectorValue} from './us-sector-value.mjs';
 
 const require=createRequire(import.meta.url),defaultSite=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 export const SCHEDULE='按America/New_York交易日历收盘后定时检查；具体时刻由timer安排，数据完成按批次校验；失败保留上次完成结果';
@@ -95,6 +96,7 @@ export async function runDaily(options={}){
   const benchmarkStocks=['SPY','QQQ'].map(symbol=>({symbol,providerSymbol:symbol+'.US'})),referenceResult=await provider.history(benchmarkStocks,{...target,close:session.close}),benchmarks={};
   for(const symbol of ['SPY','QQQ']){const result=referenceResult.get(symbol);benchmarks[symbol]=result?.bars||[];await archive(symbol,benchmarks[symbol],result?.fetchedAt);}
   const reference=benchmarks.SPY;if(reference.length<201||reference.at(-1).date!==target.date||benchmarks.QQQ.length<201||benchmarks.QQQ.at(-1).date!==target.date)throw Error('SPY/QQQ尚未返回目标收盘日及201根历史；本轮不发布');
+  const industryReference=sectorBenchmark(reference,target.date),industryPrices=new Map();
   const rows=[],diagnostics=[],series={},prices={},coverageMetrics={covered:0,aboveMA20:0};let fetchedAt=referenceResult.get('QQQ').fetchedAt;
   for(let offset=0;offset<universe.length;offset+=50){
    options.signal?.throwIfAborted();
@@ -105,6 +107,8 @@ export async function runDaily(options={}){
     const analyzed=analyzeStock(stock,received.bars,reference,target.date,dataPolicy);
     if(analyzed.diagnostic)diagnostics.push(analyzed.diagnostic);else{coverageMetrics.covered++;if(analyzed.aboveMA20)coverageMetrics.aboveMA20++;if(analyzed.row)rows.push(analyzed.row);}
     if(analyzed.row||tracked.has(stock.symbol))series[stock.symbol]=received.bars;
+    const industryPrice=observeSectorPrice(received.bars,industryReference);
+    if(industryPrice)industryPrices.set(stock.symbol,industryPrice);
     const last=received.bars.at(-1);if(last?.date===target.date&&last.close>0)prices[stock.symbol]={close:last.close,asOf:target.closeTime,sourceDate:target.date,sourceId,permissionsVerified:dataPolicy.permissionsVerified,derivedPublic:dataPolicy.derivedPublic,accessScope:dataPolicy.accessScope};
    }
    await progress({phase:'daily_bars',processed:Math.min(offset+50,universe.length),covered:coverageMetrics.covered,missing:diagnostics.length,candidates:rows.length,message:'采集并计算日线 '+Math.min(offset+50,universe.length)+'/'+universe.length});
@@ -118,6 +122,10 @@ export async function runDaily(options={}){
   if(options.fromCache)snapshot.recomputedFrom={generation:pointer.generation,asOf:pointer.asOf,sourceId:previousSnapshot.source.id,previousRulesVersion:previousSnapshot.version};
   const enrich=options.enrich||(await import('./us-fundamentals.mjs')).collectFundamentals;
   if(enrich){await progress({phase:'fundamentals',message:'核对公开财报与估值'});Object.assign(snapshot,await enrich({directory,universe,prices,now,onProgress:async update=>{await progress({fundamentalsProgress:update,message:typeof update==='string'?update:'核对公开财报与估值'});},fetch:options.fetch||fetch}));}
+  if(snapshot.fundamentals){
+   await progress({phase:'fundamentals',message:'核对产业低谷及同行估值'});
+   snapshot.fundamentals=evaluateSectorValue(snapshot.fundamentals,{priceObservations:industryPrices,benchmark:industryReference,asOf:target.date,source});
+  }
   state.fundamentalsStatus=snapshot.fundamentals?.status||'not_configured';state.dcaStatus=snapshot.dca?.status||'not_configured';
   const failures=[...(snapshot.fundamentals?.failures||[]),...(snapshot.dca?.failures||[])];
   state.fundamentalsFailures=failures.filter((failure,index)=>failures.findIndex(item=>item.source===failure.source&&item.symbol===failure.symbol&&item.reason===failure.reason)===index).map(({source,symbol,reason})=>({source:source||null,symbol:symbol||null,reason:reason||'来源失败'}));

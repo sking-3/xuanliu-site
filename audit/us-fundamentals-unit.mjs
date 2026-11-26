@@ -61,7 +61,56 @@ test('losses, missing years, debt, dilution, share classes and post-price filing
 test('absent short-term debt and missing capex are unknown, not zero',()=>{
   const value=fixture(),gaap=value.facts.facts['us-gaap'];gaap.LongTermDebtCurrent=gaap.DebtCurrent;delete gaap.DebtCurrent;
   const debt=evaluateCompany(value).fundamental;assert.equal(debt.metrics.netDebtToFcf,null);assert.equal(debt.financialPassed,false);
+  assert(debt.financialEvidence.missingFields.some(field=>field.code==='short_term_debt'));
   delete gaap.PaymentsToAcquirePropertyPlantAndEquipment;assert.equal(evaluateCompany(value).fundamental.metrics.fcfTtm,null);
+});
+
+test('reported total debt, productive asset spending and balance-sheet shares fill specific standard-tag gaps',()=>{
+  const value=fixture(),gaap=value.facts.facts['us-gaap'];
+  gaap.DebtLongtermAndShorttermCombinedAmount={units:{USD:[{...gaap.DebtCurrent.units.USD[0],val:40*million}]}};
+  delete gaap.DebtCurrent;
+  delete gaap.LongTermDebtNoncurrent;
+  gaap.PaymentsToAcquireProductiveAssets=gaap.PaymentsToAcquirePropertyPlantAndEquipment;
+  delete gaap.PaymentsToAcquirePropertyPlantAndEquipment;
+  gaap.CommonStockSharesOutstanding={units:{shares:[{...value.facts.facts.dei.EntityCommonStockSharesOutstanding.units.shares[0],end:'2026-09-30'}]}};
+  delete value.facts.facts.dei.EntityCommonStockSharesOutstanding;
+  const {fundamental:row}=evaluateCompany(value);
+  assert.equal(row.status,'candidate');
+  assert.equal(row.metrics.fcfTtm,232.5*million);
+  assert.equal(row.metrics.netDebtToFcf,-10/232.5);
+  assert.equal(row.financialEvidence.capexTag,'PaymentsToAcquireProductiveAssets');
+  assert.deepEqual(row.financialEvidence.debtTags,['DebtLongtermAndShorttermCombinedAmount']);
+  assert.equal(row.valuationBasis.shareCountTag,'CommonStockSharesOutstanding');
+  gaap.DebtLongtermAndShorttermCombinedAmount.units.USD[0].end='2026-06-30';
+  assert.equal(evaluateCompany(value).fundamental.metrics.netDebtToFcf,null);
+});
+
+test('reported quarterly TTM can be used without inflating the number of full fiscal years',()=>{
+  const value=fixture(),gaap=value.facts.facts['us-gaap'];
+  gaap.NetIncomeLoss.units.USD.push(fact(151*million,'2025-10-01','2026-09-30','2026-11-01','10-Q'));
+  const {fundamental:row}=evaluateCompany(value);
+  assert.equal(row.metrics.netIncomeTtm,151*million);
+  assert.equal(row.metrics.annualProfitYears,5);
+  assert.equal(row.metrics.normalizedNetIncome,130*million);
+  assert.equal(row.normalization.years[0],'2025-12-31');
+});
+
+test('industry cycle uses matching reporting periods from a filing accepted before the close',()=>{
+  const value=fixture(),gaap=value.facts.facts['us-gaap'];
+  const current=gaap.NetIncomeLoss.units.USD.at(-2),prior=gaap.NetIncomeLoss.units.USD.at(-1);
+  gaap.NetIncomeLoss.units.USD.splice(-2);
+  gaap.ProfitLoss={units:{USD:[{...current,val:124*million},{...prior,val:108*million}]}};
+  gaap.NetIncomeLossAttributableToNoncontrollingInterest={units:{USD:[{...current,val:4*million},{...prior,val:3*million}]}};
+  value.submissions.sicDescription='Computer hardware';
+  const row=evaluateCompany(value).fundamental;
+  assert.equal(row.sic,'3571');
+  assert.equal(row.operatingCycle.basis,'fiscal_ytd');
+  assert.equal(row.operatingCycle.periodEnd,'2026-09-30');
+  assert.equal(row.operatingCycle.sourceTime,'2026-11-01T12:00:00Z');
+  assert(Math.abs(row.operatingCycle.profitGrowthPct-100*(120/105-1))<1e-8);
+  assert.equal(row.metrics.netIncomeTtm,155*million);
+  value.submissions.filings.recent.acceptanceDateTime[0]='2026-11-25T22:00:00Z';
+  assert.equal(evaluateCompany(value).fundamental.operatingCycle,null);
 });
 
 test('ticker/CIK mismatch stops before it can attach another company financials',()=>{
