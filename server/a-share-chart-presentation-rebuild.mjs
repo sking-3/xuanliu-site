@@ -90,6 +90,7 @@ export async function rebuildAShareChartPresentation({dir,generation,includeA14=
     if(report){
       const frozenReport=await readStoredJson(join(root,'days',report.day,'report.json'));
       if(JSON.stringify(report)!==JSON.stringify(frozenReport)||report.completed!==true||report.phase!=='a14'||!Array.isArray(report.current)||!report.historyGeneration)throw Error('14:00 presentation source is not its frozen completed report');
+      if(report.current.length&&(report.current.some(row=>!Number.isFinite(Date.parse(row.asOf)))||report.asOf!==report.current.reduce((earliest,row)=>row.asOf<earliest?row.asOf:earliest,report.current[0].asOf)))throw Error('14:00 report asOf is not the earliest captured row quote time');
       a14=await publish({dir,binding:report,now,onProgress,build:async stage=>{
         const quotes=new Map(),files=[],wanted=new Map(report.current.map(row=>[row.code,row]));let header,dates;const found=new Set();
         const captures=new Set((await names(join(root,'days',report.day))).filter(name=>/^private-quotes-\d+-\d+\.json(?:\.gz)?$/.test(name)).map(name=>name.replace(/\.gz$/,'')));
@@ -99,7 +100,8 @@ export async function rebuildAShareChartPresentation({dir,generation,includeA14=
         for await(const record of history(join(dir,'private','generations',report.historyGeneration,'history-all.ndjson'))){
           if(!header){header=record;if(header.generation!==report.historyGeneration||header.sourceId!==report.historySourceId||header.reference?.bars?.at(-1)?.date!==report.marketContext?.historyDay)throw Error('14:00 historical archive source differs');dates=header.reference.bars.map(bar=>bar.date);continue;}
           const {stock,source}=record,row=wanted.get(stock?.code);if(!row)continue;const quote=quotes.get(stock.code);
-          if(found.has(stock.code)||!quote||!samePresentationSource(row,report)||source.sourceId!==report.historySourceId||source.day!==row.basisDay||source.adjustment!=='qfq'||quote.price!==row.reference.close||quote.prevClose!==row.quotePrevClose||source.bars.at(-1)?.close!==row.basisClose)throw Error('14:00 frozen quote or historical price binding differs');found.add(stock.code);
+          const rowBound=['generation','sourceId','day','historyGeneration','historySourceId'].every(key=>row[key]===report[key]);
+          if(found.has(stock.code)||!quote||!rowBound||Date.parse(row.asOf)!==Date.parse(row.quoteSourceAt)||Date.parse(row.asOf)!==Date.parse(quote.sourceAt)||source.sourceId!==report.historySourceId||source.day!==row.basisDay||source.adjustment!=='qfq'||quote.price!==row.reference.close||quote.prevClose!==row.quotePrevClose||source.bars.at(-1)?.close!==row.basisClose)throw Error('14:00 frozen quote or historical price binding differs');found.add(stock.code);
           const bars=tail(source.bars,dates).concat({date:report.day,open:quote.open,high:quote.high,low:quote.low,close:quote.price,volume:null});
           for(const window of [60,120]){const path='intraday-preselection-v1/days/'+report.day+'/charts/'+stock.code+'-'+window+'.svg';await readStoredFile(join(dir,path));await svg(stage,path,renderIntradayChart({row,bars,window}));files.push(path);}
         }
