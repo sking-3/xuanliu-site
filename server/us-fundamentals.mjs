@@ -272,7 +272,12 @@ export async function collectFundamentals({directory,universe=[],prices={},now=D
       for(const [target,old] of [[rows,priorRow],[dcaStocks,priorDca]])target.push({...structuredClone(old||missing),status:'pending',financialPassed:false,valuationStatus:'pending',lastSuccessfulStatus:old?.status||null,stale:true,lastAttemptAt:readAt,reasons:[...(old?.reasons||[]),issue('collection_failed_retained',error.message)]});
     }
   }
-  if(!members.length&&prior){for(const row of prior.fundamentals.rows||[])rows.push({...row,stale:true,lastAttemptAt:readAt});for(const row of prior.dca.rows||[])if(row.kind==='stock')dcaStocks.push({...row,stale:true,lastAttemptAt:readAt});}
+  if(!members.length&&prior){
+    const reason=[...new Set(failures.map(failure=>failure.reason))].join('；');
+    for(const [target,previous] of [[rows,prior.fundamentals.rows||[]],[dcaStocks,(prior.dca.rows||[]).filter(row=>row.kind==='stock')]])for(const row of previous){
+      target.push({...row,status:'pending',financialPassed:false,valuationStatus:'pending',lastSuccessfulStatus:row.status,stale:true,lastAttemptAt:readAt,reasons:[...(row.reasons||[]),issue('universe_failed_retained',reason)]});
+    }
+  }
   const etfs=[];
   for(const metadata of settings.etfs||[]){
     const path=join(privateDir,'etf-'+metadata.symbol+'.json.gz'),cached=await optionalJson(path);let sourceCheck=cached?.sourceCheck,verifiedMetadata=cached?.metadata||metadata;

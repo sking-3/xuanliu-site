@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp,readFile,rm} from 'node:fs/promises';
+import {mkdtemp,readFile,rename,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {gunzipSync} from 'node:zlib';
@@ -138,6 +138,15 @@ test('real collector path archives gzip, reuses unchanged facts, stops denied so
   const failed=await collectFundamentals({directory:dir,config:settings,prices,now:timestamp+dayMs*2,fetch:request,wait:async()=>{}});
   assert.equal(secRequests-previousSecRequests,1);assert.equal(failed.fundamentals.status,'partial');assert.equal(failed.fundamentals.rows.length,80);assert.equal(failed.fundamentals.rows[0].metrics.revenueTtm,1550*million);assert.equal(failed.fundamentals.rows[0].stale,true);
   const after=await readFile(successFile);assert(before.equals(after),'failed source must leave last-success archive unchanged');
+  for(const name of ['oef-holdings','cik-map'])await rename(join(dir,'fundamentals/private',name+'.json.gz'),join(dir,'fundamentals/private',name+'.saved.json.gz'));
+  const unavailable=await collectFundamentals({directory:dir,config:settings,prices,now:timestamp+dayMs*2+1000,fetch:async()=>{throw Error('fixture entire reference universe unavailable');},wait:async()=>{}});
+  assert.equal(unavailable.fundamentals.status,'partial');assert.equal(unavailable.fundamentals.counts.lowMultiple,0);assert.equal(unavailable.fundamentals.counts.financialPassed,0);
+  for(const row of [...unavailable.fundamentals.rows,...unavailable.dca.rows.filter(row=>row.kind==='stock')]){
+    assert.equal(row.status,'pending');assert.equal(row.financialPassed,false);assert.equal(row.valuationStatus,'pending');assert.equal(row.lastSuccessfulStatus,'candidate');assert.equal(row.stale,true);
+    assert.equal(row.asOf,'2026-09-30');assert.equal(row.sourceTime,'2026-11-01T12:00:00Z');assert.equal(row.readAt,'2026-11-26T01:00:00.000Z');assert.equal(row.metrics.revenueTtm,1550*million);
+    assert(row.sources.some(source=>source.name==='SEC companyfacts'));assert(row.reasons.some(reason=>reason.code==='universe_failed_retained'&&reason.message.includes('fixture entire reference universe unavailable')));
+  }
+  assert(before.equals(await readFile(successFile)),'whole-universe failure must preserve the original successful archive');
   assert.equal(progress.at(-1).phase,'fundamentals_complete');assert.doesNotMatch(JSON.stringify(first),/"(?:close|open|high|low|volume|token|apiKey|bars)":/);
 });
 
