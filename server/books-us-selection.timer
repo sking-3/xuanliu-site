@@ -1,0 +1,11 @@
+[Unit]
+Description=Books US selection after New York close, with delayed-source catchup
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 17..23:15:00 America/New_York
+OnCalendar=Tue..Sat *-*-* 04:15:00 America/New_York
+Persistent=true
+Unit=books-us-selection.service
+
+[Install]
+WantedBy=timers.target

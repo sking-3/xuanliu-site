@@ -11,6 +11,8 @@ function waitWorkspaceState(page,state){
  return page.locator(`[data-stock-workspace][data-published-state="${state}"]`).waitFor({state:'attached'});
 }
 async function openWorkspace(page){
+ const legacy=page.locator('details.us-selection-support');
+ if(await legacy.count()&&!await legacy.evaluate(node=>node.open))await legacy.locator(':scope > summary').click();
  const disclosure=page.locator('details.stock-custom-results');
  if(!await disclosure.evaluate(node=>node.open))await disclosure.locator(':scope > summary').click();
  await disclosure.locator('[data-stock-workspace]').waitFor({state:'visible'});
