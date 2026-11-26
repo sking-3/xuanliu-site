@@ -15,9 +15,13 @@ import argparse
 import importlib
 import json
 import math
+import os
 import re
 from typing import Any, Iterable
 from zoneinfo import ZoneInfo
+
+from tools import tdx_source_guard as shared_tdx
+from tools.mootdx_feed import collector as tdx_transport
 
 
 ZONE = ZoneInfo("Asia/Shanghai")
@@ -224,6 +228,11 @@ def normalize_bars(records: Iterable[dict[str, Any]], provider: str) -> list[dic
 
 
 def _import_provider(name: str):
+    if name == "mootdx":
+        shared_tdx.require_tdx_access()
+        _legacy_tdx_options()
+        # Do not import mootdx or obtain Quotes.factory; it bootstraps/scans.
+        return None
     if name not in PROVIDERS:
         raise ProviderError("provider_unknown")
     try:
@@ -232,21 +241,62 @@ def _import_provider(name: str):
         raise ProviderError("provider_not_installed", name) from error
 
 
+def _legacy_tdx_options():
+    value = os.environ.get("BOOKS_TDX_SERVER")
+    if not value:
+        raise shared_tdx.SourceStopped("explicit_tdx_server_required")
+    try:
+        server = tdx_transport.server_address(value)
+    except tdx_transport.FeedError:
+        raise shared_tdx.SourceStopped("invalid_tdx_server") from None
+    return dict(market="std", server=server, timeout=10, bestip=False,
+                heartbeat=False, auto_retry=False, raise_exception=True)
+
+
 def _call(module: Any, path: str, *args: Any, **kwargs: Any) -> Any:
-    target = module
-    for part in path.split("."):
-        target = getattr(target, part, None)
-        if target is None:
-            raise ProviderError("provider_api_mismatch", path)
+    if path == "tdx.fixed_server":
+        shared_tdx.require_tdx_access()
+        if args or kwargs:
+            raise shared_tdx.SourceStopped("unsafe_tdx_factory_options")
+        options = _legacy_tdx_options()
+        # The only legacy constructor is the same audited fixed transport.
+        target = lambda: shared_tdx.source_call(
+            lambda: _GuardedTdxClient(tdx_transport.fixed_server_factory(**options)))
+    else:
+        target = module
+        for part in path.split("."):
+            target = getattr(target, part, None)
+            if target is None:
+                raise ProviderError("provider_api_mismatch", path)
     try:
         return target(*args, **kwargs)
-    except (PermissionError, TimeoutError) as error:
-        raise ProviderError("provider_permission_or_timeout", path) from error
+    except shared_tdx.SourceStopped:
+        raise
+    except PermissionError as error:
+        raise ProviderError("provider_access_denied", path) from error
+    except TimeoutError as error:
+        raise ProviderError("provider_timeout", path) from error
     except Exception as error:  # provider exceptions vary by version
-        text = str(error).lower()
-        if any(token in text for token in ("403", "429", "forbidden", "rate limit", "permission")):
+        if shared_tdx.access_denied(error):
             raise ProviderError("provider_access_denied", path) from error
         raise ProviderError("provider_request_failed", path) from error
+
+
+def _raise_if_stopped(error):
+    if error.code in ("provider_access_denied", "provider_permission_or_timeout"):
+        raise error
+
+
+class _GuardedTdxClient:
+    """Wrap every legacy TDX data method with the same durable source identity."""
+    def __init__(self, client):
+        self.client = client
+
+    def __getattr__(self, name):
+        if name not in ("stocks", "quotes", "bars", "index", "minute"):
+            raise shared_tdx.SourceStopped("tdx_operation_unverified")
+        return lambda *args, **kwargs: shared_tdx.source_call(
+            getattr(self.client, name), *args, **kwargs)
 
 
 def _try_calls(module: Any, calls: Iterable[tuple[str, tuple[Any, ...], dict[str, Any]]]) -> Any:
@@ -256,6 +306,7 @@ def _try_calls(module: Any, calls: Iterable[tuple[str, tuple[Any, ...], dict[str
         try:
             return _call(module, path, *args, **kwargs)
         except ProviderError as error:
+            _raise_if_stopped(error)
             errors.append(error)
     if errors:
         raise errors[-1]
@@ -278,7 +329,7 @@ class Provider:
         if self.name == "adata":
             stock = getattr(self.module, "stock", None)
             return _records(_call(stock, "info.all_code"))
-        client = _call(self.module, "quotes.Quotes.factory", market="std", multithread=True, heartbeat=True)
+        client = _call(self.module, "tdx.fixed_server")
         return _records(_call(client, "stocks", market=0))
 
     def spot(self) -> list[dict[str, Any]]:
@@ -290,7 +341,7 @@ class Provider:
         if self.name == "adata":
             stock = getattr(self.module, "stock", None)
             return _records(_call(stock, "market.list_market_current"))
-        client = _call(self.module, "quotes.Quotes.factory", market="std", multithread=True, heartbeat=True)
+        client = _call(self.module, "tdx.fixed_server")
         return _records(_call(client, "quotes", symbol=["600519", "000001"]))
 
     def daily(self, code: str, start: str, end: str) -> list[dict[str, Any]]:
@@ -314,7 +365,7 @@ class Provider:
             stock = getattr(self.module, "stock", None)
             return _records(_call(stock, "market.get_market", stock_code=raw_code, k_type=1,
                                   start_date=start, end_date=end))
-        client = _call(self.module, "quotes.Quotes.factory", market="std", multithread=True, heartbeat=True)
+        client = _call(self.module, "tdx.fixed_server")
         return _records(_call(client, "bars", symbol=raw_code, frequency=9, offset=1000))
 
     def benchmark(self, start: str, end: str) -> list[dict[str, Any]]:
@@ -334,7 +385,7 @@ class Provider:
             stock = getattr(self.module, "stock", None)
             return _records(_call(stock, "market.get_market", stock_code="000001", k_type=1,
                                   start_date=start, end_date=end))
-        client = _call(self.module, "quotes.Quotes.factory", market="std", multithread=True, heartbeat=True)
+        client = _call(self.module, "tdx.fixed_server")
         return _records(_call(client, "index", symbol="000001", frequency=9, offset=1000))
 
     def minute(self, code: str, day: str) -> list[dict[str, Any]]:
@@ -352,7 +403,7 @@ class Provider:
         if self.name == "adata":
             stock = getattr(self.module, "stock", None)
             return _records(_call(stock, "market.get_market_min", stock_code=raw_code))
-        client = _call(self.module, "quotes.Quotes.factory", market="std", multithread=True, heartbeat=True)
+        client = _call(self.module, "tdx.fixed_server")
         return _records(_call(client, "minute", symbol=raw_code))
 
 
@@ -363,6 +414,7 @@ def provider(name: str = "auto") -> Provider:
         try:
             return Provider(item)
         except ProviderError as error:
+            _raise_if_stopped(error)
             errors.append(error.code)
     raise ProviderError("provider_unavailable", ",".join(errors))
 
@@ -428,7 +480,8 @@ def build_stock_input(source_name: str = "auto", *, as_of: date | None = None,
     for symbol in symbols:
         try:
             bars = normalize_bars(source.daily(symbol, dates[0], dates[-1]), source.name)
-        except ProviderError:
+        except ProviderError as error:
+            _raise_if_stopped(error)
             bars = []
         eligibility = {
             "asOf": day.isoformat(), "exchange": exchange_for(symbol), "board": "main",
@@ -545,11 +598,13 @@ def build_a14_input(source_name: str = "auto", *, cutoff: datetime | None = None
     for symbol in symbols:
         try:
             bars = normalize_bars(source.daily(symbol, history_dates[0], history_dates[-1]), source.name)
-        except ProviderError:
+        except ProviderError as error:
+            _raise_if_stopped(error)
             bars = []
         try:
             snapshot = _minute_snapshot(source.minute(symbol, day.isoformat()), cutoff)
-        except ProviderError:
+        except ProviderError as error:
+            _raise_if_stopped(error)
             snapshot = None
         if snapshot:
             snapshot.update({"priceBasis": "provider-minute-quote", "priceAnchorDate": day.isoformat(),
@@ -577,7 +632,8 @@ def build_a14_input(source_name: str = "auto", *, cutoff: datetime | None = None
     benchmark_snapshot = None
     try:
         benchmark_snapshot = _minute_snapshot(source.minute("000001.SH", day.isoformat()), cutoff)
-    except ProviderError:
+    except ProviderError as error:
+        _raise_if_stopped(error)
         benchmark_snapshot = None
     if benchmark_snapshot:
         benchmark_snapshot.update({"priceBasis": "provider-minute-quote", "priceAnchorDate": day.isoformat(),

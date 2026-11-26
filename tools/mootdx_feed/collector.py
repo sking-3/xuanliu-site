@@ -26,6 +26,12 @@ class FeedError(ValueError):
     """An error code safe to show without provider payloads."""
 
 
+from tools import tdx_source_guard as shared_tdx
+
+# Both legacy and new transports reserve the same upstream source before calls.
+source_call = shared_tdx.source_call
+
+
 def require_source_access():
     """Consult shared holds, then fail closed until legacy TDX stops are reconciled.
 
@@ -41,6 +47,11 @@ def require_source_access():
     # The latest legacy A-share guard and its deployed state paths/schema are
     # not available in this branch. Do not guess paths, synthesize a clean
     # record, or treat an approved key as proof of a completed migration.
+    try:
+        shared_tdx.require_tdx_access()
+    except shared_tdx.SourceStopped:
+        raise FeedError("legacy_source_stops_unverified") from None
+    # This draft does not remove the independent production closure.
     raise FeedError("legacy_source_stops_unverified")
 
 
@@ -108,8 +119,12 @@ def server_address(value):
 def default_factory(**options):
     """Use mootdx parsing methods without its configuration/bootstrap constructor."""
     require_source_access()
-    from mootdx.quotes import StdQuotes, TdxHq_API
+    return fixed_server_factory(**options)
 
+
+def fixed_server_factory(**options):
+    """Shared transport: validate a fixed IPv4 endpoint before importing the SDK."""
+    shared_tdx.require_tdx_access()
     if set(options) != {"market", "server", "timeout", "bestip", "heartbeat",
                         "auto_retry", "raise_exception"} or (
         options["market"] != "std" or options["bestip"] is not False or
@@ -117,6 +132,16 @@ def default_factory(**options):
         options["raise_exception"] is not True
     ):
         raise FeedError("unsafe_provider_options")
+    server = options["server"]
+    if (not isinstance(server, tuple) or len(server) != 2 or
+        not isinstance(server[0], str) or type(server[1]) is not int):
+        raise FeedError("invalid_server_address")
+    if server_address(f"{server[0]}:{server[1]}") != server:
+        raise FeedError("invalid_server_address")
+    timeout = options["timeout"]
+    if type(timeout) not in (int, float) or not math.isfinite(timeout) or not 1 <= timeout <= 30:
+        raise FeedError("invalid_timeout")
+    from mootdx.quotes import StdQuotes, TdxHq_API
 
     class FixedServerQuotes(StdQuotes):
         def __init__(self):
@@ -125,7 +150,7 @@ def default_factory(**options):
             self.server = options["server"]
             self.client = TdxHq_API(heartbeat=False, auto_retry=False, raise_exception=True)
             try:
-                connected = self.client.connect(*self.server, time_out=options["timeout"])
+                connected = source_call(self.client.connect, *self.server, time_out=options["timeout"])
                 if not connected:
                     raise FeedError("provider_connection_failed")
             except BaseException:
@@ -140,7 +165,8 @@ def default_factory(**options):
         def reconnect(self):
             raise FeedError("automatic_reconnect_disabled")
 
-    return FixedServerQuotes()
+    # Constructor, connect and a false result all remain inside one reservation.
+    return source_call(FixedServerQuotes)
 
 
 @contextmanager
@@ -333,17 +359,17 @@ def _collect_guarded(mode, requested, rows, historical_date, options, factory, n
     require_source_access()
     client = None
     try:
-        client = factory(**options)
+        client = source_call(factory, **options)
         if mode == "quotes":
-            data = normalize_quotes(client.quotes(symbol=[s[:6] for s in requested]), requested)
+            data = normalize_quotes(source_call(client.quotes, symbol=[s[:6] for s in requested]), requested)
         else:
             data = []
             for symbol in requested:
                 if mode == "daily":
-                    raw = client.bars(symbol=symbol[:6], frequency=9, start=0, offset=rows)
+                    raw = source_call(client.bars, symbol=symbol[:6], frequency=9, start=0, offset=rows)
                     batch = normalize_daily(raw, symbol, now)
                 else:
-                    raw = client.transactions(symbol=symbol[:6], start=0, offset=rows,
+                    raw = source_call(client.transactions, symbol=symbol[:6], start=0, offset=rows,
                                               date=historical_date.replace("-", ""))
                     batch = normalize_transactions(raw, symbol, historical_date)
                 if len(batch) > rows:

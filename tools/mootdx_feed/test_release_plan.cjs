@@ -6,6 +6,7 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto');
 const root=path.resolve(__dirname,'../..');
 const reviewed={
+  ".github/workflows/verify-shared-tdx-guard.yml": "8769ff26d5422d6bee63ca31368e02b238922cbd",
   ".github/actions/setup-public-release/action.yml": "189be9e13a8a5b7236b3a5837803184c3f58e46f",
   ".github/workflows/a-share-collector.yml": "ce4a80e0cc07db35ed3d8552c6384695a6d94743",
   ".github/workflows/binance-public-orders.yml": "2703d67cc9e50c1554663558b099a2b008596bee",
@@ -215,4 +216,13 @@ test('exchange recovery cannot deploy from a skipped push or PR collection job',
  assert.doesNotMatch(recovery,/scripts\/collect_|--enable-network|\/actions\/runs/);
  assert.match(recovery,/node scripts\/verify_public_release\.cjs/);
  assert.match(recovery,/node scripts\/verify_public_release\.cjs --live/);
+});
+
+test('shared TDX guard workflow runs isolated offline checks only',()=>{
+  const value=read('.github/workflows/verify-shared-tdx-guard.yml');
+  assert.doesNotMatch(value,/\n  (schedule|workflow_dispatch|workflow_run|workflow_call|repository_dispatch):|--enable-network/);
+  assert.match(value,/branches: \['codex\/shared-tdx-guard-20261117'\]/);
+  assert.match(value,/unittest tools\.test_tdx_source_guard tools\.stock_research\.test_a_share_sources/);
+  assert.match(value,/unittest tools\.mootdx_feed\.test_collector/);
+  assert.doesNotMatch(value,/scripts\/collect_|git push|actions\/deploy|contents: write/);
 });

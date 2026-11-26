@@ -1,0 +1,41 @@
+name: Verify shared TDX guard offline
+on:
+  push:
+    branches: ['codex/shared-tdx-guard-20261117']
+  pull_request:
+    paths:
+      - 'tools/tdx_source_guard.py'
+      - 'tools/test_tdx_source_guard.py'
+      - 'tools/tdx_authority_state.py'
+      - 'tools/test_tdx_authority_state.py'
+      - 'tools/tdx_github_state.py'
+      - 'tools/test_tdx_github_state.py'
+      - 'tools/stock_research/a_share_sources.py'
+      - 'tools/mootdx_feed/collector.py'
+      - 'tools/mootdx_feed/test_collector.py'
+      - '.github/workflows/verify-shared-tdx-guard.yml'
+permissions:
+  contents: read
+jobs:
+  offline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      matrix:
+        python: ['3.11', '3.12']
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '${{ matrix.python }}'
+      - name: Check reviewed release routing
+        run: node --test tools/mootdx_feed/test_release_plan.cjs
+      - name: Separate process/shared-store fixtures
+        run: python -B -m unittest tools.test_tdx_source_guard tools.stock_research.test_a_share_sources -v
+      - name: Independent authority and non-authorizing GitHub mirror fixtures
+        run: python -B -m unittest tools.test_tdx_authority_state tools.test_tdx_github_state -v
+      - name: Install existing hash-locked parser dependencies
+        run: |
+          python -m pip install --require-hashes --only-binary=:all: -r scripts/requirements-mootdx.txt
+      - name: Existing offline parser and closure regression
+        run: python -B -m unittest tools.mootdx_feed.test_collector -v
