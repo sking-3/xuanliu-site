@@ -276,7 +276,7 @@
 
     function companyDetails(row) {
       const details = node('details', null, 'us-selection-inline');
-      details.append(node('summary', '公司与财报详情'));
+      details.append(node('summary', '公司、财报与核验详情'));
       const fundamental = state.snapshot.fundamentals.rows.find(item => item.symbol === row.symbol);
       const financial = fundamental || row;
       if (row.description) details.append(node('p', row.description));
@@ -294,9 +294,10 @@
           if (financial.normalization) details.append(node('p', '中周期参考：取TTM与最近3个完整财年中位数中较低的利润、自由现金流计算；不是公允价值或已验证收益预测。'));
         }
       } else details.append(node('p', '本批尚无完整的公司财报记录，未据此认定低估。'));
-      if (financial.reasons?.length) {
+      const reasons = financial === row ? row.reasons || [] : [...financial.reasons || [], ...row.reasons || []];
+      if (reasons.length) {
         const list = node('ul');
-        for (const reason of financial.reasons) list.append(node('li', reasonText(reason)));
+        for (const reason of new Set(reasons.map(reasonText))) list.append(node('li', reason));
         details.append(list);
       }
       if (row.followup) details.append(observationReview(row));
@@ -321,7 +322,6 @@
       card.append(levels([['参考收盘 · USD', number(row.close)], ['B触发 >', number(row.trigger)], ['失效 <', number(row.invalidation)], ['最高观察价', number(row.maxEntry)]]));
       const m = row.metrics || {};
       card.append(node('p', (row.label || row.rule || '规则待核') + ' · ' + (row.membership === 'new' ? '新入选' : row.membership === 'continuing' ? '持续观察' : '本批观察') + ' · 20日 ' + percent(m.return20Percent, true) + ' · 相对SPY ' + percent(m.excess20Percent, true) + ' · 量比 ' + number(m.rvol) + '倍', 'us-selection-reasons'));
-      if (row.reasons?.length) card.append(node('p', row.reasons.map(reasonText).join('；'), 'us-selection-reasons'));
       card.append(chart(row), followup(row), companyDetails(row));
       const date = node('p', '数据日 ' + time(row.asOf || state.snapshot.asOf), 'us-selection-sources');
       card.append(date, sources([], { ...state.snapshot.source, sourceTime: row.sourceTime || state.snapshot.source?.sourceTime, readAt: row.readAt || state.snapshot.source?.fetchedAt }));

@@ -26,6 +26,7 @@ const snapshot = {
     { symbol: 'NEW', kind: 'stock', status: 'pending', metrics: { annualProfitYears: 1 } }
   ] }
 };
+snapshot.short.rows[0].reasons = ['固定规则技术观察；尚无独立滚动验证优势', '普通股交易资格尚未独立核验', '免费源历史复权因子明细不可逐笔核验'];
 
 assert.equal(ui.validateSnapshot(snapshot), snapshot);
 assert.throws(() => ui.validateSnapshot({ ...snapshot, schema: 'old' }));
@@ -147,6 +148,9 @@ async function stateFlow() {
   };
   const app = ui.mount(env);
   await app.ready;
+  app.state.snapshot.fundamentals.rows.push({ symbol: 'FIRST', name: 'First Company', status: 'pending', valuationStatus: 'pending', financialPassed: false, metrics: {}, reasons: [{ message: '财报字段待核' }] });
+  const currentTab = elements.get('us-tab-short'); currentTab.dataset.usTab = 'short';
+  elements.get('us-selection').listeners.click({ target: { closest: () => currentTab } });
   assert.equal(app.state.phase, 'ready');
   assert.equal(elements.get('us-short-results').children.length, 2);
   assert.ok(elements.get('us-selection-source').textContent.includes('4/4'));
@@ -156,6 +160,11 @@ async function stateFlow() {
   assert.ok(!elements.get('us-selection-source').textContent.includes('源时间'));
   assert.ok(elements.get('us-short-results').textContent.includes('收盘时点'));
   const firstCard = elements.get('us-short-results').children[0];
+  const visibleCopy = firstCard.children.filter(child => child.tagName !== 'details').map(child => child.textContent).join('');
+  assert.ok(!visibleCopy.includes('普通股交易资格尚未独立核验'), 'repeated technical checks stay out of the main chart area');
+  assert.ok(visibleCopy.includes('未验证'), 'the concise research qualification remains visible');
+  assert.ok(firstCard.children.find(child => child.tagName === 'details').textContent.includes('普通股交易资格尚未独立核验'), 'technical checks remain available inside the existing details');
+  assert.ok(firstCard.children.find(child => child.tagName === 'details').textContent.includes('财报字段待核'), 'matched financial checks are preserved alongside the short-rule checks');
   const firstTracking = firstCard.children.find(child => child.className === 'us-selection-tracking');
   assert.ok(firstTracking.textContent.includes('B后3个交易日+3%'));
   assert.ok(firstTracking.textContent.includes('B后15个交易日待形成'));

@@ -72,15 +72,18 @@ function advance(record,bars,dates,asOf,observedAt){
  next.triggerFollowup=triggeredFollowup(next,bars,dates);return next;
 }
 export function updateTracking(previous,rows,series,reference,asOf,generatedAt,unavailable=new Set()){
- const dates=reference.map(b=>b.date),current=new Set(rows.flatMap(row=>row.hits.map(hit=>row.symbol+'|'+hit.rule))),records=(previous?.records||[]).map(record=>advance(record,series[record.symbol]||[],dates,asOf,generatedAt));
+ const dates=reference.map(b=>b.date),current=new Set(rows.flatMap(row=>row.hits.map(hit=>row.symbol+'|'+hit.rule))),priorRecords=previous?.records||[],byId=new Map();
+ for(const record of priorRecords){
+  const saved=byId.get(record.id);
+  if(!saved||Date.parse(record.firstSeenAt)<Date.parse(saved.firstSeenAt))byId.set(record.id,record);
+ }
+ const duplicateIdsCollapsed=priorRecords.length-byId.size,records=[...byId.values()].map(record=>advance(record,series[record.symbol]||[],dates,asOf,generatedAt));
  for(const row of rows){
-  row.membership='new';
   for(const hit of row.hits){
-   const key=row.symbol+'|'+hit.rule;
-   let record=records.findLast(item=>item.key===key&&item.membership==='active'&&item.status!=='invalid'&&item.followup?.elapsedSessions<15);
-   if(record)row.membership='continuing';
-   else{
-    record={id:[version,row.symbol,hit.rule,asOf].join('|'),key,symbol:row.symbol,name:row.name,rule:hit.rule,referenceDate:asOf,referenceClose:row.close,firstSeenAt:generatedAt,lastSeenAt:generatedAt,trigger:hit.trigger,invalidation:hit.invalidation,maxEntry:hit.maxEntry,status:hit.status,triggerDate:hit.status==='B'?asOf:null,triggerClose:hit.status==='B'?row.close:null,triggerObservedAt:hit.status==='B'?generatedAt:null,checkedThrough:asOf,membership:'active',markers:hit.status==='B'?[{date:asOf,type:'B',price:row.close,observedAt:generatedAt,researchOnly:true,label:'当批收盘突破观察，非实际成交'}]:[]};
+   const key=row.symbol+'|'+hit.rule,id=[version,row.symbol,hit.rule,asOf].join('|');
+   let record=records.find(item=>item.id===id)||records.findLast(item=>item.key===key&&item.membership==='active'&&item.status!=='invalid'&&item.followup?.elapsedSessions<15);
+   if(!record){
+    record={id,key,symbol:row.symbol,name:row.name,rule:hit.rule,referenceDate:asOf,referenceClose:row.close,firstSeenAt:generatedAt,lastSeenAt:generatedAt,trigger:hit.trigger,invalidation:hit.invalidation,maxEntry:hit.maxEntry,status:hit.status,triggerDate:hit.status==='B'?asOf:null,triggerClose:hit.status==='B'?row.close:null,triggerObservedAt:hit.status==='B'?generatedAt:null,checkedThrough:asOf,membership:'active',markers:hit.status==='B'?[{date:asOf,type:'B',price:row.close,observedAt:generatedAt,researchOnly:true,label:'当批收盘突破观察，非实际成交'}]:[]};
     record.followup=followup(record,series[row.symbol],dates);record.triggerFollowup=triggeredFollowup(record,series[row.symbol],dates);records.push(record);
    }
    record.lastSeenAt=generatedAt;hit.trackingId=record.id;hit.firstSeenAt=record.firstSeenAt;hit.frozenTrigger=record.trigger;hit.frozenInvalidation=record.invalidation;
@@ -90,14 +93,14 @@ export function updateTracking(previous,rows,series,reference,asOf,generatedAt,u
   row.markers=records.filter(record=>record.symbol===row.symbol).flatMap(record=>record.markers).filter((marker,i,list)=>list.findIndex(item=>item.date===marker.date&&item.type===marker.type)===i);
   row.followup=null;
   const primary=row.hits.find(hit=>hit.status==='B'&&hit.isNewB)||row.hits.find(hit=>hit.rule===row.rule)||row.hits[0];
-  row.followup=primary.followup;row.triggerFollowup=primary.triggerFollowup;
+  row.followup=primary.followup;row.triggerFollowup=primary.triggerFollowup;row.membership=primary.followup.referenceDate===asOf?'new':'continuing';
   for(const key of ['rule','label','status','trigger','invalidation','maxEntry','signalDate','isNewB','phase'])row[key]=primary[key];
   if(row.phase==='tracking')row.label='B后跟踪 · '+row.signalDate;
   row.reasons.push('观察价位冻结于 '+(primary.followup?.referenceDate||asOf));
  }
  for(const record of records)if(record.membership==='active'&&!current.has(record.key)&&!unavailable.has(record.symbol)){record.membership='exited';record.exitObservedAt=generatedAt;}
  const matured=records.filter(record=>record.followup?.horizons?.[3]?.status==='ready'),maturedTriggered=records.filter(record=>record.triggerFollowup?.horizons?.[3]?.status==='ready');
- return {schema:'books.us.tracking.v1',version,asOf,generatedAt,records,summary:{observations:records.length,active:records.filter(r=>r.membership==='active').length,matured3:matured.length,maturedTriggered3:maturedTriggered.length,meanTriggeredReturn3Percent:maturedTriggered.length?mean(maturedTriggered.map(r=>r.triggerFollowup.horizons[3].returnPercent)):null,meanReturn3Percent:matured.length?mean(matured.map(r=>r.followup.horizons[3].returnPercent)):null,basis:'first_observed_close_not_execution'}};
+ return {schema:'books.us.tracking.v1',version,asOf,generatedAt,records,summary:{observations:records.length,duplicateIdsCollapsed,active:records.filter(r=>r.membership==='active').length,matured3:matured.length,maturedTriggered3:maturedTriggered.length,meanTriggeredReturn3Percent:maturedTriggered.length?mean(maturedTriggered.map(r=>r.triggerFollowup.horizons[3].returnPercent)):null,meanReturn3Percent:matured.length?mean(matured.map(r=>r.followup.horizons[3].returnPercent)):null,basis:'first_observed_close_not_execution'}};
 }
 export function buildSelection(input,{previousLedger=null,previousSnapshot=null,now=Date.now()}={}){
  const {asOf,universe,series,benchmarks,scope,source}=input,generatedAt=new Date(now).toISOString();
