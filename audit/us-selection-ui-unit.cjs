@@ -16,11 +16,11 @@ const snapshot = {
   ] },
   fundamentals: { rows: [
     { symbol: 'LOW', name: 'Low Multiple', status: 'candidate', financialPassed: true, valuationStatus: 'low_multiple', asOf: '2026-09-30', filedAt: '2026-10-28', metrics: { pe: 10, fcfYield: 9, normalizedPe: 12, normalizedFcfYield: 8, netDebtToFcf: 2 } },
-    { symbol: 'EXPENSIVE', name: 'Expensive', status: 'candidate', financialPassed: true, valuationStatus: 'not_low', metrics: { pe: 18, fcfYield: 5, normalizedPe: 35, normalizedFcfYield: 2, netDebtToFcf: 1 } },
-    { symbol: 'UNKNOWN', name: 'Price Missing', status: 'pending', financialPassed: true, valuationStatus: 'pending', metrics: { pe: null, fcfYield: null, normalizedPe: null, normalizedFcfYield: null, netDebtToFcf: 1 } }
+    { symbol: 'EXPENSIVE', name: 'Expensive', status: 'excluded', financialPassed: true, valuationStatus: 'not_low', metrics: { pe: 18, fcfYield: 5, normalizedPe: 35, normalizedFcfYield: 2, netDebtToFcf: 1 } },
+    { symbol: 'UNKNOWN', name: 'Price Missing', status: 'pending', financialPassed: true, valuationStatus: 'pending', metrics: { pe: null, fcfYield: null, normalizedPe: 80, normalizedFcfYield: .1, netDebtToFcf: 1 }, reasons: [{ message: '来源价格待核' }] }
   ] },
   dca: { rows: [
-    { symbol: 'BROAD', kind: 'etf', status: 'candidate', metrics: { expenseRatio: .03 } },
+    { symbol: 'BROAD', kind: 'etf', status: 'candidate', metrics: { expenseRatio: .03 }, reasons: [{ message: '完整风险说明应在详情中保留' }] },
     { symbol: 'COSTLY', kind: 'etf', status: 'candidate', metrics: { expenseRatio: .75 } },
     { symbol: 'DURABLE', kind: 'stock', status: 'candidate', metrics: { annualProfitYears: 5 } },
     { symbol: 'NEW', kind: 'stock', status: 'pending', metrics: { annualProfitYears: 1 } }
@@ -51,13 +51,16 @@ assert.equal(ui.filterRows(snapshot, state)[0].symbol, 'SECOND');
 Object.assign(state, ui.initialState(), { mode: 'value' });
 assert.deepEqual(ui.filterRows(snapshot, state).map(row => row.symbol), ['LOW']);
 state.valueStatus = '';
-assert.deepEqual(ui.filterRows(snapshot, state).map(row => row.symbol), ['LOW', 'UNKNOWN']);
+assert.deepEqual(ui.filterRows(snapshot, state).map(row => row.symbol), ['LOW', 'EXPENSIVE', 'UNKNOWN']);
 state.valueStatus = 'low_multiple';
 assert.deepEqual(ui.filterRows(snapshot, state).map(row => row.symbol), ['LOW']);
 state.valueStatus = 'pending';
 assert.deepEqual(ui.filterRows(snapshot, state).map(row => row.symbol), ['UNKNOWN']);
+state.valueStatus = 'excluded';
+assert.deepEqual(ui.filterRows(snapshot, state).map(row => row.symbol), ['EXPENSIVE'], 'excluded browsing does not reapply candidate numeric gates');
 state.valueStatus = ''; state.valuePe = 40; state.valueFcf = 0;
 assert.deepEqual(ui.filterRows(snapshot, state).map(row => row.symbol), ['LOW', 'EXPENSIVE', 'UNKNOWN']);
+assert.deepEqual(ui.reviewCounts(snapshot, 'value'), { candidate: 1, pending: 1, excluded: 1, all: 3 });
 
 Object.assign(state, ui.initialState(), { mode: 'dca' });
 assert.equal(state.dcaStatus, 'candidate');
@@ -66,6 +69,10 @@ state.strategy = 'etf';
 assert.deepEqual(ui.filterRows(snapshot, state).map(row => row.symbol), ['BROAD']);
 state.dcaFee = 1;
 assert.deepEqual(ui.filterRows(snapshot, state).map(row => row.symbol), ['BROAD', 'COSTLY']);
+Object.assign(state, ui.initialState(), { mode: 'dca', dcaStatus: 'pending' });
+assert.deepEqual(ui.filterRows(snapshot, state).map(row => row.symbol), ['NEW'], 'pending long-term records remain visible despite candidate history thresholds');
+state.dcaStatus = '';
+assert.deepEqual(ui.filterRows(snapshot, state).map(row => row.symbol), ['BROAD', 'COSTLY', 'DURABLE', 'NEW']);
 assert.equal(ui.percent(.06), '0.06%');
 assert.equal(ui.percent(5, true), '+5%');
 assert.equal(ui.percent(null), '待形成');
@@ -93,7 +100,8 @@ assert.equal(ui.etfLabel('dividend_quality'), '红利风格ETF');
 assert.equal(ui.etfLabel('broad_equity'), '宽基ETF');
 assert.equal(ui.etfLabel('unknown'), 'ETF研究');
 assert.equal(ui.valueLabel({ valuationStatus: 'low_multiple', status: 'candidate', financialPassed: true }), '低倍数候选');
-assert.equal(ui.valueLabel({ valuationStatus: 'low_multiple', status: 'pending', financialPassed: false }), '低倍数 · 财务待核');
+assert.equal(ui.valueLabel({ valuationStatus: 'low_multiple', status: 'pending', financialPassed: false }), '资料待核');
+assert.equal(ui.valueLabel({ valuationStatus: 'not_low', status: 'pending', financialPassed: false }), '资料待核');
 assert.equal(ui.valueLabel({ valuationStatus: 'low_multiple', status: 'excluded', financialPassed: false }), '低倍数 · 财务未通过');
 assert.equal(ui.sourceTimeLabel({ id: 'tickflow-free-us-forward-v1' }), '收盘时点');
 assert.equal(ui.sourceTimeLabel({ sourceTimeKind: 'scheduled_regular_close' }), '收盘时点');
@@ -187,6 +195,8 @@ async function stateFlow() {
   const visibleCopy = firstCard.children.filter(child => child.tagName !== 'details').map(child => child.textContent).join('');
   assert.ok(!visibleCopy.includes('普通股交易资格尚未独立核验'), 'repeated technical checks stay out of the main chart area');
   assert.ok(visibleCopy.includes('未验证'), 'the concise research qualification remains visible');
+  assert.ok(visibleCopy.includes('B 买入参考 >'));
+  assert.ok(visibleCopy.includes('S 卖出参考 <'));
   assert.ok(firstCard.children.find(child => child.tagName === 'details').textContent.includes('普通股交易资格尚未独立核验'), 'technical checks remain available inside the existing details');
   assert.ok(firstCard.children.find(child => child.tagName === 'details').textContent.includes('财报字段待核'), 'matched financial checks are preserved alongside the short-rule checks');
   const firstTracking = firstCard.children.find(child => child.className === 'us-selection-tracking');
@@ -203,9 +213,43 @@ async function stateFlow() {
   assert.ok(elements.get('us-short-context').textContent.includes('B触发后3日成熟1条'));
   assert.deepEqual(requests, ['/api/us-selection/snapshot', '/api/us-selection/state']);
   const valueTab = elements.get('us-tab-value'); valueTab.dataset.usTab = 'value';
+  elements.get('us-selection-search').listeners.input({ target: { value: 'FIRST' } });
+  app.state.valuePe = 15;
   elements.get('us-selection').listeners.click({ target: { closest: () => valueTab } });
+  assert.equal(app.state.search, '', 'switching workspaces clears the previous stock query');
+  assert.equal(elements.get('us-selection-search').value, '');
+  assert.equal(app.state.valuePe, 15, 'workspace switching preserves numeric conditions');
   assert.ok(elements.get('us-value-results').textContent.includes('财报期／TTM截至 2026-09-30'));
   assert.ok(elements.get('us-value-results').textContent.includes('财报公开 2026-10-28'));
+  const statusClick = value => {
+    const button = elements.get('us-value-results').children[0].children.find(child => child.dataset.usReviewStatus === value);
+    assert.ok(button, 'status category exists: ' + value);
+    elements.get('us-selection').listeners.click({ target: { closest: selector => selector === '[data-us-review-status]' ? button : null } });
+  };
+  app.state.snapshot.fundamentals.rows.find(row => row.symbol === 'UNKNOWN').valuationStatus = 'not_low';
+  statusClick('pending');
+  assert.equal(app.state.valueStatus, 'pending');
+  assert.equal(elements.get('us-value-status').value, 'pending');
+  assert.ok(elements.get('us-value-results').textContent.includes('UNKNOWN'));
+  assert.ok(elements.get('us-value-results').textContent.includes('来源价格待核'));
+  const pendingRow = elements.get('us-value-results').children.find(child => child.dataset.usSymbol === 'UNKNOWN');
+  assert.equal(pendingRow.children.find(child => child.className === 'us-research-status').textContent, '资料待核');
+  assert.ok(pendingRow.children.find(child => child.tagName === 'details').textContent.includes('估值核验：未达低倍数条件。'), 'valuation results remain in details without replacing the pending status');
+  statusClick('excluded');
+  assert.ok(elements.get('us-value-results').textContent.includes('EXPENSIVE'));
+  statusClick('');
+  assert.ok(elements.get('us-value-results').textContent.includes('LOW'));
+  assert.ok(elements.get('us-value-results').textContent.includes('EXPENSIVE'));
+  assert.ok(elements.get('us-value-results').textContent.includes('UNKNOWN'));
+  const dcaTab = elements.get('us-tab-dca'); dcaTab.dataset.usTab = 'dca';
+  elements.get('us-selection').listeners.click({ target: { closest: () => dcaTab } });
+  const groups = elements.get('us-dca-results').children.filter(child => child.className === 'us-review-group');
+  assert.equal(groups.length, 2);
+  assert.ok(groups[0].textContent.includes('基金定投'));
+  assert.ok(groups[1].textContent.includes('个股长期观察'));
+  const etf = groups[0].children[1];
+  assert.ok(!etf.children.filter(child => child.tagName !== 'details').map(child => child.textContent).join('').includes('完整风险说明应在详情中保留'));
+  assert.ok(etf.children.find(child => child.tagName === 'details').textContent.includes('完整风险说明应在详情中保留'));
   const shortTab = elements.get('us-tab-short'); shortTab.dataset.usTab = 'short';
   elements.get('us-selection').listeners.click({ target: { closest: () => shortTab } });
   const old = app.state.snapshot;

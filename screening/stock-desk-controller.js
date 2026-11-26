@@ -5,7 +5,7 @@
  else{root.BooksStockDesk=api;if(root.document)root.BooksStockDeskApp=api.mount(root.document);}
 })(globalThis,()=>{
  const schema='books.a-share.desk.v1',reportSchema='books.a-share.opportunity-workbench.v1',version='books.a-share.opportunity-tracking.2026-11-25.v1';
- const phases=['close','a14'],states={near_B:'接近B',triggered_B:'B触发',watch:'观察',expired:'已过期'};
+ const phases=['close','a14'],states={near_B:'接近B买入参考',triggered_B:'B买入观察已触发',watch:'观察',expired:'已过期'};
  const phaseLabels={close:'收盘',a14:'14:00'},strategies=['all','trend','short-term','institution','t-plan'];
  const contextKinds=['trend-pullback','trend-continuation','range-support','support-reclaim'];
  const finite=Number.isFinite,time=value=>typeof value==='string'&&finite(Date.parse(value));
@@ -19,13 +19,13 @@
  const activeAt=(row,now)=>row.active!==false&&row.displayState!=='expired'&&Date.parse(row.activeUntil)>now;
  const stateLabel=row=>states[row.state]+(row.qualified?' · 验证通过':row.state==='watch'?'':' · 未验证');
  function datedState(row){
-  const label=row.familyId==='close-limitup-watch'||row.research?.plan?.modelState==='limit_up_next_session_recheck'?'收盘近涨停（非当前买点）':row.state==='triggered_B'?'当日价格触发':row.state==='near_B'?'尚未突破 · 接近触发':finite(row.reference.trigger)?'尚未突破':'条件观察';
+  const label=row.familyId==='close-limitup-watch'||row.research?.plan?.modelState==='limit_up_next_session_recheck'?'收盘近涨停（非当前买点）':row.state==='triggered_B'?'当日B买入观察已触发':row.state==='near_B'?'尚未突破 · 接近B买入参考':finite(row.reference.trigger)?'尚未突破':'条件观察';
   return '截至'+row.day+' '+phaseLabels[row.phase]+'：'+label+(row.qualified?' · 验证通过':row.state==='watch'?'':' · 未通过验证');
  }
  function referenceText(row){
   const values=['参考价 '+number(row.reference.close)];
-  if(finite(row.reference.trigger))values.push('触发 > '+number(row.reference.trigger));
-  if(finite(row.reference.invalidation))values.push('失效 < '+number(row.reference.invalidation));
+  if(finite(row.reference.trigger))values.push('B 买入参考 > '+number(row.reference.trigger));
+  if(finite(row.reference.invalidation))values.push('S 卖出参考 < '+number(row.reference.invalidation));
   return values.join(' · ');
  }
  function positionText(row){
@@ -170,11 +170,11 @@
   }
   function renderPlan(record,row){
    const plan=row.research?.plan,levels=[],add=(label,value)=>{const item=doc.createElement('div');item.append(text('dt',label),text('dd',value));levels.push(item);};
-   if(plan?.buyZone)add('买入观察区',number(plan.buyZone.low)+'–'+number(plan.buyZone.high));
-   if(plan?.reduceZone)add('压力减仓区',number(plan.reduceZone.low)+'–'+number(plan.reduceZone.high));
+   if(plan?.buyZone)add('B 买入观察区',number(plan.buyZone.low)+'–'+number(plan.buyZone.high));
+   if(plan?.reduceZone)add('S 卖出观察区（压力减仓）',number(plan.reduceZone.low)+'–'+number(plan.reduceZone.high));
    const trigger=plan?plan.trigger:row.reference.trigger,invalidation=plan?plan.invalidation:row.reference.invalidation;
-   if(finite(trigger))add('突破参考','> '+number(trigger));
-   if(finite(invalidation))add('失效参考','< '+number(invalidation));
+   if(finite(trigger))add('B 买入参考','> '+number(trigger));
+   if(finite(invalidation))add('S 卖出参考','< '+number(invalidation));
    const limitWatch=row.familyId==='close-limitup-watch';
    record.part('plan').hidden=!levels.length&&!limitWatch;
    record.part('plan-title').textContent=row.phase==='a14'?'盘中条件观察 · 收盘待确认':'下一交易日条件计划';
@@ -182,6 +182,7 @@
    const labels={next_session_watch:'待下一交易日重新核验',existing_position_T_watch:'日线波段T观察',countertrend_watch:'逆势收复观察，尚未确认转强',limit_up_next_session_recheck:'本日近涨停，仅待下一交易日复核'};
    let note=plan?plan.label+' · '+labels[plan.modelState]:'原关键K条件参考，下一交易日须重新核验。';
    if(limitWatch)note='次日持续一字、封死或无法核实可成交则跳过；开板不等于B，等待新的回踩或突破条件。';
+   if(finite(trigger)||finite(invalidation))note+='；B/S为买入/卖出观察，非实际成交；未持仓跌破S仅取消B条件。';
    if(plan?.holdingRequired||plan?.reduceZone)note+='；做T须有可卖底仓，当天新买不能当日卖出。';
    record.part('plan-note').textContent=note;
   }

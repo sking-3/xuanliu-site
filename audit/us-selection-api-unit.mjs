@@ -21,6 +21,16 @@ test('chart window is trading-bar count and markers use their original dates',()
   assert.match(svg,/近60个交易日/);assert.ok(svg.includes(bars.at(-60).date));assert.ok(!svg.includes(bars[0].date));
   assert.match(svg,/B .*研究标记/);assert.match(svg,/前复权 · USD/);assert.equal(renderUSChart({bars:[]}),null);
 });
+test('B and S reference labels avoid each other and price ticks without moving the actual price lines',()=>{
+  const row={...snapshot.short.rows[0],trigger:110,invalidation:109.99};
+  const svg=renderUSChart(row,120);
+  const labels=[...svg.matchAll(/data-reference="([BS])" data-price-y="([\d.]+)" data-label-y="([\d.]+)"/g)].map(([,kind,priceY,labelY])=>({kind,priceY:Number(priceY),labelY:Number(labelY)}));
+  assert.equal(labels.length,2);assert(Math.abs(labels[0].labelY-labels[1].labelY)>=28);
+  assert(Math.abs(labels[0].priceY-labels[1].priceY)<1,'close reference prices must retain their true chart positions');
+  for(const [,tickY]of svg.matchAll(/data-axis-label="price" x="[\d.]+" y="([\d.]+)"/g))for(const label of labels)assert(Math.abs(Number(tickY)-6-label.labelY)>=24);
+  assert.match(svg,/B 买入 110/);assert.match(svg,/S 卖出 109\.99/);assert.doesNotMatch(svg,/>触发 |\>失效 /);
+  assert.equal(row.trigger,110);assert.equal(row.invalidation,109.99);assert.equal(row.markers[0].date,bars.at(-1).date);
+});
 test('a failed current task retains the completed snapshot and never starts collection',async()=>{
   const directory=await mkdtemp(join(tmpdir(),'books-us-api-'));
   try{

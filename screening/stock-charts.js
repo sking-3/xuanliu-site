@@ -127,7 +127,7 @@
       for(const days of [60,120]){const option=document.createElement('option');option.value=String(days);option.textContent='近'+days+'个交易日';select.append(option);}select.value=String(state.window);
       select.addEventListener('change',()=>{const value=Number(select.value);if(!alive(state)||![60,120].includes(value)||value===state.window)return;state.window=value;cleanup(state);phase(state,'waiting','日K进入屏幕后加载');state.host.replaceChildren(state.status);scheduleDrain();});toolbar.append(title,select);
       const legend=document.createElement('div');legend.className='stock-signal-legend';
-      for(const label of ['B 突破观察','S 15日研究退出','+ 波段加仓','− 波段减仓','X 条件失效']){const item=document.createElement('span');item.textContent=label;legend.append(item);}
+      for(const label of ['B 买入观察（突破）','S 卖出观察（15日研究退出）','+ 波段加仓','− 波段减仓','X 条件失效']){const item=document.createElement('span');item.textContent=label;legend.append(item);}
       const markerList=document.createElement('div'),reason=document.createElement('p'),footer=document.createElement('div'),source=document.createElement('span');
       markerList.className='stock-signal-markers';markerList.setAttribute('aria-label',state.name+'最近研究标记');reason.className='stock-signal-reason';reason.setAttribute('aria-live','polite');footer.className='stock-signal-footer';
       source.textContent=(state.batch.attribution||state.batch.sourceId)+' · 数据日 '+state.batch.day+' · 来源 '+stamp(state.batch.asOf)+' · 读取 '+stamp(state.data?.sourceFetchedAt)+' · 前复权归一化研究图；未独立验证，非成交。';
@@ -149,7 +149,7 @@
         if(!alive(state,epoch))return;
         const legend=signalSurface(state);
         if(!state.data.chartAvailable){env.clearTimeout(state.timer);state.timer=null;state.controller=null;loading.delete(state);phase(state,'signal-loaded','本批日线不足，暂无可核对的主图与标记。');legend.hidden=true;state.markerList.hidden=true;state.reason.textContent='';drain();return;}
-        const image=document.createElement('img');state.image=image;image.className='stock-signal-image';image.alt=state.name+'日K：B突破观察、S固定15日退出及波段加减仓研究标记，非实际成交';image.decoding='async';
+        const image=document.createElement('img');state.image=image;image.className='stock-signal-image';image.alt=state.name+'日K：B买入观察、S卖出观察（固定15日研究退出）及波段加减仓研究标记，非实际成交';image.decoding='async';
         state.onLoad=()=>{if(!alive(state,epoch)||state.phase!=='loading')return;env.clearTimeout(state.timer);state.timer=null;state.controller=null;loading.delete(state);phase(state,'signal-loaded','');renderMarkerDetails(state);drain();};
         state.onError=()=>unavailable(state,epoch,'本批日K图未能载入，可重试或查看完整图。');image.addEventListener('load',state.onLoad,{once:true});image.addEventListener('error',state.onError,{once:true});
         image.src='/api/a-share-daily/signal-chart?'+new URLSearchParams({generation:state.batch.generation,code:state.code,window:String(state.window)});state.host.insertBefore(image,state.status);

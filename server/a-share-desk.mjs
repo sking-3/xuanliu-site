@@ -4,6 +4,7 @@ import {join} from 'node:path';
 import {createRequire} from 'node:module';
 import {isDeepStrictEqual} from 'node:util';
 import {readStoredFile,readStoredJson} from './a-share-retention.mjs';
+import {readPresentedChart} from './a-share-chart-presentation.mjs';
 import {runOpportunityTracking,viewOpportunityWorkbench,directoryName as trackingDirectory,version as trackingVersion,schema as trackingSchema} from './a-share-opportunity-tracking.mjs';
 import {precomputeMarketPreference,filename as preferenceFilename,version as preferenceVersion} from './a-share-market-preference.mjs';
 import {collectInstitutionDisclosures,readInstitutionDisclosures} from './a-share-institution-disclosures.mjs';
@@ -95,7 +96,7 @@ export async function readA14Chart({dir,day:requestedDay,code,window,compressed=
   const value=await readA14(dir,now),report=value.data;
   if(!report||report.day!==requestedDay||!report.current.some(row=>row.code===code))return null;
   const file=join(dir,'intraday-preselection-v1','days',requestedDay,'charts',code+'-'+window+'.svg');
-  return {body:await readStoredFile(compressed?file+'.gz':file),compressed};
+  return {body:await readPresentedChart({dir,binding:report,path:'intraday-preselection-v1/days/'+requestedDay+'/charts/'+code+'-'+window+'.svg',compressed})??await readStoredFile(compressed?file+'.gz':file),compressed};
 }
 
 export async function readWorkbenchChart({dir,generation:requestedGeneration,code,window,compressed=false}={}){
@@ -106,7 +107,7 @@ export async function readWorkbenchChart({dir,generation:requestedGeneration,cod
   if(complete.completed!==true||!same(complete,marker)||report.schema!==watchSchema||report.version!==watchVersion||report.completed!==true||report.datasetBound!==true||!same(report,marker)||!Array.isArray(report.current)||!Array.isArray(report.charts))return null;
   const path=watchChartDirectory+'/'+code+'-'+window+'.svg',chart=report.charts.find(item=>item.code===code&&item.window===Number(window));
   if(!report.current.some(row=>row.code===code&&row.qualified===false&&row.state==='watch'&&same(row,marker))||!chart||!same(chart,marker)||chart.path!==path||chart.priceBasis!=='first-close-percent')return null;
-  const file=join(target,path);return {body:await readStoredFile(compressed?file+'.gz':file),compressed};
+  const file=join(target,path);return {body:await readPresentedChart({dir,binding:marker,path:'generations/'+requestedGeneration+'/'+path,compressed})??await readStoredFile(compressed?file+'.gz':file),compressed};
 }
 
 export async function readContextChart({dir,generation:requestedGeneration,code,kind,window,compressed=false,now=Date.now()}={}){
@@ -117,7 +118,7 @@ export async function readContextChart({dir,generation:requestedGeneration,code,
   if(complete.completed!==true||!same(complete,marker))return null;validateDecisionContext(report,marker,now);
   const path=contextChartDirectory+'/'+kind+'/'+code+'-'+window+'.svg',chart=report.charts.find(item=>item.code===code&&item.kind===kind&&item.window===Number(window));
   if(!report.current.some(row=>row.code===code&&row.research.plan.kind===kind)||!chart||!same(chart,marker)||chart.path!==path||chart.priceBasis!=='first-close-percent')return null;
-  const file=join(target,path);return {body:await readStoredFile(compressed?file+'.gz':file),compressed};
+  const file=join(target,path);return {body:await readPresentedChart({dir,binding:marker,path:'generations/'+requestedGeneration+'/'+path,compressed})??await readStoredFile(compressed?file+'.gz':file),compressed};
 }
 
 function nextVerifiedSession(calendar,sourceDay){

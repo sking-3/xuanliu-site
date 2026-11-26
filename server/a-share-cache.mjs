@@ -1,6 +1,7 @@
 import {readFile,stat} from 'node:fs/promises';
 import {join} from 'node:path';
 import {readStoredFile,readStoredJson} from './a-share-retention.mjs';
+import {readPresentedChart} from './a-share-chart-presentation.mjs';
 import {closeCandidateVersion} from './a-share-entry-current.mjs';
 import {currentEntryDirectory} from './a-share-entry-current-precompute.mjs';
 import {entryPolicyVersion} from './a-share-entry-bars.mjs';
@@ -185,7 +186,10 @@ export function createAShareCache({directory}){
       }
       const compressed=gzipAccepted(req.headers['accept-encoding']);
       let body;
-      try{body=compressed?await readFile(join(completed.location,filename+'.gz')):await readStoredFile(join(completed.location,filename));}
+      try{
+        if(['entry-chart','entry-current-chart','viprasol-current-chart'].includes(route))body=await readPresentedChart({dir:directory,binding:completed.completion,path:'generations/'+generation+'/'+filename,compressed});
+        body??=compressed?await readFile(join(completed.location,filename+'.gz')):await readStoredFile(join(completed.location,filename));
+      }
       catch(error){if(error.code==='ENOENT'){reply(503,{error:'cache_unavailable'});return true;}throw error;}
       res.writeHead(200,{'content-type':['entry-chart','signal-chart','entry-current-chart','viprasol-current-chart'].includes(route)?'image/svg+xml; charset=utf-8':'application/json; charset=utf-8','cache-control':'no-cache','vary':'Accept-Encoding',...(compressed?{'content-encoding':'gzip'}:{})});
       res.end(body);
