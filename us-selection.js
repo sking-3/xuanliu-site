@@ -1,0 +1,527 @@
+(function (root, factory) {
+  const api = factory();
+  if (typeof module === 'object' && module.exports) module.exports = api;
+  else {
+    root.BooksUsSelection = api;
+    if (root.document) api.mount(root);
+  }
+})(globalThis, function () {
+  'use strict';
+
+  const SCHEMA = 'books.us.selection.v1';
+  const MODES = ['short', 'value', 'dca'];
+  const finite = Number.isFinite;
+  const reasonText = reason => typeof reason === 'string' ? reason : reason.message;
+  const modeRows = (snapshot, mode) => snapshot ? (mode === 'short' ? snapshot.short : mode === 'value' ? snapshot.fundamentals : snapshot.dca).rows : [];
+
+  function initialState() {
+    return {
+      mode: 'short', search: '', strategy: '', pageSize: 'all', page: 1,
+      minPrice: 5, minTurnover: 10, minStrength: 0, shortStatus: '',
+      valuePe: 20, valueFcf: 4, valueDebt: 3, valueStatus: 'low_multiple',
+      dcaFee: .2, dcaYears: 3, dcaStatus: 'candidate',
+      snapshot: null, progress: null, phase: 'loading', error: '', readAt: null,
+      chartWindows: {}, chartErrors: {}, requestId: 0
+    };
+  }
+
+  function validateSnapshot(value) {
+    if (!value || value.schema !== SCHEMA || !value.short || !value.fundamentals || !value.dca) throw Error('结果格式未通过核验');
+    for (const group of [value.short, value.fundamentals, value.dca]) {
+      if (!Array.isArray(group.rows) || group.rows.some(row => !row || typeof row.symbol !== 'string' || !row.symbol)) throw Error('股票结果格式未通过核验');
+    }
+    return value;
+  }
+
+  function shortStatus(row) {
+    if (row.phase === 'tracking' || row.isNewB === false && row.status === 'B') return 'tracking';
+    if (row.status === 'B' || row.status === 'triggered') return 'triggered';
+    if (row.status === 'invalid' || row.status === 'invalidated') return 'invalidated';
+    if (row.status === 'overextended' || finite(row.close) && finite(row.maxEntry) && row.close > row.maxEntry) return 'overextended';
+    return 'watch';
+  }
+
+  function strategyKey(row, mode) {
+    return mode === 'short' ? row.rule : mode === 'value' ? row.industry : row.kind;
+  }
+
+  function filterRows(snapshot, state) {
+    const search = state.search.trim().toLocaleLowerCase();
+    return modeRows(snapshot, state.mode).filter(row => {
+      if (search && !(row.symbol + ' ' + (row.name || '')).toLocaleLowerCase().includes(search)) return false;
+      if (state.strategy && strategyKey(row, state.mode) !== state.strategy && !(state.mode === 'short' && row.hits?.some(hit => hit.rule === state.strategy))) return false;
+      const metrics = row.metrics || {};
+      if (state.mode === 'short') {
+        if (!finite(row.close) || row.close < state.minPrice) return false;
+        const turnover = finite(metrics.dollarVolume20) ? metrics.dollarVolume20 : metrics.dollarVolume20Proxy;
+        if (finite(turnover) && turnover < state.minTurnover * 1e6) return false;
+        if (finite(metrics.excess20Percent) && metrics.excess20Percent < state.minStrength) return false;
+        return !state.shortStatus || shortStatus(row) === state.shortStatus;
+      }
+      if (state.mode === 'value') {
+        if (state.valueStatus === 'candidate' && row.financialPassed !== true) return false;
+        if (state.valueStatus === 'pending' && row.status !== 'pending' && row.valuationStatus !== 'pending') return false;
+        if (state.valueStatus === 'low_multiple' && !(row.valuationStatus === 'low_multiple' && row.status === 'candidate' && row.financialPassed === true)) return false;
+        if (finite(metrics.normalizedPe) && (metrics.normalizedPe <= 0 || metrics.normalizedPe > state.valuePe)) return false;
+        if (finite(metrics.normalizedFcfYield) && metrics.normalizedFcfYield < state.valueFcf) return false;
+        if (finite(metrics.netDebtToFcf) && metrics.netDebtToFcf > state.valueDebt) return false;
+        return true;
+      }
+      if (state.dcaStatus && row.status !== state.dcaStatus) return false;
+      if (row.kind === 'etf') return !finite(metrics.expenseRatio) || metrics.expenseRatio <= state.dcaFee;
+      return !finite(metrics.annualProfitYears) || metrics.annualProfitYears >= state.dcaYears;
+    });
+  }
+
+  function paginate(rows, pageSize, page) {
+    const size = pageSize === 'all' ? Math.max(rows.length, 1) : Number(pageSize);
+    const pages = Math.max(1, Math.ceil(rows.length / size));
+    const selected = Math.min(Math.max(page, 1), pages);
+    return { rows: rows.slice((selected - 1) * size, selected * size), page: selected, pages, total: rows.length };
+  }
+
+  function number(value, digits = 2) {
+    return finite(value) ? new Intl.NumberFormat('zh-CN', { maximumFractionDigits: digits }).format(value) : '—';
+  }
+
+  function percent(value, signed = false) {
+    return finite(value) ? (signed && value > 0 ? '+' : '') + number(value) + '%' : '待形成';
+  }
+
+  function money(value) {
+    if (!finite(value)) return '—';
+    if (Math.abs(value) >= 1e9) return number(value / 1e9) + '十亿美元';
+    if (Math.abs(value) >= 1e6) return number(value / 1e6) + '百万美元';
+    return number(value) + '美元';
+  }
+
+  function time(value) {
+    if (!value) return '待核';
+    if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+    const date = new Date(value);
+    if (!finite(date.getTime())) return '待核';
+    return new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(date) + ' 北京';
+  }
+
+  function sourceUrl(value) {
+    try {
+      const url = new URL(value);
+      return url.protocol === 'https:' && !url.username && !url.password ? url.href : null;
+    } catch { return null; }
+  }
+
+  function chartUrl(value, symbol, window) {
+    try {
+      const url = new URL(value, 'https://45-77-39-98.sslip.io');
+      if (url.origin !== 'https://45-77-39-98.sslip.io' || url.pathname !== '/api/us-selection/chart' || url.searchParams.get('symbol') !== symbol || ![60, 120].includes(window)) return null;
+      url.searchParams.set('window', String(window));
+      return url.pathname + url.search;
+    } catch { return null; }
+  }
+
+  function taskParts(task) {
+    if (!task) return [];
+    const names = { not_started: '尚未运行', collecting: '采集中', computing: '计算中', ready: '已完成', complete: '已完成', idle: '已有最新批次', waiting_source: '等待来源更新', source_pending: '等待可用来源', source_blocked: '来源已停止', error: '本轮失败' };
+    const phases = { universe: '读取名册', daily_bars: '日线采集', tracking: '后续跟踪', fundamentals: '财报核对', complete: '完成' };
+    const progress = task.progress && typeof task.progress === 'object' ? task.progress : task;
+    const processed = finite(progress.processed) ? progress.processed : progress.completed;
+    const total = finite(progress.total) ? progress.total : finite(progress.expected) ? progress.expected : task.expected;
+    const parts = [];
+    if (task.status) parts.push('任务 ' + (names[task.status] || task.status));
+    if (progress.phase) parts.push('阶段 ' + (phases[progress.phase] || progress.phase));
+    if (finite(processed) && finite(total)) parts.push(number(processed, 0) + '/' + number(total, 0));
+    if (typeof task.message === 'string' && task.message) parts.push(task.message);
+    if (task.error || task.failureReason) parts.push('失败原因 ' + String(task.error || task.failureReason));
+    const failures = Array.isArray(task.fundamentalsFailures) ? task.fundamentalsFailures : [];
+    if (task.fundamentalsStatus === 'partial' || failures.length) parts.push('公开财报部分失败 · ' + failures.length + '项');
+    else if (task.fundamentalsStatus === 'unavailable') parts.push('公开财报暂不可用');
+    for (const failure of failures.slice(0, 3)) parts.push(typeof failure === 'string' ? failure : [failure.symbol || failure.source, failure.reason || failure.message].filter(Boolean).join('：'));
+    if (failures.length > 3) parts.push('其余' + (failures.length - 3) + '项原因见研究控制台');
+    return parts;
+  }
+
+  function etfLabel(style) {
+    if (['dividend', 'dividend_quality'].includes(style)) return '红利风格ETF';
+    if (['broad', 'broad_equity'].includes(style)) return '宽基ETF';
+    return 'ETF研究';
+  }
+
+  function valueLabel(row) {
+    if (row.valuationStatus === 'low_multiple') {
+      if (row.status === 'candidate' && row.financialPassed === true) return '低倍数候选';
+      return row.status === 'excluded' ? '低倍数 · 财务未通过' : '低倍数 · 财务待核';
+    }
+    if (row.valuationStatus === 'not_low') return '估值未达低倍数条件';
+    if (row.financialPassed === true) return '财务通过 · 估值待核';
+    return row.status === 'excluded' ? '条件未通过' : '财报／估值待核';
+  }
+
+  function sourceTimeLabel(source) {
+    return source.sourceTimeKind === 'scheduled_regular_close' || source.id === 'tickflow-free-us-forward-v1' ? '收盘时点' : '源时间';
+  }
+
+  function mount(env = globalThis) {
+    const doc = env.document, host = doc.getElementById('us-selection');
+    if (!host) return null;
+    const state = initialState();
+    const get = id => doc.getElementById(id);
+    const node = (tag, text, className) => {
+      const element = doc.createElement(tag);
+      if (text !== undefined && text !== null) element.textContent = String(text);
+      if (className) element.className = className;
+      return element;
+    };
+
+    function levels(items) {
+      const list = node('dl', null, 'us-selection-levels');
+      for (const [label, value] of items) {
+        const cell = node('div');
+        cell.append(node('dt', label), node('dd', value));
+        list.append(cell);
+      }
+      return list;
+    }
+
+    function sources(items, metadata = {}) {
+      const block = node('div', null, 'us-selection-sources');
+      for (const item of items || []) {
+        const url = sourceUrl(item.url);
+        if (!url) continue;
+        const link = node('a', item.name || '原始来源');
+        link.href = url; link.target = '_blank'; link.rel = 'noopener noreferrer';
+        block.append(link);
+        if (item.asOf) block.append(node('span', '来源日期 ' + time(item.asOf)));
+      }
+      if (metadata.sourceTime) block.append(node('span', sourceTimeLabel(metadata) + ' ' + time(metadata.sourceTime)));
+      if (metadata.readAt) block.append(node('span', '本站读取 ' + time(metadata.readAt)));
+      return block;
+    }
+
+    function empty(target, title, message) {
+      const block = node('div', null, 'us-selection-empty');
+      block.append(node('strong', title), node('span', message));
+      target.replaceChildren(block);
+    }
+
+    function followup(row) {
+      const group = node('div', null, 'us-selection-tracking');
+      const tracking = row.triggerFollowup;
+      if (!tracking) {
+        group.append(node('p', 'B触发后跟踪尚未生成，等待任务更新。'));
+        return group;
+      }
+      if (tracking.status === 'not_triggered') {
+        group.append(node('p', 'B尚未触发，收益待形成。触发样本0条。'));
+        return group;
+      }
+      if (tracking.status === 'price_missing') {
+        group.append(node('p', 'B触发收盘价记录不足，收益与回撤待核。'));
+        return group;
+      }
+      const items = [];
+      for (const horizon of ['1', '2', '3', '5', '15']) {
+        const result = tracking.horizons?.[horizon];
+        items.push(['B后' + horizon + '个交易日', result?.status === 'ready' ? percent(result.returnPercent, true) : result?.status === 'data_missing' ? '数据缺口' : '待形成']);
+      }
+      const three = tracking.horizons?.['3'];
+      items.push(['B后3日最大不利变动', three?.status === 'ready' ? percent(three.maxAdversePercent, true) : '待形成']);
+      items.push(['B后3日收盘回撤', three?.status === 'ready' ? percent(three.maxCloseDrawdownPercent, true) : '待形成']);
+      items.push(['B后3日成熟样本', three?.status === 'ready' ? '1条' : '0条']);
+      group.append(levels(items));
+      group.append(node('p', 'B触发收盘 ' + time(tracking.referenceDate) + ' · 参考价 ' + number(tracking.referenceClose) + ' USD · 确认时间 ' + time(tracking.firstSeenAt) + ' · 本条触发观察1条；非实际成交收益。'));
+      return group;
+    }
+
+    function observationReview(row) {
+      const tracking = row.followup, details = node('details', null, 'us-selection-inline');
+      details.append(node('summary', '首次观察后复盘 · 非B触发口径'));
+      const items = [];
+      for (const horizon of ['1', '2', '3', '5', '15']) {
+        const result = tracking.horizons?.[horizon];
+        items.push(['观察后' + horizon + '个交易日', result?.status === 'ready' ? percent(result.returnPercent, true) : result?.status === 'data_missing' ? '数据缺口' : '待形成']);
+      }
+      details.append(levels(items), node('p', '首次观察日 ' + time(tracking.referenceDate) + ' · 观察收盘 ' + number(tracking.referenceClose) + ' USD · 本条观察1条；与B触发后的统计分开。'));
+      return details;
+    }
+
+    function chart(row) {
+      const container = node('div');
+      const heading = node('div', null, 'us-selection-chart-heading');
+      heading.append(node('span', '日K · MA5 / MA20 · 收盘条件观察'));
+      const select = node('select'); select.dataset.usChartWindow = row.symbol;
+      select.setAttribute('aria-label', row.symbol + '日K显示范围');
+      for (const window of [60, 120]) {
+        const option = node('option', '近' + window + '个交易日'); option.value = String(window); select.append(option);
+      }
+      const window = state.chartWindows[row.symbol] || 60; select.value = String(window); heading.append(select);
+      const figure = node('figure', null, 'us-selection-chart');
+      const url = chartUrl(row.chartUrl, row.symbol, window), key = row.symbol + ':' + window;
+      if (url && !state.chartErrors[key]) {
+        const image = doc.createElement('img');
+        image.src = url; image.alt = (row.name || row.symbol) + '近' + window + '个交易日日K、均线与B/S观察标记';
+        image.loading = 'lazy'; image.decoding = 'async'; image.width = 960; image.height = 540;
+        image.addEventListener('error', () => {
+          state.chartErrors[key] = true;
+          renderChartError(figure);
+        }, { once: true });
+        figure.append(image, node('figcaption', 'B：规则触发观察；S：规则退出观察。日K显示窗口不是持有期，标记不代表实际成交。'));
+      } else renderChartError(figure, url ? '日K暂未读取成功，更新结果后可重新核对。' : '本批日K尚未生成；等待真实日线采集完成。');
+      container.append(heading, figure);
+      return container;
+    }
+
+    function renderChartError(figure, message = '日K暂未读取成功，更新结果后可重新核对。') {
+      figure.replaceChildren(node('div', message, 'us-selection-chart-empty'));
+    }
+
+    function companyDetails(row) {
+      const details = node('details', null, 'us-selection-inline');
+      details.append(node('summary', '公司、财报与核验详情'));
+      const fundamental = state.snapshot.fundamentals.rows.find(item => item.symbol === row.symbol);
+      const financial = fundamental || row;
+      if (row.description) details.append(node('p', row.description));
+      if (financial.industry) details.append(node('p', '产业：' + financial.industry));
+      if (fundamental || state.mode === 'value' || row.kind === 'stock') {
+        const m = financial.metrics || {};
+        details.append(levels([
+          ['营业收入 · TTM', money(m.revenueTtm)], ['净利润 · TTM', money(m.netIncomeTtm)],
+          ['自由现金流 · TTM', money(m.fcfTtm)], ['净负债／自由现金流', finite(m.netDebtToFcf) ? number(m.netDebtToFcf) + '倍' : '待核']
+        ]));
+        details.append(node('p', '财报期／TTM截至 ' + time(financial.asOf) + ' · 财报公开 ' + time(financial.filedAt)));
+        details.append(node('p', '连续盈利 ' + (finite(m.annualProfitYears) ? m.annualProfitYears + '年' : '待核') + ' · 连续正自由现金流 ' + (finite(m.annualFcfYears) ? m.annualFcfYears + '年' : '待核')));
+        if (state.mode === 'value') {
+          details.append(node('p', 'TTM市盈率 ' + (finite(m.pe) ? number(m.pe) + '倍' : '待核') + ' · TTM自由现金流收益率 ' + (finite(m.fcfYield) ? percent(m.fcfYield) : '待核')));
+          if (financial.normalization) details.append(node('p', '中周期参考：取TTM与最近3个完整财年中位数中较低的利润、自由现金流计算；不是公允价值或已验证收益预测。'));
+        }
+      } else details.append(node('p', '本批尚无完整的公司财报记录，未据此认定低估。'));
+      const reasons = financial === row ? row.reasons || [] : [...financial.reasons || [], ...row.reasons || []];
+      if (reasons.length) {
+        const list = node('ul');
+        for (const reason of new Set(reasons.map(reasonText))) list.append(node('li', reason));
+        details.append(list);
+      }
+      if (row.followup) details.append(observationReview(row));
+      details.append(sources(financial.sources, financial));
+      return details;
+    }
+
+    function resultHeading(row, status, tone) {
+      const header = node('header', null, 'us-selection-result-heading');
+      const title = node('h3', row.name || row.symbol);
+      title.append(node('span', row.symbol, 'us-selection-symbol'));
+      const badge = node('span', status, 'us-selection-badge');
+      if (tone) badge.dataset.tone = tone;
+      header.append(title, badge);
+      return header;
+    }
+
+    function shortCard(row) {
+      const card = node('article', null, 'us-selection-result'); card.dataset.usSymbol = row.symbol;
+      const status = shortStatus(row), labels = { triggered: '本批新B观察', tracking: 'B后跟踪', watch: '等待B触发', overextended: '超过追价上限', invalidated: '条件失效' };
+      card.append(resultHeading(row, labels[status] + (row.qualified === true ? '' : ' · 未验证'), status === 'invalidated' ? 'negative' : status === 'overextended' ? 'warning' : null));
+      card.append(levels([['参考收盘 · USD', number(row.close)], ['B触发 >', number(row.trigger)], ['失效 <', number(row.invalidation)], ['最高观察价', number(row.maxEntry)]]));
+      const m = row.metrics || {};
+      card.append(node('p', (row.label || row.rule || '规则待核') + ' · ' + (row.membership === 'new' ? '新入选' : row.membership === 'continuing' ? '持续观察' : '本批观察') + ' · 20日 ' + percent(m.return20Percent, true) + ' · 相对SPY ' + percent(m.excess20Percent, true) + ' · 量比 ' + number(m.rvol) + '倍', 'us-selection-reasons'));
+      card.append(chart(row), followup(row), companyDetails(row));
+      const date = node('p', '数据日 ' + time(row.asOf || state.snapshot.asOf), 'us-selection-sources');
+      card.append(date, sources([], { ...state.snapshot.source, sourceTime: row.sourceTime || state.snapshot.source?.sourceTime, readAt: row.readAt || state.snapshot.source?.fetchedAt }));
+      return card;
+    }
+
+    function valueCard(row) {
+      const card = node('article', null, 'us-selection-result'); card.dataset.usSymbol = row.symbol;
+      const status = valueLabel(row);
+      card.append(resultHeading(row, status, row.status === 'excluded' ? 'warning' : null));
+      card.append(node('p', '财报期／TTM截至 ' + time(row.asOf) + ' · 财报公开 ' + time(row.filedAt), 'us-selection-sources'));
+      const m = row.metrics || {};
+      card.append(levels([
+        ['中周期参考PE', finite(m.normalizedPe) ? number(m.normalizedPe) + '倍' : '待核'],
+        ['中周期FCF收益率', finite(m.normalizedFcfYield) ? percent(m.normalizedFcfYield) : '待核'],
+        ['净负债／自由现金流', finite(m.netDebtToFcf) ? number(m.netDebtToFcf) + '倍' : '待核'],
+        ['完整年度营收同比', finite(m.annualRevenueGrowthPct) ? percent(m.annualRevenueGrowthPct, true) : '待核']
+      ]));
+      if (row.industry) card.append(node('p', row.industry, 'us-selection-reasons'));
+      card.append(node('p', row.reasons?.length ? row.reasons.map(reasonText).join('；') : '低倍数仍需核对周期、一次性收益和产业利润兑现，未认定严重低估。', 'us-selection-reasons'));
+      if (row.valuationBasis) card.append(node('p', typeof row.valuationBasis === 'string' ? row.valuationBasis : '估值价格日期 ' + time(row.valuationBasis.priceAsOf) + ' · 股本日期 ' + time(row.valuationBasis.shareCountAsOf), 'us-selection-sources'));
+      card.append(companyDetails(row), sources(row.sources, row));
+      return card;
+    }
+
+    function dcaCard(row) {
+      const card = node('article', null, 'us-selection-result'); card.dataset.usSymbol = row.symbol;
+      const etf = row.kind === 'etf', label = etf ? etfLabel(row.style) : '长期个股研究';
+      card.append(resultHeading(row, label + (row.status === 'candidate' ? ' · 候选' : ' · 待核')));
+      const m = row.metrics || {};
+      card.append(levels(etf ? [
+        ['年费率', finite(m.expenseRatio) ? percent(m.expenseRatio) : '待核'], ['持仓数量', finite(m.holdingsCount) ? number(m.holdingsCount, 0) : '待核'],
+        ['前十大占比', finite(m.top10Weight) ? percent(m.top10Weight) : '待核'], ['持仓日期', time(row.asOf)]
+      ] : [
+        ['连续盈利', finite(m.annualProfitYears) ? m.annualProfitYears + '年' : '待核'], ['连续正自由现金流', finite(m.annualFcfYears) ? m.annualFcfYears + '年' : '待核'],
+        ['自由现金流 · TTM', money(m.fcfTtm)], ['中周期参考PE', finite(m.normalizedPe) ? number(m.normalizedPe) + '倍' : '待核']
+      ]));
+      if (etf && finite(m.portfolioPe)) card.append(node('p', '组合市盈率 ' + number(m.portfolioPe) + '倍 · 截至 ' + time(m.portfolioPeAsOf) + ' · 前十大持仓截至 ' + time(m.top10AsOf || row.asOf), 'us-selection-sources'));
+      if (row.reasons?.length) card.append(node('p', row.reasons.map(reasonText).join('；'), 'us-selection-reasons'));
+      if (!etf) card.append(companyDetails(row));
+      card.append(sources(row.sources, row));
+      return card;
+    }
+
+    function renderStrategies() {
+      const select = get('us-selection-strategy'), current = state.strategy, choices = new Map();
+      for (const row of modeRows(state.snapshot, state.mode)) {
+        const key = strategyKey(row, state.mode);
+        if (key) choices.set(key, state.mode === 'short' ? row.label || key : state.mode === 'dca' ? key === 'etf' ? 'ETF' : '个股' : key);
+        if (state.mode === 'short') for (const hit of row.hits || []) if (hit.rule) choices.set(hit.rule, hit.label || hit.rule);
+      }
+      const label = state.mode === 'short' ? '策略' : state.mode === 'value' ? '产业' : '类型';
+      get('us-selection-strategy-label').textContent = label;
+      select.replaceChildren();
+      const all = node('option', '全部' + label); all.value = ''; select.append(all);
+      for (const [value, text] of choices) {
+        const option = node('option', text); option.value = value; select.append(option);
+      }
+      state.strategy = choices.has(current) ? current : ''; select.value = state.strategy;
+    }
+
+    function renderContext() {
+      const snapshot = state.snapshot;
+      if (!snapshot) return;
+      const scope = snapshot.scope || {}, market = snapshot.market || {};
+      const labels = { weak: '市场偏弱', strong: '市场走强', mixed: '市场分化' };
+      const coverage = finite(scope.covered) && finite(scope.expected) ? number(scope.covered, 0) + '/' + number(scope.expected, 0) + '只覆盖' : '';
+      const breadth = finite(market.breadth?.percent) ? '站上MA20占比 ' + percent(market.breadth.percent) : '';
+      const tracking = snapshot.tracking || {};
+      const samples = finite(tracking.observations) ? '累计观察' + number(tracking.observations, 0) + '条 · 观察后3日成熟' + number(tracking.matured3 || 0, 0) + '条 · B触发后3日成熟' + (finite(tracking.maturedTriggered3) ? number(tracking.maturedTriggered3, 0) + '条' : '待形成') : '';
+      const triggeredReturn = finite(tracking.meanTriggeredReturn3Percent) ? 'B后3日平均 ' + percent(tracking.meanTriggeredReturn3Percent, true) : '';
+      get('us-short-context').textContent = [scope.name, coverage, '数据日 ' + time(snapshot.asOf), labels[market.regime], breadth, samples, triggeredReturn].filter(Boolean).join(' · ');
+      get('us-value-context').textContent = [snapshot.fundamentals.scope?.name || 'SEC公开财报研究', '财报期以个股详情为准', '低倍数不等于严重低估'].join(' · ');
+      get('us-dca-context').textContent = '宽基ETF、红利ETF与个股分别评价；费用与持仓按各自官方日期展示。';
+    }
+
+    function renderSource() {
+      const parts = [], snapshot = state.snapshot;
+      if (snapshot) {
+        const source = snapshot.source || {};
+        if (source.name || source.id) parts.push(source.name || source.id);
+        parts.push(sourceTimeLabel(source) + ' ' + time(source.sourceTime));
+        parts.push('本站读取 ' + time(source.fetchedAt));
+        parts.push('计算／发布 ' + time(snapshot.generatedAt));
+        if (source.stale === true || snapshot.status === 'stale') parts.push('保留上次成功批次');
+      }
+      parts.push(...taskParts(state.progress));
+      if (state.progress?.lastSuccess) parts.push('最近成功 ' + time(state.progress.lastSuccess.asOf) + ' · ' + time(state.progress.lastSuccess.generatedAt));
+      if (state.error) parts.push(state.error + (snapshot ? '；保留当前已完成结果' : ''));
+      if (state.readAt) parts.push('页面读取 ' + time(state.readAt));
+      get('us-selection-source').textContent = parts.join(' · ') || '正在读取已完成批次；本页不会逐股扫描。';
+    }
+
+    function renderResults() {
+      const mode = state.mode, target = get('us-' + mode + '-results');
+      get('us-short-access').hidden = state.snapshot?.short.requiresAuth !== true;
+      if (!state.snapshot) {
+        empty(target, state.phase === 'loading' ? '正在读取已完成结果' : '结果暂未取得', state.error || '页面直接读取服务器批次，不在浏览器逐股扫描。');
+        get('us-selection-count').textContent = state.phase === 'loading' ? '读取批次中' : '尚未取得可显示的批次';
+        get('us-selection-pages').hidden = true;
+        return;
+      }
+      if (mode === 'short' && state.snapshot.short.requiresAuth === true) {
+        empty(target, '短线数据限定本人研究', '登录后可查看当前候选与日K；公开财报和长期ETF研究可直接切换查看。');
+        get('us-selection-count').textContent = '本人研究需要登录';
+        get('us-selection-pages').hidden = true;
+        return;
+      }
+      const rows = filterRows(state.snapshot, state), page = paginate(rows, state.pageSize, state.page);
+      state.page = page.page;
+      const group = mode === 'short' ? state.snapshot.short : mode === 'value' ? state.snapshot.fundamentals : state.snapshot.dca;
+      if (!rows.length) {
+        const message = group.reason || group.message || (mode === 'short' ? '当前条件下没有可观察的入场机会；可调整条件查看本批其他记录。' : '当前条件下没有研究记录；可调整条件，缺失指标仍明确留空。');
+        empty(target, group.status === 'source_pending' || group.status === 'unavailable' ? '等待可用数据批次' : '当前条件下没有结果', message);
+      } else target.replaceChildren(...page.rows.map(mode === 'short' ? shortCard : mode === 'value' ? valueCard : dcaCard));
+      get('us-selection-count').textContent = number(rows.length, 0) + '只符合本页条件 · 本批' + number(modeRows(state.snapshot, mode).length, 0) + '条记录';
+      get('us-selection-pages').hidden = state.pageSize === 'all' || page.pages <= 1;
+      get('us-selection-page').textContent = page.page + ' / ' + page.pages;
+      get('us-selection-prev').disabled = page.page <= 1;
+      get('us-selection-next').disabled = page.page >= page.pages;
+    }
+
+    function render() {
+      for (const mode of MODES) {
+        const tab = get('us-tab-' + mode), selected = state.mode === mode;
+        tab.setAttribute('aria-selected', String(selected)); tab.tabIndex = selected ? 0 : -1;
+        get('us-panel-' + mode).hidden = !selected;
+      }
+      get('us-selection-refresh').disabled = state.phase === 'loading';
+      get('us-selection-refresh').textContent = state.phase === 'loading' ? '读取中…' : '更新结果';
+      renderStrategies(); renderContext(); renderResults(); renderSource();
+    }
+
+    async function load() {
+      const requestId = ++state.requestId;
+      state.phase = 'loading'; state.error = ''; render();
+      const controller = new AbortController(), deadline = env.setTimeout(() => controller.abort(), 15000);
+      try {
+        const response = await env.fetch('/api/us-selection/snapshot', { credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json' }, signal: controller.signal });
+        if (response.status === 401) {
+          state.snapshot = { schema: SCHEMA, short: { requiresAuth: true, rows: [] }, fundamentals: { rows: [] }, dca: { rows: [] } };
+        } else {
+          if (!response.ok) throw Error('选股结果读取失败（HTTP ' + response.status + '）');
+          const snapshot = validateSnapshot(await response.json());
+          if (requestId !== state.requestId) return;
+          state.snapshot = snapshot;
+          if (snapshot.task) state.progress = snapshot.task;
+        }
+        state.chartErrors = {}; state.phase = 'ready'; state.readAt = new Date().toISOString();
+      } catch (error) {
+        if (requestId !== state.requestId) return;
+        state.error = error.name === 'AbortError' ? '选股结果读取超时，请更新结果重试' : error.message;
+        state.phase = 'error';
+      } finally {
+        env.clearTimeout(deadline);
+        if (requestId === state.requestId) render();
+      }
+      try {
+        const response = await env.fetch('/api/us-selection/state', { credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json' } });
+        if (response.ok && requestId === state.requestId) { state.progress = await response.json(); renderSource(); }
+      } catch { /* The completed snapshot stays usable when the progress endpoint is unavailable. */ }
+    }
+
+    host.addEventListener('click', event => {
+      const tab = event.target.closest('[data-us-tab]');
+      if (!tab) return;
+      state.mode = tab.dataset.usTab; state.strategy = ''; state.page = 1; render();
+    });
+    host.addEventListener('keydown', event => {
+      const tab = event.target.closest('[data-us-tab]');
+      if (!tab || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+      event.preventDefault();
+      const index = MODES.indexOf(state.mode);
+      state.mode = event.key === 'Home' ? MODES[0] : event.key === 'End' ? MODES.at(-1) : MODES[(index + (event.key === 'ArrowRight' ? 1 : 2)) % MODES.length];
+      state.strategy = ''; state.page = 1; render(); get('us-tab-' + state.mode).focus();
+    });
+    get('us-selection-search').addEventListener('input', event => { state.search = event.target.value; state.page = 1; renderResults(); });
+    get('us-selection-strategy').addEventListener('change', event => { state.strategy = event.target.value; state.page = 1; renderResults(); });
+    get('us-selection-page-size').addEventListener('change', event => { state.pageSize = event.target.value; state.page = 1; renderResults(); });
+    const filters = {
+      'us-min-price': 'minPrice', 'us-min-turnover': 'minTurnover', 'us-min-strength': 'minStrength', 'us-short-status': 'shortStatus',
+      'us-value-pe': 'valuePe', 'us-value-fcf': 'valueFcf', 'us-value-debt': 'valueDebt', 'us-value-status': 'valueStatus',
+      'us-dca-fee': 'dcaFee', 'us-dca-years': 'dcaYears', 'us-dca-status': 'dcaStatus'
+    };
+    for (const [id, property] of Object.entries(filters)) get(id).addEventListener('change', event => {
+      const input = event.target;
+      if (input.type === 'number' && (!input.validity.valid || input.value === '')) return;
+      state[property] = input.type === 'number' ? Number(input.value) : input.value;
+      state.page = 1; renderResults();
+    });
+    host.addEventListener('change', event => {
+      if (!event.target.dataset.usChartWindow) return;
+      state.chartWindows[event.target.dataset.usChartWindow] = Number(event.target.value); renderResults();
+    });
+    get('us-selection-prev').addEventListener('click', () => { state.page--; renderResults(); });
+    get('us-selection-next').addEventListener('click', () => { state.page++; renderResults(); });
+    get('us-selection-refresh').addEventListener('click', load);
+    const ready = load();
+    return { state, ready, refresh: load };
+  }
+
+  return { initialState, validateSnapshot, filterRows, paginate, shortStatus, chartUrl, sourceUrl, taskParts, etfLabel, valueLabel, sourceTimeLabel, number, percent, money, time, mount };
+});

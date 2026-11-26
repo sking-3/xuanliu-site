@@ -9,6 +9,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { createRequire } from 'node:module';
 import { createControlService } from './control-service.mjs';
 import { createAShareCache } from './a-share-cache.mjs';
+import { createUSSelectionCache } from './us-selection-api.mjs';
 import { createSchemeStore } from './a-share-schemes.mjs';
 import { createSchemeApi } from './a-share-schemes-api.mjs';
 import { spawn } from 'node:child_process';
@@ -311,6 +312,7 @@ export function createApp({ dbFile = ':memory:', siteDir = DEFAULT_SITE_DIR, aSh
     return schemeApi;
   }
   const aShareCache = createAShareCache({directory:aShareDir});
+  const usSelectionCache = createUSSelectionCache({directory:process.env.BOOKS_US_SELECTION_DIR || '/var/lib/books/us-selection'});
   const attempts = new Map();
   const corsOrigins = allowedOriginSet(allowedOrigins);
   const configuredPaymentProvider = paymentProvider || buildEnvPaymentProvider({
@@ -381,6 +383,7 @@ export function createApp({ dbFile = ':memory:', siteDir = DEFAULT_SITE_DIR, aSh
         await schemes().handle(req, res, {path, url, json}); return;
       }
       if (await aShareCache.handle(req, res, {path,url,json})) return;
+      if (await usSelectionCache.handle(req, res, {path,url,json})) return;
       if (path.startsWith('/api/research-control/')) {
         const schemeRoute = path === '/api/research-control/schemes' || path === '/api/research-control/schemes/enabled';
         const user = schemeRoute ? requireUser(req, res) : requireAdmin(req, res); if (!user) return;

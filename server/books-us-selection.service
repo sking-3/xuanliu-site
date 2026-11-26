@@ -1,0 +1,17 @@
+[Unit]
+Description=Books US after-close selection and forward tracking
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=books
+Group=books
+WorkingDirectory=/opt/books/app
+Environment=BOOKS_SITE_DIR=/opt/books/site
+Environment=BOOKS_US_SELECTION_DIR=/var/lib/books/us-selection
+Environment="BOOKS_SEC_USER_AGENT=BooksResearch/1.0 (https://45-77-39-98.sslip.io)"
+ExecStart=/usr/bin/node --max-old-space-size=256 /opt/books/app/us-daily.mjs
+TimeoutStartSec=4h
+Nice=10
+

@@ -352,11 +352,11 @@
       "versions": []
     },
     "us.html": {
-      "sha256": "86d367f25f07da942e12befc216aec46ee03712bc9cf73c53b6c3418ee7eba56",
-      "bytes": 13559,
+      "sha256": "788bc76662ce09546e41d51739c4b97014d0789db7af662c1a54b10c0d552a08",
+      "bytes": 19463,
       "versions": [],
       "sourceSha256": "0042535bbdb459f3e974dd7224ac5a1d11c83d9eef03d22619e064319fc1fea5",
-      "change": "Runtime content hash reference only; published UI markup retained."
+      "change": "US selection workspace added on the existing published shell; legacy tools and CSP retained."
     },
     "stock-workspace.js": {
       "sha256": "ba06ed4af22eac005374eaec82b420a3b4f86004244d1578de35df5390506ca7",
