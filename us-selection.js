@@ -129,7 +129,7 @@
     const parts = [];
     if (task.status) parts.push('任务 ' + (names[task.status] || task.status));
     if (progress.phase) parts.push('阶段 ' + (phases[progress.phase] || progress.phase));
-    if (finite(processed) && finite(total)) parts.push(number(processed, 0) + '/' + number(total, 0));
+    if (finite(processed) && finite(total) && total > 0) parts.push(number(processed, 0) + '/' + number(total, 0));
     if (typeof task.message === 'string' && task.message) parts.push(task.message);
     if (task.error || task.failureReason) parts.push('失败原因 ' + String(task.error || task.failureReason));
     const failures = Array.isArray(task.fundamentalsFailures) ? task.fundamentalsFailures : [];
@@ -506,12 +506,18 @@
       'us-value-pe': 'valuePe', 'us-value-fcf': 'valueFcf', 'us-value-debt': 'valueDebt', 'us-value-status': 'valueStatus',
       'us-dca-fee': 'dcaFee', 'us-dca-years': 'dcaYears', 'us-dca-status': 'dcaStatus'
     };
-    for (const [id, property] of Object.entries(filters)) get(id).addEventListener('change', event => {
-      const input = event.target;
-      if (input.type === 'number' && (!input.validity.valid || input.value === '')) return;
-      state[property] = input.type === 'number' ? Number(input.value) : input.value;
-      state.page = 1; renderResults();
-    });
+    for (const [id, property] of Object.entries(filters)) {
+      const update = event => {
+        const input = event.target;
+        if (input.type === 'number' && (!input.validity.valid || input.value === '')) return;
+        const value = input.type === 'number' ? Number(input.value) : input.value;
+        if (state[property] === value) return;
+        state[property] = value;
+        state.page = 1; renderResults();
+      };
+      get(id).addEventListener('input', update);
+      get(id).addEventListener('change', update);
+    }
     host.addEventListener('change', event => {
       if (!event.target.dataset.usChartWindow) return;
       state.chartWindows[event.target.dataset.usChartWindow] = Number(event.target.value); renderResults();

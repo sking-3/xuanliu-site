@@ -52,14 +52,18 @@ export async function runDaily(options={}){
   await unlink(lockFile);try{lock=await open(lockFile,'wx');}catch(recoveredError){if(recoveredError.code==='EEXIST')return {status:'already_running'};throw recoveredError;}
  }
  await lock.writeFile(String(process.pid));
- let changes,output,state={...oldState,schema:'books.us.selection.state.v1',startedAt:new Date(now()).toISOString(),schedule:SCHEDULE,processed:0,expected:0,requests:0,covered:0,missing:0,candidates:0,phase:null,error:null,lastFailure:oldState.error?{error:oldState.error,failedAt:oldState.failedAt}:oldState.lastFailure||null};
+ let changes,output,state={...oldState,schema:'books.us.selection.state.v1',startedAt:new Date(now()).toISOString(),schedule:SCHEDULE,processed:0,expected:0,requests:0,phase:null,error:null,lastFailure:oldState.error?{error:oldState.error,failedAt:oldState.failedAt}:oldState.lastFailure||null};
  const progress=async patch=>{Object.assign(state,patch,{updatedAt:new Date(now()).toISOString()});await atomicJson(join(directory,'state.json'),state);options.onProgress?.(state);};
  try{
+  const pointer=await optionalJson(join(directory,'published.json')),previousSnapshot=pointer?await readPublished(directory):null;
+  if(previousSnapshot){
+   const {scope,short,asOf}=previousSnapshot;
+   Object.assign(state,{covered:scope.covered,missing:scope.expected-scope.covered,candidates:short.rows.length,countsAsOf:asOf,countsBasis:'last_completed_batch',lastCompletedCounts:{asOf,expected:scope.expected,covered:scope.covered,missing:scope.expected-scope.covered,candidates:short.rows.length}});
+  }
   if(oldState.sourceHold){await progress({status:'source_blocked',message:'来源此前拒绝访问，已停止自动请求',error:oldState.sourceHold.reason});return state;}
   if(!sourcePolicyAllowed(options.sourcePolicy||dataPolicy)){await progress({status:'source_pending',message:'来源读取与分析授权待核；本轮不采集，保留上次完成结果'});return state;}
   const target=latestSession(calendar,now()),session=calendar.session('US',target.date);state.targetDate=target.date;
   if(now()<Date.parse(target.closeTime)+30*60000){await progress({status:'waiting_source',message:'等待收盘30分钟及来源盘后更新'});return state;}
-  const pointer=await optionalJson(join(directory,'published.json'));
   if(options.fromCache&&(!pointer||pointer.asOf!==target.date))throw Error('Cached recomputation requires the completed pointer to match the latest closed US session');
   if(pointer?.asOf===target.date&&!options.force&&!options.fromCache){await progress({status:'idle',message:'最新已收盘批次已完成',lastSuccess:pointer});return state;}
   const generation=new Date(now()).toISOString().replace(/[:.]/g,'-'),batchName='batches/'+generation,batchDir=join(directory,batchName);
@@ -72,10 +76,9 @@ export async function runDaily(options={}){
    if([401,403,418,429,451].includes(response.status)){state.sourceHold={reason:'HTTP '+response.status,httpStatus:response.status,stoppedAt:new Date(now()).toISOString(),retryAfter:response.headers.get('retry-after')};throw Error('来源拒绝访问 HTTP '+response.status+'；停止，不自动重试');}
    return response;
   };
-  const previousSnapshot=await readPublished(directory);
   const provider=options.fromCache?await cachedProvider(directory,pointer,previousSnapshot):options.provider||createTickflowUSSource({request,now});
   state.collectionMode=options.fromCache?'from_cache':'tickflow_collection';
-  await progress({status:'collecting',phase:'universe',message:'读取来源美股目录'});
+  await progress({status:'collecting',phase:'universe',covered:0,missing:0,candidates:0,countsAsOf:target.date,countsBasis:'current_collection',message:'读取来源美股目录'});
   const listed=await provider.universe();await atomicJson(join(batchDir,'universe.json.gz'),{...listed,sourceId});
   const {universe,scope}=listed;if(!universe.length)throw Error('来源美股目录筛后为空');state.expected=universe.length;
   const previousLedger=pointer?await optionalJson(join(directory,pointer.ledger)):null;
@@ -123,7 +126,7 @@ export async function runDaily(options={}){
   await atomicJson(join(batchDir,'snapshot.json.gz'),snapshot);await atomicJson(join(batchDir,'ledger.json.gz'),ledger);
   const completed={schema:'books.us.selection.pointer.v1',generation,asOf:target.date,generatedAt:snapshot.generatedAt,snapshot:batchName+'/snapshot.json.gz',ledger:batchName+'/ledger.json.gz'};
   await atomicJson(join(directory,'published.json'),completed);
-  await progress({status:'ready',phase:'complete',message:'美股收盘批次已完成',finishedAt:new Date(now()).toISOString(),lastSuccess:completed,error:null});return state;
+  await progress({status:'ready',phase:'complete',message:'美股收盘批次已完成',finishedAt:new Date(now()).toISOString(),lastSuccess:completed,error:null,countsAsOf:snapshot.asOf,countsBasis:'last_completed_batch',lastCompletedCounts:{asOf:snapshot.asOf,expected:snapshot.scope.expected,covered:snapshot.scope.covered,missing:snapshot.scope.expected-snapshot.scope.covered,candidates:snapshot.short.rows.length}});return state;
  }catch(error){
   if(changes){changes.end();await finished(output).catch(()=>{});}
   await progress({status:state.sourceHold?'source_blocked':'error',message:'本轮未发布，保留上次完成结果',error:error.message,failedAt:new Date(now()).toISOString()});
