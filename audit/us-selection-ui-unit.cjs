@@ -241,6 +241,37 @@ async function stateFlow() {
   assert.ok(elements.get('us-value-results').textContent.includes('LOW'));
   assert.ok(elements.get('us-value-results').textContent.includes('EXPENSIVE'));
   assert.ok(elements.get('us-value-results').textContent.includes('UNKNOWN'));
+  assert.match(elements.get('us-value-sectors-context').textContent, /当前批次没有可用/);
+  const fundamentals = app.state.snapshot.fundamentals;
+  fundamentals.sectors = {
+    status: 'ready', asOf: '2026-11-25', benchmark: 'SPY', sourceTime: '2026-11-25T21:00:00Z',
+    source: { financial: { name: 'SEC EDGAR', url: 'https://www.sec.gov/edgar/search/', readAt: '2026-11-26T00:00:00Z' } },
+    thresholds: { minMembers: 5, minCoveragePct: 60, maxReturn60Pct: 0, maxExcess60Pp: -5, minBelowMa50Pct: 60, minDecliningPct: 60, minPeers: 5, minDiscountPct: 25 },
+    groups: [
+      { name: 'Semiconductors', state: 'trough', members: 8, priceSamples: 8, financialSamples: 7, return60Pct: -11, excess60Pp: -6, belowMa50Pct: 75, decliningRevenuePct: 71.43, decliningProfitPct: 85.71, financialPeriodRange: { first: '2026-08-31', last: '2026-09-30' }, reasons: [], candidates: 1 },
+      { name: 'Energy', state: 'pending', members: 3, priceSamples: 1, financialSamples: 2, reasons: ['同批收盘价覆盖不足'] }
+    ], candidateCounts: { confirmedRelative: 1, troughOpportunities: 1 }
+  };
+  Object.assign(fundamentals.rows[0], {
+    industry: 'Information Technology',
+    sectorValue: { state: 'confirmed_relative', sector: 'Semiconductors', sectorState: 'trough', opportunity: true, peerCount: 5, peerGroup: { code: '3674' }, peerSymbols: ['A', 'B', 'C', 'D', 'E'], peDiscountPct: 33, peerMedianPe: 18, fcfMultipleDiscountPct: 37.5, peerMedianPriceToFcf: 20 }
+  });
+  fundamentals.rows.find(row => row.symbol === 'UNKNOWN').financialEvidence = { missingFields: [{ label: '同期间短期借款' }, { label: '近12个月资本支出' }] };
+  statusClick('pending');
+  const review = elements.get('us-value-results'), leading = elements.get('us-value-sectors-leading');
+  assert.match(review.textContent, /主要待补项.*同期间短期借款 1 只.*近12个月资本支出 1 只/);
+  assert.match(review.children.find(child => child.dataset.usSymbol === 'UNKNOWN').children.find(child => child.className === 'us-value-evidence').textContent, /同期间短期借款、近12个月资本支出/);
+  assert.match(leading.textContent, /SEC EDGAR.*半导体.*低谷条件成立.*日线 8\/8 家.*同期财报 7\/8 家.*2026-09-30/);
+  assert.match(elements.get('us-value-sectors-remaining').textContent, /能源.*证据不足.*同批收盘价覆盖不足/);
+  statusClick('trough_value');
+  assert.match(review.textContent, /低谷中的相对低估.*PE 折价 33%.*市值／FCF 折价 37.5%/);
+  assert.ok(!review.textContent.includes('UNKNOWN'), 'the trough opportunity view only shows qualified rows');
+  const sectorButton = leading.children.find(child => child.tagName === 'article').children[0].children[0].children[0];
+  elements.get('us-selection').listeners.click({ target: { closest: selector => selector === '[data-us-sector]' ? sectorButton : null } });
+  assert.equal(app.state.strategy, 'Semiconductors');
+  assert.equal(app.state.valueStatus, '');
+  assert.match(review.textContent, /LOW/);
+  assert.ok(!review.textContent.includes('EXPENSIVE'));
   const dcaTab = elements.get('us-tab-dca'); dcaTab.dataset.usTab = 'dca';
   elements.get('us-selection').listeners.click({ target: { closest: () => dcaTab } });
   const groups = elements.get('us-dca-results').children.filter(child => child.className === 'us-review-group');

@@ -13,6 +13,16 @@
   const finite = Number.isFinite;
   const reasonText = reason => typeof reason === 'string' ? reason : reason.message;
   const modeRows = (snapshot, mode) => snapshot ? (mode === 'short' ? snapshot.short : mode === 'value' ? snapshot.fundamentals : snapshot.dca).rows : [];
+  const sectorNames = {
+    'Information Technology': '信息技术', Technology: '信息技术', Semiconductors: '半导体',
+    Financials: '金融', 'Health Care': '医疗保健', Industrials: '工业',
+    'Consumer Discretionary': '可选消费', 'Consumer Staples': '必需消费',
+    Communication: '通信服务', 'Communication Services': '通信服务', Energy: '能源',
+    Utilities: '公用事业', Materials: '原材料', 'Real Estate': '房地产'
+  };
+  const sectorName = name => sectorNames[name] || name;
+  const sectorLabels = { trough: '低谷条件成立', weak_price: '行情偏弱', weak_business: '经营承压', not_trough: '低谷条件未达', pending: '证据不足' };
+  const sectorQualified = row => row.sectorValue?.state === 'confirmed_relative';
 
   function initialState() {
     return {
@@ -42,7 +52,7 @@
   }
 
   function strategyKey(row, mode) {
-    return mode === 'short' ? row.rule : mode === 'value' ? row.industry : row.kind;
+    return mode === 'short' ? row.rule : mode === 'value' ? row.sectorValue?.sector || row.industry : row.kind;
   }
 
   function filterRows(snapshot, state) {
@@ -63,6 +73,8 @@
         if (state.valueStatus === 'pending') return row.status === 'pending';
         if (state.valueStatus === 'excluded') return row.status === 'excluded';
         if (state.valueStatus === '') return true;
+        if (state.valueStatus === 'relative_discount' && !sectorQualified(row)) return false;
+        if (state.valueStatus === 'trough_value' && !(sectorQualified(row) && row.sectorValue.opportunity === true)) return false;
         if (state.valueStatus === 'low_multiple' && !(row.valuationStatus === 'low_multiple' && row.status === 'candidate' && row.financialPassed === true)) return false;
         if (finite(metrics.normalizedPe) && (metrics.normalizedPe <= 0 || metrics.normalizedPe > state.valuePe)) return false;
         if (finite(metrics.normalizedFcfYield) && metrics.normalizedFcfYield < state.valueFcf) return false;
@@ -157,6 +169,7 @@
 
   function valueLabel(row) {
     if (row.status === 'pending') return '资料待核';
+    if (sectorQualified(row)) return row.sectorValue.opportunity ? '低谷中的相对低估' : '相对低估';
     if (row.valuationStatus === 'low_multiple') {
       if (row.status === 'candidate' && row.financialPassed === true) return '低倍数候选';
       return row.status === 'excluded' ? '低倍数 · 财务未通过' : '低倍数 · 财务待核';
@@ -164,6 +177,21 @@
     if (row.valuationStatus === 'not_low') return '估值未达低倍数条件';
     if (row.financialPassed === true) return '财务通过 · 估值待核';
     return row.status === 'excluded' ? '条件未通过' : '财报／估值待核';
+  }
+
+  function valueGaps(row) {
+    const fields = (row.financialEvidence?.missingFields || []).map(field => field.label).filter(Boolean);
+    const labels = {
+      annual_period_missing: '多年年度口径未对齐', share_class_pending: '多类股票合计估值',
+      sector_method_pending: '行业专用估值口径', share_count_pending: '可核验期末股数',
+      financial_period_stale: '新鲜财报', price_permission_or_freshness_pending: '可用估值价格',
+      price_before_latest_filing: '财报公开后的股价', collection_failed_retained: '本轮来源更新'
+    };
+    for (const issue of row.reasons || []) {
+      if (labels[issue.code]) fields.push(labels[issue.code]);
+      if (!row.financialEvidence && issue.code === 'financial_fields_missing') fields.push('同期间财务字段');
+    }
+    return [...new Set(fields)];
   }
 
   function sourceTimeLabel(source) {
@@ -308,7 +336,7 @@
         }
       } else details.append(node('p', '本批尚无完整的公司财报记录，未据此认定低估。'));
       const reasons = financial === row ? row.reasons || [] : [...financial.reasons || [], ...row.reasons || []];
-      if (reasons.length) {
+      if (state.mode !== 'value' && reasons.length) {
         const list = node('ul');
         for (const reason of new Set(reasons.map(reasonText))) list.append(node('li', reason));
         details.append(list);
@@ -343,12 +371,29 @@
 
     function valueCard(row) {
       const m = row.metrics || {};
+      const evidence = node('div', null, 'us-value-evidence');
+      const value = row.sectorValue;
+      const facts = [];
+      if (value?.sector) facts.push(sectorName(value.sector) + ' · ' + (sectorLabels[value.sectorState] || '景气待核'));
+      if (value?.peerGroup && row.status === 'candidate') facts.push('同 SEC 行业 ' + value.peerGroup.code + ' · ' + number(value.peerCount, 0) + ' 家可比');
+      if (finite(value?.peDiscountPct)) facts.push('中周期 PE 折价 ' + percent(value.peDiscountPct) + '（同业中位 ' + number(value.peerMedianPe) + ' 倍）');
+      if (finite(value?.fcfMultipleDiscountPct)) facts.push('市值／FCF 折价 ' + percent(value.fcfMultipleDiscountPct) + '（同业中位 ' + number(value.peerMedianPriceToFcf) + ' 倍）');
+      if (facts.length) evidence.append(node('p', facts.join(' · '), 'us-sector-note'));
+      const gaps = valueGaps(row);
+      if (gaps.length) evidence.append(node('p', '待补 ' + gaps.join('、'), 'us-sector-note'));
+      const reasons = [...new Set([
+        ...(row.reasons || []).filter(reason => !gaps.length || reason.code !== 'financial_fields_missing').map(reasonText),
+        ...(value?.reasons || [])
+      ])];
+      if (reasons.length) evidence.append(node('p', reasons.join('。'), 'us-sector-note'));
+      if (row.status === 'candidate' && !sectorQualified(row) && !value?.reasons?.length) evidence.append(node('p', '财务与低倍数门槛已通过，同业折价待核。', 'us-sector-note'));
+      if (value?.peerSymbols?.length) evidence.append(node('p', '可比样本 ' + value.peerSymbols.join('、'), 'us-sector-note'));
       return researchRow(row, '估值研究', valueLabel(row), [
         ['中周期PE', finite(m.normalizedPe) ? number(m.normalizedPe) + '倍' : '待核'],
         ['中周期FCF收益率', finite(m.normalizedFcfYield) ? percent(m.normalizedFcfYield) : '待核'],
         ['净负债／FCF', finite(m.netDebtToFcf) ? number(m.netDebtToFcf) + '倍' : '待核'],
         ['年度营收同比', finite(m.annualRevenueGrowthPct) ? percent(m.annualRevenueGrowthPct, true) : '待核']
-      ]);
+      ], evidence);
     }
 
     function dcaCard(row) {
@@ -363,7 +408,7 @@
       ]);
     }
 
-    function researchRow(row, label, status, items) {
+    function researchRow(row, label, status, items, evidence) {
       const card = node('article', null, 'us-research-row'); card.dataset.usSymbol = row.symbol;
       const identity = node('header', null, 'us-research-identity');
       const title = row.nameZh || row.shortName || row.symbol;
@@ -375,7 +420,9 @@
       if (row.status !== 'candidate') badge.dataset.tone = 'warning';
       const etf = row.kind === 'etf', dates = etf ? '持仓资料 ' + time(row.asOf) + (finite(row.metrics?.portfolioPe) ? ' · 组合PE截至 ' + time(row.metrics.portfolioPeAsOf) : '') : '财报期／TTM截至 ' + time(row.asOf) + ' · 财报公开 ' + time(row.filedAt) + (row.valuationBasis?.priceAsOf ? ' · 估值日期 ' + time(row.valuationBasis.priceAsOf) : '');
       const details = etf ? etfDetails(row) : companyDetails(row);
-      card.append(identity, levels(items), badge, node('p', dates, 'us-research-dates'), details);
+      card.append(identity, levels(items), badge, node('p', dates, 'us-research-dates'));
+      if (evidence?.children.length) card.append(evidence);
+      card.append(details);
       return card;
     }
 
@@ -393,7 +440,12 @@
       const counts = reviewCounts(state.snapshot, mode), bar = node('div', null, 'us-review-statuses');
       bar.setAttribute('aria-label', '本批研究状态');
       const selected = mode === 'value' ? state.valueStatus : state.dcaStatus;
-      const choices = [[mode === 'value' ? 'low_multiple' : 'candidate', mode === 'value' ? '候选' : '条件通过', counts.candidate], ['pending', '待核', counts.pending], ['excluded', '未通过', counts.excluded], ['', '全部', counts.all]];
+      const candidateCounts = state.snapshot.fundamentals.sectors?.candidateCounts;
+      const choices = mode === 'value' && candidateCounts ? [
+        ['trough_value', '低谷折价', candidateCounts.troughOpportunities],
+        ['relative_discount', '相对低估', candidateCounts.confirmedRelative]
+      ] : [];
+      choices.push([mode === 'value' ? 'low_multiple' : 'candidate', mode === 'value' ? '低倍数' : '条件通过', counts.candidate], ['pending', '待核', counts.pending], ['excluded', '未通过', counts.excluded], ['', '全部', counts.all]);
       for (const [value, label, count] of choices) {
         const button = node('button', label); button.type = 'button';
         button.dataset.usReviewStatus = value; button.dataset.usReviewMode = mode;
@@ -405,7 +457,13 @@
 
     function renderReview(target, page) {
       const mode = state.mode, status = mode === 'value' ? state.valueStatus : state.dcaStatus;
-      target.append(reviewStatusBar(mode), node('p', ['low_multiple', 'candidate'].includes(status) ? '候选按当前数值条件筛选；状态数量为本批总数。' : '按状态浏览全部记录；候选数值门槛不隐藏待核或未通过资料。', 'us-review-scope'));
+      target.append(reviewStatusBar(mode), node('p', ['low_multiple', 'candidate', 'relative_discount', 'trough_value'].includes(status) ? '当前名单应用所选数值条件。上方数量为本批总数。' : '浏览本批核验结果，可按产业或股票搜索。', 'us-review-scope'));
+      if (mode === 'value' && status === 'pending') {
+        const counts = new Map();
+        for (const row of filterRows(state.snapshot, state)) for (const gap of valueGaps(row)) counts.set(gap, (counts.get(gap) || 0) + 1);
+        const frequent = [...counts].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([label, count]) => label + ' ' + count + ' 只');
+        if (frequent.length) target.append(node('p', '主要待补项（可重叠） ' + frequent.join(' · '), 'us-review-scope'));
+      }
       if (!page.rows.length) {
         const block = node('div', null, 'us-selection-empty');
         block.append(node('strong', '当前筛选下没有记录'), node('span', '可直接选择上方待核、未通过或全部，查看本批资料与原因。'));
@@ -421,11 +479,75 @@
       }
     }
 
+    function sectorRow(group, benchmark) {
+      const card = node('article', null, 'us-research-row');
+      const heading = node('h3');
+      const open = node('button', sectorName(group.name), 'us-sector-open');
+      open.type = 'button'; open.dataset.usSector = group.name;
+      open.setAttribute('aria-label', '查看' + sectorName(group.name) + '个股');
+      heading.append(open);
+      const identity = node('header', null, 'us-research-identity');
+      identity.append(heading);
+      const label = node('span', sectorLabels[group.state] || '证据不足', 'us-research-status');
+      if (group.state === 'pending') label.dataset.tone = 'warning';
+      const metric = (value, suffix = '%') => finite(value) ? number(value) + suffix : '待核';
+      const period = group.financialPeriodRange;
+      const coverage = [
+        '日线 ' + group.priceSamples + '/' + group.members + ' 家',
+        '同期财报 ' + group.financialSamples + '/' + group.members + ' 家',
+        period ? '财报期 ' + (period.first === period.last ? period.last : period.first + ' 至 ' + period.last) : '',
+        group.classification === 'SEC SIC 3674' ? 'SEC SIC 3674' : '',
+        group.state === 'trough' ? '低谷折价 ' + group.candidates + ' 只' : ''
+      ].filter(Boolean);
+      card.append(identity, levels([
+        ['近60交易日等权涨跌', metric(group.return60Pct)],
+        ['相对 ' + benchmark, metric(group.excess60Pp, ' 个百分点')],
+        ['低于50日均线', metric(group.belowMa50Pct)],
+        ['营收／净利同比下降', metric(group.decliningRevenuePct) + ' ／ ' + metric(group.decliningProfitPct)]
+      ]), label, node('p', coverage.join(' · '), 'us-sector-note'));
+      if (group.reasons?.length) card.append(node('p', group.reasons.join('。'), 'us-sector-note'));
+      return card;
+    }
+
+    function renderSectors() {
+      const sectors = state.snapshot?.fundamentals.sectors;
+      const context = get('us-value-sectors-context');
+      const leading = get('us-value-sectors-leading');
+      const remaining = get('us-value-sectors-remaining');
+      const more = get('us-value-sectors-more');
+      if (sectors?.status !== 'ready') {
+        context.textContent = sectors?.reason || (state.phase === 'loading' ? '正在读取本批产业证据…' : '当前批次没有可用的产业核验证据。');
+        leading.replaceChildren(); remaining.replaceChildren(); more.hidden = true;
+        return;
+      }
+      const groups = sectors.groups;
+      const benchmark = sectors.benchmark || 'SPY';
+      const troughs = groups.filter(group => group.state === 'trough');
+      const selected = groups.find(group => group.name === state.strategy);
+      const featured = selected ? [selected] : troughs.length ? troughs : groups.filter(group => ['weak_price', 'weak_business'].includes(group.state)).slice(0, 3);
+      const rest = groups.filter(group => !featured.includes(group));
+      context.textContent = [
+        '行情日 ' + time(sectors.asOf),
+        troughs.length ? '低谷 ' + troughs.length + ' / ' + groups.length : '本批暂无行情与财报同时支持的低谷',
+        '证据不足 ' + groups.filter(group => group.state === 'pending').length + ' 个产业'
+      ].join(' · ');
+      const rule = sectors.thresholds;
+      const evidence = node('p', null, 'us-sector-note');
+      if (rule) evidence.textContent = '行情与财报各至少 ' + rule.minMembers + ' 家、覆盖 ' + rule.minCoveragePct + '%。低谷要求近60交易日等权涨幅不高于 ' + rule.maxReturn60Pct + '%、相对 ' + benchmark + ' 不高于 ' + rule.maxExcess60Pp + ' 个百分点，低于50日均线的公司至少 ' + rule.minBelowMa50Pct + '%，营收与净利同比下降的公司各至少 ' + rule.minDecliningPct + '%。相对低估要求至少 ' + rule.minPeers + ' 家可比公司，PE 与市值／FCF 各折价至少 ' + rule.minDiscountPct + '%。';
+      const price = sectors.source?.price, financial = sectors.source?.financial, universe = sectors.source?.universe;
+      const provenance = sources([price, financial, universe].filter(Boolean), { sourceTime: sectors.sourceTime, readAt: price?.readAt });
+      if (financial?.readAt) provenance.append(node('span', '财报核验 ' + time(financial.readAt)));
+      leading.replaceChildren(evidence, provenance, ...featured.map(group => sectorRow(group, benchmark)));
+      get('us-value-sectors-summary').textContent = '查看其余 ' + rest.length + ' 个产业的依据';
+      remaining.replaceChildren(...rest.map(group => sectorRow(group, benchmark)));
+      more.hidden = rest.length === 0;
+    }
+
     function renderStrategies() {
       const select = get('us-selection-strategy'), current = state.strategy, choices = new Map();
       for (const row of modeRows(state.snapshot, state.mode)) {
         const key = strategyKey(row, state.mode);
-        if (key) choices.set(key, state.mode === 'short' ? row.label || key : state.mode === 'dca' ? key === 'etf' ? 'ETF' : '个股' : key);
+        if (key) choices.set(key, state.mode === 'short' ? row.label || key : state.mode === 'dca' ? key === 'etf' ? 'ETF' : '个股' : sectorName(key));
         if (state.mode === 'short') for (const hit of row.hits || []) if (hit.rule) choices.set(hit.rule, hit.label || hit.rule);
       }
       const label = state.mode === 'short' ? '策略' : state.mode === 'value' ? '产业' : '类型';
@@ -449,7 +571,7 @@
       const samples = finite(tracking.observations) ? '累计观察' + number(tracking.observations, 0) + '条 · 观察后3日成熟' + number(tracking.matured3 || 0, 0) + '条 · B触发后3日成熟' + (finite(tracking.maturedTriggered3) ? number(tracking.maturedTriggered3, 0) + '条' : '待形成') : '';
       const triggeredReturn = finite(tracking.meanTriggeredReturn3Percent) ? 'B后3日平均 ' + percent(tracking.meanTriggeredReturn3Percent, true) : '';
       get('us-short-context').textContent = [scope.name, coverage, '数据日 ' + time(snapshot.asOf), labels[market.regime], breadth, samples, triggeredReturn].filter(Boolean).join(' · ');
-      get('us-value-context').textContent = [snapshot.fundamentals.scope?.name || 'SEC公开财报研究', '财报期以个股详情为准', '低倍数不等于严重低估'].join(' · ');
+      get('us-value-context').textContent = [snapshot.fundamentals.scope?.name || 'SEC公开财报研究', '财报期以个股披露为准'].join(' · ');
       get('us-dca-context').textContent = '宽基ETF、红利ETF与个股分别评价；费用与持仓按各自官方日期展示。';
     }
 
@@ -476,6 +598,7 @@
       get('us-value-status').value = state.valueStatus;
       get('us-dca-status').value = state.dcaStatus;
       get('us-short-access').hidden = state.snapshot?.short.requiresAuth !== true;
+      if (mode === 'value') renderSectors();
       if (!state.snapshot) {
         empty(target, state.phase === 'loading' ? '正在读取已完成结果' : '结果暂未取得', state.error || '页面直接读取服务器批次，不在浏览器逐股扫描。');
         get('us-selection-count').textContent = state.phase === 'loading' ? '读取批次中' : '尚未取得可显示的批次';
@@ -552,6 +675,11 @@
         if (status.dataset.usReviewMode === 'value') state.valueStatus = status.dataset.usReviewStatus;
         else state.dcaStatus = status.dataset.usReviewStatus;
         state.page = 1; renderResults(); return;
+      }
+      const sector = event.target.closest('[data-us-sector]');
+      if (state.mode === 'value' && sector?.dataset.usSector) {
+        state.strategy = sector.dataset.usSector; state.valueStatus = ''; state.search = ''; state.page = 1;
+        render(); get('us-selection-strategy').focus(); return;
       }
       const tab = event.target.closest('[data-us-tab]');
       if (!tab) return;
