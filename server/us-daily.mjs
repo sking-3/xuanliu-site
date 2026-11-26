@@ -109,7 +109,7 @@ export async function runDaily(options={}){
     if(analyzed.row||tracked.has(stock.symbol))series[stock.symbol]=received.bars;
     const industryPrice=observeSectorPrice(received.bars,industryReference);
     if(industryPrice)industryPrices.set(stock.symbol,industryPrice);
-    const last=received.bars.at(-1);if(last?.date===target.date&&last.close>0)prices[stock.symbol]={close:last.close,asOf:target.closeTime,sourceDate:target.date,sourceId,permissionsVerified:dataPolicy.permissionsVerified,derivedPublic:dataPolicy.derivedPublic,accessScope:dataPolicy.accessScope};
+    const last=received.bars.at(-1);if(last?.date===target.date&&last.close>0)prices[stock.symbol]={close:last.close,asOf:target.closeTime,sourceDate:target.date,sourceId,permissionsVerified:dataPolicy.permissionsVerified,derivedPublic:dataPolicy.derivedPublic,accessScope:dataPolicy.accessScope,turnover20:industryPrice?received.bars.slice(-20).reduce((sum,bar)=>sum+bar.close*bar.volume,0)/20:null};
    }
    await progress({phase:'daily_bars',processed:Math.min(offset+50,universe.length),covered:coverageMetrics.covered,missing:diagnostics.length,candidates:rows.length,message:'采集并计算日线 '+Math.min(offset+50,universe.length)+'/'+universe.length});
   }
@@ -121,10 +121,15 @@ export async function runDaily(options={}){
   const {snapshot,ledger}=buildSelection({asOf:target.date,universe,series,benchmarks,scope,source,screenedRows:rows,coverageMetrics,diagnostics},{previousLedger,previousSnapshot,now:now()});
   if(options.fromCache)snapshot.recomputedFrom={generation:pointer.generation,asOf:pointer.asOf,sourceId:previousSnapshot.source.id,previousRulesVersion:previousSnapshot.version};
   const enrich=options.enrich||(await import('./us-fundamentals.mjs')).collectFundamentals;
-  if(enrich){await progress({phase:'fundamentals',message:'核对公开财报与估值'});Object.assign(snapshot,await enrich({directory,universe,prices,now,onProgress:async update=>{await progress({fundamentalsProgress:update,message:typeof update==='string'?update:'核对公开财报与估值'});},fetch:options.fetch||fetch}));}
+  if(enrich){await progress({phase:'fundamentals',message:'核对公开财报与估值'});Object.assign(snapshot,await enrich({directory,universe,prices,asOf:target.date,now,onProgress:async update=>{await progress({fundamentalsProgress:update,message:typeof update==='string'?update:'核对公开财报与估值'});},fetch:options.fetch||fetch}));}
   if(snapshot.fundamentals){
    await progress({phase:'fundamentals',message:'核对产业低谷及同行估值'});
-   snapshot.fundamentals=evaluateSectorValue(snapshot.fundamentals,{priceObservations:industryPrices,benchmark:industryReference,asOf:target.date,source});
+   const latest=snapshot.fundamentals,previous=previousSnapshot?.fundamentals;
+   if(latest.scope?.expansionFailed&&previous?.scope?.basis==='sec_exchange_listing_and_report_industry'){
+    snapshot.fundamentals={...previous,status:'partial',scope:{...previous.scope,stale:true,expansionFailure:latest.scope.expansionFailure},lastAttemptAt:latest.lastAttemptAt,failures:latest.failures};
+   }else{
+    snapshot.fundamentals=evaluateSectorValue(latest,{priceObservations:industryPrices,benchmark:industryReference,asOf:target.date,source});
+   }
   }
   state.fundamentalsStatus=snapshot.fundamentals?.status||'not_configured';state.dcaStatus=snapshot.dca?.status||'not_configured';
   const failures=[...(snapshot.fundamentals?.failures||[]),...(snapshot.dca?.failures||[])];

@@ -97,3 +97,38 @@ test('relative undervaluation remains separate from a low sector, and price perm
   assert.equal(blocked.sectors.groups.length, 0);
   assert.equal(blocked.rows[0].sectorValue, undefined);
 });
+
+test('precise SEC subindustries split a broad industry and keep missing filings in the coverage denominator', () => {
+  const stocks = Array.from({length: 9}, (_, index) => row(index + 1, {
+    sic: '3571', sicDescription: 'Electronic Computers', operatingCycle: index < 5 ? row(index + 1).operatingCycle : null,
+  }));
+  stocks.push(row(10), row(11, {sic: null}));
+  const result = evaluate(stocks);
+  const computers = result.sectors.groups.find(group => group.classificationCode === '3571');
+  assert.equal(computers.name, 'Electronic Computers · SIC 3571');
+  assert.equal(computers.members, 9);
+  assert.equal(computers.priceSamples, 9);
+  assert.equal(computers.financialSamples, 5);
+  assert.equal(computers.state, 'pending');
+  assert.equal(result.sectors.groups.find(group => group.classificationCode === '3674').members, 1);
+  assert.equal(result.sectors.unclassifiedCompanyCount, 1);
+});
+
+test('miscellaneous business services cannot establish industry troughs or comparable valuation', () => {
+  const stocks = [1, 2, 3, 4, 5, 6].map(index => row(index, {
+    sic: '7389', sicDescription: 'Services-Business Services, NEC',
+  }));
+  const result = evaluate(stocks);
+  const group = result.sectors.groups[0];
+  assert.equal(group.members, 6);
+  assert.equal(group.financialSamples, 6);
+  assert.equal(group.state, 'pending');
+  assert.equal(group.classificationVerified, false);
+  assert.match(group.reasons[0], /缺主营业务证据/);
+  assert.equal(result.rows[0].sectorValue.peerGroup.memberCompanies, 6);
+  assert.equal(result.rows[0].sectorValue.state, 'insufficient_peers');
+  assert.equal(result.rows[0].sectorValue.peerCount, 0);
+  assert.equal(result.rows[0].sectorValue.peerMedianPe, null);
+  assert.equal(result.rows[0].status, 'candidate');
+  assert.deepEqual(result.sectors.candidateCounts, {confirmedRelative: 0, troughOpportunities: 0});
+});

@@ -43,6 +43,22 @@ export function observeSectorPrice(bars, benchmark) {
 }
 
 const companyKey = row => row.cik || row.symbol;
+const sicCode = row => /^[0-9]{4}$/.test(row.sic || '') && row.sic !== '0000' ? row.sic : null;
+const broadIndustry = /\b(?:N\.?E\.?C\.?|ETC\.?|MISC(?:ELLANEOUS)?|NOT ELSEWHERE CLASSIFIED)\b/i;
+
+function industryGroup(code, members, context) {
+  const descriptions = [...new Set(members.map(row => row.sicDescription?.trim()).filter(Boolean))];
+  const description = descriptions[0];
+  const isSpecific = descriptions.length > 0 && code !== '7389' && !code.endsWith('00') &&
+    !descriptions.some(text => broadIndustry.test(text));
+  const name = code === '3674' ? 'Semiconductors' : description ? `${description} · SIC ${code}` : `SEC SIC ${code}`;
+  const group = estimateGroup(name, members, context);
+  if (!isSpecific) {
+    group.state = 'pending';
+    group.reasons.unshift(description ? 'SEC 分类过宽，缺主营业务证据，暂不判行业低谷或同业折价' : 'SEC 细分行业名称待核');
+  }
+  return {...group, classification: `SEC SIC ${code}`, classificationCode: code, classificationVerified: isSpecific};
+}
 
 function companySamples(rows, readSample) {
   const samples = new Map();
@@ -133,11 +149,11 @@ function valuationMetrics(row, context) {
   return {symbol: row.symbol, pe: normalizedPe, priceToFcf: 100 / normalizedFcfYield};
 }
 
-function compareStock(row, sector, rows, context) {
+function compareStock(row, sector, members, context) {
   const result = {
     state: 'not_candidate', sector: sector?.name ?? null, sectorState: sector?.state ?? 'pending',
     sectorTrough: sector?.state === 'trough', opportunity: false,
-    peerGroup: row.sic ? {code: row.sic, name: row.sicDescription || row.sic} : null,
+    peerGroup: sector ? {code: sector.classificationCode, name: sector.name, classification: 'SEC SIC', memberCompanies: sector.members} : null,
     peerCount: 0, peerSymbols: [], peerMedianPe: null, peerMedianPriceToFcf: null,
     peDiscountPct: null, fcfMultipleDiscountPct: null, reasons: [],
   };
@@ -148,7 +164,13 @@ function compareStock(row, sector, rows, context) {
     result.reasons.push('低倍数条件已过，缺同批估值或SEC行业分类证据');
     return result;
   }
-  const peers = companySamples(rows.filter(peer => peer.sic === row.sic && companyKey(peer) !== companyKey(row)), peer => valuationMetrics(peer, context));
+  if (!sector?.classificationVerified) {
+    result.state = 'insufficient_peers';
+    result.reasons.push('SEC 分类过宽或缺分类证据，须核验主营业务后才能认定同行');
+    return result;
+  }
+  const issuer = companyKey(row);
+  const peers = companySamples(members, peer => companyKey(peer) === issuer ? null : valuationMetrics(peer, context));
   result.peerCount = peers.length;
   result.peerSymbols = peers.map(peer => peer.symbol);
   if (peers.length < thresholds.minPeers) {
@@ -192,36 +214,36 @@ export function evaluateSectorValue(fundamentals, {priceObservations, benchmark,
     priceObservations, benchmark, asOf, closeTime: source.sourceTime, sourceId: source.id,
     maxReportAgeDays: fundamentals.parameters?.maxReportAgeDays,
   };
-  const semiconductorRows = rows.filter(row => row.sic === '3674');
-  const separateSemiconductors = new Set(semiconductorRows.map(companyKey)).size >= thresholds.minMembers;
-  const groupName = row => separateSemiconductors && row.sic === '3674' ? 'Semiconductors' : row.industry;
-  const byGroup = new Map();
+  const byCode = new Map();
+  const unclassified = new Set();
   for (const row of rows) {
-    const name = groupName(row);
-    if (!name) continue;
-    if (!byGroup.has(name)) byGroup.set(name, []);
-    byGroup.get(name).push(row);
+    const code = sicCode(row);
+    if (!code) {
+      unclassified.add(companyKey(row));
+      continue;
+    }
+    if (!byCode.has(code)) byCode.set(code, []);
+    byCode.get(code).push(row);
   }
-  const groups = new Map([...byGroup].sort(([a], [b]) => a.localeCompare(b)).map(([name, members]) => {
-    const group = estimateGroup(name, members, context);
-    const classification = name === 'Semiconductors' && separateSemiconductors ? 'SEC SIC 3674' : 'OEF与现有行业参考池';
-    return [name, {...group, classification}];
-  }));
+  const groups = new Map([...byCode].sort(([a], [b]) => a.localeCompare(b)).map(([code, members]) =>
+    [code, industryGroup(code, members, context)]));
   const opportunities = new Map();
   const confirmed = new Set();
   const evaluated = rows.map(row => {
-    const group = groups.get(groupName(row));
-    const sectorValue = compareStock(row, group, rows, context);
+    const code = sicCode(row);
+    const group = groups.get(code);
+    const sectorValue = compareStock(row, group, byCode.get(code), context);
     if (sectorValue.state === 'confirmed_relative') confirmed.add(companyKey(row));
     if (sectorValue.opportunity) {
-      if (!opportunities.has(group.name)) opportunities.set(group.name, new Set());
-      opportunities.get(group.name).add(companyKey(row));
+      if (!opportunities.has(code)) opportunities.set(code, new Set());
+      opportunities.get(code).add(companyKey(row));
     }
     return {...row, sectorValue};
   });
-  for (const [name, companies] of opportunities) groups.get(name).candidates = companies.size;
+  for (const [code, companies] of opportunities) groups.get(code).candidates = companies.size;
   sectors.status = groups.size ? 'ready' : 'pending';
   sectors.groups = [...groups.values()];
+  sectors.unclassifiedCompanyCount = unclassified.size;
   sectors.benchmarkReturn60Pct = benchmark.return60Pct;
   sectors.candidateCounts.confirmedRelative = confirmed.size;
   sectors.candidateCounts.troughOpportunities = new Set([...opportunities.values()].flatMap(companies => [...companies])).size;

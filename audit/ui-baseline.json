@@ -352,11 +352,11 @@
       "versions": []
     },
     "us.html": {
-      "sha256": "aa7f857cb52a44317e9c222d4ad99a6a58913a9b8fafb514b09fba1db819f040",
+      "sha256": "68b0f4de2654891349fd0ac68106110c0fa8ac0238ba76150737c313ee78d2ca",
       "bytes": 20139,
       "versions": [],
-      "sourceSha256": "0ebda72e2d3a2d07efe488acc90beaa0bb465941c3289523fca806ede1d2b9a5",
-      "change": "US sector and peer evidence in the existing selection workspace."
+      "sourceSha256": "aa7f857cb52a44317e9c222d4ad99a6a58913a9b8fafb514b09fba1db819f040",
+      "change": "Expanded SEC industry research and coverage provenance; existing shell retained."
     },
     "stock-workspace.js": {
       "sha256": "ba06ed4af22eac005374eaec82b420a3b4f86004244d1578de35df5390506ca7",

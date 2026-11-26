@@ -4,6 +4,7 @@
   "universeSource": "https://www.ishares.com/us/products/239723/ishares-s-p-100-etf/latest-holdings.csv",
   "cikMapSource": "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies",
   "cikMapUse": "identifier lookup only; every mapping must match the SEC submissions ticker array",
+  "secExpansion": {"maxNew": 360, "maxTotal": 750},
   "referenceSymbols": [
     "ON",
     "NXPI",

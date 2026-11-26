@@ -1,8 +1,10 @@
-import {mkdir, readFile, writeFile, rename} from 'node:fs/promises';
+import {mkdir, readFile, readdir, writeFile, rename} from 'node:fs/promises';
 import {join} from 'node:path';
 import {gzipSync, gunzipSync} from 'node:zlib';
 import {setTimeout as sleep} from 'node:timers/promises';
 import {spawnSync} from 'node:child_process';
+import {secExchangeDirectoryUrl, parseSecExchangeDirectory, joinSecListings, pickExpandingMembers} from './us-sec-universe.mjs';
+import {loadSecIndustryIndex} from './us-sec-industry-index.mjs';
 
 export const schema = 'books.us.fundamentals.v1';
 const dayMs = 86400000;
@@ -318,17 +320,20 @@ export function parseEtfDocument(text,metadata) {
   return {...metadata,expenseRatio,holdingsCount,holdingsAsOf,top10Weight:topWeight,top10AsOf:topWeight!==null?(vanguard?holdingsAsOf:topDate):null,portfolioPe:pe?Number(vanguard?pe[1]:pe[2]):null,portfolioPeAsOf:pe?(vanguard?holdingsAsOf:sourceDay(pe[1])):null};
 }
 
-export async function collectFundamentals({directory,universe=[],prices={},now=Date.now,onProgress=()=>{},fetch:request=globalThis.fetch,config,wait=sleep}={}) {
+export async function collectFundamentals({directory,universe=[],prices={},asOf,now=Date.now,onProgress=()=>{},fetch:request=globalThis.fetch,config,wait=sleep}={}) {
   const timestamp=typeof now==='function'?now():now,readAt=new Date(timestamp).toISOString(),settings=config||JSON.parse(await readFile(process.env.BOOKS_SITE_DIR?join(process.env.BOOKS_SITE_DIR,'research-data/us-fundamental-universe.json'):configUrl,'utf8')),parameters=settings.parameters;
   const base=join(directory,'fundamentals'),privateDir=join(base,'private'),archive=join(privateDir,'archives');await mkdir(archive,{recursive:true});
   const holdsPath=join(privateDir,'source-holds.json.gz'),holds=await optionalJson(holdsPath)||{},failures=[];let previousRequest=0;
-  async function get(url) {
+  async function get(url,{timeoutMs=25000,maxBytes=24*1024**2,accept='application/json,text/csv,text/html,application/pdf'}={}) {
     const host=new URL(url).hostname;if(holds[host])throw Error(host+' 来源已停止：'+holds[host].reason);
     const elapsed=Date.now()-previousRequest;if(elapsed<550)await wait(550-elapsed);previousRequest=Date.now();
-    const response=await request(url,{headers:{'User-Agent':process.env.BOOKS_SEC_USER_AGENT||'BooksResearch/1.0 contact=https://45-77-39-98.sslip.io','Accept':'application/json,text/csv,text/html,application/pdf'},signal:AbortSignal.timeout(25000),redirect:'error'});
+    const response=await request(url,{headers:{'User-Agent':process.env.BOOKS_SEC_USER_AGENT||'BooksResearch/1.0 contact=https://45-77-39-98.sslip.io',Accept:accept},signal:AbortSignal.timeout(timeoutMs),redirect:'error'});
     if([401,403,418,429,451].includes(response.status)){holds[host]={reason:'HTTP '+response.status,stoppedAt:readAt};await saveJson(holdsPath,holds);throw Error(host+' HTTP '+response.status+'，已停止该来源，不更换入口');}
     if(!response.ok)throw Error(host+' HTTP '+response.status);
-    return Buffer.from(await response.arrayBuffer());
+    if(Number(response.headers.get('content-length'))>maxBytes){await response.body?.cancel();throw Error(host+' 响应超过可处理大小');}
+    const chunks=[];let length=0;
+    for await(const chunk of response.body||[]){length+=chunk.byteLength;if(length>maxBytes)throw Error(host+' 响应超过可处理大小');chunks.push(chunk);}
+    return Buffer.concat(chunks,length);
   }
   async function textCache(key,url,maxAgeDays) {
     const path=join(privateDir,key+'.json.gz'),prior=await optionalJson(path);
@@ -341,7 +346,7 @@ export async function collectFundamentals({directory,universe=[],prices={},now=D
   const previousAttempt=await optionalJson(join(privateDir,'last-attempt.json.gz'));
   let members=[],scope,identifiers={};
   try {
-    const [holdings,lookup]=await Promise.all([textCache('oef-holdings',settings.universeSource,1),textCache('cik-map',settings.cikMapSource,7)]);
+    const holdings=await textCache('oef-holdings',settings.universeSource,1),lookup=await textCache('cik-map',settings.cikMapSource,7);
     const parsed=parseReferenceUniverse(holdings.body);identifiers=parseCikMap(lookup.body);
     const bySymbol=new Map(parsed.members.map(row=>[row.symbol,{...identifiers[row.symbol],...row}]));
     for(const symbol of settings.referenceSymbols||[])if(!bySymbol.has(symbol))bySymbol.set(symbol,{symbol,name:identifiers[symbol]?.name||symbol,industry:identifiers[symbol]?.industry||null,...identifiers[symbol]});
@@ -349,21 +354,43 @@ export async function collectFundamentals({directory,universe=[],prices={},now=D
     members=[...bySymbol.values()].map(stock=>({...stock,...(listings.get(stock.symbol)?.cik?{cik:listings.get(stock.symbol).cik}:{}),listingVerified:listings.size?listings.has(stock.symbol):null}));
     scope={name:'S&P100代理持仓及行业参考池',basis:'issuer_oef_equity_holdings_plus_explicit_industry_references',fullMarket:false,asOf:parsed.asOf,source:settings.universeSource,identifierSource:settings.cikMapSource,total:members.length,listingCount:universe.length,stale:holdings.stale||lookup.stale||parsed.asOf>readAt.slice(0,10)||ageDays(parsed.asOf,timestamp)>parameters.maxUniverseAgeDays};
   } catch(error) {failures.push({source:'fundamentals_universe',reason:error.message});scope={name:'基本面参考池',fullMarket:false,total:0,stale:true};}
+  const dcaReferences=new Set(members.map(stock=>stock.symbol));
+  const dcaReferenceFailed=!members.length||scope.stale;
+  if(settings.secExpansion&&validDay(asOf)&&universe.length){
+    try {
+      const listing=await textCache('sec-exchange-directory',secExchangeDirectoryUrl,7);
+      if(listing.stale)throw Error('SEC 上市名册已过期');
+      const index=await loadSecIndustryIndex({directory:privateDir,asOf,readAt,get});
+      const joined=joinSecListings(universe,parseSecExchangeDirectory(listing.body));
+      const cachedCiks=new Set((await readdir(privateDir)).map(name=>/^facts-(\d{10})\.json\.gz$/.exec(name)?.[1]).filter(Boolean));
+      const priorRows=[...members,...(previousAttempt?.fundamentals?.rows||[])];
+      const expansion=pickExpandingMembers(joined.members,{prices,asOf,industryByCik:index.byCik,priorRows,cachedCiks,...settings.secExpansion});
+      if(expansion.members.length<=members.length)throw Error('SEC 同收盘匹配样本不足，保留原参考池');
+      members=expansion.members;
+      scope={name:'TickFlow × SEC 美股估值研究池',basis:'sec_exchange_listing_and_report_industry',fullMarket:false,asOf:null,readAt:listing.readAt,source:secExchangeDirectoryUrl,industrySource:index.source,industryIndexAsOf:index.asOf,industryIndexReadAt:index.readAt,total:members.length,listingCount:universe.length,coverage:expansion.counts,stale:false};
+    }catch(error){
+      failures.push({source:'SEC 上市名册与产业索引',reason:error.message});
+      scope={...scope,expansionFailed:true,expansionFailure:error.message};
+    }
+  }
   const rows=[],dcaStocks=[];
+  const priorRows=new Map((prior?.fundamentals?.rows||[]).map(row=>[row.symbol,row]));
+  const priorDcaRows=new Map((prior?.dca?.rows||[]).filter(row=>row.kind==='stock').map(row=>[row.symbol,row]));
+  const attemptedRows=new Map((previousAttempt?.fundamentals?.rows||[]).filter(row=>row.asOf).map(row=>[row.symbol,row]));
+  const attemptedDca=new Map((previousAttempt?.dca?.rows||[]).filter(row=>row.kind==='stock'&&row.asOf).map(row=>[row.symbol,row]));
   for(const [index,stock] of members.entries()){
     await onProgress({phase:'fundamentals',processed:index,total:members.length,symbol:stock.symbol});
-    const previousAttemptRow=previousAttempt?.fundamentals?.rows?.find(row=>row.symbol===stock.symbol&&row.asOf);
-    const previousAttemptDca=previousAttempt?.dca?.rows?.find(row=>row.symbol===stock.symbol&&row.kind==='stock'&&row.asOf);
-    const priorRow=prior?.fundamentals?.rows?.find(row=>row.symbol===stock.symbol)||previousAttemptRow;
-    const priorDca=prior?.dca?.rows?.find(row=>row.symbol===stock.symbol&&row.kind==='stock')||previousAttemptDca;
-    let storedFacts;
+    const priorRow=[attemptedRows.get(stock.symbol),priorRows.get(stock.symbol)].find(row=>row?.cik===stock.cik);
+    const priorDca=[attemptedDca.get(stock.symbol),priorDcaRows.get(stock.symbol)].find(row=>row?.cik===stock.cik);
+    let storedFacts,industry={sic:stock.sic||null,sicDescription:null};
     try {
       if(!stock.cik)throw Error('CIK标识映射不足，不猜测公司标识');
       const cik=String(stock.cik).padStart(10,'0'),subUrl='https://data.sec.gov/submissions/CIK'+cik+'.json',factsUrl='https://data.sec.gov/api/xbrl/companyfacts/CIK'+cik+'.json';
       const path=join(privateDir,'facts-'+cik+'.json.gz');
       storedFacts=await optionalJson(path);
       const sub=await textCache('submissions-'+cik,subUrl,.25),submissions=JSON.parse(sub.body);
-      if(!(submissions.tickers||[]).map(normalizeSymbol).includes(stock.symbol))throw Error('CIK与SEC ticker未核验通过');
+      if(Number(submissions.cik??cik)!==Number(cik)||!(submissions.tickers||[]).map(normalizeSymbol).includes(normalizeSymbol(stock.symbol)))throw Error('CIK与SEC ticker未核验通过');
+      if(/^\d{3,4}$/.test(String(submissions.sic)))industry={sic:String(submissions.sic).padStart(4,'0'),sicDescription:submissions.sicDescription||null};
       const latest=recentFilings(submissions).filter(row=>row.filed<=readAt.slice(0,10)).sort((a,b)=>b.filed.localeCompare(a.filed))[0];
       let factsRecord=storedFacts;
       if(!factsRecord||factsRecord.accession!==latest?.accession){
@@ -375,7 +402,7 @@ export async function collectFundamentals({directory,universe=[],prices={},now=D
       }
       const evaluated=evaluateCompany({stock,facts:JSON.parse(factsRecord.body),submissions,price:prices[stock.symbol]||prices[stock.symbol+'.US'],now:timestamp,parameters,readAt:factsRecord.readAt});
       if(scope.stale||sub.stale){for(const row of [evaluated.fundamental,evaluated.dca]){row.stale=true;row.status='pending';row.operatingCycle=null;row.reasons.push(issue('universe_or_source_stale','参考池或财报来源本轮未核验更新，保留已有数据'));}}
-      rows.push(evaluated.fundamental);dcaStocks.push(evaluated.dca);
+      rows.push(evaluated.fundamental);if(!dcaReferenceFailed&&dcaReferences.has(normalizeSymbol(stock.symbol)))dcaStocks.push(evaluated.dca);
     }catch(error){
       if(!/CIK标识映射不足|CIK与SEC ticker未核验通过/.test(error.message))failures.push({symbol:stock.symbol,source:'SEC',reason:error.message});
       const missing={symbol:stock.symbol,name:stock.name,kind:'stock',cik:stock.cik||null,industry:stock.industry||null,status:'pending',financialPassed:false,valuationStatus:'pending',asOf:null,sourceTime:null,readAt:null,metrics:{},sources:[],reasons:[]};
@@ -384,12 +411,20 @@ export async function collectFundamentals({directory,universe=[],prices={},now=D
       const lastArchivedFiling=recentFilings(oldArchive?.submissions).filter(row=>row.filed<=readAt.slice(0,10)).sort((a,b)=>b.filed.localeCompare(a.filed))[0];
       const archived=lastArchivedFiling?.accession===storedFacts?.accession&&oldArchive?.facts?evaluateCompany({stock,facts:oldArchive.facts,submissions:oldArchive.submissions,now:timestamp,parameters,readAt:oldArchive.readAt}):null;
       for(const [target,old] of [[rows,priorRow||archived?.fundamental],[dcaStocks,priorDca||archived?.dca]]){
+        if(target===dcaStocks&&(dcaReferenceFailed||!dcaReferences.has(normalizeSymbol(stock.symbol))))continue;
         const reasons=(old?.reasons||[]).filter(reason=>reason.code!=='collection_failed_retained');
-        target.push({...structuredClone(old||missing),status:'pending',financialPassed:false,valuationStatus:'pending',lastSuccessfulStatus:old?.lastSuccessfulStatus||old?.status||null,stale:true,operatingCycle:null,lastAttemptAt:readAt,reasons:[...reasons,issue('collection_failed_retained',error.message)]});
+        target.push({...structuredClone(old||missing),...industry,status:'pending',financialPassed:false,valuationStatus:'pending',lastSuccessfulStatus:old?.lastSuccessfulStatus||old?.status||null,stale:true,operatingCycle:null,lastAttemptAt:readAt,reasons:[...reasons,issue('collection_failed_retained',error.message)]});
       }
     }
   }
   const previous=prior||previousAttempt;
+  if(members.length&&dcaReferenceFailed&&previous){
+    for(const row of previous.dca.rows.filter(row=>row.kind==='stock')){
+      const reasons=(row.reasons||[]).filter(reason=>reason.code!=='universe_failed_retained');
+      dcaStocks.push({...row,status:'pending',stale:true,lastAttemptAt:readAt,reasons:[...reasons,issue('universe_failed_retained','原长期参考名册未更新，保留上次资料日期')]});
+    }
+  }
+  if(settings.secExpansion&&holds['data.sec.gov'])scope={...scope,expansionFailed:true,expansionFailure:'SEC 财报来源已停止：'+holds['data.sec.gov'].reason};
   if(!members.length&&previous){
     const reason=[...new Set(failures.map(failure=>failure.reason))].join('；');
     for(const [target,olderRows] of [[rows,previous.fundamentals.rows||[]],[dcaStocks,(previous.dca.rows||[]).filter(row=>row.kind==='stock')]])for(const row of olderRows){
