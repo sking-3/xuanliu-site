@@ -170,3 +170,20 @@ test('membership remains new on same-session recomputation and changes to contin
  const later=buildSelection(source,{previousLedger:second.ledger,now:clock+86400000}),row=later.snapshot.short.rows[0];assert.equal(row.followup.referenceDate,day);assert.equal(row.membership,'continuing');assert.equal(later.ledger.records[0].firstSeenAt,first.ledger.records[0].firstSeenAt);
  const invalidBars=breakoutBars();invalidBars.at(-1).close+=.4;invalidBars.at(-1).high+=.5;const invalidSource=input(invalidBars),invalidFirst=buildSelection(invalidSource,{now:clock}),invalidAgain=buildSelection(invalidSource,{previousLedger:invalidFirst.ledger,now:clock+1000});assert.equal(invalidAgain.snapshot.short.rows[0].status,'invalid');assert.equal(invalidAgain.snapshot.short.rows[0].membership,'new');assert.equal(invalidAgain.ledger.records.length,1);
 });
+
+test('same-day and Thanksgiving idle checks retain authoritative completed counts and failure warnings',async()=>{
+ const directory=await mkdtemp(join(tmpdir(),'books-us-idle-counts-'));let time=Date.parse('2026-11-25T22:00:00Z'),requests=0;
+ try{
+  const data=input(),mixed={...provider,async universe(){return {universe:[...data.universe,{symbol:'MISSING',name:'missing test'}],scope:{name:'two-symbol test pool'},payload:{},fetchedAt:new Date(time).toISOString()};},async history(stocks){return new Map(stocks.map(stock=>[stock.symbol,{bars:stock.symbol==='MISSING'?[]:['SPY','QQQ'].includes(stock.symbol)?reference:breakoutBars(),fetchedAt:new Date(time).toISOString()}]));}};
+  const warning={fundamentals:{status:'partial',rows:[],failures:[{source:'SEC',reason:'source refused'}]},dca:{status:'partial',rows:[],failures:[{source:'SEC',reason:'source refused'}]}};
+  const completed=await runDaily({directory,calendar,now:()=>time,provider:mixed,enrich:async()=>warning});assert.equal(completed.status,'ready');assert.equal(completed.covered,1);assert.equal(completed.missing,1);assert.equal(completed.candidates,1);
+  const pointerBefore=await readFile(join(directory,'published.json'),'utf8');
+  // Simulate the already-deployed idle bug's state; the completed snapshot must repair these zeroes.
+  await writeFile(join(directory,'state.json'),JSON.stringify({...completed,covered:0,missing:0,candidates:0,error:'previous transport failed',failedAt:new Date(time-1000).toISOString()}));
+  for(const instant of ['2026-11-25T23:00:00Z','2026-11-26T17:00:00Z']){
+   time=Date.parse(instant);const idle=await runDaily({directory,calendar,now:()=>time,fetch:async()=>{requests++;throw Error('idle must not request data');}});
+   assert.equal(idle.status,'idle');assert.equal(idle.targetDate,day);assert.equal(idle.processed,0);assert.equal(idle.expected,0);assert.equal(idle.requests,0);assert.equal(idle.covered,1);assert.equal(idle.missing,1);assert.equal(idle.candidates,1);assert.equal(idle.countsAsOf,day);assert.equal(idle.countsBasis,'last_completed_batch');assert.deepEqual(idle.lastCompletedCounts,{asOf:day,expected:2,covered:1,missing:1,candidates:1});assert.equal(idle.fundamentalsStatus,'partial');assert.equal(idle.warning,completed.warning);assert.deepEqual(idle.fundamentalsFailures,completed.fundamentalsFailures);assert.equal(idle.lastFailure.error,'previous transport failed');assert.equal(idle.error,null);assert.equal(await readFile(join(directory,'published.json'),'utf8'),pointerBefore);
+  }
+  assert.equal(requests,0);
+ }finally{await rm(directory,{recursive:true,force:true});}
+});
