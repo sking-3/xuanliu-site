@@ -79,6 +79,9 @@ assert.equal(ui.percent(null), '待形成');
 assert.equal(ui.number(null), '—');
 assert.equal(ui.shortStatus({ status: 'B', phase: 'tracking', isNewB: false }), 'tracking', 'historical B remains tracking rather than a new B');
 assert.equal(ui.shortStatus({ status: 'B', phase: 'current_B', isNewB: true }), 'triggered');
+const openedToday = { state: 'holding', entry: { date: '2026-11-25' }, asOf: '2026-11-25' };
+assert.equal(ui.shortStatus({ trendPosition: openedToday }), 'triggered');
+assert.equal(ui.shortStatus({ isNewB: true, trendPosition: { ...openedToday, asOf: '2026-11-27' } }), 'tracking', 'another candidate cannot re-label an existing position as a new B');
 
 assert.deepEqual(ui.paginate([1, 2, 3], 'all', 20), { rows: [1, 2, 3], page: 1, pages: 1, total: 3 });
 assert.deepEqual(ui.paginate(Array.from({ length: 26 }, (_, index) => index), '12', 9), { rows: [24, 25], page: 3, pages: 3, total: 26 });
@@ -195,8 +198,9 @@ async function stateFlow() {
   const visibleCopy = firstCard.children.filter(child => child.tagName !== 'details').map(child => child.textContent).join('');
   assert.ok(!visibleCopy.includes('普通股交易资格尚未独立核验'), 'repeated technical checks stay out of the main chart area');
   assert.ok(visibleCopy.includes('未验证'), 'the concise research qualification remains visible');
-  assert.ok(visibleCopy.includes('B 买入参考 >'));
-  assert.ok(visibleCopy.includes('S 卖出参考 <'));
+  assert.ok(visibleCopy.includes('买入门槛'));
+  assert.ok(visibleCopy.includes('防守位'));
+  assert.ok(!visibleCopy.includes('S 卖出参考'));
   assert.ok(firstCard.children.find(child => child.tagName === 'details').textContent.includes('普通股交易资格尚未独立核验'), 'technical checks remain available inside the existing details');
   assert.ok(firstCard.children.find(child => child.tagName === 'details').textContent.includes('财报字段待核'), 'matched financial checks are preserved alongside the short-rule checks');
   const firstTracking = firstCard.children.find(child => child.className === 'us-selection-tracking');
@@ -212,6 +216,31 @@ async function stateFlow() {
   assert.ok(elements.get('us-short-context').textContent.includes('观察后3日成熟2条'));
   assert.ok(elements.get('us-short-context').textContent.includes('B触发后3日成熟1条'));
   assert.deepEqual(requests, ['/api/us-selection/snapshot', '/api/us-selection/state']);
+  const tracked = app.state.snapshot.short.rows[0];
+  tracked.trendPosition = {
+    state: 'sold', entry: { date: '2026-11-20', price: 18 },
+    exit: { date: '2026-11-25', price: 19.8, reason: '收盘低于防守结构' },
+    reference: { trigger: 17.5, defense: 16.5, maxEntry: 18.5 },
+    heldSessions: 3, returnPercent: 10
+  };
+  tracked.metrics.excess20Percent = -5;
+  elements.get('us-short-status').listeners.change({ target: { type: 'select-one', value: 'sold' } });
+  const soldResults = elements.get('us-short-results');
+  assert.equal(soldResults.children.length, 1, 'a sale remains visible after relative strength weakens');
+  assert.match(soldResults.textContent, /已出现 S.*买入门槛17\.5防守位16\.5/);
+  assert.match(soldResults.textContent, /B 买入信号 · 2026-11-2018 USD持有交易日3日S 卖出信号 · 2026-11-2519\.8 USDB 至 S 参考变化\+10%/);
+  assert.match(soldResults.textContent, /S 卖出依据 · 收盘低于防守结构.*B 后固定观察窗.*B后15个交易日待形成/);
+  tracked.trendPosition.state = 'data_missing';
+  tracked.trendPosition.exit = null;
+  tracked.close = null;
+  elements.get('us-short-status').listeners.change({ target: { type: 'select-one', value: 'data_missing' } });
+  assert.equal(soldResults.children.length, 1);
+  assert.match(soldResults.textContent, /持有数据待核.*持有路径数据不足/);
+  assert.doesNotMatch(soldResults.textContent, /S 卖出信号 · 2026/);
+  delete tracked.trendPosition;
+  tracked.close = 281.34;
+  tracked.metrics.excess20Percent = 5;
+  elements.get('us-short-status').listeners.change({ target: { type: 'select-one', value: '' } });
   const valueTab = elements.get('us-tab-value'); valueTab.dataset.usTab = 'value';
   elements.get('us-selection-search').listeners.input({ target: { value: 'FIRST' } });
   app.state.valuePe = 15;

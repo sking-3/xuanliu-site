@@ -44,9 +44,13 @@
   }
 
   function shortStatus(row) {
+    const position = row.trendPosition;
+    if (position?.state === 'sold') return 'sold';
+    if (position?.state === 'data_missing') return 'data_missing';
+    if (position?.state === 'holding') return position.entry?.date && position.entry.date === position.asOf ? 'triggered' : 'tracking';
+    if (row.status === 'invalid' || row.status === 'invalidated') return 'invalidated';
     if (row.phase === 'tracking' || row.isNewB === false && row.status === 'B') return 'tracking';
     if (row.status === 'B' || row.status === 'triggered') return 'triggered';
-    if (row.status === 'invalid' || row.status === 'invalidated') return 'invalidated';
     if (row.status === 'overextended' || finite(row.close) && finite(row.maxEntry) && row.close > row.maxEntry) return 'overextended';
     return 'watch';
   }
@@ -62,10 +66,12 @@
       if (state.strategy && strategyKey(row, state.mode) !== state.strategy && !(state.mode === 'short' && row.hits?.some(hit => hit.rule === state.strategy))) return false;
       const metrics = row.metrics || {};
       if (state.mode === 'short') {
-        if (!finite(row.close) || row.close < state.minPrice) return false;
-        const turnover = finite(metrics.dollarVolume20) ? metrics.dollarVolume20 : metrics.dollarVolume20Proxy;
-        if (finite(turnover) && turnover < state.minTurnover * 1e6) return false;
-        if (finite(metrics.excess20Percent) && metrics.excess20Percent < state.minStrength) return false;
+        if (!row.trendPosition) {
+          if (!finite(row.close) || row.close < state.minPrice) return false;
+          const turnover = finite(metrics.dollarVolume20) ? metrics.dollarVolume20 : metrics.dollarVolume20Proxy;
+          if (finite(turnover) && turnover < state.minTurnover * 1e6) return false;
+          if (finite(metrics.excess20Percent) && metrics.excess20Percent < state.minStrength) return false;
+        }
         return !state.shortStatus || shortStatus(row) === state.shortStatus;
       }
       if (state.mode === 'value') {
@@ -241,6 +247,26 @@
       target.replaceChildren(block);
     }
 
+    function trendPosition(row) {
+      const position = row.trendPosition;
+      if (!position?.entry) return null;
+      const group = node('div', null, 'us-selection-tracking us-selection-trend-position');
+      const fields = [
+        ['B 买入信号 · ' + time(position.entry.date), number(position.entry.price) + ' USD'],
+        ['持有交易日', finite(position.heldSessions) ? number(position.heldSessions, 0) + '日' : '待核']
+      ];
+      if (position.state === 'sold' && position.exit) {
+        fields.push(['S 卖出信号 · ' + time(position.exit.date), number(position.exit.price) + ' USD']);
+        fields.push(['B 至 S 参考变化', percent(position.returnPercent, true)]);
+      } else {
+        fields.push(['截至本批收盘参考变化', percent(position.returnPercent, true)]);
+      }
+      group.append(levels(fields));
+      if (position.exit?.reason) group.append(node('p', 'S 卖出依据 · ' + reasonText(position.exit.reason)));
+      if (position.state === 'data_missing') group.append(node('p', '持有路径数据不足，等待补齐后核验。'));
+      return group;
+    }
+
     function followup(row) {
       const group = node('div', null, 'us-selection-tracking');
       const tracking = row.triggerFollowup;
@@ -265,7 +291,7 @@
       items.push(['B后3日最大不利变动', three?.status === 'ready' ? percent(three.maxAdversePercent, true) : '待形成']);
       items.push(['B后3日收盘回撤', three?.status === 'ready' ? percent(three.maxCloseDrawdownPercent, true) : '待形成']);
       items.push(['B后3日成熟样本', three?.status === 'ready' ? '1条' : '0条']);
-      group.append(levels(items));
+      group.append(node('p', 'B 后固定观察窗'), levels(items));
       group.append(node('p', 'B触发收盘 ' + time(tracking.referenceDate) + ' · 参考价 ' + number(tracking.referenceClose) + ' USD · 确认时间 ' + time(tracking.firstSeenAt) + ' · 本条触发观察1条；非实际成交收益。'));
       return group;
     }
@@ -296,13 +322,13 @@
       const url = chartUrl(row.chartUrl, row.symbol, window), key = row.symbol + ':' + window;
       if (url && !state.chartErrors[key]) {
         const image = doc.createElement('img');
-        image.src = url; image.alt = (row.name || row.symbol) + '近' + window + '个交易日日K、均线与B/S观察标记';
+        image.src = url; image.alt = (row.name || row.symbol) + '近' + window + '个交易日日K、均线与已记录的买卖信号';
         image.loading = 'lazy'; image.decoding = 'async'; image.width = 960; image.height = 540;
         image.addEventListener('error', () => {
           state.chartErrors[key] = true;
           renderChartError(figure);
         }, { once: true });
-        figure.append(image, node('figcaption', 'B：买入参考；S：卖出参考。日K显示窗口不是持有期，标记不代表实际成交。'));
+        figure.append(image, node('figcaption', 'B 买入信号 · S 卖出信号 · X 风险记录。虚线为买入门槛和防守位。'));
       } else renderChartError(figure, url ? '日K暂未读取成功，更新结果后可重新核对。' : '本批日K尚未生成；等待真实日线采集完成。');
       container.append(heading, figure);
       return container;
@@ -358,11 +384,14 @@
 
     function shortCard(row) {
       const card = node('article', null, 'us-selection-result'); card.dataset.usSymbol = row.symbol;
-      const status = shortStatus(row), labels = { triggered: '本批新B观察', tracking: 'B后跟踪', watch: '等待B触发', overextended: '超过追价上限', invalidated: '条件失效' };
-      card.append(resultHeading(row, labels[status] + (row.qualified === true ? '' : ' · 未验证'), status === 'invalidated' ? 'negative' : status === 'overextended' ? 'warning' : null));
-      card.append(levels([['参考收盘 · USD', number(row.close)], ['B 买入参考 >', number(row.trigger)], ['S 卖出参考 <', number(row.invalidation)], ['最高观察价', number(row.maxEntry)]]));
+      const status = shortStatus(row), labels = { triggered: '本批出现 B', tracking: row.trendPosition ? 'B 后持有中' : 'B 后跟踪', sold: '已出现 S', data_missing: '持有数据待核', watch: '等待买入信号', overextended: '超过追价上限', invalidated: '条件失效' };
+      card.append(resultHeading(row, labels[status] + (row.qualified === true ? '' : ' · 未验证'), ['invalidated', 'sold'].includes(status) ? 'negative' : ['overextended', 'data_missing'].includes(status) ? 'warning' : null));
+      const reference = row.trendPosition?.reference || { trigger: row.trigger, defense: row.invalidation, maxEntry: row.maxEntry };
+      card.append(levels([['参考收盘 · USD', number(row.close)], ['买入门槛', number(reference.trigger)], ['防守位', number(reference.defense)], ['最高观察价', number(reference.maxEntry)]]));
       const m = row.metrics || {};
       card.append(node('p', (row.label || row.rule || '规则待核') + ' · ' + (row.membership === 'new' ? '新入选' : row.membership === 'continuing' ? '持续观察' : '本批观察') + ' · 20日 ' + percent(m.return20Percent, true) + ' · 相对SPY ' + percent(m.excess20Percent, true) + ' · 量比 ' + number(m.rvol) + '倍', 'us-selection-reasons'));
+      const position = trendPosition(row);
+      if (position) card.append(position);
       card.append(chart(row), followup(row), companyDetails(row));
       const date = node('p', '数据日 ' + time(row.asOf || state.snapshot.asOf), 'us-selection-sources');
       card.append(date, sources([], { ...state.snapshot.source, sourceTime: row.sourceTime || state.snapshot.source?.sourceTime, readAt: row.readAt || state.snapshot.source?.fetchedAt }));

@@ -1,11 +1,20 @@
 import {readFile,stat} from 'node:fs/promises';
 import {join} from 'node:path';
 import {gunzipSync,gzipSync} from 'node:zlib';
+import {trendExitVersion} from './us-selection-engine.mjs';
 
 const prefix='/api/us-selection/';
 const escape=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const finite=value=>typeof value==='number'&&Number.isFinite(value);
 const money=value=>finite(value)?value.toLocaleString('en-US',{maximumFractionDigits:2}):'—';
+const signalLabels={B:'B 买入信号',S:'S 卖出信号',X:'X 风险记录','+':'＋ 波段加仓','−':'− 波段减仓','-':'− 波段减仓'};
+
+function publishedMarker(marker){
+  if((marker.kind||marker.type)!=='S')return marker;
+  if(marker.exitVersion===trendExitVersion&&['structure_close','ma20_two_closes'].includes(marker.exitRule)&&finite(marker.price)&&marker.price>0)return marker;
+  return {...marker,kind:'X',type:'X',label:'历史防守位触及'};
+}
+
 const empty=()=>({schema:'books.us.selection.v1',generatedAt:null,asOf:null,scope:{name:'等待美股收盘采集',expected:0,covered:0},source:{derivedPublic:false},market:{},short:{rows:[],status:'pending'},fundamentals:{rows:[],status:'pending'},dca:{rows:[],status:'pending'},tracking:{rows:[]}});
 function acceptsGzip(header=''){
   return header.split(',').some(part=>{
@@ -34,7 +43,7 @@ export function publicSnapshot(snapshot){
     result.tracking={status:'source_pending',rows:[]};
     return result;
   }
-  result.short={...result.short,rows:(result.short?.rows||[]).map(row=>({...row,chartUrl:`${prefix}chart?symbol=${encodeURIComponent(row.symbol)}&window=60`}))};
+  result.short={...result.short,rows:(result.short?.rows||[]).map(row=>({...row,markers:(row.markers||[]).map(publishedMarker),chartUrl:`${prefix}chart?symbol=${encodeURIComponent(row.symbol)}&window=60`}))};
   return result;
 }
 
@@ -44,20 +53,29 @@ export function renderUSChart(row,window=60){
   const width=760,height=460,left=62,right=152,top=66,bottom=338,volumeBottom=408,plot=width-left-right,step=plot/bars.length;
   const low=Math.min(...bars.map(bar=>bar.low)),high=Math.max(...bars.map(bar=>bar.high)),span=high-low||high*.02,min=low-span*.1,max=high+span*.1;
   const y=price=>bottom-(price-min)/(max-min)*(bottom-top),x=index=>left+(index+.5)*step;
-  const references=[{kind:'B',label:'B 买入',price:row.trigger,color:'#286178'},{kind:'S',label:'S 卖出',price:row.invalidation,color:'#a24c43'}]
+  const reference=row.trendPosition?.reference||{trigger:row.trigger,defense:row.invalidation};
+  const references=[{kind:'entry',label:'买入门槛',price:reference.trigger,color:'#286178'},{kind:'defense',label:'防守位',price:reference.defense,color:'#a24c43'}]
     .filter(level=>finite(level.price)&&level.price>=min&&level.price<=max)
     .map(level=>({...level,anchorY:y(level.price),labelY:Math.max(top+14,Math.min(bottom-14,y(level.price)))})).sort((a,b)=>a.anchorY-b.anchorY);
   for(let i=1;i<references.length;i++)references[i].labelY=Math.max(references[i].labelY,references[i-1].labelY+28);
   const overflow=references.length?Math.max(0,references.at(-1).labelY-(bottom-14)):0;
   for(const level of references)level.labelY-=overflow;
   const maxVolume=Math.max(...bars.map(bar=>bar.volume),1),parts=[];
-  parts.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img"><title>${escape(row.name||row.symbol)} · 最近${bars.length}个交易日日K · 研究观察</title><desc>B为买入参考，S为卖出参考；未持仓跌破S仅取消买入条件，不代表实际卖出。标签避让不改变参考价。</desc><rect width="100%" height="100%" fill="#fff"/><g font-family="system-ui,sans-serif" font-size="18" fill="#536477" style="font-variant-numeric:tabular-nums"><text x="${left}" y="26" font-size="22" fill="#26394b">${escape(row.name||row.symbol)} · 日K</text><text x="${left}" y="51">近${bars.length}个交易日 · 前复权 · USD</text><text x="${width-right-118}" y="26" fill="#9b702f">MA5</text><text x="${width-right-56}" y="26" fill="#58688a">MA20</text>`);
+  parts.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img"><title>${escape(row.name||row.symbol)} · 最近${bars.length}个交易日日K · 研究观察</title><desc>B表示已记录的买入信号，S表示已记录的卖出信号，X表示风险记录。虚线为买入门槛和防守位。</desc><rect width="100%" height="100%" fill="#fff"/><g font-family="system-ui,sans-serif" font-size="18" fill="#536477" style="font-variant-numeric:tabular-nums"><text x="${left}" y="26" font-size="22" fill="#26394b">${escape(row.name||row.symbol)} · 日K</text><text x="${left}" y="51">近${bars.length}个交易日 · 前复权 · USD</text><text x="${width-right-118}" y="26" fill="#9b702f">MA5</text><text x="${width-right-56}" y="26" fill="#58688a">MA20</text>`);
   for(let i=0;i<4;i++){const price=min+(max-min)*i/3,yy=y(price);parts.push(`<path d="M${left} ${yy}H${width-right}" stroke="#e3e8ed"/>`);if(references.every(level=>Math.abs(level.labelY-yy)>=24))parts.push(`<text data-axis-label="price" x="${width-right+8}" y="${yy+6}">${money(price)}</text>`);}
   const points=period=>bars.map((bar,index)=>{const original=all.length-bars.length+index;if(original+1<period)return null;return `${x(index)},${y(all.slice(original-period+1,original+1).reduce((sum,item)=>sum+item.close,0)/period)}`;}).filter(Boolean).join(' ');
   for(const [period,color]of [[5,'#9b702f'],[20,'#58688a']])parts.push(`<polyline points="${points(period)}" fill="none" stroke="${color}" stroke-width="1.5"/>`);
   bars.forEach((bar,index)=>{const xx=x(index),color=bar.close>=bar.open?'#bb4c51':'#147d6c',body=Math.max(1.4,step*.58),yy=Math.min(y(bar.open),y(bar.close)),hh=Math.max(1.5,Math.abs(y(bar.open)-y(bar.close)));parts.push(`<path d="M${xx} ${y(bar.high)}V${y(bar.low)}" stroke="${color}"/><rect x="${xx-body/2}" y="${yy}" width="${body}" height="${hh}" fill="${color}"/><rect x="${xx-body/2}" y="${volumeBottom-bar.volume/maxVolume*48}" width="${body}" height="${bar.volume/maxVolume*48}" fill="${color}" opacity=".4"/>`);});
   for(const level of references){const {kind,label,price,color,anchorY,labelY}=level;parts.push(`<g data-reference="${kind}" data-price-y="${anchorY}" data-label-y="${labelY}"><path d="M${left} ${anchorY}H${width-right}" stroke="${color}" stroke-dasharray="5 4"/><path d="M${width-right} ${anchorY}L${width-right+5} ${labelY}" fill="none" stroke="${color}"/><rect x="${width-right+5}" y="${labelY-12}" width="${right-12}" height="24" rx="3" fill="#fff" stroke="${color}"/><text x="${width-right+11}" y="${labelY+6}" fill="${color}" font-size="16">${label} ${money(price)}</text></g>`);}
-  for(const marker of row.markers||[]){const day=marker.day||marker.date,index=bars.findIndex(bar=>bar.date===day),kind=marker.kind||marker.type;if(index<0||!['B','S','X','+','−','-'].includes(kind))continue;const bar=bars[index],xx=x(index),above=['S','X','−','-'].includes(kind),yy=Math.max(top+12,Math.min(bottom-12,y(above?bar.high:bar.low)+(above?-17:17))),color=above?'#a24c43':'#147d6c';parts.push(`<g><title>${escape(kind+' '+day+' · 研究标记')}</title><circle cx="${xx}" cy="${yy}" r="12" fill="#fff" stroke="${color}"/><text x="${xx}" y="${yy+6}" text-anchor="middle" font-size="18" fill="${color}">${escape(kind)}</text></g>`);}
+  for(const rawMarker of row.markers||[]){
+    const marker=publishedMarker(rawMarker),day=marker.day||marker.date,kind=marker.kind||marker.type;
+    const index=bars.findIndex(bar=>bar.date===day);
+    if(index<0||!Object.hasOwn(signalLabels,kind))continue;
+    const bar=bars[index],xx=x(index),above=['S','X','−','-'].includes(kind);
+    const yy=Math.max(top+12,Math.min(bottom-12,y(above?bar.high:bar.low)+(above?-17:17))),color=above?'#a24c43':'#147d6c';
+    const title=[signalLabels[kind]+' '+day,finite(marker.price)?money(marker.price)+' USD':null,marker.label||marker.reason].filter(Boolean).join(' · ');
+    parts.push(`<g data-signal="${kind}"><title>${escape(title)}</title><circle cx="${xx}" cy="${yy}" r="12" fill="#fff" stroke="${color}"/><text x="${xx}" y="${yy+6}" text-anchor="middle" font-size="18" fill="${color}">${kind}</text></g>`);
+  }
   parts.push(`<text x="${left}" y="${volumeBottom+25}">${escape(bars[0].date)}</text><text x="${width-right}" y="${volumeBottom+25}" text-anchor="end">${escape(bars.at(-1).date)}</text><text x="${left}" y="${volumeBottom-54}" font-size="16">成交量 · 股</text></g></svg>`);
   return parts.join('');
 }

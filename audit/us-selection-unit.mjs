@@ -5,7 +5,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {createRequire} from 'node:module';
 import {gunzipSync} from 'node:zlib';
-import {classify,buildSelection,latestSession,parameters} from '../server/us-selection-engine.mjs';
+import {classify,buildSelection,evaluateTrendExit,latestSession,needsTrendHistory,parameters,trendExitVersion} from '../server/us-selection-engine.mjs';
 import {parseSeries,filterUniverse,usDate,dataPolicy} from '../server/us-tickflow.mjs';
 import {runDaily,readPublished,readState,sourcePolicyAllowed} from '../server/us-daily.mjs';
 const require=createRequire(import.meta.url),calendar=require('../market-calendar.js'),day='2026-11-25',clock=Date.parse('2026-11-26T09:00:00Z');
@@ -110,8 +110,8 @@ test('incremental gzip changes restore cumulative raw histories without deleting
 
 test('a new B in another branch takes card priority over an older B being tracked',()=>{
  const bars=breakoutBars();bars.at(-1).low=22.8;const first=buildSelection(input(bars),{now:clock});assert.equal(first.snapshot.short.rows[0].hits.length,2);
- const source=input(bars);source.asOf='2026-11-27';source.series.TEST.push({date:source.asOf,open:23.15,high:23.35,low:22.9,close:23.30,volume:2000000});for(const symbol of ['SPY','QQQ'])source.benchmarks[symbol]=[...reference,{...reference.at(-1),date:source.asOf}];
- const result=buildSelection(source,{previousLedger:first.ledger,now:clock+86400000}),row=result.snapshot.short.rows[0];assert.equal(row.rule,'PULLBACK');assert.equal(row.isNewB,true);assert.equal(row.signalDate,source.asOf);assert.equal(row.label,'趋势回踩后转强');assert.equal(row.trigger,first.ledger.records.find(record=>record.rule==='PULLBACK').trigger);
+ const source=input(bars);source.asOf='2026-11-27';source.source.sourceTime='2026-11-27T18:00:00Z';source.series.TEST.push({date:source.asOf,open:23.15,high:23.35,low:22.9,close:23.30,volume:2000000});for(const symbol of ['SPY','QQQ'])source.benchmarks[symbol]=[...reference,{...reference.at(-1),date:source.asOf}];
+ const result=buildSelection(source,{previousLedger:first.ledger,now:Date.parse('2026-11-27T18:05:00Z')}),row=result.snapshot.short.rows[0];assert.equal(row.rule,'PULLBACK');assert.equal(row.isNewB,true);assert.equal(row.signalDate,source.asOf);assert.equal(row.label,'趋势回踩后转强');assert.equal(row.trigger,first.ledger.records.find(record=>record.rule==='PULLBACK').trigger);
 });
 test('a completed short batch exposes partial fundamentals and keeps the warning on daily idle checks',async()=>{
  const directory=await mkdtemp(join(tmpdir(),'books-us-warning-'));
@@ -144,12 +144,118 @@ test('a failed SEC expansion preserves the previous broad research batch and its
 test('B-trigger returns start at the actual trigger close after waiting days, independent of observation returns',()=>{
  const bars=stockBars();bars.at(-1).close=23.10;const initial=buildSelection(input(bars),{now:clock});assert.equal(initial.snapshot.short.rows[0].triggerFollowup.status,'not_triggered');assert.equal(initial.snapshot.short.rows[0].triggerFollowup.horizons[3].status,'pending');
  const source=input(bars),future=[['2026-11-27',23.10],['2026-11-30',23.15],['2026-12-01',23.20],['2026-12-02',23.25],['2026-12-03',23.30]];
- for(const [date,close] of future){source.asOf=date;source.series.TEST.push({date,open:close-.02,high:close+.03,low:22.95,close,volume:1000000});for(const symbol of ['SPY','QQQ'])source.benchmarks[symbol]=[...source.benchmarks[symbol],{...reference.at(-1),date}];}
- const result=buildSelection(source,{previousLedger:initial.ledger,now:clock+8*86400000}),record=result.ledger.records[0];assert.equal(record.triggerDate,'2026-11-30');assert.equal(record.triggerClose,23.15);assert.equal(record.triggerFollowup.referenceDate,'2026-11-30');assert.equal(record.triggerFollowup.referenceClose,23.15);assert.equal(record.triggerFollowup.horizons[3].date,'2026-12-03');assert(Math.abs(record.triggerFollowup.horizons[3].returnPercent-(23.30/23.15-1)*100)<1e-8);assert.notEqual(record.followup.horizons[3].returnPercent,record.triggerFollowup.horizons[3].returnPercent);assert.equal(result.snapshot.tracking.maturedTriggered3,1);assert.equal(result.snapshot.tracking.meanTriggeredReturn3Percent,record.triggerFollowup.horizons[3].returnPercent);
+ let result=initial;
+ for(const [date,close] of future){
+  const now=Date.parse(date+'T23:00Z');
+  source.asOf=date;source.source.sourceTime=latestSession(calendar,now).closeTime;
+  source.series.TEST.push({date,open:close-.02,high:close+.03,low:22.95,close,volume:1000000});for(const symbol of ['SPY','QQQ'])source.benchmarks[symbol]=[...source.benchmarks[symbol],{...reference.at(-1),date}];
+  result=buildSelection(source,{previousLedger:result.ledger,now});
+ }
+ const record=result.ledger.records[0];assert.equal(record.triggerDate,'2026-11-30');assert.equal(record.triggerClose,23.15);assert.equal(record.triggerFollowup.referenceDate,'2026-11-30');assert.equal(record.triggerFollowup.referenceClose,23.15);assert.equal(record.triggerFollowup.horizons[3].date,'2026-12-03');assert(Math.abs(record.triggerFollowup.horizons[3].returnPercent-(23.30/23.15-1)*100)<1e-8);assert.notEqual(record.followup.horizons[3].returnPercent,record.triggerFollowup.horizons[3].returnPercent);assert.equal(result.snapshot.tracking.maturedTriggered3,1);assert.equal(result.snapshot.tracking.meanTriggeredReturn3Percent,record.triggerFollowup.horizons[3].returnPercent);
+ const missed=buildSelection(source,{previousLedger:initial.ledger,now:Date.parse(source.asOf+'T23:00Z')}).ledger.records[0];
+ assert.equal(missed.triggerDate,null);
+ assert.match(missed.reason,/较早交易日/);
+ assert(!missed.markers.some(marker=>marker.type==='B'));
 });
 test('legacy B records restore only the saved real trigger-day close and label the research price source',()=>{
  const original=buildSelection(input(),{now:clock}),legacy=structuredClone(original.ledger);delete legacy.records[0].triggerClose;delete legacy.records[0].triggerFollowup;delete legacy.records[0].triggerObservedAt;
  const result=buildSelection(input(),{previousLedger:legacy,now:clock+1000}),record=result.ledger.records[0];assert.equal(record.triggerClose,input().series.TEST.at(-1).close);assert.equal(record.triggerFollowup.priceSource,'restored_saved_daily_close');assert.equal(record.triggerFollowup.basis,'trigger_day_close_not_execution');assert.equal(record.triggerFollowup.researchOnly,true);assert.equal(result.snapshot.short.rows[0].triggerFollowup.referenceClose,record.triggerClose);
+});
+
+test('trend exits need a protective close or two consecutive post-B closes below MA20',()=>{
+ const window=dates.slice(-24),entryDate=window.at(-3),asOf=window.at(-1);
+ const bars=window.map(date=>({date,open:100,high:101,low:99,close:100,volume:100}));
+ const check=(sample=bars,overrides={})=>evaluateTrendExit({bars:sample,dates:window,asOf,entryDate,invalidation:90,...overrides});
+ bars.at(-1).low=85;
+ bars.at(-1).close=96;
+ assert.equal(check().state,'holding');
+ bars.at(-2).low=95;
+ bars.at(-2).close=97;
+ const crossed=check();
+ assert.equal(crossed.exit.rule,'ma20_two_closes');
+ assert.equal(crossed.exit.date,asOf);
+ assert.equal(crossed.exit.price,96);
+ assert(crossed.exit.level>96&&crossed.previousMa20>97);
+ assert.equal(check(bars,{entryDate:window.at(-2)}).state,'holding');
+ assert.equal(check(bars.filter(bar=>bar.date!==window.at(-5))).state,'data_missing');
+ assert.equal(check(bars.slice(0,-1)).state,'data_missing');
+ bars.at(-1).close=89;
+ assert.equal(check().exit.rule,'structure_close');
+ assert.equal(check(bars,{entryDate:asOf}).state,'holding');
+});
+
+test('a dropped B publishes its actual current S and preserves the independent outcomes',()=>{
+ const initial=buildSelection(input(),{now:clock}),old=initial.ledger.records[0],source=input(),next='2026-11-27';
+ source.asOf=next;
+ source.source.sourceTime='2026-11-27T18:00:00Z';
+ source.series.TEST.push({date:next,open:22.60,high:22.70,low:22.30,close:22.50,volume:1000000});
+ for(const symbol of ['SPY','QQQ'])source.benchmarks[symbol]=[...reference,{...reference.at(-1),date:next}];
+ const options={previousLedger:initial.ledger,now:Date.parse('2026-11-27T18:10:00Z')};
+ const sold=buildSelection(source,options),record=sold.ledger.records[0],row=sold.snapshot.short.rows[0];
+ assert.equal(row.trackingOnly,true);
+ assert.equal(row.close,22.50);
+ assert.deepEqual(row.trendPosition.entry,{date:day,price:old.triggerClose,observedAt:old.triggerObservedAt});
+ assert.deepEqual(row.trendPosition.reference,{trigger:old.trigger,defense:old.invalidation,maxEntry:old.maxEntry});
+ assert.equal(row.trendPosition.state,'sold');
+ assert.equal(row.trendPosition.heldSessions,1);
+ assert.equal(row.trendPosition.exit.price,22.50);
+ assert.equal(row.markers.find(marker=>marker.type==='S').exitVersion,trendExitVersion);
+ assert.equal(row.markers.find(marker=>marker.type==='S').exitRule,'structure_close');
+ assert.equal(row.triggerFollowup.horizons[1].status,'ready');
+ assert.equal(needsTrendHistory(record),true);
+ const again=buildSelection(source,{previousLedger:sold.ledger,now:options.now+1000});
+ assert.deepEqual(again.ledger.records[0].trendPosition,record.trendPosition);
+ assert.equal(again.ledger.records[0].markers.filter(marker=>marker.type==='S').length,1);
+
+ const overlap=structuredClone(initial.snapshot.short.rows[0]);
+ overlap.close=22.50;
+ overlap.hits=[{...overlap.hits[0],status:'B',signalDate:next,trigger:22.48,invalidation:22.30,maxEntry:22.90}];
+ const noReentry=buildSelection({...source,screenedRows:[overlap]},{...options,previousLedger:sold.ledger});
+ assert.equal(noReentry.ledger.records.length,1);
+ assert.equal(noReentry.snapshot.short.rows[0].isNewB,false);
+ assert.equal(noReentry.snapshot.short.rows[0].trendPosition.state,'sold');
+
+ const late=structuredClone(initial.ledger);
+ late.records[0].triggerObservedAt='2026-11-27T18:05:00Z';
+ const delayed=buildSelection(source,{...options,previousLedger:late});
+ assert.equal(delayed.ledger.records[0].trendPosition.state,'data_missing');
+ assert(!delayed.ledger.records[0].markers.some(marker=>marker.type==='S'));
+
+ const legacy=structuredClone(initial.ledger);
+ delete legacy.records[0].trendPosition;
+ const oldMark={date:next,type:'S',price:22.50,observedAt:'2026-11-27T18:06:00Z',researchOnly:true};
+ legacy.records[0].markers.push(oldMark);
+ const preserved=buildSelection(source,{...options,previousLedger:legacy});
+ assert.deepEqual(preserved.ledger.records[0].markers.filter(marker=>marker.type==='S'),[oldMark]);
+ assert.equal(preserved.ledger.records[0].trendPosition,undefined);
+});
+
+test('a trend position can close on session 16 and keeps matured 15-day results with partial history',()=>{
+ const original=input(),first=buildSelection(original,{now:clock}),source=input();
+ let session=0;
+ for(let value=Date.parse(day+'T00:00Z')+86400000;session<16;value+=86400000){
+  const date=new Date(value).toISOString().slice(0,10);
+  if(!calendar.session('US',date).open)continue;
+  session++;
+  const close=session===16?21:23.4;
+  source.asOf=date;
+  source.series.TEST.push({date,open:close-.02,high:close+.02,low:close-.03,close,volume:1000000});
+  for(const symbol of ['SPY','QQQ'])source.benchmarks[symbol]=[...source.benchmarks[symbol],{...reference.at(-1),date}];
+ }
+ const now=Date.parse(source.asOf+'T23:00Z');
+ source.source.sourceTime=latestSession(calendar,now).closeTime;
+ const before=buildSelection({...source,asOf:source.series.TEST.at(-2).date,source:{...source.source,sourceTime:latestSession(calendar,now-86400000).closeTime},series:{TEST:source.series.TEST.slice(0,-1)},benchmarks:{SPY:source.benchmarks.SPY.slice(0,-1),QQQ:source.benchmarks.QQQ.slice(0,-1)}},{previousLedger:first.ledger,now:now-86400000});
+ const tracked=before.ledger.records[0];
+ assert.equal(tracked.membership,'completed');
+ assert.equal(tracked.trendPosition.state,'holding');
+ assert.equal(tracked.triggerFollowup.horizons[15].status,'ready');
+ assert.equal(needsTrendHistory(tracked),true);
+ const result=buildSelection({...source,series:{TEST:source.series.TEST.slice(-6)}},{previousLedger:before.ledger,now}),record=result.ledger.records[0];
+ assert.equal(record.trendPosition.heldSessions,16);
+ assert.equal(record.trendPosition.state,'sold');
+ assert.deepEqual(record.triggerFollowup.horizons[15],tracked.triggerFollowup.horizons[15]);
+ assert.deepEqual(record.followup.horizons[15],tracked.followup.horizons[15]);
+ assert.equal(needsTrendHistory(record),false);
 });
 
 test('from-cache recomputes a source-bound current session without any quote requests or duplicate first observations',async()=>{

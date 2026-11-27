@@ -5,6 +5,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {gzipSync,gunzipSync} from 'node:zlib';
 import {createUSSelectionCache,publicSnapshot,renderUSChart} from '../server/us-selection-api.mjs';
+import {trendExitVersion} from '../server/us-selection-engine.mjs';
 
 const bars=Array.from({length:130},(_,i)=>({date:new Date(Date.UTC(2026,0,i+1)).toISOString().slice(0,10),open:100+i/10,high:102+i/10,low:99+i/10,close:101+i/10,volume:1000+i}));
 const snapshot={schema:'books.us.selection.v1',asOf:bars.at(-1).date,generatedAt:'2026-11-26T10:00:00.000Z',source:{derivedPublic:true,rawPublic:false},short:{rows:[{symbol:'TEST',name:'Test company',trigger:114,invalidation:111,bars,markers:[{date:bars.at(-1).date,type:'B'}]}]},fundamentals:{rows:[{symbol:'TEST',metrics:{pe:12},companyFacts:{raw:'private'}}]},dca:{rows:[]}};
@@ -19,17 +20,35 @@ test('public projection retains computed research and removes nested raw data',(
 test('chart window is trading-bar count and markers use their original dates',()=>{
   const svg=renderUSChart(snapshot.short.rows[0],60);
   assert.match(svg,/近60个交易日/);assert.ok(svg.includes(bars.at(-60).date));assert.ok(!svg.includes(bars[0].date));
-  assert.match(svg,/B .*研究标记/);assert.match(svg,/前复权 · USD/);assert.equal(renderUSChart({bars:[]}),null);
+  assert.ok(svg.includes(`data-signal="B"><title>B 买入信号 ${bars.at(-1).date}</title>`));assert.match(svg,/前复权 · USD/);assert.equal(renderUSChart({bars:[]}),null);
 });
-test('B and S reference labels avoid each other and price ticks without moving the actual price lines',()=>{
+test('buy threshold and defense labels avoid each other and price ticks without moving the reference lines',()=>{
   const row={...snapshot.short.rows[0],trigger:110,invalidation:109.99};
   const svg=renderUSChart(row,120);
-  const labels=[...svg.matchAll(/data-reference="([BS])" data-price-y="([\d.]+)" data-label-y="([\d.]+)"/g)].map(([,kind,priceY,labelY])=>({kind,priceY:Number(priceY),labelY:Number(labelY)}));
+  const labels=[...svg.matchAll(/data-reference="(entry|defense)" data-price-y="([\d.]+)" data-label-y="([\d.]+)"/g)].map(([,kind,priceY,labelY])=>({kind,priceY:Number(priceY),labelY:Number(labelY)}));
   assert.equal(labels.length,2);assert(Math.abs(labels[0].labelY-labels[1].labelY)>=28);
   assert(Math.abs(labels[0].priceY-labels[1].priceY)<1,'close reference prices must retain their true chart positions');
   for(const [,tickY]of svg.matchAll(/data-axis-label="price" x="[\d.]+" y="([\d.]+)"/g))for(const label of labels)assert(Math.abs(Number(tickY)-6-label.labelY)>=24);
-  assert.match(svg,/B 买入 110/);assert.match(svg,/S 卖出 109\.99/);assert.doesNotMatch(svg,/>触发 |\>失效 /);
+  assert.match(svg,/买入门槛 110/);assert.match(svg,/防守位 109\.99/);
+  assert.doesNotMatch(svg,/data-reference="[BS]"|data-signal="S"/);
   assert.equal(row.trigger,110);assert.equal(row.invalidation,109.99);assert.equal(row.markers[0].date,bars.at(-1).date);
+});
+test('a recorded exit has its own candle and price while a legacy S remains a historical risk',()=>{
+  const oldDate=bars.at(-5).date,exitDate=bars.at(-3).date;
+  const row={...snapshot.short.rows[0],trendPosition:{state:'sold',reference:{trigger:112,defense:108}},markers:[
+    {type:'S',date:oldDate,price:110.1,label:'日线触及失效位'},
+    {type:'S',date:exitDate,price:112.15,exitVersion:trendExitVersion,exitRule:'ma20_two_closes',reason:'连续两个交易日收盘低于MA20'}
+  ]};
+  const before=structuredClone(row),result=publicSnapshot({...snapshot,short:{rows:[row]}}).short.rows[0];
+  assert.equal(result.markers[0].type,'X');
+  assert.equal(result.markers[0].date,oldDate);
+  assert.equal(result.markers[1].type,'S');
+  const svg=renderUSChart(row,120);
+  assert.ok(svg.includes(`data-signal="X"><title>X 风险记录 ${oldDate} · 110.1 USD · 历史防守位触及</title>`));
+  assert.ok(svg.includes(`data-signal="S"><title>S 卖出信号 ${exitDate} · 112.15 USD · 连续两个交易日收盘低于MA20</title>`));
+  assert.equal([...svg.matchAll(/data-signal="S"/g)].length,1);
+  assert.match(svg,/买入门槛 112/);assert.match(svg,/防守位 108/);
+  assert.deepEqual(row,before);
 });
 test('a failed current task retains the completed snapshot and never starts collection',async()=>{
   const directory=await mkdtemp(join(tmpdir(),'books-us-api-'));
