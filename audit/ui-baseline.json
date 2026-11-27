@@ -352,11 +352,11 @@
       "versions": []
     },
     "us.html": {
-      "sha256": "68b0f4de2654891349fd0ac68106110c0fa8ac0238ba76150737c313ee78d2ca",
-      "bytes": 20139,
+      "sha256": "e2380d63b9dcf0b74ca6e59d38233c9811cada60fed406578f126d6df7a6cfbe",
+      "bytes": 20246,
       "versions": [],
-      "sourceSha256": "aa7f857cb52a44317e9c222d4ad99a6a58913a9b8fafb514b09fba1db819f040",
-      "change": "Expanded SEC industry research and coverage provenance; existing shell retained."
+      "sourceSha256": "68b0f4de2654891349fd0ac68106110c0fa8ac0238ba76150737c313ee78d2ca",
+      "change": "Expose S signal filtering and the corrected US trend-tracking script."
     },
     "stock-workspace.js": {
       "sha256": "ba06ed4af22eac005374eaec82b420a3b4f86004244d1578de35df5390506ca7",

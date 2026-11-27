@@ -8,7 +8,7 @@ import {once} from 'node:events';
 import {finished} from 'node:stream/promises';
 import {setTimeout as sleep} from 'node:timers/promises';
 import {createTickflowUSSource,dataPolicy,sourceId} from './us-tickflow.mjs';
-import {analyzeStock,buildSelection,latestSession,validBars} from './us-selection-engine.mjs';
+import {analyzeStock,buildSelection,latestSession,needsTrendHistory,validBars} from './us-selection-engine.mjs';
 import {sectorBenchmark,observeSectorPrice,evaluateSectorValue} from './us-sector-value.mjs';
 
 const require=createRequire(import.meta.url),defaultSite=resolve(dirname(fileURLToPath(import.meta.url)),'..');
@@ -83,7 +83,7 @@ export async function runDaily(options={}){
   const listed=await provider.universe();await atomicJson(join(batchDir,'universe.json.gz'),{...listed,sourceId});
   const {universe,scope}=listed;if(!universe.length)throw Error('来源美股目录筛后为空');state.expected=universe.length;
   const previousLedger=pointer?await optionalJson(join(directory,pointer.ledger)):null;
-  const tracked=new Set((previousLedger?.records||[]).filter(r=>!r.followup||r.followup.elapsedSessions<=15).map(r=>r.symbol));
+  const tracked=new Set((previousLedger?.records||[]).filter(needsTrendHistory).map(record=>record.symbol));
   output=createWriteStream(join(batchDir,'changes.jsonl.gz'));changes=createGzip({level:6});changes.pipe(output);
   async function archive(symbol,bars,fetchedAt){
    const file=join(directory,'raw/history',encodeURIComponent(symbol)+'.json.gz'),previous=await optionalJson(file),existing=new Map((previous?.bars||[]).map(b=>[b.date,b]));
